@@ -1125,7 +1125,22 @@ Variants {
                     border.color: Qt.alpha(Colours.palette.m3primary, 0.5)
                     border.width: 3
 
+                    // Fallback Icon when no art is available
+                    MaterialIcon {
+                        anchors.centerIn: parent
+                        text: "album"
+                        color: Colours.palette.m3onSurfaceVariant
+                        fontStyle: Tokens.font.icon.size(72).build()
+                        opacity: coverFadeImg.status === Image.Null || coverFadeImg.status === Image.Error || !coverFadeImg.source ? 0.7 : 0
+                        animate: true
+
+                        Behavior on opacity {
+                            Anim { type: Anim.DefaultEffects }
+                        }
+                    }
+
                     FadeImage {
+                        id: coverFadeImg
                         anchors.fill: parent
                         source: Players.getArtUrl(Players.active)
                         fillMode: Image.PreserveAspectCrop
