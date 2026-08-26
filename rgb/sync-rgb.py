@@ -381,18 +381,15 @@ def main():
     log(f"--- sync-rgb started (PID {os.getpid()}) ---")
     cache_live_palette()
     
-    colors = get_device_colors()
-    c_primary = colors["primary"]
-    c_secondary = colors["secondary"]
-    c_tertiary = colors["tertiary"]
-    c_accent = colors["accent"]
+    raw_hex = get_hex_color()
+    c_primary = enhance_color_for_leds(raw_hex)
 
-    log(f"Colors: Primary={c_primary}, Secondary={c_secondary}, Tertiary={c_tertiary}, Accent={c_accent}")
+    log(f"Unified Primary Color for All Hardware: {c_primary}")
 
     t1 = threading.Thread(target=sync_openrgb, args=c_primary)
-    t2 = threading.Thread(target=sync_akko_keyboard, args=(c_primary, c_accent))
-    t3 = threading.Thread(target=sync_mchose_base, args=(c_accent, c_primary))
-    t4 = threading.Thread(target=sync_magichome, args=(c_secondary,))
+    t2 = threading.Thread(target=sync_akko_keyboard, args=(c_primary, c_primary))
+    t3 = threading.Thread(target=sync_mchose_base, args=(c_primary, c_primary))
+    t4 = threading.Thread(target=sync_magichome, args=(c_primary,))
 
     t1.start()
     t2.start()

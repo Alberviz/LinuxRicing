@@ -46,22 +46,33 @@ def enhance(hex_color: str) -> tuple[int, int, int]:
 
 
 def get_anchors() -> list[tuple[int, int, int]]:
+    primary_hex = None
     try:
         if time.time() - LIVE_PALETTE_CACHE.stat().st_mtime < LIVE_CACHE_TTL:
             colours = json.loads(LIVE_PALETTE_CACHE.read_text())
-            anchors = [enhance(colours[k]) for k in GRADIENT_KEYS if k in colours]
-            if anchors:
-                return anchors
+            primary_hex = colours.get("primary")
     except Exception:
         pass
-    try:
-        colours = json.loads(STATE_FILE.read_text()).get("colours", {})
-        anchors = [enhance(colours[k]) for k in GRADIENT_KEYS if k in colours]
-        if anchors:
-            return anchors
-    except Exception:
-        pass
-    return FALLBACK_ANCHORS
+    if not primary_hex:
+        try:
+            colours = json.loads(STATE_FILE.read_text()).get("colours", {})
+            primary_hex = colours.get("primary")
+        except Exception:
+            pass
+
+    if not primary_hex:
+        primary_hex = "abcaea"
+
+    base_rgb = enhance(primary_hex)
+    h, s, v = colorsys.rgb_to_hsv(base_rgb[0] / 255.0, base_rgb[1] / 255.0, base_rgb[2] / 255.0)
+
+    # Harmonious wave oscillating smoothly around the primary hue
+    anchors = []
+    for shift in [-0.04, -0.02, 0.0, 0.02, 0.04, 0.0]:
+        cur_h = (h + shift) % 1.0
+        r, g, b = colorsys.hsv_to_rgb(cur_h, s, v)
+        anchors.append((int(r * 255), int(g * 255), int(b * 255)))
+    return anchors
 
 
 def color_at(anchors: list[tuple[int, int, int]], pos: float) -> tuple[int, int, int]:
