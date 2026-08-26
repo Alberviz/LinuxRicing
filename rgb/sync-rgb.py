@@ -247,7 +247,7 @@ def sync_akko_keyboard(backlight_rgb: tuple[int, int, int], sidelight_rgb: tuple
     sled[1] = 0x01  # Mode: Static
     sled[2] = 0x04  # Speed
     sled[3] = brightness
-    sled[4] = 0x08  # Custom RGB
+    sled[4] = 0x07  # Custom RGB (0x07 = custom color, 0x08 = preset pink)
     sled[5] = r_side
     sled[6] = g_side
     sled[7] = b_side
@@ -260,7 +260,7 @@ def sync_akko_keyboard(backlight_rgb: tuple[int, int, int], sidelight_rgb: tuple
     led[1] = 0x01  # Mode: Static
     led[2] = 0x04  # Speed
     led[3] = brightness
-    led[4] = 0x08  # Custom RGB
+    led[4] = 0x07  # Custom RGB
     led[5] = r_back
     led[6] = g_back
     led[7] = b_back
