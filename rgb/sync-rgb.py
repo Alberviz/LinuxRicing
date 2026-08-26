@@ -123,8 +123,12 @@ def sync_openrgb(r: int, g: int, b: int):
         log(f"OpenRGB CLI error: {e2}")
 
 
-def sync_akko_sidelight(r: int, g: int, b: int):
-    """Set Akko 5075B Plus Keyboard Side-Strip via direct HID (Opcode 0x08)."""
+def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4):
+    """
+    Set Akko 5075B Plus Keyboard Backlight (Opcode 0x07) and Side-Strip (Opcode 0x08)
+    via direct USB HID Feature Reports on Interface 2. OpenRGB does not support this
+    keyboard's proprietary protocol, so both zones must be driven by raw HID here.
+    """
     nodes = []
     for h in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
         uevent = f"{h}/device/uevent"
@@ -140,29 +144,46 @@ def sync_akko_sidelight(r: int, g: int, b: int):
                 pass
 
     if not nodes:
+        log("Akko Keyboard: No HID node found")
         return
 
+    # 1. Side-Strip (SLED = Opcode 0x08)
     sled = bytearray(64)
     sled[0] = 0x08
-    sled[1] = 0x01
-    sled[2] = 0x04
-    sled[3] = 0x04
-    sled[4] = 0x08
+    sled[1] = 0x01  # Mode: Static
+    sled[2] = 0x04  # Speed
+    sled[3] = brightness
+    sled[4] = 0x07  # Custom RGB (0x07 = custom color, 0x08 = preset pink)
     sled[5] = r
     sled[6] = g
     sled[7] = b
     sled[63] = sum(sled[:63]) & 0xFF
-    raw = bytearray([0x00]) + sled
+    raw_sled = bytearray([0x00]) + sled
+
+    # 2. Backlight (LED = Opcode 0x07)
+    led = bytearray(64)
+    led[0] = 0x07
+    led[1] = 0x01  # Mode: Static
+    led[2] = 0x04  # Speed
+    led[3] = brightness
+    led[4] = 0x07  # Custom RGB
+    led[5] = r
+    led[6] = g
+    led[7] = b
+    led[63] = sum(led[:63]) & 0xFF
+    raw_led = bytearray([0x00]) + led
 
     for node in nodes:
         try:
             fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
-            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw)), raw)
+            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_sled)), raw_sled)
+            time.sleep(0.02)
+            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
             os.close(fd)
-            log(f"Akko Side-Strip: Synced RGB({r},{g},{b}) to {node} via Opcode 0x08")
+            log(f"Akko Keyboard: Synced Backlight+Side-Strip RGB({r},{g},{b}) to {node}")
             return
         except Exception as e:
-            log(f"Akko Side-Strip error on {node}: {e}")
+            log(f"Akko Keyboard error on {node}: {e}")
 
 
 def sync_mchose_base(r: int, g: int, b: int):
@@ -239,7 +260,7 @@ def main():
     t1 = threading.Thread(target=sync_openrgb, args=(r, g, b))
     t2 = threading.Thread(target=sync_magichome, args=(r, g, b))
     t3 = threading.Thread(target=sync_mchose_base, args=(r, g, b))
-    t4 = threading.Thread(target=sync_akko_sidelight, args=(r, g, b))
+    t4 = threading.Thread(target=sync_akko_keyboard, args=(r, g, b))
 
     t1.start()
     t2.start()

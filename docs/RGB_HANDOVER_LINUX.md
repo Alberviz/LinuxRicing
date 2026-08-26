@@ -34,7 +34,7 @@ En esta sesión en Windows logramos descifrar por completo los protocolos propie
   * `a[1]`: `0x01` (Modo estático encendido).
   * `a[2]`: `0x04` (Velocidad).
   * `a[3]`: `0x04` (Brillo al 100%).
-  * `a[4]`: `0x08` (Modo de color fijo personalizado).
+  * `a[4]`: Modo de Color (`0x07` = Color personalizado / Custom RGB; `0x08` = Preset Rosa fijo, ignora el RGB enviado).
   * `a[5]`: Rojo (`0-255`).
   * `a[6]`: Verde (`0-255`).
   * `a[7]`: Azul (`0-255`).
