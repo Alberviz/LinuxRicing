@@ -59,9 +59,9 @@ Este documento consolida los protocolos de ingeniería inversa y especificacione
   - Zonas: `Aura Mainboard` (4 LEDs, estático), `Aura Addressable 1` (60 LEDs), `Aura Addressable 2` (60 LEDs).
 - **RAMs:** 2x A-DATA XPG Spectrix DDR4 (Controlador `ENE DRAM`, 5 LEDs por módulo).
 - **Modo Operativo:** Modo `Direct` (Modo 0 en DRAM y Motherboard).
-- **Precaución de bus SMBus/I2C:** 
+- **Precaución de bus SMBus/I2C:**
   - La comunicación con las RAMs se hace a través del bus I2C de la placa base (~100 kHz).
-  - El daemon continuo de animación (`argb-wave.py`) corre a ~12.5 FPS (`FRAME_SECONDS = 0.08`) usando `zone.set_colors(..., fast=True)` para mantener estabilidad sin saturar el bus.
+  - Por eso `main` solo aplica color estático de un solo disparo (`sync-rgb.py`). Si se necesita animación continua, la rama `feature/argb-wave` añade un daemon (`argb-wave.py`) que corre a ~12.5 FPS (`FRAME_SECONDS = 0.08`) usando `zone.set_colors(..., fast=True)` para mantener estabilidad sin saturar el bus.
 
 ---
 
