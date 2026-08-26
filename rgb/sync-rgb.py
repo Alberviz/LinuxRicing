@@ -158,7 +158,7 @@ def build_gradient(count: int) -> list[tuple[int, int, int]]:
 
 
 def sync_openrgb(r: int, g: int, b: int):
-    """Set PC components (Motherboard / RAM) in OpenRGB via SDK Server."""
+    """Set ALL PC components in OpenRGB via SDK Server to exact solid RGB."""
     try:
         from openrgb import OpenRGBClient
         from openrgb.utils import RGBColor
@@ -167,33 +167,28 @@ def sync_openrgb(r: int, g: int, b: int):
         col = RGBColor(r, g, b)
         synced = []
         for dev in client.devices:
-            # Skip Keyboard: Akko is controlled with high precision via direct HID
-            if "Keyboard" in dev.name:
-                continue
-
             if dev.modes and dev.modes[dev.active_mode].name != "Direct":
                 try:
                     direct_idx = next(
                         i for i, m in enumerate(dev.modes) if m.name == "Direct"
                     )
                     dev.set_mode(direct_idx)
-                except StopIteration:
-                    log(f"Device {dev.name} has no Direct mode, skipping mode switch")
                 except Exception as em:
                     log(f"Mode set error on {dev.name}: {em}")
 
             for zone in dev.zones:
-                is_addressable_zone = "DRAM" in dev.name or zone.name in (
-                    "Aura Addressable 1",
-                    "Aura Addressable 2",
-                )
-                if RAINBOW_MODE and is_addressable_zone and len(zone.leds) > 1:
-                    gradient = build_gradient(len(zone.leds))
-                    zone.set_colors([RGBColor(*c) for c in gradient])
-                else:
+                try:
                     zone.set_color(col)
+                except Exception:
+                    pass
+
+            try:
+                dev.set_colors([col] * len(dev.leds), fast=False)
+            except Exception:
+                pass
+
             synced.append(dev.name)
-        log(f"OpenRGB (SDK): Synced RGB({r},{g},{b}) to {synced}")
+        log(f"OpenRGB (SDK): Synced exact solid RGB({r},{g},{b}) to {synced}")
         return
     except Exception as e:
         log(f"OpenRGB SDK error ({e}), attempting CLI fallback...")
