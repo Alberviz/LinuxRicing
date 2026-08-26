@@ -1,0 +1,15 @@
+Cuando inicies la sesión en Windows (en Antigravity o Gemini), copia y pega este texto
+  tal cual:
+
+    Hola, continuamos con el proyecto de sincronización RGB y periféricos. Vengo de la
+  sesión de Linux con Dual-Boot.
+    
+    Tengo preparados los archivos 'RGB_HANDOVER_WINDOWS.md' y 'sync-rgb-windows.py'. Por
+  favor, léete 'RGB_HANDOVER_WINDOWS.md' para recuperar todo el contexto de los protocolos
+  que descubrimos (Comando 0x2B de la base MCHOSE 3837:1001, ENE DRAM Direct Mode, Magic
+  Home Wi-Fi y Akko 3151:4015).
+
+    Nuestro objetivo en esta sesión de Windows es:
+    1. Instalar Wireshark (con USBPcap) y Akko Cloud Driver para capturar la trama USB de
+  la barra lateral (side-strip) del teclado Akko.
+    2. Extraer el opcode del side-strip e integrarlo en sync-rgb-windows.py y sync-rgb.py.

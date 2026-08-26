@@ -1,0 +1,371 @@
+#!/usr/bin/env python3
+"""
+MCHOSE Wireless Peripherals Battery Monitor for Linux
+Supports:
+  - MCHOSE V9 Pro Wireless Headset (C-Media CM2025 DSP, VID: 0x291D, PID: 0x385D)
+  - MCHOSE K7 Ultra Wireless Mouse (RealTek SoC, VID: 0x3837, PID: 0x1001)
+
+Features:
+  - Native zero-dependency Linux hidraw communication
+  - CLI human-readable dashboard output
+  - Full structured JSON output for Quickshell / Caelestia / Waybar (--json)
+  - Low-battery desktop notification system (--notify)
+  - Lightweight background daemon mode (--daemon)
+"""
+
+import sys
+import os
+import fcntl
+import glob
+import time
+import select
+import json
+import argparse
+import subprocess
+
+CACHE_FILE = os.path.expanduser("~/.cache/mchose_battery.json")
+
+def HIDIOCSFEATURE(size):
+    return (3 << 30) | (size << 16) | (ord("H") << 8) | 0x06
+
+def HIDIOCGFEATURE(size):
+    return (3 << 30) | (size << 16) | (ord("H") << 8) | 0x07
+
+def load_cache():
+    try:
+        if os.path.exists(CACHE_FILE):
+            with open(CACHE_FILE, "r") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}
+
+def save_cache(data):
+    try:
+        os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
+        with open(CACHE_FILE, "w") as f:
+            json.dump(data, f)
+    except Exception:
+        pass
+
+def glob_hidraw_nodes(target_vid, target_pid, iface=None):
+    matched = []
+    for h in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
+        uevent = f"{h}/device/uevent"
+        if os.path.exists(uevent):
+            try:
+                with open(uevent, "r") as f:
+                    content = f.read()
+                for line in content.splitlines():
+                    if line.startswith("HID_ID="):
+                        parts = line.split("=")[1].split(":")
+                        if len(parts) >= 3:
+                            vid = int(parts[1], 16)
+                            pid = int(parts[2], 16)
+                            if vid == target_vid and pid == target_pid:
+                                nodename = "/dev/" + os.path.basename(h)
+                                if iface is not None:
+                                    link = os.path.realpath(f"{h}/device")
+                                    if f":1.{iface}" in link:
+                                        matched.append(nodename)
+                                else:
+                                    matched.append(nodename)
+            except Exception:
+                pass
+    return matched
+
+# ==============================================================================
+# 1. MCHOSE V9 PRO HEADSET
+# ==============================================================================
+def get_v9_pro_battery():
+    cache = load_cache()
+    last_bat = cache.get("v9_battery")
+    last_status = cache.get("v9_status", "Descargando")
+
+    nodes = glob_hidraw_nodes(0x291D, 0x385D)
+    if not nodes:
+        return None, "Desconectado"
+
+    for node in nodes:
+        try:
+            fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
+            pkt = bytes([0x55, 0x65, 0x01] + [0x00] * 61)
+            os.write(fd, pkt)
+            r, _, _ = select.select([fd], [], [], 0.05)
+            if r:
+                resp = os.read(fd, 64)
+                os.close(fd)
+                if resp and len(resp) >= 4 and resp[0] == 0x55 and resp[1] == 0x65:
+                    bat = resp[2]
+                    st_code = resp[3]
+                    if st_code == 1:
+                        st = "Cargando"
+                    elif st_code == 2:
+                        st = "Descargando"
+                    else:
+                        st = "En espera"
+                    cache["v9_battery"] = bat
+                    cache["v9_status"] = st
+                    save_cache(cache)
+                    return bat, st
+            else:
+                os.close(fd)
+        except Exception:
+            pass
+
+    if last_bat:
+        return last_bat, "En reposo"
+    return None, "Sin respuesta"
+
+# ==============================================================================
+# 2. MCHOSE K7 ULTRA MOUSE
+# ==============================================================================
+def get_k7_ultra_battery():
+    cache = load_cache()
+    last_bat = cache.get("k7_battery")
+    last_status = cache.get("k7_status", "Descargando")
+
+    nodes = glob_hidraw_nodes(0x3837, 0x1001, iface=2) or glob_hidraw_nodes(0x3837, 0x1001)
+    if not nodes:
+        return None, "Desconectado"
+
+    for node in nodes:
+        try:
+            fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
+
+            for attempt in range(4):
+                req = bytearray([0x11, 0x06 ^ 0xFF] + [0xFF] * 19)
+                try:
+                    fcntl.ioctl(fd, HIDIOCSFEATURE(len(req)), req)
+                except Exception:
+                    pass
+                time.sleep(0.025)
+
+                # Check for incoming pushed report 0x13
+                r, _, _ = select.select([fd], [], [], 0.02)
+                if r:
+                    d = os.read(fd, 64)
+                    if len(d) >= 6 and d[0] == 0x13:
+                        dec13 = [d[0]] + [b ^ 0xFF for b in d[1:]]
+                        if (dec13[1] == 0xE2 or d[1] == 0x1D) and 0 < dec13[5] <= 100:
+                            bat = dec13[5]
+                            is_charging = (dec13[3] == 2 or dec13[4] == 1)
+                            st = "Cargando" if is_charging else "Descargando"
+                            os.close(fd)
+                            cache["k7_battery"] = bat
+                            cache["k7_status"] = st
+                            save_cache(cache)
+                            return bat, st
+
+                # Read Feature Report 0x11 response
+                buf = bytearray([0x11] + [0] * 63)
+                try:
+                    fcntl.ioctl(fd, HIDIOCGFEATURE(len(buf)), buf)
+                    dec = [buf[0]] + [b ^ 0xFF for b in buf[1:]]
+                    if len(dec) >= 13 and dec[0] == 0x11 and dec[1] == 0x06:
+                        vid = dec[2] | (dec[3] << 8)
+                        if vid == 0x3837:
+                            bat = dec[11]
+                            charge_st = dec[12]
+                            if 0 < bat <= 100:
+                                st = "Cargando" if charge_st == 1 else "Descargando"
+                                os.close(fd)
+                                cache["k7_battery"] = bat
+                                cache["k7_status"] = st
+                                save_cache(cache)
+                                return bat, st
+                except Exception:
+                    pass
+
+            os.close(fd)
+        except Exception:
+            pass
+
+    if last_bat:
+        return last_bat, "En reposo"
+    return None, "Sin respuesta"
+
+# ==============================================================================
+# 3. AKKO MULTI-MODES KEYBOARD
+# ==============================================================================
+def get_akko_keyboard_battery():
+    # 1. Check if connected via Bluetooth / UPower
+    try:
+        res = subprocess.run(["upower", "-e"], capture_output=True, text=True, timeout=1)
+        for line in res.stdout.splitlines():
+            if "keyboard" in line.lower() or "akko" in line.lower():
+                info = subprocess.run(["upower", "-i", line], capture_output=True, text=True, timeout=1).stdout
+                for iline in info.splitlines():
+                    if "percentage:" in iline:
+                        pct = int(iline.split(":")[1].strip().replace("%", ""))
+                        return pct, "Inalámbrico"
+    except Exception:
+        pass
+
+    # 2. Check if connected via USB Cable (VID 0x3151, PID 0x4015)
+    nodes = glob_hidraw_nodes(0x3151, 0x4015)
+    if nodes:
+        return 100, "Conectado (USB)"
+
+    return None, "Desconectado"
+
+# ==============================================================================
+# NOTIFICATION SYSTEM
+# ==============================================================================
+def check_and_notify():
+    v9_bat, v9_st = get_v9_pro_battery()
+    k7_bat, k7_st = get_k7_ultra_battery()
+    akko_bat, akko_st = get_akko_keyboard_battery()
+
+    cache = load_cache()
+    notified = cache.get("notified_levels", {})
+
+    devices = [
+        ("Auriculares MCHOSE V9 Pro", "audio-headset", v9_bat, v9_st, "v9"),
+        ("Ratón MCHOSE K7 Ultra", "input-mouse", k7_bat, k7_st, "k7")
+    ]
+
+    for name, icon, bat, st, key in devices:
+        if bat is not None and st not in ["Cargando"]:
+            last_warn = notified.get(key, 100)
+            if bat <= 10 and last_warn > 10:
+                send_notification(
+                    f"⚠️ Batería Crítica: {name}",
+                    f"La batería está al {bat}%. Conecta el cargador inmediatamente.",
+                    icon,
+                    urgency="critical"
+                )
+                notified[key] = 10
+            elif bat <= 20 and last_warn > 20:
+                send_notification(
+                    f"🔋 Batería Baja: {name}",
+                    f"Nivel actual: {bat}%. Considera cargarlo pronto.",
+                    icon,
+                    urgency="normal"
+                )
+                notified[key] = 20
+            elif bat > 20:
+                notified[key] = 100
+        elif st == "Cargando":
+            notified[key] = 100
+
+    cache["notified_levels"] = notified
+    save_cache(cache)
+
+def send_notification(title, message, icon, urgency="normal"):
+    try:
+        subprocess.run([
+            "notify-send",
+            "-a", "MCHOSE Battery",
+            "-u", urgency,
+            "-i", icon,
+            title,
+            message
+        ], check=False)
+    except Exception:
+        pass
+
+# ==============================================================================
+# MAIN / CLI
+# ==============================================================================
+def main():
+    parser = argparse.ArgumentParser(description="MCHOSE Wireless Peripherals Battery Monitor")
+    parser.add_argument("--json", action="store_true", help="Output state in JSON format")
+    parser.add_argument("--notify", action="store_true", help="Check battery levels and send notifications")
+    parser.add_argument("--daemon", action="store_true", help="Run in background daemon mode")
+    parser.add_argument("--waybar-headset", action="store_true", help="Waybar JSON for V9 Pro")
+    parser.add_argument("--waybar-mouse", action="store_true", help="Waybar JSON for K7 Ultra")
+    args = parser.parse_args()
+
+    if args.daemon:
+        while True:
+            try:
+                check_and_notify()
+            except Exception:
+                pass
+            time.sleep(60)
+
+    if args.notify:
+        check_and_notify()
+        return
+
+    v9_bat, v9_st = get_v9_pro_battery()
+    k7_bat, k7_st = get_k7_ultra_battery()
+    akko_bat, akko_st = get_akko_keyboard_battery()
+
+    if args.waybar_headset:
+        if v9_bat is not None:
+            is_charging = (v9_st == "Cargando")
+            icon = "󰂄" if is_charging else "󰋋"
+            css_class = "charging" if is_charging else ("low" if v9_bat <= 20 else "discharging")
+            print(json.dumps({
+                "text": f"{icon} {v9_bat}%",
+                "alt": f"{v9_bat}%",
+                "tooltip": f"🎧 MCHOSE V9 Pro: {v9_bat}% ({v9_st})",
+                "percentage": v9_bat,
+                "class": css_class
+            }))
+        else:
+            print(json.dumps({"text": "", "tooltip": f"MCHOSE V9 Pro: {v9_st}", "class": "disconnected"}))
+        return
+
+    if args.waybar_mouse:
+        if k7_bat is not None:
+            is_charging = (k7_st == "Cargando")
+            icon = "󰂄" if is_charging else "󰍽"
+            css_class = "charging" if is_charging else ("low" if k7_bat <= 20 else "discharging")
+            print(json.dumps({
+                "text": f"{icon} {k7_bat}%",
+                "alt": f"{k7_bat}%",
+                "tooltip": f"🐭 MCHOSE K7 Ultra: {k7_bat}% ({k7_st})",
+                "percentage": k7_bat,
+                "class": css_class
+            }))
+        else:
+            print(json.dumps({"text": "", "tooltip": f"MCHOSE K7 Ultra: {k7_st}", "class": "disconnected"}))
+        return
+
+    if args.json:
+        data = {
+            "headset": {
+                "name": "MCHOSE V9 Pro",
+                "battery": v9_bat,
+                "status": v9_st,
+                "charging": (v9_st == "Cargando"),
+                "connected": (v9_bat is not None)
+            },
+            "mouse": {
+                "name": "MCHOSE K7 Ultra",
+                "battery": k7_bat,
+                "status": k7_st,
+                "charging": (k7_st == "Cargando"),
+                "connected": (k7_bat is not None)
+            },
+            "keyboard": {
+                "name": "Akko Multi-modes",
+                "battery": akko_bat,
+                "status": akko_st,
+                "charging": True,
+                "connected": (akko_bat is not None)
+            }
+        }
+        print(json.dumps(data, indent=2))
+        return
+
+    # CLI human-readable formatting
+    print("┌──────────────────────────────────────────────┐")
+    print("│        MCHOSE WIRELESS DEVICE STATUS         │")
+    print("├──────────────────────────────────────────────┤")
+    if v9_bat is not None:
+        print(f"│  🎧 Auriculares V9 Pro : {v9_bat:>3}%  [{v9_st:<12}] │")
+    else:
+        print(f"│  🎧 Auriculares V9 Pro : ⚠️  {v9_st:<17} │")
+
+    if k7_bat is not None:
+        print(f"│  🐭 Ratón K7 Ultra     : {k7_bat:>3}%  [{k7_st:<12}] │")
+    else:
+        print(f"│  🐭 Ratón K7 Ultra     : ⚠️  {k7_st:<17} │")
+    print("└──────────────────────────────────────────────┘")
+
+if __name__ == "__main__":
+    main()

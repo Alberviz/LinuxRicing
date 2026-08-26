@@ -1,0 +1,13 @@
+[Unit]
+Description=ARGB wave animation for RAM and fan headers
+After=openrgb.service
+Requires=openrgb.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/.config/caelestia/argb-wave.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

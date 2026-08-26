@@ -1,0 +1,8 @@
+{
+  "theme": {
+    "postHook": "/home/alberviz/.config/caelestia/sync-rgb.py"
+  },
+  "wallpaper": {
+    "postHook": "/home/alberviz/.config/caelestia/sync-rgb.py"
+  }
+}
