@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+import json
+import sys
+import argparse
+from flux_led import WifiLedBulb
+
+BULB_IP = "192.168.0.136"
+
+def get_bulb():
+    return WifiLedBulb(BULB_IP, timeout=1.5)
+
+def get_status():
+    try:
+        bulb = get_bulb()
+        bulb.update_state()
+        is_on = bulb.isOn()
+        rgb = bulb.getRgb()
+        hex_color = "#{:02x}{:02x}{:02x}".format(rgb[0], rgb[1], rgb[2])
+        bulb.close()
+        return {"is_on": is_on, "color": hex_color, "rgb": list(rgb), "success": True}
+    except Exception as e:
+        return {"is_on": False, "color": "#ffffff", "rgb": [255, 255, 255], "success": False, "error": str(e)}
+
+def toggle():
+    try:
+        bulb = get_bulb()
+        bulb.update_state()
+        if bulb.isOn():
+            bulb.turnOff()
+            res = False
+        else:
+            bulb.turnOn()
+            res = True
+        bulb.close()
+        return {"is_on": res, "success": True}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def turn_on():
+    try:
+        bulb = get_bulb()
+        bulb.turnOn()
+        bulb.close()
+        return {"is_on": True, "success": True}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def turn_off():
+    try:
+        bulb = get_bulb()
+        bulb.turnOff()
+        bulb.close()
+        return {"is_on": False, "success": True}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def set_color(hex_str):
+    try:
+        hex_clean = hex_str.lstrip("#")
+        r = int(hex_clean[0:2], 16)
+        g = int(hex_clean[2:4], 16)
+        b = int(hex_clean[4:6], 16)
+        bulb = get_bulb()
+        bulb.setRgb(r, g, b)
+        bulb.turnOn()
+        bulb.close()
+        return {"is_on": True, "color": f"#{hex_clean}", "success": True}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def main():
+    parser = argparse.ArgumentParser(description="Magic Home LED Strip Controller")
+    parser.add_argument("--status", action="store_true", help="Get JSON status")
+    parser.add_argument("--toggle", action="store_true", help="Toggle power")
+    parser.add_argument("--on", action="store_true", help="Turn ON")
+    parser.add_argument("--off", action="store_true", help="Turn OFF")
+    parser.add_argument("--color", type=str, help="Set hex color")
+
+    args = parser.parse_args()
+
+    if args.toggle:
+        print(json.dumps(toggle()))
+    elif args.on:
+        print(json.dumps(turn_on()))
+    elif args.off:
+        print(json.dumps(turn_off()))
+    elif args.color:
+        print(json.dumps(set_color(args.color)))
+    else:
+        print(json.dumps(get_status()))
+
+if __name__ == "__main__":
+    main()
