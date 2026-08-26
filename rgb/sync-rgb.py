@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Sync Caelestia dynamic colors to:
-1. PC RGB devices (Motherboard, RAM, Akko Keyboard Backlight) via OpenRGB SDK
-2. Akko 5075B Plus Keyboard Side-Strip (0x08) via direct HID (3151:4015)
+1. PC RGB devices (Motherboard, RAM) via OpenRGB SDK
+2. Akko 5075B Plus Keyboard (Backlight + Side-Strip) via direct HID (3151:4015)
 3. MCHOSE Dongle / Charging Base via direct HID (3837:1001)
 4. External Magic Home LED strip via Wi-Fi (flux_led)
 With intelligent color saturation boosting for physical RGB LEDs.
@@ -24,6 +24,9 @@ from pathlib import Path
 MAGIC_HOME_IP = "192.168.0.136"
 COLOR_KEY = "primary"  # Primary extracted color from wallpaper
 LOG_FILE = "/tmp/sync-rgb.log"
+# Read by argb-wave.py on every frame: lets the wave react live to wallpaper
+# *preview* (before Enter), not just to a confirmed change.
+LIVE_PALETTE_CACHE = Path("/tmp/caelestia-rgb-live-palette.json")
 
 
 def log(msg: str):
@@ -62,6 +65,35 @@ def get_hex_color() -> str:
             log(f"Error reading scheme.json: {e}")
 
     return "d8bde7"
+
+
+def get_palette() -> dict:
+    """Retrieve the full color palette dict from environment or Caelestia state."""
+    raw_colours = os.environ.get("SCHEME_COLOURS")
+    if raw_colours:
+        try:
+            return json.loads(raw_colours)
+        except Exception as e:
+            log(f"Error parsing SCHEME_COLOURS for palette: {e}")
+
+    state_file = Path.home() / ".local/state/caelestia/scheme.json"
+    if state_file.exists():
+        try:
+            return json.loads(state_file.read_text()).get("colours", {})
+        except Exception as e:
+            log(f"Error reading scheme.json for palette: {e}")
+
+    return {}
+
+
+def cache_live_palette():
+    """Write the current palette so argb-wave.py can react to it every frame."""
+    try:
+        palette = get_palette()
+        if palette:
+            LIVE_PALETTE_CACHE.write_text(json.dumps(palette))
+    except Exception as e:
+        log(f"Error caching live palette: {e}")
 
 
 def enhance_color_for_leds(hex_color: str) -> tuple[int, int, int]:
@@ -254,6 +286,7 @@ def sync_magichome(r: int, g: int, b: int):
 
 def main():
     log(f"--- sync-rgb started (PID {os.getpid()}) ---")
+    cache_live_palette()
     raw_hex = get_hex_color()
     r, g, b = enhance_color_for_leds(raw_hex)
 
