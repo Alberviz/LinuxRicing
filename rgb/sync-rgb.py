@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Sync Caelestia dynamic colors to:
-1. PC RGB devices (Motherboard, RAM, Akko Keyboard Backlight) via OpenRGB SDK
-2. Akko 5075B Plus Keyboard Side-Strip (0x08) via direct HID (3151:4015)
+1. PC RGB devices (Motherboard, RAM) via OpenRGB SDK
+2. Akko 5075B Plus Keyboard (Backlight + Side-Strip) via direct HID (3151:4015)
 3. MCHOSE Dongle / Charging Base via direct HID (3837:1001)
 4. External Magic Home LED strip via Wi-Fi (flux_led)
 With intelligent color saturation boosting for physical RGB LEDs.
