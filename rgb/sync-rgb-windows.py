@@ -161,8 +161,12 @@ def sync_akko_keyboard(backlight_rgb, sidelight_rgb, brightness=4):
 
     try:
         import hid
-        sled_hid = bytearray(sled); sled_hid[63] = sum(sled_hid[:63]) & 0xFF
-        led_hid = bytearray(led); led_hid[63] = sum(led_hid[:63]) & 0xFF
+        # ROYUAN 'Bit8' checksum: one's-complement sum of bytes 0..7, stored
+        # at byte 8 (not a plain sum at the end of the buffer). See
+        # https://github.com/dniminenn/sharkfin protocol.rs - without this,
+        # the firmware silently drops the packet and the color never changes.
+        sled_hid = bytearray(sled); sled_hid[8] = 0xFF - (sum(sled_hid[:8]) & 0xFF)
+        led_hid = bytearray(led); led_hid[8] = 0xFF - (sum(led_hid[:8]) & 0xFF)
         for d in hid.enumerate(0x3151, 0x4015):
             if d.get('interface_number') == 2 or '&mi_02' in str(d.get('path', '')).lower():
                 dev = hid.device()

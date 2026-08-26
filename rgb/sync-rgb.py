@@ -123,6 +123,18 @@ def sync_openrgb(r: int, g: int, b: int):
         log(f"OpenRGB CLI error: {e2}")
 
 
+def _akko_checksum8(buf: bytearray) -> int:
+    """
+    ROYUAN 'Bit8' checksum used by SET_LEDPARAM/SET_SLEDPARAM: one's-complement
+    sum of bytes 0..7, stored at byte 8 - NOT a plain sum stored at the end of
+    the 64-byte buffer. Confirmed against the hardware-verified open-source
+    reimplementation at https://github.com/dniminenn/sharkfin (protocol.rs);
+    writing the checksum in the wrong place makes the firmware silently
+    discard the packet, which is why colors never visibly changed.
+    """
+    return 0xFF - (sum(buf[:8]) & 0xFF)
+
+
 def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4):
     """
     Set Akko 5075B Plus Keyboard Backlight (Opcode 0x07) and Side-Strip (Opcode 0x08)
@@ -157,7 +169,7 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4):
     sled[5] = r
     sled[6] = g
     sled[7] = b
-    sled[63] = sum(sled[:63]) & 0xFF
+    sled[8] = _akko_checksum8(sled)
     raw_sled = bytearray([0x00]) + sled
 
     # 2. Backlight (LED = Opcode 0x07)
@@ -170,7 +182,7 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4):
     led[5] = r
     led[6] = g
     led[7] = b
-    led[63] = sum(led[:63]) & 0xFF
+    led[8] = _akko_checksum8(led)
     raw_led = bytearray([0x00]) + led
 
     for node in nodes:
@@ -252,6 +264,61 @@ def sync_magichome(r: int, g: int, b: int):
             log(f"MagicHome CLI error: {e2}")
 
 
+def sync_spicetify():
+    """Update Spicetify theme color.ini with current Material You palette and apply."""
+    try:
+        state_file = Path.home() / ".local/state/caelestia/scheme.json"
+        if not state_file.exists():
+            return
+
+        data = json.loads(state_file.read_text()).get("colours", {})
+        if not data:
+            return
+
+        text = data.get("onSurface", "f9e0d9").lstrip("#")
+        subtext = data.get("onSurfaceVariant", "bca6a0").lstrip("#")
+        main = data.get("surfaceContainer", "221714").lstrip("#")
+        primary = data.get("primary", "f9b7a3").lstrip("#")
+        outline = data.get("outline", "84716c").lstrip("#")
+        error = data.get("error", "fa746f").lstrip("#")
+        card = data.get("surfaceContainerHigh", "291d19").lstrip("#")
+        player = data.get("surfaceContainerLow", "1a110f").lstrip("#")
+        sidebar = data.get("surface", "130d0a").lstrip("#")
+        main_elevated = data.get("surfaceContainerHigh", "291d19").lstrip("#")
+        highlight_elevated = data.get("surfaceContainerHighest", "30231e").lstrip("#")
+
+        color_ini_content = f"""[caelestia]
+text                = {text}
+subtext             = {subtext}
+main                = {main}
+highlight           = {primary}
+misc                = {primary}
+notification        = {outline}
+notification-error  = {error}
+shadow              = 000000
+card                = {card}
+player              = {player}
+sidebar             = {sidebar}
+main-elevated       = {main_elevated}
+highlight-elevated  = {highlight_elevated}
+selected-row        = {text}
+button              = {primary}
+button-active       = {primary}
+button-disabled     = {outline}
+tab-active          = {card}
+"""
+        theme_dir = Path.home() / ".config/spicetify/Themes/caelestia"
+        theme_dir.mkdir(parents=True, exist_ok=True)
+        (theme_dir / "color.ini").write_text(color_ini_content)
+
+        spicetify_bin = Path.home() / ".spicetify/spicetify"
+        if spicetify_bin.exists():
+            subprocess.run([str(spicetify_bin), "apply", "-q"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+            log("Spicetify: Applied Material You dynamic theme successfully")
+    except Exception as e:
+        log(f"Spicetify sync error: {e}")
+
+
 def main():
     log(f"--- sync-rgb started (PID {os.getpid()}) ---")
     raw_hex = get_hex_color()
@@ -261,16 +328,19 @@ def main():
     t2 = threading.Thread(target=sync_magichome, args=(r, g, b))
     t3 = threading.Thread(target=sync_mchose_base, args=(r, g, b))
     t4 = threading.Thread(target=sync_akko_keyboard, args=(r, g, b))
+    t5 = threading.Thread(target=sync_spicetify)
 
     t1.start()
     t2.start()
     t3.start()
     t4.start()
+    t5.start()
 
     t1.join(timeout=6)
     t2.join(timeout=6)
     t3.join(timeout=6)
     t4.join(timeout=6)
+    t5.join(timeout=6)
     log(f"--- sync-rgb finished ---")
 
 
