@@ -138,12 +138,18 @@ def sync_akko_keyboard(backlight_rgb, sidelight_rgb, brightness=4):
     r_side, g_side, b_side = sidelight_rgb
     r_back, g_back, b_back = backlight_rgb
     
+    # AkkoBSeries flags byte = option | dazzle = 0x08 for solid custom RGB.
+    # Confirmed against OpenRGB's RoyuanKeyboardController (AkkoBSeries
+    # profile): 0x07 is NOT "custom color" on this firmware family - it
+    # made the LEDs cycle rainbow instead of holding a solid color.
+    AKKO_FLAGS_CUSTOM_RGB = 0x08
+
     sled = bytearray(64)
-    sled[0] = 0x08; sled[1] = 0x01; sled[2] = 0x04; sled[3] = brightness; sled[4] = 0x07  # 0x07 = custom RGB (0x08 = preset pink)
+    sled[0] = 0x08; sled[1] = 0x01; sled[2] = 0x04; sled[3] = brightness; sled[4] = AKKO_FLAGS_CUSTOM_RGB
     sled[5], sled[6], sled[7] = r_side, g_side, b_side
 
     led = bytearray(64)
-    led[0] = 0x07; led[1] = 0x01; led[2] = 0x04; led[3] = brightness; led[4] = 0x07  # Custom RGB
+    led[0] = 0x07; led[1] = 0x01; led[2] = 0x04; led[3] = brightness; led[4] = AKKO_FLAGS_CUSTOM_RGB
     led[5], led[6], led[7] = r_back, g_back, b_back
 
     try:

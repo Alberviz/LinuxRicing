@@ -159,13 +159,24 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4):
         log("Akko Keyboard: No HID node found")
         return
 
+    # AkkoBSeries flags byte = option | dazzle. OpenRGB's Akko B-series
+    # profile forces option=0x08 (use RGB fields) and dazzle=0x00 for any
+    # non-direct mode - confirmed against OpenRGB's own RoyuanKeyboardController
+    # (Controllers/RoyuanKeyboardController/RoyuanKeyboardController.cpp,
+    # RoyuanKeyboardProfile::AkkoBSeries()). This is NOT the generic ROYUAN
+    # (option<<4)|flags bitfield - Akko B-series firmware treats the whole
+    # byte as a flat option value, and 0x07 turned out to select some other
+    # built-in effect (it made the LEDs cycle rainbow instead of holding a
+    # solid color).
+    AKKO_FLAGS_CUSTOM_RGB = 0x08
+
     # 1. Side-Strip (SLED = Opcode 0x08)
     sled = bytearray(64)
     sled[0] = 0x08
     sled[1] = 0x01  # Mode: Static
     sled[2] = 0x04  # Speed
     sled[3] = brightness
-    sled[4] = 0x07  # Custom RGB (0x07 = custom color, 0x08 = preset pink)
+    sled[4] = AKKO_FLAGS_CUSTOM_RGB
     sled[5] = r
     sled[6] = g
     sled[7] = b
@@ -178,7 +189,7 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4):
     led[1] = 0x01  # Mode: Static
     led[2] = 0x04  # Speed
     led[3] = brightness
-    led[4] = 0x07  # Custom RGB
+    led[4] = AKKO_FLAGS_CUSTOM_RGB
     led[5] = r
     led[6] = g
     led[7] = b
