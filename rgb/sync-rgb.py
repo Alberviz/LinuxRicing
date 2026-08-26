@@ -179,6 +179,17 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4):
         log("Akko Keyboard: No HID node found")
         return
 
+    def akko_checksum8(buf: bytearray) -> int:
+        """
+        ROYUAN 'Bit8' checksum used by SET_LEDPARAM/SET_SLEDPARAM: one's-complement
+        sum of bytes 0..7, stored at byte 8 - NOT a plain sum stored at the end of
+        the 64-byte buffer. Confirmed against the hardware-verified open-source
+        reimplementation at https://github.com/dniminenn/sharkfin (protocol.rs);
+        writing the checksum in the wrong place makes the firmware silently
+        discard the packet, which is why colors never visibly changed.
+        """
+        return 0xFF - (sum(buf[:8]) & 0xFF)
+
     # AkkoBSeries flags byte = option | dazzle. OpenRGB's Akko B-series
     # profile forces option=0x08 (use RGB fields) and dazzle=0x00 for any
     # non-direct mode - confirmed against OpenRGB's own RoyuanKeyboardController
@@ -200,7 +211,7 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4):
     sled[5] = r
     sled[6] = g
     sled[7] = b
-    sled[63] = sum(sled[:63]) & 0xFF
+    sled[8] = akko_checksum8(sled)
     raw_sled = bytearray([0x00]) + sled
 
     # 2. Backlight (LED = Opcode 0x07)
@@ -213,7 +224,7 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4):
     led[5] = r
     led[6] = g
     led[7] = b
-    led[63] = sum(led[:63]) & 0xFF
+    led[8] = akko_checksum8(led)
     raw_led = bytearray([0x00]) + led
 
     for node in nodes:
