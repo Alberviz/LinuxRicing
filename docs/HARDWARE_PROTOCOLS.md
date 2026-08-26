@@ -17,17 +17,21 @@ Este documento consolida los protocolos de ingeniería inversa y especificacione
   - `byte[1]`: Modo (`0x01` = Estático, `0x00` = Apagado, `0x02` = Respiración).
   - `byte[2]`: Velocidad (`0x04`).
   - `byte[3]`: Brillo (`0x04` = 100%, rango 0 a 4).
-  - `byte[4]`: Modo de Color (`0x07` = Color personalizado / Custom RGB; `0x08` = Preset Rosa).
+  - `byte[4]`: Flags (`option | dazzle`). Para color RGB personalizado sólido: **`0x08`**.
   - `byte[5]`: Rojo (`0 - 255`).
   - `byte[6]`: Verde (`0 - 255`).
   - `byte[7]`: Azul (`0 - 255`).
-  - `byte[8..62]`: Relleno (`0x00`).
-  - `byte[63]`: Checksum de 8 bits = `sum(byte[0:63]) & 0xFF`.
+  - `byte[8]`: **Checksum** = `0xFF - (sum(byte[0..8]) & 0xFF)` (complemento a uno de la suma de los 8 primeros bytes).
+  - `byte[9..63]`: Relleno (`0x00`).
+- **⚠️ Dos correcciones importantes sobre versiones anteriores de este documento** (23-08-2026, tras depuración exhaustiva del bug de "barra lateral en rosa fijo"):
+  1. El checksum va en el **byte 8**, no en el byte 63, y es un complemento a uno (`0xFF - suma`), no una suma directa. Con el checksum en la posición equivocada el firmware descartaba el paquete en silencio: no había error de HID, pero el LED nunca cambiaba.
+  2. El byte `[4]` **no** sigue el esquema genérico ROYUAN `(option<<4)|flags` con `0x07`=custom/`0x08`=preset. Para la familia Akko B-series específicamente, es un valor plano y `0x08` es el que selecciona "usar el RGB personalizado"; `0x07` en este firmware hace que el LED cicle en rainbow. Verificado contra el driver real de OpenRGB (`Controllers/RoyuanKeyboardController/RoyuanKeyboardController.cpp`, perfil `AkkoBSeries()`), que sí controla el backlight con éxito en producción.
 - **Llamada ioctl (Linux):**
   ```python
   def HIDIOCSFEATURE(size):
       return (3 << 30) | (size << 16) | (ord("H") << 8) | 0x06
 
+  payload[8] = 0xFF - (sum(payload[:8]) & 0xFF)
   raw = bytearray([0x00]) + payload
   fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw)), raw)
   ```
