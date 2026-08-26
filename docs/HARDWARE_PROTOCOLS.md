@@ -17,7 +17,7 @@ Este documento consolida los protocolos de ingeniería inversa y especificacione
   - `byte[1]`: Modo (`0x01` = Estático, `0x00` = Apagado, `0x02` = Respiración).
   - `byte[2]`: Velocidad (`0x04`).
   - `byte[3]`: Brillo (`0x04` = 100%, rango 0 a 4).
-  - `byte[4]`: Modo de Color (`0x08` = Color personalizado / RGB estático).
+  - `byte[4]`: Modo de Color (`0x07` = Color personalizado / Custom RGB; `0x08` = Preset Rosa).
   - `byte[5]`: Rojo (`0 - 255`).
   - `byte[6]`: Verde (`0 - 255`).
   - `byte[7]`: Azul (`0 - 255`).
