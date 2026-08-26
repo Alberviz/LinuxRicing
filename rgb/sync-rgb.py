@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 Sync Caelestia dynamic colors to:
-1. PC RGB devices (Motherboard, RAM) via OpenRGB SDK
-2. Akko 5075B Plus Keyboard (Backlight + Side-Strip) via direct HID ioctl (3151:4015)
-3. MCHOSE Dongle / Charging Base (Ring + Center) via direct HID ioctl (3837:1001)
+1. PC RGB devices (Motherboard, RAM, Akko Keyboard Backlight) via OpenRGB SDK
+2. Akko 5075B Plus Keyboard Side-Strip (0x08) via direct HID (3151:4015)
+3. MCHOSE Dongle / Charging Base via direct HID (3837:1001)
 4. External Magic Home LED strip via Wi-Fi (flux_led)
 With intelligent color saturation boosting for physical RGB LEDs.
 """
@@ -24,15 +24,6 @@ from pathlib import Path
 MAGIC_HOME_IP = "192.168.0.136"
 COLOR_KEY = "primary"  # Primary extracted color from wallpaper
 LOG_FILE = "/tmp/sync-rgb.log"
-
-# Set to False to go back to solid single-color everywhere.
-RAINBOW_MODE = True
-# Read by argb-wave.py on every frame: lets the wave react live to wallpaper
-# *preview* (before Enter), not just to a confirmed change.
-LIVE_PALETTE_CACHE = Path("/tmp/caelestia-rgb-live-palette.json")
-# Palette keys (from Caelestia's scheme.json) used as gradient stops on
-# addressable zones (RAM, ARGB fan headers). Keyboard is never touched.
-GRADIENT_KEYS = ["red", "peach", "yellow", "green", "sky", "sapphire", "lavender", "mauve"]
 
 
 def log(msg: str):
@@ -73,25 +64,6 @@ def get_hex_color() -> str:
     return "d8bde7"
 
 
-def get_palette() -> dict:
-    """Retrieve the full color palette dict from environment or Caelestia state."""
-    raw_colours = os.environ.get("SCHEME_COLOURS")
-    if raw_colours:
-        try:
-            return json.loads(raw_colours)
-        except Exception as e:
-            log(f"Error parsing SCHEME_COLOURS for palette: {e}")
-
-    state_file = Path.home() / ".local/state/caelestia/scheme.json"
-    if state_file.exists():
-        try:
-            return json.loads(state_file.read_text()).get("colours", {})
-        except Exception as e:
-            log(f"Error reading scheme.json for palette: {e}")
-
-    return {}
-
-
 def enhance_color_for_leds(hex_color: str) -> tuple[int, int, int]:
     """Preserve wallpaper Hue while boosting saturation for rich LED colors."""
     hex_clean = hex_color.lstrip("#")
@@ -106,59 +78,14 @@ def enhance_color_for_leds(hex_color: str) -> tuple[int, int, int]:
         boosted_v = 1.0
         new_r, new_g, new_b = colorsys.hsv_to_rgb(h, boosted_s, boosted_v)
         res = (int(new_r * 255), int(new_g * 255), int(new_b * 255))
+        log(f"Color enhancement: #{hex_clean} (Sat {s*100:.0f}%) -> RGB{res} (Sat {boosted_s*100:.0f}%)")
         return res
     else:
         return (int(r * 255), int(g * 255), int(b * 255))
 
 
-def get_device_colors():
-    """Derive distinct harmonious colors for different hardware zones."""
-    palette = get_palette()
-    primary_hex = get_hex_color()
-    c_primary = enhance_color_for_leds(primary_hex)
-
-    sec_hex = palette.get("secondary", palette.get("mauve", primary_hex))
-    c_secondary = enhance_color_for_leds(sec_hex)
-
-    tert_hex = palette.get("tertiary", palette.get("pink", primary_hex))
-    c_tertiary = enhance_color_for_leds(tert_hex)
-
-    accent_hex = palette.get("peach", palette.get("pink", palette.get("lavender", sec_hex)))
-    c_accent = enhance_color_for_leds(accent_hex)
-
-    return {
-        "primary": c_primary,
-        "secondary": c_secondary,
-        "tertiary": c_tertiary,
-        "accent": c_accent,
-    }
-
-
-def build_gradient(count: int) -> list[tuple[int, int, int]]:
-    """Build a smooth `count`-stop RGB gradient from the theme palette."""
-    palette = get_palette()
-    anchors = [
-        enhance_color_for_leds(palette[key].lstrip("#"))
-        for key in GRADIENT_KEYS
-        if key in palette
-    ]
-    if not anchors:
-        anchors = [enhance_color_for_leds(get_hex_color())]
-    if count <= 1 or len(anchors) == 1:
-        return [anchors[0]] * count
-
-    stops = []
-    for i in range(count):
-        pos = i * (len(anchors) - 1) / (count - 1)
-        idx = int(pos)
-        frac = pos - idx
-        c1, c2 = anchors[idx], anchors[min(idx + 1, len(anchors) - 1)]
-        stops.append(tuple(int(c1[k] + (c2[k] - c1[k]) * frac) for k in range(3)))
-    return stops
-
-
 def sync_openrgb(r: int, g: int, b: int):
-    """Set ALL PC components in OpenRGB via SDK Server to exact solid RGB."""
+    """Set PC components AND Akko Keyboard Backlight in OpenRGB via SDK Server."""
     try:
         from openrgb import OpenRGBClient
         from openrgb.utils import RGBColor
@@ -173,22 +100,15 @@ def sync_openrgb(r: int, g: int, b: int):
                         i for i, m in enumerate(dev.modes) if m.name == "Direct"
                     )
                     dev.set_mode(direct_idx)
+                except StopIteration:
+                    log(f"Device {dev.name} has no Direct mode, skipping mode switch")
                 except Exception as em:
                     log(f"Mode set error on {dev.name}: {em}")
 
             for zone in dev.zones:
-                try:
-                    zone.set_color(col)
-                except Exception:
-                    pass
-
-            try:
-                dev.set_colors([col] * len(dev.leds), fast=False)
-            except Exception:
-                pass
-
+                zone.set_color(col)
             synced.append(dev.name)
-        log(f"OpenRGB (SDK): Synced exact solid RGB({r},{g},{b}) to {synced}")
+        log(f"OpenRGB (SDK): Synced RGB({r},{g},{b}) to {synced}")
         return
     except Exception as e:
         log(f"OpenRGB SDK error ({e}), attempting CLI fallback...")
@@ -203,11 +123,8 @@ def sync_openrgb(r: int, g: int, b: int):
         log(f"OpenRGB CLI error: {e2}")
 
 
-def sync_akko_keyboard(backlight_rgb: tuple[int, int, int], sidelight_rgb: tuple[int, int, int], brightness: int = 4):
-    """
-    Set Akko 5075B Plus Keyboard Backlight (Opcode 0x07) and Side-Strip (Opcode 0x08)
-    via direct USB HID Feature Reports on Interface 2.
-    """
+def sync_akko_sidelight(r: int, g: int, b: int):
+    """Set Akko 5075B Plus Keyboard Side-Strip via direct HID (Opcode 0x08)."""
     nodes = []
     for h in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
         uevent = f"{h}/device/uevent"
@@ -217,71 +134,39 @@ def sync_akko_keyboard(backlight_rgb: tuple[int, int, int], sidelight_rgb: tuple
                     content = f.read()
                 if "3151" in content and "4015" in content:
                     link = os.path.realpath(f"{h}/device")
-                    if ":1.2" in link:  # Target ONLY Interface 2 (Vendor RGB Interface)
+                    if ":1.2" in link:
                         nodes.append("/dev/" + os.path.basename(h))
             except Exception:
                 pass
 
     if not nodes:
-        # Fallback search if interface string differs
-        for h in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
-            uevent = f"{h}/device/uevent"
-            if os.path.exists(uevent):
-                try:
-                    with open(uevent) as f:
-                        if "3151" in f.read() and "4015" in f.read():
-                            nodes.append("/dev/" + os.path.basename(h))
-                except Exception:
-                    pass
-
-    if not nodes:
-        log("Akko Keyboard: No HID node found")
         return
 
-    r_side, g_side, b_side = sidelight_rgb
-    r_back, g_back, b_back = backlight_rgb
-
-    # 1. Side-Strip (SLED = Opcode 0x08)
     sled = bytearray(64)
     sled[0] = 0x08
-    sled[1] = 0x01  # Mode: Static
-    sled[2] = 0x04  # Speed
-    sled[3] = brightness
-    sled[4] = 0x07  # Custom RGB (0x07 = custom color, 0x08 = preset pink)
-    sled[5] = r_side
-    sled[6] = g_side
-    sled[7] = b_side
+    sled[1] = 0x01
+    sled[2] = 0x04
+    sled[3] = 0x04
+    sled[4] = 0x08
+    sled[5] = r
+    sled[6] = g
+    sled[7] = b
     sled[63] = sum(sled[:63]) & 0xFF
-    raw_sled = bytearray([0x00]) + sled
-
-    # 2. Backlight (LED = Opcode 0x07)
-    led = bytearray(64)
-    led[0] = 0x07
-    led[1] = 0x01  # Mode: Static
-    led[2] = 0x04  # Speed
-    led[3] = brightness
-    led[4] = 0x07  # Custom RGB
-    led[5] = r_back
-    led[6] = g_back
-    led[7] = b_back
-    led[63] = sum(led[:63]) & 0xFF
-    raw_led = bytearray([0x00]) + led
+    raw = bytearray([0x00]) + sled
 
     for node in nodes:
         try:
             fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
-            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_sled)), raw_sled)
-            time.sleep(0.02)
-            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
+            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw)), raw)
             os.close(fd)
-            log(f"Akko Keyboard: Synced Backlight {backlight_rgb}, Side-Strip {sidelight_rgb} to {node}")
+            log(f"Akko Side-Strip: Synced RGB({r},{g},{b}) to {node} via Opcode 0x08")
             return
         except Exception as e:
-            log(f"Akko Keyboard error on {node}: {e}")
+            log(f"Akko Side-Strip error on {node}: {e}")
 
 
-def sync_mchose_base(c_ring: tuple[int, int, int], c_center: tuple[int, int, int]):
-    """Set MCHOSE 8K Dongle / Charging Base RGB (Ring + Center) via reverse-engineered Command 0x2B protocol."""
+def sync_mchose_base(r: int, g: int, b: int):
+    """Set MCHOSE 8K Dongle / Charging Base RGB via reverse-engineered Command 0x2B protocol."""
     nodes = []
     for h in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
         uevent = f"{h}/device/uevent"
@@ -291,35 +176,19 @@ def sync_mchose_base(c_ring: tuple[int, int, int], c_center: tuple[int, int, int
                     content = f.read()
                 if "3837" in content and "1001" in content:
                     link = os.path.realpath(f"{h}/device")
-                    if ":1.2" in link:  # Target ONLY Interface 2 (Vendor RGB Interface)
+                    if ":1.2" in link:
                         nodes.append("/dev/" + os.path.basename(h))
             except Exception:
                 pass
 
     if not nodes:
-        log("MCHOSE Base: No Interface 2 HID node found")
         return
 
-    r1, g1, b1 = c_ring
-    r2, g2, b2 = c_center
-
-    # Payload discovered from Wireshark capture (Frame 7499):
-    # Byte 0: 0x2B (Base RGB Command)
-    # Byte 1: 0x01 (Subcommand)
-    # Byte 2: 0x06 (Lighting mode)
-    # Byte 3: 0x00
-    # Byte 4: Brightness (100 = 0x64)
-    # Byte 5: 0x00
-    # Byte 6: Speed (3)
-    # Byte 7: Mode (1 = Static)
-    # Byte 8: 0x00
-    # Bytes 9..11: LED 1 Outer Ring RGB (r1, g1, b1)
-    # Bytes 12..14: LED 2 Center Logo RGB (r2, g2, b2)
     payload = [
         0x2B, 0x01, 0x06, 0x00,
         100, 0x00, 0x03, 0x01, 0x00,
-        r1, g1, b1,
-        r2, g2, b2,
+        r, g, b,
+        r, g, b,
         0x00, 0x00, 0x00, 0x00, 0x00
     ]
     raw = bytearray([0x11] + [x ^ 0xFF for x in payload])
@@ -329,17 +198,16 @@ def sync_mchose_base(c_ring: tuple[int, int, int], c_center: tuple[int, int, int
             fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
             fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw)), raw)
             os.close(fd)
-            log(f"MCHOSE Base: Synced Ring {c_ring}, Center {c_center} to {node} via Cmd 0x2B")
+            log(f"MCHOSE Base: Synced RGB({r},{g},{b}) to {node} via Cmd 0x2B")
         except Exception as e:
             log(f"MCHOSE Base error on {node}: {e}")
 
 
-def sync_magichome(ambient_rgb: tuple[int, int, int]):
+def sync_magichome(r: int, g: int, b: int):
     """Set Magic Home LED strip color and power on."""
     if not MAGIC_HOME_IP:
         return
 
-    r, g, b = ambient_rgb
     try:
         from flux_led import WifiLedBulb
 
@@ -363,28 +231,15 @@ def sync_magichome(ambient_rgb: tuple[int, int, int]):
             log(f"MagicHome CLI error: {e2}")
 
 
-def cache_live_palette():
-    try:
-        palette = get_palette()
-        if palette:
-            LIVE_PALETTE_CACHE.write_text(json.dumps(palette))
-    except Exception as e:
-        log(f"Error caching live palette: {e}")
-
-
 def main():
     log(f"--- sync-rgb started (PID {os.getpid()}) ---")
-    cache_live_palette()
-    
     raw_hex = get_hex_color()
-    c_primary = enhance_color_for_leds(raw_hex)
+    r, g, b = enhance_color_for_leds(raw_hex)
 
-    log(f"Unified Primary Color for All Hardware: {c_primary}")
-
-    t1 = threading.Thread(target=sync_openrgb, args=c_primary)
-    t2 = threading.Thread(target=sync_akko_keyboard, args=(c_primary, c_primary))
-    t3 = threading.Thread(target=sync_mchose_base, args=(c_primary, c_primary))
-    t4 = threading.Thread(target=sync_magichome, args=(c_primary,))
+    t1 = threading.Thread(target=sync_openrgb, args=(r, g, b))
+    t2 = threading.Thread(target=sync_magichome, args=(r, g, b))
+    t3 = threading.Thread(target=sync_mchose_base, args=(r, g, b))
+    t4 = threading.Thread(target=sync_akko_sidelight, args=(r, g, b))
 
     t1.start()
     t2.start()

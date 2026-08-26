@@ -139,11 +139,11 @@ def sync_akko_keyboard(backlight_rgb, sidelight_rgb, brightness=4):
     r_back, g_back, b_back = backlight_rgb
     
     sled = bytearray(64)
-    sled[0] = 0x08; sled[1] = 0x01; sled[2] = 0x04; sled[3] = brightness; sled[4] = 0x08
+    sled[0] = 0x08; sled[1] = 0x01; sled[2] = 0x04; sled[3] = brightness; sled[4] = 0x07  # 0x07 = custom RGB (0x08 = preset pink)
     sled[5], sled[6], sled[7] = r_side, g_side, b_side
-    
+
     led = bytearray(64)
-    led[0] = 0x07; led[1] = 0x01; led[2] = 0x04; led[3] = brightness; led[4] = 0x08
+    led[0] = 0x07; led[1] = 0x01; led[2] = 0x04; led[3] = brightness; led[4] = 0x07  # Custom RGB
     led[5], led[6], led[7] = r_back, g_back, b_back
 
     try:
