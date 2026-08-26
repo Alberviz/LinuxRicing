@@ -1,0 +1,207 @@
+#!/usr/bin/env python3
+"""
+Lightweight helper script for Caelestia Desktop Deck:
+1. Weather (--weather): Fetches local weather with 15-minute file cache.
+2. Hardware (--hardware): Reads CPU, RAM, and GPU telemetry in JSON.
+"""
+
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+CACHE_FILE = Path("/tmp/caelestia-weather-cache.json")
+CACHE_TTL = 900  # 15 minutes
+
+
+def get_weather():
+    if CACHE_FILE.exists():
+        try:
+            mtime = CACHE_FILE.stat().st_mtime
+            if time.time() - mtime < CACHE_TTL:
+                data = json.loads(CACHE_FILE.read_text())
+                if data and "temp" in data:
+                    print(json.dumps(data))
+                    return
+        except Exception:
+            pass
+
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(
+            "https://wttr.in/?format=j1",
+            headers={"User-Agent": "curl/7.68.0"}
+        )
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            raw = json.loads(resp.read().decode())
+            cur = raw["current_condition"][0]
+            area = raw.get("nearest_area", [{}])[0].get("areaName", [{}])[0].get("value", "Local")
+            temp = cur.get("temp_C", "0")
+            desc = cur.get("weatherDesc", [{}])[0].get("value", "Despejado")
+            humidity = cur.get("humidity", "0")
+            wind = cur.get("windspeedKmph", "0")
+            weather_code = cur.get("weatherCode", "113")
+
+            icon_map = {
+                "113": "wb_sunny",
+                "116": "partly_cloudy_day",
+                "119": "cloud",
+                "122": "cloud",
+                "143": "foggy",
+                "176": "rainy",
+                "200": "thunderstorm",
+                "293": "rainy",
+                "296": "rainy",
+                "302": "rainy",
+                "308": "rainy",
+                "353": "rainy",
+                "389": "thunderstorm",
+            }
+            icon = icon_map.get(weather_code, "wb_sunny")
+            if "rain" in desc.lower():
+                icon = "rainy"
+            elif "thunder" in desc.lower():
+                icon = "thunderstorm"
+            elif "cloud" in desc.lower():
+                icon = "partly_cloudy_day"
+            elif "snow" in desc.lower():
+                icon = "ac_unit"
+
+            desc_trans = {
+                "Clear": "Despejado",
+                "Sunny": "Soleado",
+                "Partly cloudy": "Parcialmente nublado",
+                "Cloudy": "Nublado",
+                "Overcast": "Cubierto",
+                "Mist": "Neblina",
+                "Patchy rain possible": "Lluvia ligera",
+                "Light rain": "Lluvia ligera",
+                "Moderate rain": "Lluvia moderada",
+                "Heavy rain": "Lluvia fuerte",
+            }
+            desc_es = desc_trans.get(desc, desc)
+
+            astronomy = raw.get("weather", [{}])[0].get("astronomy", [{}])[0]
+            sunrise = astronomy.get("sunrise", "07:00 AM")
+            sunset = astronomy.get("sunset", "09:00 PM")
+
+            result = {
+                "temp": f"{temp}°C",
+                "temp_val": int(temp),
+                "desc": desc_es,
+                "city": area,
+                "icon": icon,
+                "humidity": f"{humidity}%",
+                "wind": f"{wind} km/h",
+                "sunrise": sunrise,
+                "sunset": sunset,
+            }
+            CACHE_FILE.write_text(json.dumps(result))
+            print(json.dumps(result))
+            return
+    except Exception as e:
+        if CACHE_FILE.exists():
+            try:
+                print(CACHE_FILE.read_text())
+                return
+            except Exception:
+                pass
+        print(json.dumps({
+            "temp": "22°C",
+            "temp_val": 22,
+            "desc": "Despejado",
+            "city": "Local",
+            "icon": "wb_sunny",
+            "humidity": "45%",
+            "wind": "10 km/h",
+            "sunrise": "07:30 AM",
+            "sunset": "08:45 PM"
+        }))
+
+
+def get_hardware():
+    # 1. CPU Usage
+    cpu_pct = 0
+    try:
+        with open("/proc/stat") as f:
+            fields = [float(x) for x in f.readline().split()[1:8]]
+        idle1 = fields[3] + fields[4]
+        total1 = sum(fields)
+        time.sleep(0.06)
+        with open("/proc/stat") as f:
+            fields = [float(x) for x in f.readline().split()[1:8]]
+        idle2 = fields[3] + fields[4]
+        total2 = sum(fields)
+        diff_total = total2 - total1
+        diff_idle = idle2 - idle1
+        if diff_total > 0:
+            cpu_pct = int(100.0 * (diff_total - diff_idle) / diff_total)
+    except Exception:
+        cpu_pct = 15
+
+    # 2. RAM Usage
+    ram_pct = 0
+    ram_used_gb = "0.0 GB"
+    ram_total_gb = "16.0 GB"
+    try:
+        with open("/proc/meminfo") as f:
+            lines = f.readlines()
+        mem_total_kb = int(lines[0].split()[1])
+        mem_avail_kb = int(lines[2].split()[1])
+        mem_used_kb = mem_total_kb - mem_avail_kb
+        ram_pct = int(100.0 * mem_used_kb / mem_total_kb)
+        ram_used_gb = f"{mem_used_kb / (1024 * 1024):.1f} GB"
+        ram_total_gb = f"{mem_total_kb / (1024 * 1024):.1f} GB"
+    except Exception:
+        pass
+
+    # 3. GPU Telemetry
+    gpu_temp = 45
+    gpu_util = 0
+    vram_used_gb = "0.0 GB"
+    vram_total_gb = "6.0 GB"
+    vram_pct = 0
+    try:
+        smi = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=temperature.gpu,utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits"],
+            timeout=0.6
+        ).decode().strip()
+        parts = [x.strip() for x in smi.split(",")]
+        gpu_temp = int(parts[0])
+        gpu_util = int(parts[1])
+        vram_used_mb = int(parts[2])
+        vram_total_mb = int(parts[3])
+        vram_pct = int(100.0 * vram_used_mb / vram_total_mb)
+        vram_used_gb = f"{vram_used_mb / 1024:.1f} GB"
+        vram_total_gb = f"{vram_total_mb / 1024:.1f} GB"
+    except Exception:
+        pass
+
+    res = {
+        "cpu_pct": cpu_pct,
+        "ram_pct": ram_pct,
+        "ram_used": ram_used_gb,
+        "ram_total": ram_total_gb,
+        "gpu_temp": gpu_temp,
+        "gpu_util": gpu_util,
+        "vram_pct": vram_pct,
+        "vram_used": vram_used_gb,
+        "vram_total": vram_total_gb,
+    }
+    print(json.dumps(res))
+
+
+def main():
+    if "--weather" in sys.argv:
+        get_weather()
+    elif "--hardware" in sys.argv:
+        get_hardware()
+    else:
+        print(json.dumps({"error": "Specify --weather or --hardware"}))
+
+
+if __name__ == "__main__":
+    main()

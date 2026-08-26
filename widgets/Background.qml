@@ -185,11 +185,11 @@ Variants {
         }
 
         Loader {
-            id: tasksLoader
+            id: deckLoader
 
             asynchronous: true
             active: Config.background.desktopClock.enabled
-            sourceComponent: DesktopTasks {}
+            sourceComponent: DesktopWidgetDeck {}
 
             anchors.top: peripheralsLoader.bottom
             anchors.topMargin: Tokens.spacing.large
@@ -204,7 +204,7 @@ Variants {
             active: Config.background.desktopClock.enabled
             sourceComponent: DesktopLedStrip {}
 
-            anchors.top: tasksLoader.bottom
+            anchors.top: deckLoader.bottom
             anchors.topMargin: Tokens.spacing.large
             anchors.left: clockLoader.left
             width: clockLoader.width > 0 ? clockLoader.width : 640
@@ -467,11 +467,11 @@ Variants {
         }
     }
 
-    component DesktopTasks: StyledClippingRect {
-        id: tasksRoot
+    component DesktopWidgetDeck: StyledClippingRect {
+        id: deckRoot
 
-        implicitWidth: 320
-        implicitHeight: tasksLayout.implicitHeight + Tokens.padding.large * 2
+        implicitWidth: 640
+        implicitHeight: deckLayout.implicitHeight + Tokens.padding.large * 2
         radius: Tokens.rounding.extraLarge
         color: win.transparentWidgets ? "transparent" : Colours.tPalette.m3surfaceContainer
 
@@ -479,6 +479,26 @@ Variants {
             CAnim {}
         }
 
+        property int currentTab: 0 // 0: Tasks, 1: Weather, 2: Hardware, 3: Focus
+
+        // Mouse Wheel Handler to smoothly cycle tabs when hovering the deck
+        MouseArea {
+            anchors.fill: parent
+            z: 10
+            propagateComposedEvents: true
+            onWheel: function(wheel) {
+                if (wheel.angleDelta.y < 0) {
+                    deckRoot.currentTab = (deckRoot.currentTab + 1) % 4;
+                } else if (wheel.angleDelta.y > 0) {
+                    deckRoot.currentTab = (deckRoot.currentTab - 1 + 4) % 4;
+                }
+            }
+            onPressed: function(mouse) { mouse.accepted = false; }
+            onReleased: function(mouse) { mouse.accepted = false; }
+            onClicked: function(mouse) { mouse.accepted = false; }
+        }
+
+        // --- GOOGLE TASKS DATA ---
         property var taskItems: []
         property var pendingToggles: ({})
         property string listTitle: "Google Tasks"
@@ -486,7 +506,7 @@ Variants {
         property bool isSyncing: false
 
         function toggleLocalTask(taskId) {
-            let current = tasksRoot.taskItems || [];
+            let current = deckRoot.taskItems || [];
             let items = [];
             for (let i = 0; i < current.length; i++) {
                 let t = Object.assign({}, current[i]);
@@ -495,18 +515,14 @@ Variants {
                 }
                 items.push(t);
             }
-            tasksRoot.taskItems = items;
-
-            // Track queued changes
-            let q = Object.assign({}, tasksRoot.pendingToggles);
+            deckRoot.taskItems = items;
+            let q = Object.assign({}, deckRoot.pendingToggles);
             if (q[taskId]) {
                 delete q[taskId];
             } else {
                 q[taskId] = true;
             }
-            tasksRoot.pendingToggles = q;
-
-            // Restart debounce timer (1.2s delay before sending to Google API)
+            deckRoot.pendingToggles = q;
             debouncePushTimer.restart();
         }
 
@@ -515,13 +531,13 @@ Variants {
             interval: 1200
             repeat: false
             onTriggered: {
-                const ids = Object.keys(tasksRoot.pendingToggles);
+                const ids = Object.keys(deckRoot.pendingToggles);
                 if (ids.length > 0) {
-                    tasksRoot.isSyncing = true;
+                    deckRoot.isSyncing = true;
                     for (let i = 0; i < ids.length; i++) {
                         Quickshell.execDetached(["/home/alberviz/.local/bin/gtasks", "--toggle", ids[i]]);
                     }
-                    tasksRoot.pendingToggles = ({});
+                    deckRoot.pendingToggles = ({});
                     syncCompleteTimer.start();
                 }
             }
@@ -532,7 +548,7 @@ Variants {
             interval: 1500
             repeat: false
             onTriggered: {
-                tasksRoot.isSyncing = false;
+                deckRoot.isSyncing = false;
                 if (!gtasksProc.running)
                     gtasksProc.running = true;
             }
@@ -540,17 +556,16 @@ Variants {
 
         Process {
             id: gtasksProc
-
             command: ["/home/alberviz/.local/bin/gtasks", "--json"]
             running: true
             stdout: StdioCollector {
                 onStreamFinished: {
                     try {
                         const data = JSON.parse(text);
-                        tasksRoot.isAuthenticated = data.authenticated ?? false;
-                        tasksRoot.listTitle = data.listName ?? "Google Tasks";
-                        if (Object.keys(tasksRoot.pendingToggles).length === 0) {
-                            tasksRoot.taskItems = data.tasks ?? [];
+                        deckRoot.isAuthenticated = data.authenticated ?? false;
+                        deckRoot.listTitle = data.listName ?? "Google Tasks";
+                        if (Object.keys(deckRoot.pendingToggles).length === 0) {
+                            deckRoot.taskItems = data.tasks ?? [];
                         }
                     } catch (e) {}
                 }
@@ -563,87 +578,636 @@ Variants {
             repeat: true
             triggeredOnStart: true
             onTriggered: {
-                if (!gtasksProc.running && Object.keys(tasksRoot.pendingToggles).length === 0)
+                if (!gtasksProc.running && Object.keys(deckRoot.pendingToggles).length === 0)
                     gtasksProc.running = true;
             }
         }
 
+        // --- WEATHER DATA ---
+        property string weatherTemp: "23°C"
+        property string weatherDesc: "Despejado"
+        property string weatherCity: "Local"
+        property string weatherIcon: "wb_sunny"
+        property string weatherHumidity: "45%"
+        property string weatherWind: "9 km/h"
+        property string weatherSunrise: "07:30 AM"
+        property string weatherSunset: "08:45 PM"
+
+        Process {
+            id: weatherProc
+            command: ["/home/alberviz/.local/bin/desktop-deck-helper", "--weather"]
+            running: false
+            stdout: StdioCollector {
+                onStreamFinished: {
+                    try {
+                        const w = JSON.parse(text);
+                        deckRoot.weatherTemp = w.temp || "22°C";
+                        deckRoot.weatherDesc = w.desc || "Despejado";
+                        deckRoot.weatherCity = w.city || "Local";
+                        deckRoot.weatherIcon = w.icon || "wb_sunny";
+                        deckRoot.weatherHumidity = w.humidity || "45%";
+                        deckRoot.weatherWind = w.wind || "10 km/h";
+                        deckRoot.weatherSunrise = w.sunrise || "07:30 AM";
+                        deckRoot.weatherSunset = w.sunset || "08:45 PM";
+                    } catch (e) {}
+                }
+            }
+        }
+
+        Timer {
+            interval: 60000
+            running: true
+            repeat: true
+            triggeredOnStart: true
+            onTriggered: {
+                if (!weatherProc.running)
+                    weatherProc.running = true;
+            }
+        }
+
+        // --- HARDWARE DATA ---
+        property int cpuPct: 0
+        property int ramPct: 0
+        property string ramUsed: "0.0 GB"
+        property string ramTotal: "16.0 GB"
+        property int gpuTemp: 0
+        property int gpuUtil: 0
+        property int vramPct: 0
+        property string vramUsed: "0.0 GB"
+        property string vramTotal: "6.0 GB"
+
+        Process {
+            id: hwProc
+            command: ["/home/alberviz/.local/bin/desktop-deck-helper", "--hardware"]
+            running: false
+            stdout: StdioCollector {
+                onStreamFinished: {
+                    try {
+                        const h = JSON.parse(text);
+                        deckRoot.cpuPct = h.cpu_pct ?? 0;
+                        deckRoot.ramPct = h.ram_pct ?? 0;
+                        deckRoot.ramUsed = h.ram_used ?? "0 GB";
+                        deckRoot.ramTotal = h.ram_total ?? "16 GB";
+                        deckRoot.gpuTemp = h.gpu_temp ?? 0;
+                        deckRoot.gpuUtil = h.gpu_util ?? 0;
+                        deckRoot.vramPct = h.vram_pct ?? 0;
+                        deckRoot.vramUsed = h.vram_used ?? "0 GB";
+                        deckRoot.vramTotal = h.vram_total ?? "6 GB";
+                    } catch (e) {}
+                }
+            }
+        }
+
+        Timer {
+            interval: 2000
+            running: true
+            repeat: true
+            triggeredOnStart: true
+            onTriggered: {
+                if (!hwProc.running)
+                    hwProc.running = true;
+            }
+        }
+
+        // --- FOCUS POMODORO DATA ---
+        property int focusSeconds: 1500 // 25 mins
+        property int focusTotal: 1500
+        property bool focusRunning: false
+        property bool focusIsBreak: false
+        property int focusSessions: 1
+        property bool focusLightActive: false
+
+        function toggleFocus() {
+            deckRoot.focusRunning = !deckRoot.focusRunning;
+            if (deckRoot.focusRunning && deckRoot.focusLightActive) {
+                Quickshell.execDetached(["/home/alberviz/.local/bin/magichome-control", "--color", "#ff9800"]);
+            }
+        }
+
+        function resetFocus() {
+            deckRoot.focusRunning = false;
+            deckRoot.focusSeconds = deckRoot.focusIsBreak ? 300 : 1500;
+            deckRoot.focusTotal = deckRoot.focusSeconds;
+        }
+
+        Timer {
+            id: focusTimer
+            interval: 1000
+            running: deckRoot.focusRunning
+            repeat: true
+            onTriggered: {
+                if (deckRoot.focusSeconds > 0) {
+                    deckRoot.focusSeconds -= 1;
+                } else {
+                    deckRoot.focusRunning = false;
+                    deckRoot.focusIsBreak = !deckRoot.focusIsBreak;
+                    deckRoot.focusSeconds = deckRoot.focusIsBreak ? 300 : 1500;
+                    deckRoot.focusTotal = deckRoot.focusSeconds;
+                    if (!deckRoot.focusIsBreak) deckRoot.focusSessions += 1;
+                    Quickshell.execDetached(["notify-send", "Focus Timer", deckRoot.focusIsBreak ? "¡Tiempo de descanso! (5 min)" : "¡A enfocarse! (25 min)", "-i", "timer"]);
+                }
+            }
+        }
+
         ColumnLayout {
-            id: tasksLayout
+            id: deckLayout
 
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             anchors.margins: Tokens.padding.large
-            spacing: Tokens.spacing.small
+            spacing: Tokens.spacing.medium
 
+            // --- DECK HEADER PILL TABS ---
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Tokens.spacing.small
 
-                MaterialIcon {
-                    text: "task_alt"
-                    fontStyle: Tokens.font.icon.small
-                    color: Colours.palette.m3primary
-                }
-
-                StyledText {
-                    text: tasksRoot.listTitle
-                    color: Colours.palette.m3primary
-                    font: Tokens.font.title.small
-                    Layout.fillWidth: true
-                    elide: Text.ElideRight
-                }
-
-                // Reload Button
+                // Tab 0: Tareas
                 StyledRect {
-                    implicitWidth: 28
-                    implicitHeight: 28
+                    Layout.fillWidth: true
+                    implicitHeight: 32
                     radius: Tokens.rounding.full
-                    color: win.transparentWidgets ? Qt.alpha(Colours.palette.m3surfaceContainerHigh, 0.4) : Qt.alpha(Colours.palette.m3surfaceContainerHigh, 0.5)
+                    color: deckRoot.currentTab === 0 ? Colours.palette.m3primaryContainer : (win.transparentWidgets ? Qt.alpha(Colours.palette.m3surfaceContainerHigh, 0.4) : Colours.palette.m3surfaceContainerHigh)
 
-                    Behavior on color {
-                        CAnim {}
+                    Behavior on color { CAnim {} }
+
+                    RowLayout {
+                        anchors.centerIn: parent
+                        spacing: Tokens.spacing.extraSmall
+
+                        MaterialIcon {
+                            text: "checklist"
+                            fontStyle: Tokens.font.icon.small
+                            color: deckRoot.currentTab === 0 ? Colours.palette.m3onPrimaryContainer : Colours.palette.m3onSurfaceVariant
+                        }
+                        StyledText {
+                            text: "Tareas"
+                            color: deckRoot.currentTab === 0 ? Colours.palette.m3onPrimaryContainer : Colours.palette.m3onSurfaceVariant
+                            font: Tokens.font.label.large
+                        }
                     }
 
                     StateLayer {
                         radius: Tokens.rounding.full
-                        onClicked: {
-                            if (!gtasksProc.running)
-                                gtasksProc.running = true;
+                        onClicked: deckRoot.currentTab = 0
+                    }
+                }
+
+                // Tab 1: Clima
+                StyledRect {
+                    Layout.fillWidth: true
+                    implicitHeight: 32
+                    radius: Tokens.rounding.full
+                    color: deckRoot.currentTab === 1 ? Colours.palette.m3primaryContainer : (win.transparentWidgets ? Qt.alpha(Colours.palette.m3surfaceContainerHigh, 0.4) : Colours.palette.m3surfaceContainerHigh)
+
+                    Behavior on color { CAnim {} }
+
+                    RowLayout {
+                        anchors.centerIn: parent
+                        spacing: Tokens.spacing.extraSmall
+
+                        MaterialIcon {
+                            text: "partly_cloudy_day"
+                            fontStyle: Tokens.font.icon.small
+                            color: deckRoot.currentTab === 1 ? Colours.palette.m3onPrimaryContainer : Colours.palette.m3onSurfaceVariant
+                        }
+                        StyledText {
+                            text: "Clima"
+                            color: deckRoot.currentTab === 1 ? Colours.palette.m3onPrimaryContainer : Colours.palette.m3onSurfaceVariant
+                            font: Tokens.font.label.large
                         }
                     }
 
-                    MaterialIcon {
-                        anchors.centerIn: parent
-                        text: (gtasksProc.running || tasksRoot.isSyncing) ? "sync" : "refresh"
-                        fontStyle: Tokens.font.icon.small
-                        color: (gtasksProc.running || tasksRoot.isSyncing) ? Colours.palette.m3primary : Colours.palette.m3onSurfaceVariant
+                    StateLayer {
+                        radius: Tokens.rounding.full
+                        onClicked: deckRoot.currentTab = 1
+                    }
+                }
 
-                        Behavior on color {
-                            CAnim {}
+                // Tab 2: Hardware
+                StyledRect {
+                    Layout.fillWidth: true
+                    implicitHeight: 32
+                    radius: Tokens.rounding.full
+                    color: deckRoot.currentTab === 2 ? Colours.palette.m3primaryContainer : (win.transparentWidgets ? Qt.alpha(Colours.palette.m3surfaceContainerHigh, 0.4) : Colours.palette.m3surfaceContainerHigh)
+
+                    Behavior on color { CAnim {} }
+
+                    RowLayout {
+                        anchors.centerIn: parent
+                        spacing: Tokens.spacing.extraSmall
+
+                        MaterialIcon {
+                            text: "speed"
+                            fontStyle: Tokens.font.icon.small
+                            color: deckRoot.currentTab === 2 ? Colours.palette.m3onPrimaryContainer : Colours.palette.m3onSurfaceVariant
+                        }
+                        StyledText {
+                            text: "Hardware"
+                            color: deckRoot.currentTab === 2 ? Colours.palette.m3onPrimaryContainer : Colours.palette.m3onSurfaceVariant
+                            font: Tokens.font.label.large
+                        }
+                    }
+
+                    StateLayer {
+                        radius: Tokens.rounding.full
+                        onClicked: deckRoot.currentTab = 2
+                    }
+                }
+
+                // Tab 3: Focus
+                StyledRect {
+                    Layout.fillWidth: true
+                    implicitHeight: 32
+                    radius: Tokens.rounding.full
+                    color: deckRoot.currentTab === 3 ? Colours.palette.m3primaryContainer : (win.transparentWidgets ? Qt.alpha(Colours.palette.m3surfaceContainerHigh, 0.4) : Colours.palette.m3surfaceContainerHigh)
+
+                    Behavior on color { CAnim {} }
+
+                    RowLayout {
+                        anchors.centerIn: parent
+                        spacing: Tokens.spacing.extraSmall
+
+                        MaterialIcon {
+                            text: "timer"
+                            fontStyle: Tokens.font.icon.small
+                            color: deckRoot.currentTab === 3 ? Colours.palette.m3onPrimaryContainer : Colours.palette.m3onSurfaceVariant
+                        }
+                        StyledText {
+                            text: "Focus"
+                            color: deckRoot.currentTab === 3 ? Colours.palette.m3onPrimaryContainer : Colours.palette.m3onSurfaceVariant
+                            font: Tokens.font.label.large
+                        }
+                    }
+
+                    StateLayer {
+                        radius: Tokens.rounding.full
+                        onClicked: deckRoot.currentTab = 3
+                    }
+                }
+            }
+
+            // --- CARD 0: GOOGLE TASKS ---
+            ColumnLayout {
+                visible: deckRoot.currentTab === 0
+                Layout.fillWidth: true
+                spacing: Tokens.spacing.small
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Tokens.spacing.small
+
+                    StyledText {
+                        text: deckRoot.listTitle
+                        color: Colours.palette.m3primary
+                        font: Tokens.font.title.small
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                    }
+
+                    StyledRect {
+                        readonly property int pendingCount: (deckRoot.taskItems || []).filter(t => !t.completed).length
+                        radius: Tokens.rounding.full
+                        color: Colours.palette.m3primaryContainer
+                        implicitWidth: pendingLabel.implicitWidth + Tokens.padding.medium
+                        implicitHeight: pendingLabel.implicitHeight + Tokens.padding.extraSmall
+
+                        StyledText {
+                            id: pendingLabel
+                            anchors.centerIn: parent
+                            text: `${parent.pendingCount} pendientes`
+                            color: Colours.palette.m3onPrimaryContainer
+                            font: Tokens.font.label.small
+                        }
+                    }
+
+                    StyledRect {
+                        implicitWidth: 28
+                        implicitHeight: 28
+                        radius: Tokens.rounding.full
+                        color: (win.transparentWidgets ? Qt.alpha(Colours.palette.m3surfaceContainerHigh, 0.4) : Colours.palette.m3surfaceContainerHigh)
+
+                        MaterialIcon {
+                            anchors.centerIn: parent
+                            text: "refresh"
+                            fontStyle: Tokens.font.icon.small
+                            color: deckRoot.isSyncing ? Colours.palette.m3primary : Colours.palette.m3onSurfaceVariant
+                            rotation: deckRoot.isSyncing ? 360 : 0
+                            Behavior on rotation { Anim { duration: 800; loops: Animation.Infinite } }
+                        }
+
+                        StateLayer {
+                            radius: Tokens.rounding.full
+                            onClicked: {
+                                if (!gtasksProc.running)
+                                    gtasksProc.running = true;
+                            }
+                        }
+                    }
+                }
+
+                Repeater {
+                    model: (deckRoot.taskItems || []).slice(0, 4)
+                    TaskRow {
+                        Layout.fillWidth: true
+                        modelData: modelData
+                        onToggled: deckRoot.toggleLocalTask(modelData.id)
+                    }
+                }
+            }
+
+            // --- CARD 1: WEATHER & CURVE ---
+            RowLayout {
+                visible: deckRoot.currentTab === 1
+                Layout.fillWidth: true
+                spacing: Tokens.spacing.large
+
+                // Left: Big Temp & Icon
+                RowLayout {
+                    spacing: Tokens.spacing.medium
+
+                    MaterialIcon {
+                        text: deckRoot.weatherIcon
+                        fontStyle: Tokens.font.icon.size(48).build()
+                        color: Colours.palette.m3primary
+                    }
+
+                    ColumnLayout {
+                        spacing: 0
+                        StyledText {
+                            text: deckRoot.weatherTemp
+                            font: Tokens.font.headline.large
+                            color: Colours.palette.m3onSurface
+                        }
+                        StyledText {
+                            text: `${deckRoot.weatherDesc} • ${deckRoot.weatherCity}`
+                            font: Tokens.font.body.medium
+                            color: Colours.palette.m3onSurfaceVariant
+                        }
+                    }
+                }
+
+                Item { Layout.fillWidth: true }
+
+                // Right: 4 Metrics Grid
+                GridLayout {
+                    columns: 2
+                    columnSpacing: Tokens.spacing.medium
+                    rowSpacing: Tokens.spacing.small
+
+                    RowLayout {
+                        spacing: Tokens.spacing.extraSmall
+                        MaterialIcon { text: "water_drop"; fontStyle: Tokens.font.icon.small; color: Colours.palette.m3secondary }
+                        StyledText { text: `Humedad: ${deckRoot.weatherHumidity}`; font: Tokens.font.label.medium; color: Colours.palette.m3onSurface }
+                    }
+                    RowLayout {
+                        spacing: Tokens.spacing.extraSmall
+                        MaterialIcon { text: "air"; fontStyle: Tokens.font.icon.small; color: Colours.palette.m3secondary }
+                        StyledText { text: `Viento: ${deckRoot.weatherWind}`; font: Tokens.font.label.medium; color: Colours.palette.m3onSurface }
+                    }
+                    RowLayout {
+                        spacing: Tokens.spacing.extraSmall
+                        MaterialIcon { text: "wb_twilight"; fontStyle: Tokens.font.icon.small; color: Colours.palette.m3tertiary }
+                        StyledText { text: `Amanecer: ${deckRoot.weatherSunrise}`; font: Tokens.font.label.medium; color: Colours.palette.m3onSurface }
+                    }
+                    RowLayout {
+                        spacing: Tokens.spacing.extraSmall
+                        MaterialIcon { text: "nights_stay"; fontStyle: Tokens.font.icon.small; color: Colours.palette.m3tertiary }
+                        StyledText { text: `Atardecer: ${deckRoot.weatherSunset}`; font: Tokens.font.label.medium; color: Colours.palette.m3onSurface }
+                    }
+                }
+            }
+
+            // --- CARD 2: HARDWARE HUD ---
+            GridLayout {
+                visible: deckRoot.currentTab === 2
+                Layout.fillWidth: true
+                columns: 2
+                columnSpacing: Tokens.spacing.large
+                rowSpacing: Tokens.spacing.small
+
+                // CPU
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Tokens.spacing.extraSmall
+                    RowLayout {
+                        Layout.fillWidth: true
+                        MaterialIcon { text: "memory"; fontStyle: Tokens.font.icon.small; color: Colours.palette.m3primary }
+                        StyledText { text: "CPU"; font: Tokens.font.label.medium; color: Colours.palette.m3onSurface }
+                        Item { Layout.fillWidth: true }
+                        StyledText { text: `${deckRoot.cpuPct}%`; font: Tokens.font.label.medium; color: Colours.palette.m3primary }
+                    }
+                    StyledRect {
+                        Layout.fillWidth: true
+                        implicitHeight: 8
+                        radius: 4
+                        color: (win.transparentWidgets ? Qt.alpha(Colours.palette.m3surfaceContainerHigh, 0.5) : Colours.palette.m3surfaceContainerHigh)
+                        StyledRect {
+                            width: parent.width * (deckRoot.cpuPct / 100.0)
+                            height: parent.height
+                            radius: 4
+                            color: Colours.palette.m3primary
+                            Behavior on width { Anim { duration: 300 } }
+                        }
+                    }
+                }
+
+                // RAM
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Tokens.spacing.extraSmall
+                    RowLayout {
+                        Layout.fillWidth: true
+                        MaterialIcon { text: "straighten"; fontStyle: Tokens.font.icon.small; color: Colours.palette.m3secondary }
+                        StyledText { text: "RAM"; font: Tokens.font.label.medium; color: Colours.palette.m3onSurface }
+                        Item { Layout.fillWidth: true }
+                        StyledText { text: `${deckRoot.ramUsed} (${deckRoot.ramPct}%)`; font: Tokens.font.label.medium; color: Colours.palette.m3secondary }
+                    }
+                    StyledRect {
+                        Layout.fillWidth: true
+                        implicitHeight: 8
+                        radius: 4
+                        color: (win.transparentWidgets ? Qt.alpha(Colours.palette.m3surfaceContainerHigh, 0.5) : Colours.palette.m3surfaceContainerHigh)
+                        StyledRect {
+                            width: parent.width * (deckRoot.ramPct / 100.0)
+                            height: parent.height
+                            radius: 4
+                            color: Colours.palette.m3secondary
+                            Behavior on width { Anim { duration: 300 } }
+                        }
+                    }
+                }
+
+                // GPU
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Tokens.spacing.extraSmall
+                    RowLayout {
+                        Layout.fillWidth: true
+                        MaterialIcon { text: "videogame_asset"; fontStyle: Tokens.font.icon.small; color: Colours.palette.m3tertiary }
+                        StyledText { text: "GPU (Nvidia)"; font: Tokens.font.label.medium; color: Colours.palette.m3onSurface }
+                        Item { Layout.fillWidth: true }
+                        StyledText { text: `${deckRoot.gpuTemp}°C (${deckRoot.gpuUtil}%)`; font: Tokens.font.label.medium; color: Colours.palette.m3tertiary }
+                    }
+                    StyledRect {
+                        Layout.fillWidth: true
+                        implicitHeight: 8
+                        radius: 4
+                        color: (win.transparentWidgets ? Qt.alpha(Colours.palette.m3surfaceContainerHigh, 0.5) : Colours.palette.m3surfaceContainerHigh)
+                        StyledRect {
+                            width: parent.width * (Math.min(100, deckRoot.gpuTemp) / 100.0)
+                            height: parent.height
+                            radius: 4
+                            color: Colours.palette.m3tertiary
+                            Behavior on width { Anim { duration: 300 } }
+                        }
+                    }
+                }
+
+                // VRAM
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Tokens.spacing.extraSmall
+                    RowLayout {
+                        Layout.fillWidth: true
+                        MaterialIcon { text: "layers"; fontStyle: Tokens.font.icon.small; color: Colours.palette.m3primary }
+                        StyledText { text: "VRAM"; font: Tokens.font.label.medium; color: Colours.palette.m3onSurface }
+                        Item { Layout.fillWidth: true }
+                        StyledText { text: `${deckRoot.vramUsed} (${deckRoot.vramPct}%)`; font: Tokens.font.label.medium; color: Colours.palette.m3primary }
+                    }
+                    StyledRect {
+                        Layout.fillWidth: true
+                        implicitHeight: 8
+                        radius: 4
+                        color: (win.transparentWidgets ? Qt.alpha(Colours.palette.m3surfaceContainerHigh, 0.5) : Colours.palette.m3surfaceContainerHigh)
+                        StyledRect {
+                            width: parent.width * (deckRoot.vramPct / 100.0)
+                            height: parent.height
+                            radius: 4
+                            color: Colours.palette.m3primary
+                            Behavior on width { Anim { duration: 300 } }
                         }
                     }
                 }
             }
 
-            StyledText {
-                visible: (tasksRoot.taskItems?.length ?? 0) === 0
+            // --- CARD 3: FOCUS POMODORO ---
+            RowLayout {
+                visible: deckRoot.currentTab === 3
                 Layout.fillWidth: true
-                Layout.topMargin: Tokens.spacing.small
-                Layout.bottomMargin: Tokens.spacing.small
-                text: tasksRoot.isAuthenticated ? qsTr("No hay tareas pendientes ✨") : qsTr("Cargando tareas...")
-                color: Colours.palette.m3onSurfaceVariant
-                horizontalAlignment: Text.AlignHCenter
-                font: Tokens.font.body.medium
+                spacing: Tokens.spacing.large
+
+                // Left: Timer Display
+                ColumnLayout {
+                    spacing: 0
+                    StyledText {
+                        readonly property int mins: Math.floor(deckRoot.focusSeconds / 60)
+                        readonly property int secs: deckRoot.focusSeconds % 60
+                        text: `${mins < 10 ? '0' + mins : mins}:${secs < 10 ? '0' + secs : secs}`
+                        font: Tokens.font.headline.large
+                        color: Colours.palette.m3primary
+                    }
+                    StyledText {
+                        text: deckRoot.focusIsBreak ? "Descanso" : `Sesión de enfoque #${deckRoot.focusSessions}`
+                        font: Tokens.font.body.medium
+                        color: Colours.palette.m3onSurfaceVariant
+                    }
+                }
+
+                Item { Layout.fillWidth: true }
+
+                // Right: Controls
+                RowLayout {
+                    spacing: Tokens.spacing.small
+
+                    // Play / Pause
+                    StyledRect {
+                        implicitWidth: 44
+                        implicitHeight: 44
+                        radius: Tokens.rounding.full
+                        color: Colours.palette.m3primaryContainer
+
+                        MaterialIcon {
+                            anchors.centerIn: parent
+                            text: deckRoot.focusRunning ? "pause" : "play_arrow"
+                            fontStyle: Tokens.font.icon.medium
+                            color: Colours.palette.m3onPrimaryContainer
+                        }
+                        StateLayer {
+                            radius: Tokens.rounding.full
+                            onClicked: deckRoot.toggleFocus()
+                        }
+                    }
+
+                    // Reset
+                    StyledRect {
+                        implicitWidth: 44
+                        implicitHeight: 44
+                        radius: Tokens.rounding.full
+                        color: (win.transparentWidgets ? Qt.alpha(Colours.palette.m3surfaceContainerHigh, 0.4) : Colours.palette.m3surfaceContainerHigh)
+
+                        MaterialIcon {
+                            anchors.centerIn: parent
+                            text: "restart_alt"
+                            fontStyle: Tokens.font.icon.medium
+                            color: Colours.palette.m3onSurfaceVariant
+                        }
+                        StateLayer {
+                            radius: Tokens.rounding.full
+                            onClicked: deckRoot.resetFocus()
+                        }
+                    }
+
+                    // Focus Ambient Light Toggle
+                    StyledRect {
+                        implicitWidth: 44
+                        implicitHeight: 44
+                        radius: Tokens.rounding.full
+                        color: deckRoot.focusLightActive ? Colours.palette.m3tertiaryContainer : (win.transparentWidgets ? Qt.alpha(Colours.palette.m3surfaceContainerHigh, 0.4) : Colours.palette.m3surfaceContainerHigh)
+
+                        MaterialIcon {
+                            anchors.centerIn: parent
+                            text: "wb_incandescent"
+                            fontStyle: Tokens.font.icon.medium
+                            color: deckRoot.focusLightActive ? Colours.palette.m3onTertiaryContainer : Colours.palette.m3onSurfaceVariant
+                        }
+                        StateLayer {
+                            radius: Tokens.rounding.full
+                            onClicked: {
+                                deckRoot.focusLightActive = !deckRoot.focusLightActive;
+                                if (deckRoot.focusLightActive) {
+                                    Quickshell.execDetached(["/home/alberviz/.local/bin/magichome-control", "--color", "#ff9800"]);
+                                } else {
+                                    Quickshell.execDetached(["/usr/bin/python3", "/home/alberviz/.config/caelestia/sync-rgb.py"]);
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
-            Repeater {
-                model: tasksRoot.taskItems
+            // --- BOTTOM DECK INDICATOR DOTS ---
+            RowLayout {
+                Layout.alignment: Qt.AlignHCenter
+                spacing: Tokens.spacing.small
 
-                TaskRow {
-                    Layout.fillWidth: true
-                    onToggled: tasksRoot.toggleLocalTask(modelData.id)
+                Repeater {
+                    model: 4
+                    StyledRect {
+                        implicitWidth: deckRoot.currentTab === index ? 24 : 8
+                        implicitHeight: 8
+                        radius: 4
+                        color: deckRoot.currentTab === index ? Colours.palette.m3primary : Qt.alpha(Colours.palette.m3outline, 0.3)
+
+                        Behavior on implicitWidth { Anim { duration: 250 } }
+                        Behavior on color { CAnim {} }
+
+                        StateLayer {
+                            radius: 4
+                            onClicked: deckRoot.currentTab = index
+                        }
+                    }
                 }
             }
         }
