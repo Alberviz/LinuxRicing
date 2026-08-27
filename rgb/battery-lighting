@@ -36,6 +36,7 @@ AKKO_CONFIG_LEGACY = f"{HOME}/.config/caelestia/akko-config.json"
 MCHOSE_CONFIG_LEGACY = f"{HOME}/.config/caelestia/mchose-config.json"
 SYNC_RGB = f"{HOME}/.config/caelestia/sync-rgb.py"
 LOG_FILE = f"{HOME}/.cache/battery_lighting.log"
+MAGICHOME_CONTROL = f"{HOME}/.local/bin/magichome-control"
 
 DEFAULTS = {
     "poll": {"idle_seconds": 60, "charging_seconds": 3},
@@ -795,12 +796,51 @@ def apply_akko_meter(level):
     _save_state(st)
 
 
-def apply_magichome(*a):
-    pass
+def _effect_rgb(effect, level, theme_rgb):
+    if effect in ("battery_color",):
+        return battery_level_color(level)
+    if effect in ("solid_theme",):
+        return tuple(theme_rgb)
+    if effect == "red":
+        return (255, 0, 0)
+    return None
 
 
-def apply_openrgb(*a):
-    pass
+def apply_magichome(effect, level, theme_rgb):
+    rgb = _effect_rgb(effect, level, theme_rgb)
+    if rgb is None:
+        return
+    hexs = "%02x%02x%02x" % rgb
+    try:
+        subprocess.run([MAGICHOME_CONTROL, "--color", hexs], timeout=6,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as e:
+        log(f"magichome: {e}")
+
+
+def apply_openrgb(effect, level, theme_rgb):
+    if effect == "none":
+        return
+    if effect == "battery_meter":
+        log("openrgb battery_meter -> sólido por nivel (relleno animado es v2)")  # TODO v2: integrar con argb-wave.py
+        rgb = battery_level_color(level)
+    else:
+        rgb = _effect_rgb(effect, level, theme_rgb) or tuple(theme_rgb)
+    try:
+        from openrgb import OpenRGBClient
+        from openrgb.utils import RGBColor
+        client = OpenRGBClient()
+        for dev in client.devices:
+            name_l = dev.name.lower()
+            if "akko" in name_l or "royuan" in name_l:
+                continue
+            try:
+                dev.set_mode(0)
+                dev.set_color(RGBColor(*rgb))
+            except Exception:
+                pass
+    except Exception as e:
+        log(f"openrgb: {e}")
 
 
 _DEVICE_OF_ZONE = {"akko_keyboard": "akko_keyboard", "mchose_base": "mchose_base",
