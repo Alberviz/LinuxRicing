@@ -295,28 +295,32 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4):
     sled[8] = _akko_checksum8(sled)
     raw_sled = bytearray([0x00]) + sled
 
-    for node in nodes:
-        try:
-            fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
-            # 1. Send first packet to wake up RF link
-            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
-            time.sleep(0.05)
+    lock_fd = None
+    try:
+        lock_fd = os.open("/tmp/akko_sync.lock", os.O_CREAT | os.O_RDWR)
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+    except Exception:
+        lock_fd = None
 
-            # 2. Send Backlight packet
-            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
-            time.sleep(0.04)
-
-            # 3. Send Side-strip packet
-            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_sled)), raw_sled)
-            time.sleep(0.04)
-
-            # 4. Confirmation retransmission for Backlight
-            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
-            os.close(fd)
-            log(f"Akko Keyboard ({node}): Synced Backlight RGB({r},{g},{b}) + Side-Strip ({status_log})")
-            return
-        except Exception as e:
-            log(f"Akko Keyboard error on {node}: {e}")
+    try:
+        for node in nodes:
+            try:
+                fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
+                fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
+                time.sleep(0.02)
+                fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_sled)), raw_sled)
+                os.close(fd)
+                log(f"Akko Keyboard ({node}): Synced Backlight RGB({r},{g},{b}) + Side-Strip ({status_log})")
+                return
+            except Exception as e:
+                log(f"Akko Keyboard error on {node}: {e}")
+    finally:
+        if lock_fd is not None:
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                os.close(lock_fd)
+            except Exception:
+                pass
 
 
 def sync_mchose_base(r: int, g: int, b: int):
@@ -385,8 +389,23 @@ def sync_magichome(r: int, g: int, b: int):
             log(f"MagicHome CLI error: {e2}")
 
 
-def sync_spicetify():
-    """Update Spicetify theme color.ini with current Material You palette and apply."""
+def is_spotify_focused() -> bool:
+    """Check if Spotify window is currently active/focused."""
+    try:
+        res = subprocess.run(["hyprctl", "activewindow", "-j"], capture_output=True, text=True, timeout=1)
+        if res.returncode == 0:
+            data = json.loads(res.stdout)
+            wclass = str(data.get("class", "")).lower()
+            return "spotify" in wclass
+    except Exception:
+        pass
+    return False
+
+
+def sync_spicetify(is_preview: bool = False):
+    """Update Spicetify theme color.ini with current Material You palette.
+    Only reload Spotify if Spotify is the currently focused window, avoiding background playback disruption.
+    """
     try:
         state_file = Path.home() / ".local/state/caelestia/scheme.json"
         if not state_file.exists():
@@ -432,7 +451,6 @@ tab-active          = {card}
         theme_dir.mkdir(parents=True, exist_ok=True)
         color_ini_file = theme_dir / "color.ini"
 
-        # Check if colors actually changed to avoid reloading Spotify unnecessarily
         old_content = ""
         if color_ini_file.exists():
             try:
@@ -445,11 +463,22 @@ tab-active          = {card}
             return
 
         color_ini_file.write_text(color_ini_content)
+        pending_flag = Path.home() / ".cache/spicetify_pending_reload"
+        pending_flag.touch()
 
-        spicetify_bin = Path.home() / ".spicetify/spicetify"
-        if spicetify_bin.exists():
-            subprocess.run([str(spicetify_bin), "apply", "-q"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
-            log("Spicetify: Applied Material You dynamic theme successfully")
+        # Never reload during preview
+        if is_preview or os.environ.get("SCHEME_COLOURS"):
+            log("Spicetify: Color.ini updated (preview mode, skipping apply)")
+            return
+
+        if is_spotify_focused():
+            spicetify_bin = Path.home() / ".spicetify/spicetify"
+            if spicetify_bin.exists():
+                subprocess.run([str(spicetify_bin), "apply", "-q"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+                pending_flag.unlink(missing_ok=True)
+                log("Spicetify: Applied Material You dynamic theme immediately (Spotify is focused)")
+        else:
+            log("Spicetify: Color.ini updated; apply queued for next Spotify focus (no playback disruption)")
     except Exception as e:
         log(f"Spicetify sync error: {e}")
 

@@ -34,6 +34,9 @@ hl.on("hyprland.start", function()
     -- Sync RGB colors on startup
     hl.exec_cmd("sleep 2 && /home/alberviz/.config/caelestia/sync-rgb.py")
 
+    -- Spotify on-focus theme watcher (no playback interruptions)
+    hl.exec_cmd("/home/alberviz/.local/bin/spotify-focus-watcher &")
+
     -- Start shell and lock immediately
     hl.exec_cmd("caelestia shell -d && sleep 0.2 && caelestia shell lock lock")
 end)

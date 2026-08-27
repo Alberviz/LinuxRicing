@@ -122,7 +122,7 @@ Searcher {
         interval: 150
         onTriggered: {
             if (root.lastPreviewColoursJson)
-                Quickshell.execDetached(["env", `SCHEME_COLOURS=${root.lastPreviewColoursJson}`, "python3", "/home/alberviz/.config/caelestia/sync-rgb.py"]);
+                Quickshell.execDetached(["env", `SCHEME_COLOURS=${root.lastPreviewColoursJson}`, "python3", "/home/alberviz/.config/caelestia/sync-rgb.py", "--only", "openrgb,magichome,mchose_base,akko_keyboard"]);
         }
     }
 
