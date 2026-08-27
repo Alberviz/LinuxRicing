@@ -24,6 +24,9 @@ Searcher {
     // [claude-rgb-preview-patch] holds the colours JSON from the last wallpaper
     // preview, so the debounce timer below can push it to sync-rgb.py.
     property string lastPreviewColoursJson: ""
+    // [claude-rgb-preview-patch] true for a few seconds after a real pick /
+    // random, so closing the picker doesn't fight the confirmed postHook.
+    property bool justSelected: false
 
     function getCategoryFor(w: FileSystemEntry): string {
         let category = w.parentDir.slice(Paths.wallsdir.length + 1);
@@ -33,11 +36,15 @@ Searcher {
     }
 
     function setRandom(): void {
+        root.justSelected = true;
+        justSelectedTimer.restart();
         Quickshell.execDetached(["caelestia", "wallpaper", "-r", ...smartArg]);
     }
 
     function setWallpaper(path: string): void {
         actualCurrent = path;
+        root.justSelected = true;
+        justSelectedTimer.restart();
         Quickshell.execDetached(["caelestia", "wallpaper", "-f", path, ...smartArg]);
     }
 
@@ -51,10 +58,19 @@ Searcher {
 
     function stopPreview(): void {
         showPreview = false;
+        previewSyncTimer.stop();
         if (previewColourLock)
             pendingPreviewClear = true;
         else
             Colours.showPreview = false;
+
+        // [claude-rgb-preview-patch] the preview pushed a colour to the LEDs.
+        // If the picker is closing WITHOUT a pick (Escape), nothing else will
+        // restore them, so re-run sync-rgb.py with no args (reads the real
+        // scheme.json). On a real pick the confirmed postHook already does it.
+        if (root.lastPreviewColoursJson && !root.justSelected)
+            rgbRestoreTimer.restart();
+        root.lastPreviewColoursJson = "";
     }
 
     onPreviewColourLockChanged: {
@@ -124,6 +140,22 @@ Searcher {
             if (root.lastPreviewColoursJson)
                 Quickshell.execDetached(["env", `SCHEME_COLOURS=${root.lastPreviewColoursJson}`, "python3", "/home/alberviz/.config/caelestia/sync-rgb.py", "--only", "openrgb,magichome,mchose_base,akko_keyboard"]);
         }
+    }
+
+    // [claude-rgb-preview-patch] restores the LEDs to the real scheme after a
+    // cancelled preview. Delayed so any in-flight preview write lands first.
+    Timer {
+        id: rgbRestoreTimer
+
+        interval: 400
+        onTriggered: Quickshell.execDetached(["python3", "/home/alberviz/.config/caelestia/sync-rgb.py"])
+    }
+
+    Timer {
+        id: justSelectedTimer
+
+        interval: 3000
+        onTriggered: root.justSelected = false
     }
 
     Process {

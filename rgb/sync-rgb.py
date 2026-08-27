@@ -268,7 +268,7 @@ def get_akko_battery_level_color(bat_level: int | None) -> tuple[int, int, int]:
     return (int(nr * 255), int(ng * 255), int(nb * 255))
 
 
-def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4):
+def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4, throttle: bool = False):
     """
     Set Akko 5075B Plus Keyboard Backlight (Opcode 0x07) and Side-Strip (Opcode 0x08)
     via direct USB HID Feature Reports on Interface 2.
@@ -354,18 +354,21 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4):
     except Exception:
         lock_fd = None
 
-    # Hard floor between writes: the 2.4 GHz radio drops/garbles packets that
-    # arrive too close together (this is what turns the backlight white).
+    # On the preview path only: hard floor between writes. The 2.4 GHz radio
+    # drops/garbles packets that arrive too close together (this is what
+    # turns the backlight white when scrolling wallpapers fast). A confirmed
+    # theme change (throttle=False) must always get through.
     stamp = Path("/tmp/akko_last_write.txt")
-    try:
-        if stamp.exists() and time.time() - float(stamp.read_text().strip()) < 0.25:
-            log("Akko Keyboard: skipped (last write < 250 ms ago)")
-            if lock_fd is not None:
-                fcntl.flock(lock_fd, fcntl.LOCK_UN)
-                os.close(lock_fd)
-            return
-    except Exception:
-        pass
+    if throttle:
+        try:
+            if stamp.exists() and time.time() - float(stamp.read_text().strip()) < 0.25:
+                log("Akko Keyboard: skipped (preview, last write < 250 ms ago)")
+                if lock_fd is not None:
+                    fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                    os.close(lock_fd)
+                return
+        except Exception:
+            pass
 
     try:
         for node in nodes:
@@ -615,15 +618,15 @@ def main():
     enabled = config.get("devices", DEFAULT_RGB_CONFIG["devices"])
     only = opts["only"]
 
-    # Wallpaper *preview* (SCHEME_COLOURS env) fires every ~150 ms while the
-    # user scrolls. The Akko 2.4 GHz radio can't take that many back-to-back
-    # writes and the backlight corrupts (goes white / freezes), so the
-    # keyboard only updates on the confirmed theme change, never on preview.
-    is_preview = bool(os.environ.get("SCHEME_COLOURS")) and not opts["hex"]
+    # The wallpaper *preview* is the only caller that passes --only (see
+    # Wallpapers.qml); the confirmed theme/wallpaper postHook runs with no
+    # args (but WITH SCHEME_COLOURS in the env - that env var is NOT a
+    # preview signal). Preview fires every ~150 ms while scrolling, and the
+    # Akko 2.4 GHz radio garbles writes that close together, so throttle the
+    # keyboard on the preview path only - never on a confirmed change.
+    akko_throttle = only is not None
 
     def wants(key: str) -> bool:
-        if key == "akko_keyboard" and is_preview:
-            return False
         return enabled.get(key, True) and (only is None or key in only)
 
     argb_zones = config.get("devices_extra", {}).get("openrgb", {}).get("argb_zones", False)
@@ -632,7 +635,7 @@ def main():
         "openrgb": lambda: sync_openrgb(r, g, b, argb_zones),
         "magichome": lambda: sync_magichome(r, g, b),
         "mchose_base": lambda: sync_mchose_base(r, g, b),
-        "akko_keyboard": lambda: sync_akko_keyboard(r, g, b),
+        "akko_keyboard": lambda: sync_akko_keyboard(r, g, b, throttle=akko_throttle),
         "spicetify": sync_spicetify,
     }
 
