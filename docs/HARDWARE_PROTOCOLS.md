@@ -21,8 +21,8 @@ Este documento consolida los protocolos de ingeniería inversa y especificacione
 
 ### A. Control de Iluminación RGB (Opcodes `0x07` y `0x08`):
 - **Estructura del Payload (64 bytes):**
-  - `byte[0]`: Opcode (`0x08` para SLED / `0x07` para LED).
-  - `byte[1]`: Modo (`0x01` = Estático, `0x00` = Apagado, `0x02` = Respiración).
+  - `byte[0]`: Opcode (`0x08` para SLED / `0x07` para LED Backlight).
+  - `byte[1]`: Modo (`0x01` = Estático, `0x00` = Apagado, `0x02` = Respiración, `0x05` = Steady Stream / Flujo).
   - `byte[2]`: Velocidad (`0x04`).
   - `byte[3]`: Brillo (`0x04` = 100%, rango 0 a 4).
   - `byte[4]`: Flags (`option | dazzle`). Para color RGB personalizado sólido: **`0x08`**.
@@ -32,17 +32,19 @@ Este documento consolida los protocolos de ingeniería inversa y especificacione
   - `byte[8]`: **Checksum** = `0xFF - (sum(byte[0..8]) & 0xFF)` (complemento a uno de la suma de los 8 primeros bytes).
   - `byte[9..63]`: Relleno (`0x00`).
 
+- **Reglas Reactivas del Lightstrip Lateral (Side-Strip `0x08`):**
+  - **Reposo / Normal:** Modo `0x01` (Estático) con color acento/primario del sistema (Material You).
+  - **Batería Baja (≤ 15%):** Modo `0x02` (Respiración *Breathing*) en **Rojo puro** (`RGB: 255, 0, 0`).
+  - **Al Cargar (al enchufar):** Modo `0x05` (Flujo *Steady Stream*) con **gradiente progresivo de color** según nivel de batería (`≤15%` Rojo, `16-40%` Ámbar, `41-70%` Amarillo, `71-89%` Lima, `90-100%` Verde Esmeralda).
+
 ### B. Telemetría de Batería y Carga (Opcode `0x83`):
-- **Solicitud (Host ➔ Teclado):** Buffer de 64 bytes con `byte[0] = 0x83`, `byte[8] = 0x00` (o checksum Bit7 `0x7C`).
-- **Respuesta (Teclado ➔ Host):**
+- **Modo Cable USB Directo (`PID 0x4015`):**
   - `byte[0]`: `0x83` (Echo del comando).
-  - `byte[1]`: **Porcentaje de Batería** (`0 - 100%`). *(En modo 2.4 GHz reporta el nivel exacto de la celda de litio; en modo cable USB reporta `0` como bypass de alimentación directa)*.
-  - `byte[2]`: **Estado de Alimentación / Carga**:
-    - `0x00`: **Descargando / Modo Batería**.
-    - `0x01`: **⚡ Cargando activamente por cable USB**.
-    - `0x02`: **🔋 Carga completa (100%)**.
-  - `byte[3]`: `batteryLp` (Umbral / bandera de batería baja).
-  - `byte[8]`: Checksum de 8 bits.
+  - `byte[2]`: Nivel de batería / ADC (`0 - 100%`).
+  - `byte[3]`: Código de estado (`0x01` = Cargando, `0x02` = Carga completa).
+- **Modo 2.4 GHz RF Dongle (`PID 0x4011`):**
+  - El dongle USB devuelve un descriptor estático Family B (`byte[2] = 0x42` = `'B'`).
+  - El software propietario de Windows (Akko Cloud Driver) utiliza un canal de transporte específico para enviar paquetes de iluminación y consultar batería por radiofrecuencia. Se documenta la captura en `vault/Rice LinuxRicing/02 - Windows/RGB y Hardware/Guía de Captura USB en Windows.md` para replicar dicho canal en Linux.
 
 ### C. Estado de la Palanca / Switch y Opciones (Opcode `0x86`):
 - **Solicitud:** Buffer de 64 bytes con `byte[0] = 0x86`, `byte[1] = 0x00` (Perfil 0).

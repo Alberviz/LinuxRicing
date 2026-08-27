@@ -60,9 +60,8 @@ python rgb/mchose-battery-windows.py --json
 - **Lectura actual en directo:** **90%** (Descargando).
 
 ### C. Teclado Akko 5075B Plus (`0x3151:0x4011 / 0x4015`)
-- En modo **2.4G inalámbrico** se identifica como PID `0x4011`.
-- En modo **cable USB directo** se identifica como PID `0x4015`.
-- Se detecta la presencia del dispositivo en las interfaces del sistema para confirmar estado online y modo de enlace.
+- En modo **cable USB directo** se identifica como PID `0x4015`. Soporta telemetría completa de carga y control directo de retroiluminación y tira lateral.
+- En modo **2.4G inalámbrico** se identifica como PID `0x4011`. El dongle USB responde con descriptor estático Family B (`0x42`). Para replicar el canal bidireccional que usa el software oficial Akko Cloud Driver para reportar batería y sincronizar RGB por el aire, se realiza captura USB en Wireshark/USBPcap (`akko-2.4g-rgb-battery-windows.pcapng`).
 
 ---
 
@@ -86,14 +85,24 @@ La sincronización se realiza mediante [`rgb/sync-rgb-windows.py`](file:///C:/Us
   dev.send_feature_report(raw)
   ```
 
-### B. Teclado Akko 5075B Plus (Teclas + Barra Lateral)
+### B. Teclado Akko 5075B Plus (Teclas + Lightstrip Lateral Reactivo)
 - **Report ID:** `0x00` (Buffer de 65 bytes: `0x00` + 64 bytes).
-- **Opcodes:**
-  - `0x08`: **Barra lateral (*Side-Strip*)**
-  - `0x07`: **Retroiluminación de teclas (*Backlight*)**
+- **Zonas y Reglas de Iluminación:**
+  - **1. Backlight (Teclas) - Opcode `0x07`:**
+    - Siempre sincronizado con el color primario del tema (Material You) o color fijo seleccionado.
+    - Modo: `0x01` (Estático), Velocidad: `0x04`, Brillo: `0x04`, Flags: `0x08`.
+  - **2. Lightstrip Lateral Derecho (Side-Strip) - Opcode `0x08`:**
+    - *Estado Normal / Reposo:* Color del sistema sincronizado (`mode = 0x01`, `flags = 0x08`).
+    - *Estado Batería Baja (≤ 15%):* Respiración (*Breathing*) en **Rojo puro** (`mode = 0x02`, `flags = 0x08`, `RGB: 255, 0, 0`).
+    - *Estado En Carga (al enchufar el teclado):* Flujo continuo (*Steady Stream* `0x05` / efecto ARGB) con **gradiente progresivo de color** según porcentaje de batería actual:
+      - `0% - 15%`: Rojo `#FF1744`
+      - `16% - 40%`: Ámbar `#FF9100`
+      - `41% - 70%`: Amarillo `#FFD600`
+      - `71% - 89%`: Lima `#AEEA00`
+      - `90% - 100%`: Verde Esmeralda `#00E676`
 - **Estructura del Payload:**
-  - `byte[0]`: Opcode (`0x07` o `0x08`)
-  - `byte[1]`: Modo `0x01` (Estático)
+  - `byte[0]`: Opcode (`0x07` Backlight o `0x08` Side-strip)
+  - `byte[1]`: Modo (`0x01` Estático, `0x02` Breathing, `0x05` Steady Stream)
   - `byte[2]`: Velocidad `0x04`
   - `byte[3]`: Brillo `0x04`
   - `byte[4]`: Flags = `0x08` (Custom RGB directo en firmware B-series)

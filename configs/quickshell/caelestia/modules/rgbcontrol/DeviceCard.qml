@@ -29,6 +29,9 @@ StyledRect {
     }
 
     // ---- Header (click toggles expansion) ----
+    // A bare Item does not adopt implicitHeight as height, which left the
+    // StateLayer below sized 0px tall and swallowing no clicks. Give the
+    // header a real height and let the ripple bleed into the card padding.
     Item {
         id: header
 
@@ -37,10 +40,11 @@ StyledRect {
         anchors.top: parent.top
         anchors.margins: Tokens.padding.large
         implicitHeight: 36
+        height: 36
 
         StateLayer {
             anchors.fill: parent
-            radius: Tokens.rounding.small
+            radius: Tokens.rounding.normal
             disabled: !root.expandable
             onClicked: root.expanded = !root.expanded
         }

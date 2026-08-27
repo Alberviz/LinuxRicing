@@ -116,10 +116,21 @@ StyledRect {
             }
         }
 
-        // Tab content
+        // Tab content — height follows the active page so shorter tabs
+        // (Inicio) don't inherit the tallest tab's empty space.
         StackLayout {
+            id: stack
+
             Layout.fillWidth: true
+            Layout.preferredHeight: stack.children[root.tab]?.implicitHeight ?? 0
             currentIndex: root.tab
+
+            Behavior on Layout.preferredHeight {
+                NumberAnimation {
+                    duration: 180
+                    easing.type: Easing.OutCubic
+                }
+            }
 
             component Placeholder: StyledRect {
                 property string label

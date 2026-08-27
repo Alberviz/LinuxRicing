@@ -54,29 +54,35 @@ sequenceDiagram
 
 ---
 
-## 📡 Paso 3: Realizar la Captura del Teclado Akko
+## 📡 Paso 3: Realizar la Captura del Teclado Akko en Modo 2.4 GHz
 
-1. Conecta tu teclado **Akko 5075B Plus** por cable USB o con su receptor 2.4G.
+Para descifrar cómo el driver oficial de Akko se comunica con el dongle 2.4G (`PID 0x4011`) para leer la batería y cambiar las luces:
+
+1. **Conecta únicamente el receptor 2.4G (Dongle USB)** al PC (el teclado en modo inalámbrico `Fn + Y`, sin cable USB conectado al PC).
 2. Abre **Wireshark**:
-   - En la lista de interfaces de red verás varias llamadas **`USBPcap1`**, **`USBPcap2`**, etc.
-   - Haz doble clic en la primera (normalmente `USBPcap1` o `USBPcap2`).
-3. **Inicia la captura** y abre el software oficial de **Akko Cloud Driver / Akko Driver**:
-   - Deja que el programa detecte el teclado y muestre el porcentaje de batería en pantalla.
-   - Si quieres asegurar, cambia algún efecto o consulta la batería dentro del programa de Akko.
-4. En Wireshark, pulsa el botón rojo cuadrado de **Detener Captura** (`Ctrl + E`).
-5. Ve a **File** → **Save As...** *(Guardar como)*:
-   - Guarda el archivo directamente dentro de tu carpeta `LinuxRicing` con el nombre:
-   - 👉 `akko-battery-windows.pcapng`
+   - En la lista de interfaces verás varias llamadas **`USBPcap1`**, **`USBPcap2`**, etc.
+   - Haz doble clic en la interfaz USB correspondiente donde esté el dongle.
+3. **Inicia la captura** (`Ctrl + E`).
+4. Abre el software oficial **Akko Cloud Driver / Akko Driver**:
+   - Deja que el programa reconozca el teclado en modo 2.4G y muestre el porcentaje de batería en pantalla.
+   - Ve a la pestaña de **Iluminación (Lighting)**:
+     - Cambia el color de la retroiluminación a un color llamativo (ej. Rojo o Azul).
+     - Cambia el efecto de la **tira lateral (Side Strip)** a respiración o flujo.
+     - Presiona "Aplicar" / "Save".
+5. Vuelve a Wireshark y pulsa el botón rojo de **Detener Captura** (`Ctrl + E`).
+6. Ve a **File** → **Save As...** *(Guardar como)*:
+   - Guarda el archivo dentro de tu carpeta `LinuxRicing` con el nombre:
+   - 👉 `akko-2.4g-rgb-battery-windows.pcapng`
 
 ---
 
 ## 🚀 Paso 4: Subir la Captura a GitHub
 
-Abre tu terminal en Windows dentro de la carpeta `LinuxRicing` y ejecuta:
+Abre tu terminal en Windows dentro de la carpeta `LinuxRicing` (PowerShell o Git Bash) y ejecuta:
 
 ```powershell
-git add akko-battery-windows.pcapng
-git commit -m "feat: add Windows pcapng capture for Akko 5075B battery"
+git add akko-2.4g-rgb-battery-windows.pcapng
+git commit -m "feat: add Windows pcapng capture for Akko 5075B 2.4G battery and RGB"
 git push
 ```
 

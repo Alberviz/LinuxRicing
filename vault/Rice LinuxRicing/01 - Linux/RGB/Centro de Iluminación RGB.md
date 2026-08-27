@@ -35,7 +35,14 @@ Detalle de cómo funciona hoy: [[Iluminación - Estado actual]].
 2. **Alcance:** global — base MCHOSE (anillo LED), teclado Akko (retro + tira lateral), placa/RAM/ventiladores (OpenRGB), tira MagicHome. Con **interruptor on/off por dispositivo**.
 3. **Selector de color:** paleta de presets (colores del tema actual + fijos comunes) + campo hex editable. Sin rueda/Canvas.
 4. **Reposo:** selector "seguir tema (Material You) / color fijo".
-5. **Efectos de la base:** se mantienen "efecto al cargar" y "alerta de batería baja" + umbral (solo la base, es lo único con batería).
+5. **Efectos reactivos de batería:**
+   - **Base MCHOSE 8K:** "efecto al cargar" y "alerta de batería baja" + umbral editable (se persiste en `mchose-config.json`).
+   - **Teclado Akko 5075B Plus:** 
+     - **Backlight (Teclas):** Siempre sincronizado en color sólido con el tema / color seleccionado.
+     - **Lightstrip Lateral (Side-strip):**
+       - *Reposo:* Color estático sincronizado del sistema.
+       - *Batería Baja (≤ 15%):* Respiración (*Breathing* `0x02`) en **Rojo puro** (`#FF0000`).
+       - *En Carga (al enchufar):* Flujo continuo (*Steady Stream* `0x05` / efecto ARGB) con **gradiente progresivo de color** según el nivel de batería (`≤15%` Rojo, `16-40%` Ámbar, `41-70%` Amarillo, `71-89%` Lima, `90-100%` Verde Esmeralda).
 6. **v1 incluye** el motor de "efecto temporal → restaurar" y el **flash al recibir notificación** (rojo / acento / complementario del color actual). El resto de efectos reactivos van al [[Backlog - Efectos de iluminación|backlog]].
 
 ## Diseño de implementación
@@ -80,3 +87,5 @@ Plan detallado y vivo en `docs/CENTRO_ILUMINACION_RGB_PLAN.md` (repo). Resumen:
   redondeadas) — arreglados `DeviceCard.qml` y `Content.qml`. Falta pase de diseño fino y
   verificar clics. Escrito `docs/CENTRO_ILUMINACION_RGB_HANDOFF.md` para reiniciar la
   conversación. **Siguiente sesión: fases 4 y 5.**
+- **2026-08-27 (Sesión 2)** — Especificación formal de la iluminación reactiva del Teclado Akko 5075B:
+  Backlight sincronizado sólido + Lightstrip lateral derecho con reglas de estado (reposo = tema, batería baja ≤15% = respiración roja `0x02`, carga = flujo `0x05` con gradiente progresivo de color por batería). Identificado que en 2.4G (`PID 0x4011`), el byte devuelto `0x42` (66) correspondía a `'B'` (Family B) del descriptor estático del dongle; planificada la captura en Windows para replicar el canal RF bidireccional exacto de Akko Cloud Driver.
