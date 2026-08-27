@@ -64,6 +64,107 @@ def log(msg):
         pass
 
 
+VALID_SOURCES = {"akko_keyboard", "mchose_mouse", "v9_headset"}
+VALID_TRIGGERS = {"charging", "low", "critical"}
+VALID_TARGETS = {"akko_keyboard", "mchose_base", "magichome", "openrgb"}
+VALID_ZONES = {"keys", "sidestrip", "both"}
+
+EFFECTS = {
+    "akko_keyboard:keys": {"theme", "battery_meter", "breathing_battery", "stream",
+                           "red_breathing", "red_static", "none"},
+    "akko_keyboard:sidestrip": {"stream_battery", "breathing", "solid_theme",
+                                "red_breathing", "red_static", "none"},
+    "mchose_base": {"theme_breathing", "battery_color", "hardware_battery", "wave",
+                    "red_breathing", "red_static", "none"},
+    "magichome": {"battery_color", "solid_theme", "red", "none"},
+    "openrgb": {"battery_meter", "solid_theme", "red", "none"},
+}
+
+
+def _effect_keys_for(target, zone):
+    if target == "akko_keyboard":
+        zones = ("keys", "sidestrip") if zone in (None, "both") else (zone,)
+        return [f"akko_keyboard:{z}" for z in zones]
+    return [target]
+
+
+def validate_config(raw):
+    errors = []
+    out = copy.deepcopy(DEFAULTS)
+    out["rules"] = []
+    if not isinstance(raw, dict):
+        return out, ["config no es un objeto JSON"]
+
+    poll = raw.get("poll", {})
+    if isinstance(poll, dict):
+        for k, lo in (("idle_seconds", 10), ("charging_seconds", 2)):
+            v = poll.get(k)
+            if isinstance(v, (int, float)) and v >= lo:
+                out["poll"][k] = int(v)
+    ct = raw.get("critical_threshold")
+    if isinstance(ct, (int, float)) and 3 <= ct <= 25:
+        out["critical_threshold"] = int(ct)
+
+    for i, rule in enumerate(raw.get("rules", []) or []):
+        if not isinstance(rule, dict):
+            errors.append(f"regla #{i} no es objeto"); continue
+        src = rule.get("source")
+        trig = rule.get("trigger")
+        if src not in VALID_SOURCES:
+            errors.append(f"regla #{i}: source inválido {src!r} (toaster?)"); continue
+        if trig not in VALID_TRIGGERS:
+            errors.append(f"regla #{i}: trigger inválido {trig!r}"); continue
+        thr = None
+        if trig == "low":
+            t = rule.get("threshold", 20)
+            t = t if isinstance(t, (int, float)) else 20
+            thr = max(5, min(40, int(round(t / 5) * 5)))
+        actions = []
+        for j, act in enumerate(rule.get("actions", []) or []):
+            if not isinstance(act, dict):
+                errors.append(f"regla #{i} acción #{j} no es objeto"); continue
+            tgt = act.get("target")
+            if tgt not in VALID_TARGETS:
+                errors.append(f"regla #{i} acción #{j}: target inválido {tgt!r}"); continue
+            zone = act.get("zone")
+            if tgt != "akko_keyboard":
+                zone = None
+            elif zone not in VALID_ZONES:
+                zone = "both"
+            eff = act.get("effect")
+            allowed = set().union(*(EFFECTS[k] for k in _effect_keys_for(tgt, zone)))
+            if eff not in allowed:
+                errors.append(f"regla #{i} acción #{j}: effect {eff!r} no válido para {tgt}/{zone}")
+                continue
+            a = {"target": tgt, "effect": eff}
+            if zone is not None:
+                a["zone"] = zone
+            actions.append(a)
+        rid = rule.get("id") or f"rule-{i}"
+        out["rules"].append({"id": str(rid), "source": src, "trigger": trig,
+                             "threshold": thr, "actions": actions})
+    return out, errors
+
+
+def load_config():
+    try:
+        with open(CONFIG_PATH) as f:
+            raw = json.load(f)
+    except FileNotFoundError:
+        return seed_config()
+    except Exception as e:
+        log(f"config ilegible ({e}); usando sembrado")
+        return seed_config()
+    cfg, errors = validate_config(raw)
+    for e in errors:
+        log(f"config: {e}")
+    return cfg
+
+
+def seed_config():
+    return copy.deepcopy(DEFAULTS)
+
+
 def main(argv):
     if not argv or argv[0] in ("-h", "--help"):
         print(USAGE)
