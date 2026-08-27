@@ -43,4 +43,12 @@ relacionado: "[[Base de Datos de Errores]]", "[[BATTERY_LIGHTING_HANDOFF]]"
 - **real (era):** las `BatteryRuleCard` salían desplegadas y el contenido desbordaba la
   pantalla sin scroll → imposible interactuar.
 
+
 <!-- Alberto: añade los nuevos aquí abajo -->
+### BUG-002 · Cierre inexperado de desplegable tras tocar slider
+- **estado:** ✅ resuelto — commit `d8ce5ba` (persistencia del estado de expansión en NotificacionesView por ID de regla y `interactionOnMove: false` en StyledSlider).
+- **dónde:** panel · pestaña Notificaciones
+- **repro:** despliegas un desplegable y intentas modificar el slider
+- **esperado:** deberias poder modificar el slider tranquilamente
+- **real (era):** al mutar el umbral, `_commit()` reasignaba el array de reglas y el Repeater de QML destruía y recreaba los delegados reseteando `expanded: false`.
+- **notas:** ahora la etiqueta de porcentaje se actualiza en vivo al arrastrar y se confirma al soltar sin cerrar la tarjeta ni romper el arrastre.
