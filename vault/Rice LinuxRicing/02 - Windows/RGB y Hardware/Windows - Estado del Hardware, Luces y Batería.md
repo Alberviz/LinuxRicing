@@ -13,8 +13,8 @@ Este documento resume el **estado real verificado en directo en Windows 11** de 
 
 | Dispositivo                        | Identificador (VID:PID)                                           | Control de Iluminación RGB                                            | Lectura de Batería                                                                 | Estado en Windows |
 | ---------------------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ----------------- |
-| **Base / Dongle MCHOSE K7 Ultra**  | `VID 0x3837, PID 0x1001`                                          | ✅ **100% Funcional** (Feature Report `0x11`, Cmd `0x2B`)              | ✅ **100% Funcional** (Report `0x11` Cmd `0x06` -> **90%**, Descargando)            | **OK**            |
-| **Auriculares MCHOSE V9 Pro**      | `VID 0x291D, PID 0x385D`                                          | N/A (Sin RGB direccionable)                                           | ✅ **100% Funcional** (UsagePage `0xFFA0`, Cmd `0x55 0x65` -> **60%**, Descargando) | **OK**            |
+| **Ratón MCHOSE K7 Ultra / Base 8K** | `VID 0x3837, PID 0x1001` (Base 8K)<br>`VID 0x3837, PID 0x4150` (Cable USB) | ✅ **100% Funcional** (Feature Report `0x11`, Cmd `0x2B`)              | ✅ **100% Funcional** (Report `0x11` Cmd `0x06` -> **89%**, `0x01` Cargando)        | **OK**            |
+| **Auriculares MCHOSE V9 Pro**      | `VID 0x291D, PID 0x385D`                                          | N/A (Sin RGB direccionable)                                           | ✅ **100% Funcional** (UsagePage `0xFFA0`, Cmd `0x55 0x65` -> **90%**, Descargando) | **OK**            |
 | **Teclado Akko 5075B Plus**        | `VID 0x3151, PID 0x4011` (2.4G)<br>`VID 0x3151, PID 0x4015` (USB) | ✅ **100% Funcional** (gRPC + Feature Report `0x07`/`0x08`, commit `0x88`) | ✅ **100% Funcional** (Opcode `0x83` -> **80%**, `0x01` Cargando USB)               | **OK**            |
 | **Placa Base ASUS TUF B560M-PLUS** | OpenRGB SDK (`localhost:6742`)                                    | ✅ **100% Funcional** (Aura Mainboard + Ventiladores ARGB)             | N/A (Alimentación ATX)                                                             | **OK**            |
 | **Memorias RAM A-DATA Spectrix**   | 2x ENE DRAM via OpenRGB                                           | ✅ **100% Funcional** (Modo 0 `Direct`, sin parpadeo I2C)              | N/A (Alimentación DIMM)                                                            | **OK**            |
@@ -43,10 +43,13 @@ python rgb/mchose-battery-windows.py --json
   - `byte[0..1]`: `0x55 0x65` (Cabecera de confirmación).
   - `byte[2]`: Nivel de batería exacto en porcentaje (`0 - 100%`).
   - `byte[3]`: Código de estado (`0` o `3` = Cargando, `2` = Descargando / En uso inalámbrico).
-- **Lectura actual en directo:** **60%** (Descargando).
+- **Lectura en directo:** **90%** (Descargando).
 
-### B. Ratón MCHOSE K7 Ultra (`0x3837:0x1001`)
-- **Canal de Comunicación:** Interfaz 2 (`MI_02`), Usage Page `65281` (`0xFF01`).
+### B. Ratón MCHOSE K7 Ultra (`0x3837:0x1001 / 0x4150`)
+- **Canal de Comunicación:** Interfaz 2 (`MI_02`), Usage Page `65281` (`0xFF01` / `Col02`).
+- **Identificadores:**
+  - **`PID 0x1001`**: Modo Inalámbrico (Base 8K). Emite telemetría en pulsos periódicos de **3.65 segundos** continuos.
+  - **`PID 0x4150`**: Modo Cable Directo USB. Respuesta instantánea continua con reportes push `0x13`.
 - **Comando de Consulta:** Feature Report de 21 bytes con Report ID `0x11` y comando `0x06` invertido con `XOR 0xFF`:
   ```python
   req = bytearray([0x11, 0x06 ^ 0xFF] + [0xFF] * 19)
@@ -54,15 +57,18 @@ python rgb/mchose-battery-windows.py --json
   ```
 - **Respuesta (Feature Report `0x11`):**
   - Se obtienen 64 bytes mediante `dev.get_feature_report(0x11, 64)`.
-  - Se aplica `XOR 0xFF` a partir del segundo byte.
-  - `dec[11]`: Nivel de batería (`90%`).
-  - `dec[12]`: Estado de carga (`1` = Cargando en la base, `0` = Descargando).
-- **Lectura actual en directo:** **90%** (Descargando).
+  - Se aplica `XOR 0xFF` a partir del segundo byte (`byte ^ 0xFF`).
+  - `dec[11]`: Nivel de batería (**`89%`**).
+  - `dec[12]`: Estado de carga (**`1` = `⚡ Cargando`** en la base o por cable USB, **`0` = Descargando**).
+- **Lectura en directo:** **89%** (⚡ Cargando por USB).
 
 ### C. Teclado Akko 5075B Plus (`0x3151:0x4011 / 0x4015`)
-- En modo **2.4G inalámbrico** se identifica como PID `0x4011`.
-- En modo **cable USB directo** se identifica como PID `0x4015`.
-- Se detecta la presencia del dispositivo en las interfaces del sistema para confirmar estado online y modo de enlace.
+- En modo **2.4G inalámbrico** se identifica como **`PID 0x4011`** (se consulta mediante gRPC con `dangledevtype=1` y Opcode `0x83`).
+- En modo **cable USB directo** se identifica como **`PID 0x4015`** (se consulta mediante Feature Report directo con Opcode `0x83`).
+- **Respuesta de Batería (Opcode `0x83`):**
+  - `Byte[1]`: Batería (**`80%`**).
+  - `Byte[2] / Byte[3]`: Estado de alimentación (**`0x01` = `⚡ Cargando activamente por USB`**).
+- **Lectura en directo:** **80%** (⚡ Cargando por USB).
 
 ---
 
