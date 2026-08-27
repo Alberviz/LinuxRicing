@@ -9,7 +9,7 @@ return {
     terminal                   = "kitty",
     browser                    = "zen-browser",
     editor                     = "codium",
-    fileExplorer               = "thunar",
+    fileExplorer               = "dolphin",
     audioSettings              = "pwvucontrol",
 
     -- Touchpad
