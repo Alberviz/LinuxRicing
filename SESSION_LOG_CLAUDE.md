@@ -84,12 +84,19 @@ Este documento contiene un resumen detallado y exhaustivo de todos los desarroll
 
 ### E. FASE 3: Ingeniería Inversa USB HID y Control de Iluminación MCHOSE 8K
 
-1. **Herramienta Automatizada de Análisis de Capturas (`mchose-pcap-analyzer`)**:
-   - Creada en `/home/alberviz/.local/bin/mchose-pcap-analyzer` y [`~/LinuxRicing/rgb/mchose-pcap-analyzer.py`](/home/alberviz/LinuxRicing/rgb/mchose-pcap-analyzer.py).
-   - **Metodología de Análisis para Claude / Modelos**:
+1. **Herramienta y Procedimiento Oficial de Captura USB (`tshark` + `usbmon`)**:
+   - **Comando exacto para iniciar captura USB en vivo**:
      ```bash
-     # Extrae automáticamente paquetes salientes del Host, aplica XOR 0xFF y desglosa campos
-     mchose-pcap-analyzer /tmp/captura.pcapng
+     # Iniciar captura en el bus USB 1 (donde está el Dongle 8K)
+     sudo tshark -i usbmon1 -w /tmp/mchose-wave.pcapng
+     
+     # Dar permisos de lectura inmediatos al finalizar
+     sudo chmod 666 /tmp/mchose-wave.pcapng
+     ```
+   - **Análisis y Decodificación Automática para Claude / Modelos**:
+     ```bash
+     # Extrae paquetes salientes del Host, aplica XOR 0xFF y desglosa campos
+     mchose-pcap-analyzer /tmp/mchose-wave.pcapng
      ```
    - **Cómo funciona el protocolo MCHOSE (VID: `0x3837`, PID: `0x1001`)**:
      - Las transferencias se realizan mediante `SET_REPORT` (Feature Report) con Report ID `0x11` en la interfaz `:1.2` (`/dev/hidraw7`).
