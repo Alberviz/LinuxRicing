@@ -36,6 +36,21 @@ def test_akko_meter_keys_full_lights_bottom_rows(bl):
     assert all(px != (0, 0, 0) for px in lit)
 
 
+def test_akko_meter_keys_progressive_scaling(bl):
+    keys_0 = bl.akko_meter_keys_progressive(0)
+    assert set(keys_0) == {(0, 0, 0)}
+
+    keys_50 = bl.akko_meter_keys_progressive(50)
+    lit_50 = [k for k in keys_50 if k != (0, 0, 0)]
+    assert len(lit_50) > 0
+    assert len(lit_50) < len(bl.AKKO_PROGRESSIVE_KEYS)
+
+    keys_100 = bl.akko_meter_keys_progressive(100)
+    lit_100 = [k for k in keys_100 if k != (0, 0, 0)]
+    assert len(lit_100) == len(bl.AKKO_PROGRESSIVE_KEYS)
+    assert len(lit_100) > len(lit_50)
+
+
 def test_mchose_payload_red_breathing_encodes_red(bl):
     raw = bl.build_mchose_base_payload("red_breathing", 15, (10, 20, 30))
     assert raw[0] == 0x11

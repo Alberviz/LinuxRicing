@@ -30,17 +30,58 @@ ColumnLayout {
 
     // ---- Base MCHOSE 8K ----
     DeviceCard {
+        id: mchoseCard
         icon: "mouse"
         name: qsTr("Base MCHOSE 8K")
         subtitle: qsTr("Anillo LED")
         deviceKey: "mchose_base"
-        // Collapsed by default so the panel isn't huge next to the Akko card.
-        StyledText {
+
+        readonly property var profile: RgbConfig.deviceProfiles.mchose_base ?? ({})
+        readonly property string baseMode: profile.mode ?? "theme"
+        readonly property string baseFixed: profile.fixed_color ?? "d8bde7"
+
+        SectionLabel {
+            text: qsTr("Modo del anillo LED")
+        }
+
+        ChipRow {
+            Chip {
+                implicitHeight: 32
+                label: qsTr("Tema global")
+                selected: mchoseCard.baseMode === "theme"
+                onClicked: RgbConfig.setDeviceMode("mchose_base", "theme")
+            }
+            Chip {
+                implicitHeight: 32
+                label: qsTr("Color fijo")
+                selected: mchoseCard.baseMode === "fixed"
+                onClicked: RgbConfig.setDeviceMode("mchose_base", "fixed")
+            }
+            Chip {
+                implicitHeight: 32
+                label: qsTr("Nivel de batería")
+                selected: mchoseCard.baseMode === "battery_color"
+                onClicked: RgbConfig.setDeviceMode("mchose_base", "battery_color")
+            }
+            Chip {
+                implicitHeight: 32
+                label: qsTr("Respiración (tema)")
+                selected: mchoseCard.baseMode === "theme_breathing"
+                onClicked: RgbConfig.setDeviceMode("mchose_base", "theme_breathing")
+            }
+            Chip {
+                implicitHeight: 32
+                label: qsTr("Ola de colores")
+                selected: mchoseCard.baseMode === "wave"
+                onClicked: RgbConfig.setDeviceMode("mchose_base", "wave")
+            }
+        }
+
+        ColourPicker {
             Layout.fillWidth: true
-            text: qsTr("El color del anillo sigue el tema global. Sus reacciones de batería están en Notificaciones → Reacciones de batería.")
-            font: Tokens.font.body.small
-            color: Colours.palette.m3onSurfaceVariant
-            wrapMode: Text.WordWrap
+            visible: mchoseCard.baseMode === "fixed"
+            selectedColour: mchoseCard.baseFixed
+            onPicked: hex => RgbConfig.setDeviceFixedColor("mchose_base", hex)
         }
     }
 
@@ -49,33 +90,54 @@ ColumnLayout {
 
     // ---- OpenRGB ----
     DeviceCard {
+        id: openrgbCard
         icon: "developer_board"
         name: qsTr("Placa · RAM · ventiladores")
-        subtitle: qsTr("OpenRGB · 2 zonas direccionables")
+        subtitle: qsTr("OpenRGB")
         deviceKey: "openrgb"
 
-        SectionLabel {
-            text: qsTr("Modo de las zonas direccionables (ventiladores)")
-        }
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Tokens.spacing.extraSmall
+        readonly property var profile: RgbConfig.deviceProfiles.openrgb ?? ({})
+        readonly property string openrgbMode: profile.mode ?? "theme"
+        readonly property string openrgbFixed: profile.fixed_color ?? "d8bde7"
 
+        SectionLabel {
+            text: qsTr("Modo de iluminación")
+        }
+
+        ChipRow {
             Chip {
-                Layout.fillWidth: true
                 implicitHeight: 32
-                label: qsTr("RGB · color estático")
-                selected: !RgbConfig.openrgbArgbZones
-                onClicked: RgbConfig.setOpenrgbArgbZones(false)
+                label: qsTr("Tema global")
+                selected: openrgbCard.openrgbMode === "theme"
+                onClicked: RgbConfig.setDeviceMode("openrgb", "theme")
             }
             Chip {
-                Layout.fillWidth: true
                 implicitHeight: 32
-                label: qsTr("ARGB · ola animada")
-                selected: RgbConfig.openrgbArgbZones
-                onClicked: RgbConfig.setOpenrgbArgbZones(true)
+                label: qsTr("Color fijo")
+                selected: openrgbCard.openrgbMode === "fixed"
+                onClicked: RgbConfig.setDeviceMode("openrgb", "fixed")
+            }
+            Chip {
+                implicitHeight: 32
+                label: qsTr("ARGB ola animada")
+                selected: openrgbCard.openrgbMode === "argb_wave"
+                onClicked: RgbConfig.setDeviceMode("openrgb", "argb_wave")
+            }
+            Chip {
+                implicitHeight: 32
+                label: qsTr("Nivel de batería")
+                selected: openrgbCard.openrgbMode === "battery_color"
+                onClicked: RgbConfig.setDeviceMode("openrgb", "battery_color")
             }
         }
+
+        ColourPicker {
+            Layout.fillWidth: true
+            visible: openrgbCard.openrgbMode === "fixed"
+            selectedColour: openrgbCard.openrgbFixed
+            onPicked: hex => RgbConfig.setDeviceFixedColor("openrgb", hex)
+        }
+
         StyledText {
             Layout.fillWidth: true
             text: qsTr("La RAM y la placa van siempre en color estático (el bus SMBus no admite animación).")
@@ -87,17 +149,93 @@ ColumnLayout {
 
     // ---- MagicHome ----
     DeviceCard {
+        id: magichomeCard
         icon: "lightbulb"
         name: qsTr("Tira LED MagicHome")
         subtitle: qsTr("Wi-Fi")
         deviceKey: "magichome"
 
-        StyledText {
+        readonly property var profile: RgbConfig.deviceProfiles.magichome ?? ({})
+        readonly property string magichomeMode: profile.mode ?? "theme"
+        readonly property string magichomeFixed: profile.fixed_color ?? "d8bde7"
+
+        SectionLabel {
+            text: qsTr("Modo de la tira")
+        }
+
+        ChipRow {
+            Chip {
+                implicitHeight: 32
+                label: qsTr("Tema global")
+                selected: magichomeCard.magichomeMode === "theme"
+                onClicked: RgbConfig.setDeviceMode("magichome", "theme")
+            }
+            Chip {
+                implicitHeight: 32
+                label: qsTr("Color fijo")
+                selected: magichomeCard.magichomeMode === "fixed"
+                onClicked: RgbConfig.setDeviceMode("magichome", "fixed")
+            }
+            Chip {
+                implicitHeight: 32
+                label: qsTr("Nivel de batería")
+                selected: magichomeCard.magichomeMode === "battery_color"
+                onClicked: RgbConfig.setDeviceMode("magichome", "battery_color")
+            }
+        }
+
+        ColourPicker {
             Layout.fillWidth: true
-            text: qsTr("Si participa, sigue el color global. El encendido/apagado sigue en el widget de la tira.")
-            font: Tokens.font.body.small
-            color: Colours.palette.m3onSurfaceVariant
-            wrapMode: Text.WordWrap
+            visible: magichomeCard.magichomeMode === "fixed"
+            selectedColour: magichomeCard.magichomeFixed
+            onPicked: hex => RgbConfig.setDeviceFixedColor("magichome", hex)
+        }
+    }
+
+    // ---- Cadencia de Actualización de Batería ----
+    StyledRect {
+        Layout.fillWidth: true
+        Layout.topMargin: Tokens.spacing.small
+        radius: Tokens.rounding.large
+        color: Colours.palette.m3surfaceContainerHigh
+        implicitHeight: pollCol.implicitHeight + Tokens.padding.large * 2
+
+        ColumnLayout {
+            id: pollCol
+            anchors.fill: parent
+            anchors.margins: Tokens.padding.large
+            spacing: Tokens.spacing.small
+
+            RowLayout {
+                Layout.fillWidth: true
+
+                StyledText {
+                    readonly property int displaySecs: pollSlider.dragging
+                        ? Math.min(120, Math.max(15, Math.round((15 + pollSlider.pos * 105) / 5) * 5))
+                        : (BatteryLightingConfig.poll.idle_seconds ?? 60)
+                    text: qsTr("Cadencia de sondeo de batería: %1 s").arg(displaySecs)
+                    font: Tokens.font.title.small
+                    color: Colours.palette.m3onSurface
+                }
+            }
+
+            StyledText {
+                Layout.fillWidth: true
+                text: qsTr("Frecuencia con la que se comprueba el nivel de batería en reposo. Al conectar a cargar se acelera a 3 s automáticamente.")
+                font: Tokens.font.body.small
+                color: Colours.palette.m3onSurfaceVariant
+                wrapMode: Text.WordWrap
+            }
+
+            StyledSlider {
+                id: pollSlider
+                Layout.fillWidth: true
+                implicitHeight: 14
+                value: ((BatteryLightingConfig.poll.idle_seconds ?? 60) - 15) / 105
+                interactionOnMove: false
+                onInteraction: v => BatteryLightingConfig.setPollIdleSeconds(Math.min(120, Math.max(15, Math.round((15 + v * 105) / 5) * 5)))
+            }
         }
     }
 }
+

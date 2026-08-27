@@ -168,6 +168,12 @@ Singleton {
         _commit(root.rules.map(r => r.id === id ? Object.assign({}, r, { threshold: v }) : r));
     }
 
+    function setPollIdleSeconds(secs: int): void {
+        const v = Math.max(10, Math.min(300, Math.round(secs / 5) * 5));
+        root.poll = Object.assign({}, root.poll, { idle_seconds: v });
+        root.save();
+    }
+
     function addAction(ruleId: string, target: string, zone: var, effect: string): void {
         _commit(root.rules.map(r => {
             if (r.id !== ruleId)

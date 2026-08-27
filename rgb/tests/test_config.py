@@ -108,3 +108,29 @@ def test_seed_reactive_disabled_akko_yields_no_akko_rules(bl):
                    "low_battery_threshold": 20}, f)
     cfg = bl.seed_config()
     assert not any(r["source"] == "akko_keyboard" for r in cfg["rules"])
+
+
+def test_sync_rgb_device_profiles_loading(monkeypatch, tmp_path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("sync_rgb", "/home/alberviz/LinuxRicing/rgb/sync-rgb.py")
+    sync_rgb = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(sync_rgb)
+    cfg_file = tmp_path / "rgb-config.json"
+    cfg_file.write_text(json.dumps({
+        "source": "fixed",
+        "fixed_color": "112233",
+        "device_profiles": {
+            "akko_keyboard": {
+                "keys_mode": "battery_color",
+                "sidestrip_mode": "off"
+            }
+        }
+    }))
+    monkeypatch.setattr(sync_rgb, "RGB_CONFIG_PATH", str(cfg_file))
+    cfg = sync_rgb.load_rgb_config()
+    assert cfg["source"] == "fixed"
+    assert cfg["fixed_color"] == "112233"
+    assert cfg["device_profiles"]["akko_keyboard"]["keys_mode"] == "battery_color"
+    assert cfg["device_profiles"]["akko_keyboard"]["sidestrip_mode"] == "off"
+    assert cfg["device_profiles"]["mchose_base"]["mode"] == "theme"
+

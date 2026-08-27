@@ -22,6 +22,26 @@ Singleton {
             spicetify: true
         })
     property bool openrgbArgbZones: false
+    property var deviceProfiles: ({
+            akko_keyboard: {
+                keys_mode: "theme",
+                keys_fixed_color: "d8bde7",
+                sidestrip_mode: "stream_battery",
+                sidestrip_fixed_color: "d8bde7"
+            },
+            mchose_base: {
+                mode: "theme",
+                fixed_color: "d8bde7"
+            },
+            openrgb: {
+                mode: "theme",
+                fixed_color: "d8bde7"
+            },
+            magichome: {
+                mode: "theme",
+                fixed_color: "d8bde7"
+            }
+        })
     property bool flashEnabled: false
     property string flashMode: "accent"               // "red" | "accent" | "complementary"
     property int flashPulses: 2
@@ -34,6 +54,7 @@ Singleton {
             source: root.source,
             fixed_color: root.fixedColour,
             devices: root.devices,
+            device_profiles: root.deviceProfiles,
             devices_extra: {
                 openrgb: {
                     argb_zones: root.openrgbArgbZones
@@ -77,6 +98,48 @@ Singleton {
         const d = Object.assign({}, root.devices);
         d[key] = on;
         root.devices = d;
+        change();
+    }
+
+    function setAkkoKeysMode(m: string): void {
+        const p = Object.assign({}, root.deviceProfiles);
+        p.akko_keyboard = Object.assign({}, p.akko_keyboard, { keys_mode: m });
+        root.deviceProfiles = p;
+        change();
+    }
+
+    function setAkkoKeysFixedColor(hex: string): void {
+        const p = Object.assign({}, root.deviceProfiles);
+        p.akko_keyboard = Object.assign({}, p.akko_keyboard, { keys_fixed_color: hex.replace(/^#/, "").toLowerCase() });
+        root.deviceProfiles = p;
+        change();
+    }
+
+    function setAkkoSidestripMode(m: string): void {
+        const p = Object.assign({}, root.deviceProfiles);
+        p.akko_keyboard = Object.assign({}, p.akko_keyboard, { sidestrip_mode: m });
+        root.deviceProfiles = p;
+        change();
+    }
+
+    function setAkkoSidestripFixedColor(hex: string): void {
+        const p = Object.assign({}, root.deviceProfiles);
+        p.akko_keyboard = Object.assign({}, p.akko_keyboard, { sidestrip_fixed_color: hex.replace(/^#/, "").toLowerCase() });
+        root.deviceProfiles = p;
+        change();
+    }
+
+    function setDeviceMode(deviceKey: string, m: string): void {
+        const p = Object.assign({}, root.deviceProfiles);
+        p[deviceKey] = Object.assign({}, p[deviceKey] || {}, { mode: m });
+        root.deviceProfiles = p;
+        change();
+    }
+
+    function setDeviceFixedColor(deviceKey: string, hex: string): void {
+        const p = Object.assign({}, root.deviceProfiles);
+        p[deviceKey] = Object.assign({}, p[deviceKey] || {}, { fixed_color: hex.replace(/^#/, "").toLowerCase() });
+        root.deviceProfiles = p;
         change();
     }
 
@@ -140,6 +203,13 @@ Singleton {
                     root.fixedColour = c.fixed_color.replace(/^#/, "").toLowerCase();
                 if (c.devices && typeof c.devices === "object")
                     root.devices = Object.assign({}, root.devices, c.devices);
+                if (c.device_profiles && typeof c.device_profiles === "object") {
+                    const merged = Object.assign({}, root.deviceProfiles);
+                    for (const k in c.device_profiles) {
+                        merged[k] = Object.assign({}, merged[k] || {}, c.device_profiles[k]);
+                    }
+                    root.deviceProfiles = merged;
+                }
                 if (c.devices_extra && c.devices_extra.openrgb && c.devices_extra.openrgb.argb_zones !== undefined)
                     root.openrgbArgbZones = !!c.devices_extra.openrgb.argb_zones;
                 const f = c.notification_flash ?? {};

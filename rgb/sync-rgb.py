@@ -43,6 +43,26 @@ DEFAULT_RGB_CONFIG = {
         "akko_keyboard": True,
         "spicetify": True,
     },
+    "device_profiles": {
+        "akko_keyboard": {
+            "keys_mode": "theme",
+            "keys_fixed_color": "d8bde7",
+            "sidestrip_mode": "stream_battery",
+            "sidestrip_fixed_color": "d8bde7",
+        },
+        "mchose_base": {
+            "mode": "theme",
+            "fixed_color": "d8bde7",
+        },
+        "openrgb": {
+            "mode": "theme",
+            "fixed_color": "d8bde7",
+        },
+        "magichome": {
+            "mode": "theme",
+            "fixed_color": "d8bde7",
+        },
+    },
     "devices_extra": {"openrgb": {"argb_zones": False}},
     "notification_flash": {"enabled": False, "mode": "accent", "pulses": 2},
 }
@@ -76,6 +96,10 @@ def load_rgb_config() -> dict:
                 for k, v in user["devices"].items():
                     if k in cfg["devices"]:
                         cfg["devices"][k] = bool(v)
+            if isinstance(user.get("device_profiles"), dict):
+                for dev, prof in user["device_profiles"].items():
+                    if dev in cfg["device_profiles"] and isinstance(prof, dict):
+                        cfg["device_profiles"][dev].update(prof)
             if isinstance(user.get("notification_flash"), dict):
                 cfg["notification_flash"].update(user["notification_flash"])
             extra = user.get("devices_extra")
@@ -280,6 +304,107 @@ def sync_openrgb(r: int, g: int, b: int, argb_zones: bool = False):
         log(f"OpenRGB CLI error: {e2}")
 
 
+def hex_to_rgb(hex_c: str) -> tuple[int, int, int]:
+    h = str(hex_c).lstrip("#")
+    if len(h) < 6:
+        h = h.ljust(6, "0")
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+def get_cached_battery(device_pref: str) -> tuple[int, str]:
+    """Returns (level, status)."""
+    pref_map = {
+        "akko_keyboard": "akko",
+        "akko": "akko",
+        "mchose_mouse": "k7",
+        "mchose_base": "k7",
+        "k7": "k7",
+        "v9_headset": "v9",
+        "v9": "v9",
+    }
+    pref = pref_map.get(device_pref, device_pref)
+    try:
+        cache_p = Path.home() / ".cache/mchose_battery.json"
+        if cache_p.exists():
+            with open(cache_p) as f:
+                data = json.load(f)
+            lvl = data.get(f"{pref}_battery", 100)
+            st = data.get(f"{pref}_status", "Descargando")
+            return (lvl if lvl is not None else 100, st)
+    except Exception:
+        pass
+    return (100, "Descargando")
+
+
+AKKO_PROGRESSIVE_KEYS = [
+    # Fila Inferior (izq -> der)
+    11, 17, 23, 29, 35, 41, 47, 53, 59,
+    # Fila ZXCV (izq -> der)
+    10, 16, 22, 28, 34, 40, 46, 52, 58, 64,
+    # Fila ASDF (izq -> der)
+    9, 15, 21, 27, 33, 39, 45, 51, 57, 63, 69,
+    # Fila QWERTY (izq -> der)
+    8, 14, 20, 26, 32, 38, 44, 50, 56, 62, 68,
+    # Fila Números (izq -> der)
+    7, 13, 19, 25, 31, 37, 43, 49, 55, 61, 67, 73,
+]
+
+AKKO_KEY_ROWS = [
+    [7, 13, 19, 25, 31, 37, 43, 49, 55, 61, 67, 73],   # números (arriba)
+    [8, 14, 20, 26, 32, 38, 44, 50, 56, 62, 68],        # QWERTY
+    [9, 15, 21, 27, 33, 39, 45, 51, 57, 63, 69],        # ASDF
+    [10, 16, 22, 28, 34, 40, 46, 52, 58, 64],           # ZXCV
+    [11, 17, 23, 29, 35, 41, 47, 53, 59],               # inferior (abajo)
+]
+
+
+def akko_meter_keys_progressive(level: int):
+    keys = [(0, 0, 0)] * 130
+    if not level or level <= 0:
+        return keys
+    level = max(0, min(100, int(level)))
+    colour = get_akko_battery_level_color(level)
+    n_keys = len(AKKO_PROGRESSIVE_KEYS)
+    count = max(1, min(n_keys, int(round(n_keys * (level / 100.0)))))
+    for idx in AKKO_PROGRESSIVE_KEYS[:count]:
+        if 0 <= idx < 130:
+            keys[idx] = colour
+    return keys
+
+
+def akko_meter_keys_rows(level: int):
+    keys = [(0, 0, 0)] * 130
+    if not level or level <= 0:
+        return keys
+    n_rows = len(AKKO_KEY_ROWS)
+    rows_on = max(1, min(n_rows, int(level / 100 * n_rows + 0.5)))
+    colour = get_akko_battery_level_color(level)
+    for row in AKKO_KEY_ROWS[len(AKKO_KEY_ROWS) - rows_on:]:
+        for idx in row:
+            if 0 <= idx < 130:
+                keys[idx] = colour
+    return keys
+
+
+def akko_canvas_chunks(rgb_per_key):
+    flat = bytearray()
+    for (r, g, b) in rgb_per_key[:130]:
+        flat += bytes((r, g, b))
+    flat += bytes(392 - len(flat))
+    chunks = []
+    for ci in range(7):
+        buf = bytearray(64)
+        buf[0] = 0x0C
+        buf[1] = 0x00
+        buf[2] = 0x80
+        buf[3] = 0x01
+        buf[4] = ci
+        payload = flat[ci * 56:(ci + 1) * 56]
+        buf[8:8 + len(payload)] = payload
+        chunks.append(bytes(buf))
+    return chunks
+
+
 def _akko_checksum8(buf: bytearray) -> int:
     """
     ROYUAN 'Bit8' checksum used by SET_LEDPARAM/SET_SLEDPARAM: one's-complement
@@ -304,20 +429,71 @@ def get_akko_battery_level_color(bat_level: int | None) -> tuple[int, int, int]:
     return (int(nr * 255), int(ng * 255), int(nb * 255))
 
 
-def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4, throttle: bool = False):
+def sync_openrgb(r: int, g: int, b: int, argb_zones: bool = False, profile: dict | None = None):
+    """
+    Sync colors to PC RGB devices via OpenRGB Python SDK.
+    When profile specifies 'fixed', 'battery_color', or 'argb_wave', uses those modes.
+    """
+    profile = profile or {}
+    omode = profile.get("mode", "theme")
+    if omode == "fixed":
+        r, g, b = hex_to_rgb(profile.get("fixed_color", "d8bde7"))
+    elif omode == "battery_color":
+        k7_bat, _ = get_cached_battery("k7")
+        r, g, b = get_akko_battery_level_color(k7_bat)
+    elif omode == "argb_wave":
+        argb_zones = True
+
+    try:
+        from openrgb import OpenRGBClient
+        from openrgb.utils import RGBColor
+
+        client = OpenRGBClient()
+        col = RGBColor(r, g, b)
+        synced = []
+        for dev in client.devices:
+            dev_name_l = dev.name.lower()
+            if "akko" in dev_name_l or "royuan" in dev_name_l:
+                continue
+
+            if dev.modes and dev.modes[dev.active_mode].name != "Direct":
+                try:
+                    direct_idx = next(
+                        i for i, m in enumerate(dev.modes) if m.name == "Direct"
+                    )
+                    dev.set_mode(direct_idx)
+                except StopIteration:
+                    log(f"Device {dev.name} has no Direct mode, skipping mode switch")
+                except Exception as em:
+                    log(f"Mode set error on {dev.name}: {em}")
+
+            for zone in dev.zones:
+                if argb_zones and "addressable" in zone.name.lower():
+                    continue
+                zone.set_color(col)
+            synced.append(dev.name)
+        log(f"OpenRGB (SDK): Synced RGB({r},{g},{b}) to {synced} (argb_zones={argb_zones})")
+        return
+    except Exception as e:
+        log(f"OpenRGB SDK error ({e}), attempting CLI fallback...")
+
+    # Fallback to CLI
+    try:
+        hex_c = f"{r:02x}{g:02x}{b:02x}"
+        cmd = ["openrgb", "--noautoconnect", "-c", hex_c]
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=4)
+        log("OpenRGB (CLI fallback) executed")
+    except Exception as e2:
+        log(f"OpenRGB CLI error: {e2}")
+
+
+def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4, throttle: bool = False, profile: dict | None = None):
     """
     Set Akko 5075B Plus Keyboard Backlight (Opcode 0x07) and Side-Strip (Opcode 0x08)
     via direct USB HID Feature Reports on Interface 2.
-    Both the backlight and the side-strip follow the system palette in solid color.
-
-    Battery-reactive behaviour now lives in rgb/battery-lighting: if it owns a
-    zone (listed in ~/.cache/battery_alerts.json) we skip that packet so the
-    theme sync does not stomp the active alert effect.
+    Supports individual device profile modes: theme, fixed, battery_color, battery_meter_keys,
+    battery_meter_rows, breathing_battery, breathing, reactive_press, stream_battery, off.
     """
-    # Both the USB cable (PID 4015) and the 2.4 GHz dongle (PID 4011) can be
-    # enumerated at once. The wireless link drops packets and the backlight
-    # freezes white, so always drive the wired node when it exists and only
-    # fall back to the dongle when USB is unplugged.
     usb_nodes, wl_nodes = [], []
     for h in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
         uevent = f"{h}/device/uevent"
@@ -345,8 +521,6 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4, throttle: bo
 
     AKKO_FLAGS_CUSTOM_RGB = 0x08
 
-    # rgb/battery-lighting may own one or both Akko zones. Skip the packet for a
-    # claimed zone; if both are claimed there is nothing left to do.
     alert_zones = battery_alert_zones()
     skip_sidestrip = "akko_keyboard:sidestrip" in alert_zones
     skip_keys = "akko_keyboard:keys" in alert_zones
@@ -354,25 +528,74 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4, throttle: bo
         log("Akko Keyboard: ambas zonas reclamadas por una alerta de batería, no se toca")
         return
 
-    # 1. Main Backlight (LED = Opcode 0x07) -> Solid Theme Color
-    led = bytearray(64)
-    led[0] = 0x07
-    led[1] = 0x01  # Mode: Static
-    led[2] = 0x04  # Speed
-    led[3] = brightness
-    led[4] = AKKO_FLAGS_CUSTOM_RGB
-    led[5], led[6], led[7] = r, g, b
-    led[8] = _akko_checksum8(led)
-    raw_led = bytearray([0x00]) + led
+    profile = profile or {}
+    keys_mode = profile.get("keys_mode", "theme")
+    sidestrip_mode = profile.get("sidestrip_mode", "stream_battery")
 
-    # 2. Side-Strip (SLED = Opcode 0x08) -> Solid Theme Color
+    akko_bat, akko_st = get_cached_battery("akko")
+    bat_r, bat_g, bat_b = get_akko_battery_level_color(akko_bat)
+
+    # 1. Main Backlight (LED = Opcode 0x07)
+    use_canvas = False
+    canvas_packets = []
+    if keys_mode == "battery_meter_keys":
+        use_canvas = True
+        key_map = akko_meter_keys_progressive(akko_bat)
+    elif keys_mode == "battery_meter_rows":
+        use_canvas = True
+        key_map = akko_meter_keys_rows(akko_bat)
+
+    if use_canvas:
+        act = bytearray(64)
+        act[0] = 0x07; act[1] = 0x0D; act[2] = 0x04; act[3] = brightness; act[4] = AKKO_FLAGS_CUSTOM_RGB
+        act[8] = _akko_checksum8(act)
+        canvas_packets = [bytes([0x00]) + act] + [bytes([0x00]) + c for c in akko_canvas_chunks(key_map)]
+        raw_led = None
+    else:
+        led = bytearray(64)
+        led[0] = 0x07
+        led[3] = brightness
+        led[4] = AKKO_FLAGS_CUSTOM_RGB
+
+        if keys_mode == "fixed":
+            kr, kg, kb = hex_to_rgb(profile.get("keys_fixed_color", "d8bde7"))
+            led[1] = 0x01; led[2] = 0x04; led[5], led[6], led[7] = kr, kg, kb
+        elif keys_mode == "battery_color":
+            led[1] = 0x01; led[2] = 0x04; led[5], led[6], led[7] = bat_r, bat_g, bat_b
+        elif keys_mode == "breathing_battery":
+            led[1] = 0x02; led[2] = 0x02; led[5], led[6], led[7] = bat_r, bat_g, bat_b
+        elif keys_mode == "breathing":
+            led[1] = 0x02; led[2] = 0x02; led[5], led[6], led[7] = r, g, b
+        elif keys_mode == "reactive_press":
+            led[1] = 0x08; led[2] = 0x03; led[5], led[6], led[7] = r, g, b
+        else:  # theme
+            led[1] = 0x01; led[2] = 0x04; led[5], led[6], led[7] = r, g, b
+
+        led[8] = _akko_checksum8(led)
+        raw_led = bytearray([0x00]) + led
+
+    # 2. Side-Strip (SLED = Opcode 0x08)
     sled = bytearray(64)
     sled[0] = 0x08
-    sled[1] = 0x01  # Static
-    sled[2] = 0x04  # Speed
     sled[3] = brightness
     sled[4] = AKKO_FLAGS_CUSTOM_RGB
-    sled[5], sled[6], sled[7] = r, g, b
+
+    if sidestrip_mode == "off":
+        sled[1] = 0x00; sled[2] = 0x00; sled[5], sled[6], sled[7] = 0, 0, 0
+    elif sidestrip_mode == "fixed":
+        sr, sg, sb = hex_to_rgb(profile.get("sidestrip_fixed_color", "d8bde7"))
+        sled[1] = 0x01; sled[2] = 0x04; sled[5], sled[6], sled[7] = sr, sg, sb
+    elif sidestrip_mode == "battery_color":
+        sled[1] = 0x01; sled[2] = 0x04; sled[5], sled[6], sled[7] = bat_r, bat_g, bat_b
+    elif sidestrip_mode == "stream_battery":
+        sled[1] = 0x05; sled[2] = 0x00; sled[5], sled[6], sled[7] = bat_r, bat_g, bat_b
+    elif sidestrip_mode == "breathing_battery":
+        sled[1] = 0x02; sled[2] = 0x02; sled[5], sled[6], sled[7] = bat_r, bat_g, bat_b
+    elif sidestrip_mode == "breathing":
+        sled[1] = 0x02; sled[2] = 0x02; sled[5], sled[6], sled[7] = r, g, b
+    else:  # theme
+        sled[1] = 0x01; sled[2] = 0x04; sled[5], sled[6], sled[7] = r, g, b
+
     sled[8] = _akko_checksum8(sled)
     raw_sled = bytearray([0x00]) + sled
 
@@ -383,10 +606,6 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4, throttle: bo
     except Exception:
         lock_fd = None
 
-    # On the preview path only: hard floor between writes. The 2.4 GHz radio
-    # drops/garbles packets that arrive too close together (this is what
-    # turns the backlight white when scrolling wallpapers fast). A confirmed
-    # theme change (throttle=False) must always get through.
     stamp = Path("/tmp/akko_last_write.txt")
     if throttle:
         try:
@@ -403,27 +622,24 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4, throttle: bo
         for node in nodes:
             try:
                 fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
-                # Exact send sequence from rgb/akko-rgb (the one that reliably
-                # drives the 2.4 GHz keyboard): the side-strip packet goes
-                # first and wakes the RF transceiver, then the backlight
-                # packet lands, then a repeat confirms it - a single backlight
-                # send gets dropped on the wireless link and the LEDs stay on
-                # whatever they were (which reads as white/frozen).
                 if not skip_sidestrip:
                     fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_sled)), raw_sled)
                     time.sleep(0.03)
                 if not skip_keys:
-                    fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
-                    time.sleep(0.03)
-                    fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
+                    if use_canvas:
+                        for pkt in canvas_packets:
+                            fcntl.ioctl(fd, HIDIOCSFEATURE(len(pkt)), pkt)
+                            time.sleep(0.03)
+                    elif raw_led:
+                        fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
+                        time.sleep(0.03)
+                        fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
                 os.close(fd)
                 try:
                     stamp.write_text(str(time.time()))
                 except Exception:
                     pass
-                bl_txt = "omitido (alerta)" if skip_keys else f"RGB({r},{g},{b})"
-                ss_txt = "omitido (alerta)" if skip_sidestrip else f"RGB({r},{g},{b})"
-                log(f"Akko Keyboard ({node}): Backlight {bl_txt} + Side-Strip {ss_txt}")
+                log(f"Akko Keyboard ({node}): Backlight ({keys_mode}) + Side-Strip ({sidestrip_mode})")
                 return
             except Exception as e:
                 log(f"Akko Keyboard error on {node}: {e}")
@@ -436,7 +652,7 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4, throttle: bo
                 pass
 
 
-def sync_mchose_base(r: int, g: int, b: int):
+def sync_mchose_base(r: int, g: int, b: int, profile: dict | None = None):
     """Set MCHOSE 8K Dongle / Charging Base RGB via reverse-engineered Command 0x2B protocol."""
     if "mchose_base:_" in battery_alert_zones():
         log("MCHOSE Base: reclamado por una alerta de batería, se omite el sync de tema")
@@ -458,11 +674,36 @@ def sync_mchose_base(r: int, g: int, b: int):
     if not nodes:
         return
 
+    profile = profile or {}
+    bmode = profile.get("mode", "theme")
+
+    k7_bat, _ = get_cached_battery("k7")
+    bat_r, bat_g, bat_b = get_akko_battery_level_color(k7_bat)
+
+    mode_byte = 0x06
+    speed_byte = 0x00
+    br, bg, bb = r, g, b
+
+    if bmode == "fixed":
+        br, bg, bb = hex_to_rgb(profile.get("fixed_color", "d8bde7"))
+        mode_byte = 0x06
+    elif bmode == "battery_color":
+        br, bg, bb = bat_r, bat_g, bat_b
+        mode_byte = 0x06
+    elif bmode == "theme_breathing":
+        mode_byte = 0x02
+        speed_byte = 0x01
+        br, bg, bb = r, g, b
+    elif bmode == "wave":
+        mode_byte = 0x07
+        speed_byte = 0x03
+        br, bg, bb = 255, 59, 0
+
     payload = [
-        0x2B, 0x01, 0x06, 0x00,
+        0x2B, 0x01, mode_byte, speed_byte,
         100, 0x00, 0x01, 0x01, 0x00,
-        r, g, b,
-        r, g, b,
+        br, bg, bb,
+        br, bg, bb,
         0x00, 0x00, 0x00, 0x00, 0x00
     ]
     raw = bytearray([0x11] + [x ^ 0xFF for x in payload])
@@ -472,18 +713,26 @@ def sync_mchose_base(r: int, g: int, b: int):
             fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
             fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw)), raw)
             os.close(fd)
-            log(f"MCHOSE Base: Synced RGB({r},{g},{b}) to {node} via Cmd 0x2B")
+            log(f"MCHOSE Base: Synced RGB({br},{bg},{bb}) mode {bmode} to {node} via Cmd 0x2B")
         except Exception as e:
             log(f"MCHOSE Base error on {node}: {e}")
 
 
-def sync_magichome(r: int, g: int, b: int):
+def sync_magichome(r: int, g: int, b: int, profile: dict | None = None):
     """Set Magic Home LED strip color and power on."""
     if "magichome:_" in battery_alert_zones():
         log("MagicHome: reclamado por una alerta de batería, se omite el sync de tema")
         return
     if not MAGIC_HOME_IP:
         return
+
+    profile = profile or {}
+    mmode = profile.get("mode", "theme")
+    if mmode == "fixed":
+        r, g, b = hex_to_rgb(profile.get("fixed_color", "d8bde7"))
+    elif mmode == "battery_color":
+        akko_bat, _ = get_cached_battery("akko")
+        r, g, b = get_akko_battery_level_color(akko_bat)
 
     try:
         from flux_led import WifiLedBulb
@@ -492,7 +741,7 @@ def sync_magichome(r: int, g: int, b: int):
         bulb.turnOn()
         bulb.setRgb(r, g, b)
         bulb.close()
-        log(f"MagicHome (flux_led): Set RGB ({r}, {g}, {b}) successfully")
+        log(f"MagicHome (flux_led): Set RGB ({r}, {g}, {b}) mode {mmode} successfully")
     except Exception as e:
         log(f"MagicHome error via python ({e}), attempting CLI fallback...")
         try:
@@ -663,6 +912,7 @@ def main():
 
     # A device runs only if enabled in config AND (no --only filter OR listed in it).
     enabled = config.get("devices", DEFAULT_RGB_CONFIG["devices"])
+    profiles = config.get("device_profiles", DEFAULT_RGB_CONFIG.get("device_profiles", {}))
     only = opts["only"]
 
     # The wallpaper *preview* is the only caller that passes --only (see
@@ -679,10 +929,10 @@ def main():
     argb_zones = config.get("devices_extra", {}).get("openrgb", {}).get("argb_zones", False)
 
     targets = {
-        "openrgb": lambda: sync_openrgb(r, g, b, argb_zones),
-        "magichome": lambda: sync_magichome(r, g, b),
-        "mchose_base": lambda: sync_mchose_base(r, g, b),
-        "akko_keyboard": lambda: sync_akko_keyboard(r, g, b, throttle=akko_throttle),
+        "openrgb": lambda: sync_openrgb(r, g, b, argb_zones, profile=profiles.get("openrgb")),
+        "magichome": lambda: sync_magichome(r, g, b, profile=profiles.get("magichome")),
+        "mchose_base": lambda: sync_mchose_base(r, g, b, profile=profiles.get("mchose_base")),
+        "akko_keyboard": lambda: sync_akko_keyboard(r, g, b, throttle=akko_throttle, profile=profiles.get("akko_keyboard")),
         "spicetify": sync_spicetify,
     }
 

@@ -298,6 +298,19 @@ AKKO_KEY_ROWS = [
     [11, 17, 23, 29, 35, 41, 47, 53, 59],               # inferior (Ctrl/Alt/Espacio)
 ]
 
+AKKO_PROGRESSIVE_KEYS = [
+    # Fila Inferior (izq -> der)
+    11, 17, 23, 29, 35, 41, 47, 53, 59,
+    # Fila ZXCV (izq -> der)
+    10, 16, 22, 28, 34, 40, 46, 52, 58, 64,
+    # Fila ASDF (izq -> der)
+    9, 15, 21, 27, 33, 39, 45, 51, 57, 63, 69,
+    # Fila QWERTY (izq -> der)
+    8, 14, 20, 26, 32, 38, 44, 50, 56, 62, 68,
+    # Fila Números (izq -> der)
+    7, 13, 19, 25, 31, 37, 43, 49, 55, 61, 67, 73,
+]
+
 
 def akko_meter_keys(level):
     keys = [(0, 0, 0)] * 130
@@ -308,6 +321,20 @@ def akko_meter_keys(level):
         for idx in row:
             if 0 <= idx < 130:
                 keys[idx] = colour
+    return keys
+
+
+def akko_meter_keys_progressive(level):
+    keys = [(0, 0, 0)] * 130
+    if not level or level <= 0:
+        return keys
+    level = max(0, min(100, int(level)))
+    colour = battery_level_color(level)
+    n_keys = len(AKKO_PROGRESSIVE_KEYS)
+    count = max(1, min(n_keys, int(round(n_keys * (level / 100.0)))))
+    for idx in AKKO_PROGRESSIVE_KEYS[:count]:
+        if 0 <= idx < 130:
+            keys[idx] = colour
     return keys
 
 
@@ -765,36 +792,38 @@ def _save_state(st):
         pass
 
 
-def apply_akko_meter(level):
+def apply_akko_meter(level, progressive=False):
     """Pinta el medidor de batería sobre las teclas del Akko (modo lienzo).
 
     Envía 1 paquete de activación (0x07, byte[1]=0x0D, con checksum) y los 7
     chunks 0x0C, con time.sleep(0.03) entre escrituras para no corromper el
-    enlace RF. No hace nada si no hay nodo, o si el nivel redondeado a fila
-    (meter_rows) no cambió desde la última vez (STATE_CACHE).
+    enlace RF. No hace nada si no hay nodo, o si el nivel no cambió desde la
+    última vez (STATE_CACHE).
     """
     nodes = _akko_nodes()
     if not nodes:
         return
-    rows = meter_rows(level, len(AKKO_KEY_ROWS))
     st = _load_state()
-    if st.get("akko_meter_level") == rows:
+    cache_key = f"akko_meter_{'prog' if progressive else 'rows'}"
+    cur_val = level if progressive else meter_rows(level, len(AKKO_KEY_ROWS))
+    if st.get(cache_key) == cur_val:
         return
     activate = bytearray(64)
     activate[0] = 0x07
     activate[1] = 0x0D
     activate[2] = 0x04
     activate[3] = 0x04
-    activate[4] = 0x08          # flag color custom RGB (faltaba)
+    activate[4] = 0x08          # flag color custom RGB
     activate[8] = (0xFF - (sum(activate[:8]) & 0xFF)) & 0xFF
+    key_map = akko_meter_keys_progressive(level) if progressive else akko_meter_keys(level)
     packets = [bytes([0x00]) + activate] + [
-        bytes([0x00]) + c for c in akko_canvas_chunks(akko_meter_keys(level))
+        bytes([0x00]) + c for c in akko_canvas_chunks(key_map)
     ]
     node = nodes[0]
     for pkt in packets:
         _write_feature(node, bytearray(pkt))
         time.sleep(0.03)
-    st["akko_meter_level"] = rows
+    st[cache_key] = cur_val
     _save_state(st)
 
 
@@ -988,6 +1017,52 @@ def _notify(config, telemetry):
         log(f"_notify cache: {e}")
 
 
+def _check_battery_mode_refreshes(telemetry, active_alert_zones):
+    """If a device profile in rgb-config.json has a dynamic battery mode and is not in active alert, refresh when level changes."""
+    rgb_cfg_path = os.path.expanduser("~/.config/caelestia/rgb-config.json")
+    if not os.path.exists(rgb_cfg_path):
+        return
+    try:
+        with open(rgb_cfg_path) as f:
+            rgb_cfg = json.load(f)
+    except Exception:
+        return
+
+    profiles = rgb_cfg.get("device_profiles", {})
+    st = _load_state()
+    last_levels = st.get("last_profile_levels", {})
+    cur_levels = {}
+    dirty_devices = set()
+
+    # Akko
+    akko_prof = profiles.get("akko_keyboard", {})
+    akko_km = akko_prof.get("keys_mode", "theme")
+    akko_sm = akko_prof.get("sidestrip_mode", "stream_battery")
+    akko_lvl = telemetry.get("akko_keyboard", {}).get("level")
+    cur_levels["akko"] = akko_lvl
+    if akko_lvl is not None and akko_lvl != last_levels.get("akko"):
+        if any(m in (akko_km, akko_sm) for m in ("battery_color", "battery_meter_keys", "battery_meter_rows", "breathing_battery", "stream_battery")):
+            if not ("akko_keyboard:keys" in active_alert_zones and "akko_keyboard:sidestrip" in active_alert_zones):
+                dirty_devices.add("akko_keyboard")
+
+    # Mchose base
+    base_prof = profiles.get("mchose_base", {})
+    base_m = base_prof.get("mode", "theme")
+    mouse_lvl = telemetry.get("mchose_mouse", {}).get("level")
+    cur_levels["mouse"] = mouse_lvl
+    if mouse_lvl is not None and mouse_lvl != last_levels.get("mouse"):
+        if base_m in ("battery_color", "hardware_battery"):
+            if "mchose_base:_" not in active_alert_zones:
+                dirty_devices.add("mchose_base")
+
+    st["last_profile_levels"] = cur_levels
+    _save_state(st)
+
+    for dev in dirty_devices:
+        subprocess.run([sys.executable, SYNC_RGB, "--only", dev],
+                       timeout=8, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def tick(config=None, telemetry=None):
     config = config or load_config()
     telemetry = telemetry or read_telemetry()
@@ -1007,6 +1082,7 @@ def tick(config=None, telemetry=None):
 
     write_alerts(new)
     _notify(config, telemetry)
+    _check_battery_mode_refreshes(telemetry, set(new.keys()))
     return new
 
 
