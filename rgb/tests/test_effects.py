@@ -63,3 +63,22 @@ def test_akko_keys_theme_uses_theme_rgb(bl):
     body = pkts[0][1:]
     assert body[0] == 0x07
     assert (body[5], body[6], body[7]) == (12, 34, 56)
+
+
+def test_apply_akko_meter_no_nodes_is_noop(bl, monkeypatch):
+    monkeypatch.setattr(bl, "_akko_nodes", lambda: [])
+    sent = []
+    monkeypatch.setattr(bl, "_write_feature", lambda n, raw: sent.append(raw))
+    bl.apply_akko_meter(50)
+    assert sent == []                 # sin nodos no intenta escribir
+
+
+def test_apply_akko_meter_dedupes_same_level(bl, monkeypatch):
+    monkeypatch.setattr(bl, "_akko_nodes", lambda: ["/dev/null-fake"])
+    calls = []
+    monkeypatch.setattr(bl, "_write_feature", lambda n, raw: calls.append(bytes(raw)))
+    bl.apply_akko_meter(48)
+    first = len(calls)
+    assert first >= 8                 # 1 activación + 7 chunks
+    bl.apply_akko_meter(49)           # mismo nivel redondeado a fila -> no reenvía
+    assert len(calls) == first

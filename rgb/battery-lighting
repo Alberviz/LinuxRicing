@@ -718,13 +718,81 @@ def build_akko_packets(zone, effect, level, theme_rgb):
     return out
 
 
-# --- Placeholders forward (Tasks 8-9) ---------------------------------------
+# --- Akko per-key battery meter (Task 8) -----------------------------------
 def _akko_nodes():
-    return []
+    """Nodos hidraw del teclado Akko: cable (3151:4015) preferido, si no el
+    dongle 2.4G (3151:4011), siempre en la interfaz :1.2. El enlace inalámbrico
+    pierde paquetes y congela el backlight en blanco, así que se usa el cable
+    cuando existe. Portado de sync_akko_keyboard de rgb/sync-rgb.py.
+    """
+    usb_nodes, wl_nodes = [], []
+    for h in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
+        uevent = f"{h}/device/uevent"
+        if not os.path.exists(uevent):
+            continue
+        try:
+            with open(uevent) as f:
+                content = f.read()
+        except Exception:
+            continue
+        if "3151" not in content:
+            continue
+        if ":1.2" not in os.path.realpath(f"{h}/device"):
+            continue
+        node = "/dev/" + os.path.basename(h)
+        if "4015" in content:
+            usb_nodes.append(node)
+        elif "4011" in content:
+            wl_nodes.append(node)
+    return usb_nodes or wl_nodes
+
+
+def _load_state():
+    try:
+        with open(STATE_CACHE) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_state(st):
+    try:
+        with open(STATE_CACHE, "w") as f:
+            json.dump(st, f)
+    except Exception:
+        pass
 
 
 def apply_akko_meter(level):
-    pass
+    """Pinta el medidor de batería sobre las teclas del Akko (modo lienzo).
+
+    Envía 1 paquete de activación (0x07, byte[1]=0x0D, con checksum) y los 7
+    chunks 0x0C, con time.sleep(0.03) entre escrituras para no corromper el
+    enlace RF. No hace nada si no hay nodo, o si el nivel redondeado a fila
+    (meter_rows) no cambió desde la última vez (STATE_CACHE).
+    """
+    nodes = _akko_nodes()
+    if not nodes:
+        return
+    rows = meter_rows(level, len(AKKO_KEY_ROWS))
+    st = _load_state()
+    if st.get("akko_meter_level") == rows:
+        return
+    activate = bytearray(64)
+    activate[0] = 0x07
+    activate[1] = 0x0D
+    activate[2] = 0x04
+    activate[3] = 0x04
+    activate[8] = (0xFF - (sum(activate[:8]) & 0xFF)) & 0xFF
+    packets = [bytes([0x00]) + activate] + [
+        bytes([0x00]) + c for c in akko_canvas_chunks(akko_meter_keys(level))
+    ]
+    node = nodes[0]
+    for pkt in packets:
+        _write_feature(node, bytearray(pkt))
+        time.sleep(0.03)
+    st["akko_meter_level"] = rows
+    _save_state(st)
 
 
 def apply_magichome(*a):
