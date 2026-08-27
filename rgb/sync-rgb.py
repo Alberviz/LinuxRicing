@@ -354,6 +354,19 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4):
     except Exception:
         lock_fd = None
 
+    # Hard floor between writes: the 2.4 GHz radio drops/garbles packets that
+    # arrive too close together (this is what turns the backlight white).
+    stamp = Path("/tmp/akko_last_write.txt")
+    try:
+        if stamp.exists() and time.time() - float(stamp.read_text().strip()) < 0.25:
+            log("Akko Keyboard: skipped (last write < 250 ms ago)")
+            if lock_fd is not None:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                os.close(lock_fd)
+            return
+    except Exception:
+        pass
+
     try:
         for node in nodes:
             try:
@@ -362,6 +375,10 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4):
                 time.sleep(0.015)
                 fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_sled)), raw_sled)
                 os.close(fd)
+                try:
+                    stamp.write_text(str(time.time()))
+                except Exception:
+                    pass
                 log(f"Akko Keyboard ({node}): Synced Backlight RGB({r},{g},{b}) + Side-Strip ({status_log})")
                 return
             except Exception as e:
@@ -598,7 +615,15 @@ def main():
     enabled = config.get("devices", DEFAULT_RGB_CONFIG["devices"])
     only = opts["only"]
 
+    # Wallpaper *preview* (SCHEME_COLOURS env) fires every ~150 ms while the
+    # user scrolls. The Akko 2.4 GHz radio can't take that many back-to-back
+    # writes and the backlight corrupts (goes white / freezes), so the
+    # keyboard only updates on the confirmed theme change, never on preview.
+    is_preview = bool(os.environ.get("SCHEME_COLOURS")) and not opts["hex"]
+
     def wants(key: str) -> bool:
+        if key == "akko_keyboard" and is_preview:
+            return False
         return enabled.get(key, True) and (only is None or key in only)
 
     argb_zones = config.get("devices_extra", {}).get("openrgb", {}).get("argb_zones", False)
