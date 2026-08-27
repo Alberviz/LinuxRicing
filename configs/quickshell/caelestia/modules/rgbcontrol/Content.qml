@@ -4,6 +4,8 @@ import QtQuick
 import QtQuick.Layouts
 import Caelestia.Config
 import qs.components
+import qs.components.containers
+import qs.components.controls
 import qs.services
 
 StyledRect {
@@ -14,10 +16,16 @@ StyledRect {
     property int tab: 0
     readonly property var tabs: [qsTr("Inicio"), qsTr("Dispositivos"), qsTr("Notificaciones")]
 
+    readonly property real maxContentHeight: Math.min(620, Math.max(200, (root.parent?.height ?? 900) - 240))
+
     implicitWidth: 560
     implicitHeight: layout.implicitHeight + Tokens.padding.large * 2
     radius: Tokens.rounding.extraLarge
     color: Colours.palette.m3surfaceContainer
+
+    onTabChanged: {
+        flickable.contentY = 0;
+    }
 
     // Swallow clicks so they don't reach the backdrop dismiss handler.
     MouseArea {
@@ -116,14 +124,18 @@ StyledRect {
             }
         }
 
-        // Tab content — height follows the active page so shorter tabs
-        // (Inicio) don't inherit the tallest tab's empty space.
-        StackLayout {
-            id: stack
+        // Tab content — wrapped in a Flickable so tall tabs (Notificaciones / Dispositivos)
+        // scroll smoothly with mouse wheel and scrollbar, while shorter tabs (Inicio) fit naturally.
+        StyledFlickable {
+            id: flickable
 
             Layout.fillWidth: true
-            Layout.preferredHeight: stack.children[root.tab]?.implicitHeight ?? 0
-            currentIndex: root.tab
+            Layout.preferredHeight: Math.min(root.maxContentHeight, stack.children[root.tab]?.implicitHeight ?? 0)
+            clip: true
+
+            flickableDirection: Flickable.VerticalFlick
+            contentWidth: width
+            contentHeight: stack.children[root.tab]?.implicitHeight ?? 0
 
             Behavior on Layout.preferredHeight {
                 NumberAnimation {
@@ -132,30 +144,41 @@ StyledRect {
                 }
             }
 
-            component Placeholder: StyledRect {
-                property string label
+            StyledScrollBar.vertical: StyledScrollBar {
+                flickable: flickable
+            }
 
-                Layout.fillWidth: true
-                implicitHeight: 160
-                radius: Tokens.rounding.large
-                color: Colours.palette.m3surfaceContainerHigh
+            StackLayout {
+                id: stack
 
-                StyledText {
-                    anchors.centerIn: parent
-                    text: qsTr("%1 · próximamente").arg(parent.label)
-                    font: Tokens.font.body.medium
-                    color: Colours.palette.m3onSurfaceVariant
+                width: flickable.width - (flickable.contentHeight > flickable.height ? (Tokens.padding.extraSmall + Tokens.spacing.extraSmall) : 0)
+                currentIndex: root.tab
+
+                component Placeholder: StyledRect {
+                    property string label
+
+                    Layout.fillWidth: true
+                    implicitHeight: 160
+                    radius: Tokens.rounding.large
+                    color: Colours.palette.m3surfaceContainerHigh
+
+                    StyledText {
+                        anchors.centerIn: parent
+                        text: qsTr("%1 · próximamente").arg(parent.label)
+                        font: Tokens.font.body.medium
+                        color: Colours.palette.m3onSurfaceVariant
+                    }
                 }
-            }
 
-            InicioView {
-                Layout.fillWidth: true
-            }
-            DispositivosView {
-                Layout.fillWidth: true
-            }
-            NotificacionesView {
-                Layout.fillWidth: true
+                InicioView {
+                    Layout.fillWidth: true
+                }
+                DispositivosView {
+                    Layout.fillWidth: true
+                }
+                NotificacionesView {
+                    Layout.fillWidth: true
+                }
             }
         }
 
