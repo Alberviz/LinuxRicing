@@ -25,7 +25,7 @@ Este documento consolida los protocolos de ingeniería inversa y especificacione
   - `byte[1]`: Modo (ver tablas completas más abajo).
   - `byte[2]`: Velocidad. *(Nota técnica: Para el opcode `0x07`, la velocidad se invierte internamente como `4 - speed`; para `0x08` es directa `0..4`)*.
   - `byte[3]`: Brillo (`0x04` = 100%, rango 0 a 4).
-  - `byte[4]`: Flags (`option | dazzle`). Para color RGB personalizado sólido: **`0x07`** (`e.DAZZLE`).
+  - `byte[4]`: Flags (`option | dazzle`). Para color RGB personalizado sólido: **`0x08`** (`AKKO_FLAGS_CUSTOM_RGB`). *(Nota: `0x07` es un preset de paleta arcoíris, NO color personalizado — ver Base de Datos de Errores)*.
   - `byte[5]`: Rojo (`0 - 255`).
   - `byte[6]`: Verde (`0 - 255`).
   - `byte[7]`: Azul (`0 - 255`).
