@@ -165,6 +165,51 @@ def seed_config():
     return copy.deepcopy(DEFAULTS)
 
 
+SEVERITY = {"critical": 3, "low": 2, "charging": 1}
+
+
+def evaluate_trigger(rule, level, charging, critical_threshold):
+    trig = rule["trigger"]
+    if trig == "charging":
+        return bool(charging)
+    if level is None:
+        return False
+    if trig == "critical":
+        return (not charging) and level <= critical_threshold
+    if trig == "low":
+        return (not charging) and level <= (rule.get("threshold") or 20)
+    return False
+
+
+def _zone_keys(action):
+    tgt = action["target"]
+    if tgt != "akko_keyboard":
+        return [f"{tgt}:_"]
+    z = action.get("zone") or "both"
+    zs = ("keys", "sidestrip") if z == "both" else (z,)
+    return [f"{tgt}:{zz}" for zz in zs]
+
+
+def resolve(config, telemetry):
+    ct = config.get("critical_threshold", 10)
+    winners = {}   # zonekey -> (severity, rule_index, payload)
+    for idx, rule in enumerate(config.get("rules", [])):
+        src = telemetry.get(rule["source"], {})
+        if not src.get("connected"):
+            continue
+        if not evaluate_trigger(rule, src.get("level"), src.get("charging", False), ct):
+            continue
+        sev = SEVERITY[rule["trigger"]]
+        for action in rule.get("actions", []):
+            payload = {"effect": action["effect"], "trigger": rule["trigger"],
+                       "source": rule["source"], "level": src.get("level")}
+            for zk in _zone_keys(action):
+                cur = winners.get(zk)
+                if cur is None or sev > cur[0] or (sev == cur[0] and idx < cur[1]):
+                    winners[zk] = (sev, idx, payload)
+    return {zk: p for zk, (_, _, p) in winners.items()}
+
+
 def main(argv):
     if not argv or argv[0] in ("-h", "--help"):
         print(USAGE)
