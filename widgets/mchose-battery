@@ -98,9 +98,9 @@ def get_v9_pro_battery():
                 if resp and len(resp) >= 4 and resp[0] == 0x55 and resp[1] == 0x65:
                     bat = resp[2]
                     st_code = resp[3]
-                    if st_code == 2 or st_code == 3:
+                    if st_code == 1:
                         st = "Cargando"
-                    elif st_code == 1:
+                    elif st_code == 2:
                         st = "Descargando"
                     else:
                         st = "En espera"
