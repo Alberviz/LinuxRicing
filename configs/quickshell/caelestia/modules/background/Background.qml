@@ -436,7 +436,7 @@ Variants {
         }
     }
 
-    component DeviceItem: StyledRect {
+    component DeviceItem: StyledClippingRect {
         id: devItem
 
         required property string name
@@ -450,6 +450,7 @@ Variants {
         signal clicked()
 
         readonly property bool isLowBattery: connected && battery <= 20 && !charging
+        readonly property real fillPercent: devItem.connected ? Math.max(0.06, Math.min(1.0, devItem.battery / 100.0)) : 0.0
 
         implicitHeight: itemCol.implicitHeight + Tokens.padding.medium * 2
         radius: Tokens.rounding.large
@@ -457,6 +458,78 @@ Variants {
 
         Behavior on color {
             CAnim {}
+        }
+
+        // --- ANIMATED LIQUID WAVE FILL ---
+        Item {
+            id: liquidContainer
+            anchors.fill: parent
+            clip: true
+            visible: devItem.connected
+
+            property real animatedHeight: devItem.height * devItem.fillPercent
+
+            Behavior on animatedHeight {
+                NumberAnimation {
+                    duration: 1000
+                    easing.type: Easing.OutCubic
+                }
+            }
+
+            Canvas {
+                id: waveCanvas
+                anchors.fill: parent
+
+                property real phase: 0.0
+                property color waveColor1: devItem.isLowBattery ? Qt.alpha(Colours.palette.m3error, 0.25) : (devItem.charging ? Qt.alpha(Colours.palette.m3primary, 0.28) : Qt.alpha(devItem.accentColor, 0.20))
+                property color waveColor2: devItem.isLowBattery ? Qt.alpha(Colours.palette.m3error, 0.42) : (devItem.charging ? Qt.alpha(Colours.palette.m3primary, 0.45) : Qt.alpha(devItem.accentColor, 0.35))
+
+                NumberAnimation on phase {
+                    from: 0
+                    to: Math.PI * 2
+                    duration: devItem.charging ? 1800 : 3400
+                    loops: Animation.Infinite
+                    running: devItem.connected
+                }
+
+                onPhaseChanged: requestPaint()
+
+                onPaint: {
+                    const ctx = getContext("2d");
+                    ctx.clearRect(0, 0, width, height);
+
+                    const baseH = liquidContainer.animatedHeight;
+                    const w = width;
+                    const h = height;
+                    const surfaceY = h - baseH;
+
+                    const amplitude = (baseH < 8 || baseH > h - 6) ? 1.5 : 3.2;
+
+                    // Wave 1: Capa profunda
+                    ctx.beginPath();
+                    ctx.moveTo(0, h);
+                    for (let x = 0; x <= w; x += 4) {
+                        const y = surfaceY + Math.sin(x * 0.05 + phase) * amplitude;
+                        ctx.lineTo(x, y);
+                    }
+                    ctx.lineTo(w, h);
+                    ctx.closePath();
+                    ctx.fillStyle = waveColor1;
+                    ctx.fill();
+
+                    // Wave 2: Capa superficial en contrafase
+                    ctx.beginPath();
+                    ctx.moveTo(0, h);
+                    for (let x = 0; x <= w; x += 4) {
+                        const y = surfaceY + Math.sin(x * 0.05 - phase + 1.2) * (amplitude * 0.85);
+                        ctx.lineTo(x, y);
+                    }
+                    ctx.lineTo(w, h);
+                    ctx.closePath();
+                    ctx.fillStyle = waveColor2;
+                    ctx.fill();
+                }
+            }
         }
 
         StateLayer {
