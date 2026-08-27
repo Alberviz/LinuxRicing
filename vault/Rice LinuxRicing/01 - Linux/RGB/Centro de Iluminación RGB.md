@@ -87,5 +87,21 @@ Plan detallado y vivo en `docs/CENTRO_ILUMINACION_RGB_PLAN.md` (repo). Resumen:
   redondeadas) — arreglados `DeviceCard.qml` y `Content.qml`. Falta pase de diseño fino y
   verificar clics. Escrito `docs/CENTRO_ILUMINACION_RGB_HANDOFF.md` para reiniciar la
   conversación. **Siguiente sesión: fases 4 y 5.**
+- **2026-08-27 (Sesión 3 — Gemini)** — Estado actual verificado en hardware. Resumen para reanudar:
+
+  **LO QUE FUNCIONA (no tocar):**
+  - `sync-rgb.py` con debounce (400ms), lock `/tmp/akko_sync.lock`, y transmisión de 15ms entre paquetes `0x07` (Backlight) → `0x08` (Side-strip).
+  - Detección del teclado por HID node `:1.2` con VID `3151` / PID `4011` (2.4G) o `4015` (USB).
+  - Color calculado con `enhance_color_for_leds()` (saturación boosteada a 80% mínimo).
+  - OpenRGB **excluye** el teclado Akko/ROYUAN (evita colisión de bus USB).
+  - Watcher Spotify `spotify-focus-watcher` en `~/.local/bin/` — escucha `socket2.sock` Hyprland y lanza `spicetify apply -q` solo cuando Spotify tiene foco. `Super+Alt+M` para recargo manual.
+  - Debounce global en main: si en <400ms llega el mismo color (doble hook Caelestia), se ignora.
+  - Preview de wallpaper usa `--only openrgb,magichome,mchose_base,akko_keyboard` para no disparar Spicetify.
+
+  **LO QUE NO FUNCIONA / PENDIENTE:**
+  - **Fade in/out de colores:** INTENTADO y REVERTIDO. El intento (5 frames, coseno ease, 25ms entre frames) rompió el backlight del teclado y causó parpadeos. El protocolo 2.4G Akko no tolera múltiples escrituras seguidas rápidas al mismo fd sin pausas largas (~100ms+). Si se quiere implementar: hacerlo con el fd abierto y cerrado una sola vez por frame, con al menos 80ms entre frames, y testar que el firmware no interprete las escrituras intermedias como reset. **Recomendación: implementarlo solo para MagicHome (TCP) y OpenRGB (SDK TCP), no para Akko HID directo.**
+  - **Batería y estado de carga (enchufado):** El teclado por 2.4G NO informa el porcentaje real ni el estado de carga al host Linux sin la secuencia RF específica de Akko Cloud Driver. El byte `0x42` (66) devuelto por opcode `0x83` es el descriptor estático `'B'` (Family B), no la batería. **Solución:** capturar Wireshark en Windows con USBPcap mientras Akko Cloud Driver muestra la batería → obtener el opcode RF real → replicarlo en Linux.
+  - **Fase 4** (motor de flash de notificaciones) y **Fase 5** (install.sh) del Centro de Iluminación: pendientes.
+
 - **2026-08-27 (Sesión 2)** — Especificación formal de la iluminación reactiva del Teclado Akko 5075B:
   Backlight sincronizado sólido + Lightstrip lateral derecho con reglas de estado (reposo = tema, batería baja ≤15% = respiración roja `0x02`, carga = flujo `0x05` con gradiente progresivo de color por batería). Identificado que en 2.4G (`PID 0x4011`), el byte devuelto `0x42` (66) correspondía a `'B'` (Family B) del descriptor estático del dongle; planificada la captura en Windows para replicar el canal RF bidireccional exacto de Akko Cloud Driver.
