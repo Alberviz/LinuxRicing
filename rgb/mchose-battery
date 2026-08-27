@@ -117,9 +117,41 @@ def get_v9_pro_battery():
         return last_bat, "En reposo"
     return None, "Sin respuesta"
 
-# ==============================================================================
-# 2. MCHOSE K7 ULTRA MOUSE
-# ==============================================================================
+def set_base_mode(mode=3, r=255, g=59, b=0, speed=2, brightness=100):
+    """Set MCHOSE Base LED mode: 1=Breathing, 2=Spectrum wave/cycle, 3=Static solid, 4=Wave."""
+    nodes = glob_hidraw_nodes(0x3837, 0x1001, iface=2) or glob_hidraw_nodes(0x3837, 0x1001)
+    if not nodes:
+        return
+    payload = [
+        0x2B, 0x01, 0x06, 0x00,
+        brightness, speed, mode, 0x01, 0x00,
+        r, g, b,
+        r, g, b,
+        0x00, 0x00, 0x00, 0x00, 0x00
+    ]
+    raw = bytearray([0x11] + [x ^ 0xFF for x in payload])
+    for n in nodes:
+        try:
+            fd = os.open(n, os.O_RDWR | os.O_NONBLOCK)
+            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw)), raw)
+            os.close(fd)
+        except Exception:
+            pass
+
+def handle_charging_lighting_transition(is_charging: bool, cache: dict):
+    was_charging = cache.get("k7_was_charging", False)
+    if is_charging and not was_charging:
+        # Just docked onto base -> Start Spectrum Wave / Cycle Charging effect!
+        set_base_mode(mode=2, speed=3)
+        cache["k7_was_charging"] = True
+    elif not is_charging and was_charging:
+        # Just undocked from base -> Restore unified wallpaper theme color!
+        cache["k7_was_charging"] = False
+        try:
+            subprocess.Popen(["/usr/bin/python3", "/home/alberviz/.config/caelestia/sync-rgb.py"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+
 def get_k7_ultra_battery():
     cache = load_cache()
     last_bat = cache.get("k7_battery")
@@ -154,6 +186,7 @@ def get_k7_ultra_battery():
                             os.close(fd)
                             cache["k7_battery"] = bat
                             cache["k7_status"] = st
+                            handle_charging_lighting_transition(is_charging, cache)
                             save_cache(cache)
                             return bat, st
 
@@ -168,10 +201,12 @@ def get_k7_ultra_battery():
                             bat = dec[11]
                             charge_st = dec[12]
                             if 0 < bat <= 100:
-                                st = "Cargando" if charge_st == 1 else "Descargando"
+                                is_charging = (charge_st == 1)
+                                st = "Cargando" if is_charging else "Descargando"
                                 os.close(fd)
                                 cache["k7_battery"] = bat
                                 cache["k7_status"] = st
+                                handle_charging_lighting_transition(is_charging, cache)
                                 save_cache(cache)
                                 return bat, st
                 except Exception:
