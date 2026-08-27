@@ -293,15 +293,16 @@ def _akko_checksum8(buf: bytearray) -> int:
 
 
 def get_akko_battery_level_color(bat_level: int | None) -> tuple[int, int, int]:
-    """Calculate progressive color from Red (<=15%) -> Amber -> Yellow -> Lime -> Emerald Green (100%)."""
+    """Calculate progressive color from Red (<=15%) -> Orange -> Amber -> Lime -> Emerald Green (100%)."""
     if bat_level is None:
         bat_level = 100
     bat_level = max(0, min(100, bat_level))
     if bat_level <= 15:
         return (255, 0, 0)
-    hue = ((bat_level - 15) / 85.0) * (120.0 / 360.0)
-    nr, ng, nb = colorsys.hsv_to_rgb(hue, 1.0, 1.0)
-    return (int(nr * 255), int(ng * 255), int(nb * 255))
+    t = (bat_level - 15) / 85.0
+    hue_deg = (t ** 1.3) * 125.0
+    nr, ng, nb = colorsys.hsv_to_rgb(hue_deg / 360.0, 1.0, 1.0)
+    return (int(nr * 255 + 0.5), int(ng * 255 + 0.5), int(nb * 255 + 0.5))
 
 
 def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4, throttle: bool = False):
