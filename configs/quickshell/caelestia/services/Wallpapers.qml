@@ -59,6 +59,7 @@ Searcher {
     function stopPreview(): void {
         showPreview = false;
         previewSyncTimer.stop();
+        previewIdleRestoreTimer.stop();
         if (previewColourLock)
             pendingPreviewClear = true;
         else
@@ -151,6 +152,22 @@ Searcher {
         onTriggered: Quickshell.execDetached(["python3", "/home/alberviz/.config/caelestia/sync-rgb.py"])
     }
 
+    // [claude-rgb-preview-patch] if the picker is left open on a preview for a
+    // while without picking anything, put the LEDs back to the real scheme -
+    // don't leave them stuck on a colour the user never committed to. Every
+    // preview push restarts this; a fresh preview re-colours them again.
+    Timer {
+        id: previewIdleRestoreTimer
+
+        interval: 15000
+        onTriggered: {
+            if (root.showPreview && root.lastPreviewColoursJson) {
+                root.lastPreviewColoursJson = "";
+                Quickshell.execDetached(["python3", "/home/alberviz/.config/caelestia/sync-rgb.py"]);
+            }
+        }
+    }
+
     Timer {
         id: justSelectedTimer
 
@@ -169,6 +186,7 @@ Searcher {
                 // [claude-rgb-preview-patch]
                 root.lastPreviewColoursJson = JSON.stringify(JSON.parse(text).colours);
                 previewSyncTimer.restart();
+                previewIdleRestoreTimer.restart();
             }
         }
     }
