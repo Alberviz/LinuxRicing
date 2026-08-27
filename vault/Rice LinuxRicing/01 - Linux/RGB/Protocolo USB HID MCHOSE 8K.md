@@ -71,3 +71,18 @@ Byte 15..19: 0x00       (Padding de ceros)
 1. **Al Acoplar el Ratón a la Base (Carga):** Activa el efecto configurado (`theme_breathing`, `battery_breathing`, `hardware_battery` o `wave`).
 2. **Al Desacoplar el Ratón (Uso normal):** Restaura el color estático del wallpaper (`Target 0x06`).
 3. **Batería Baja (`<= 20%`):** Si está fuera de la base, activa la alerta visual seleccionada (`red_breathing`, `wave`, `red_static` o `none`).
+
+---
+
+## 5. Telemetría de Batería y Modos de Conexión
+
+- **Identificadores del Hardware:**
+  - **`PID 0x1001`**: Modo Inalámbrico (Base 8K / Dongle receptor). Emite telemetría en pulsos periódicos cada **`3.65 segundos`** sin desconectarse.
+  - **`PID 0x4150`**: Modo Cable Directo USB. Respuesta instantánea continua y reportes push `0x13`.
+- **Comando de Consulta de Batería:** Feature Report de 21 bytes con Report ID `0x11` y comando `0x06` invertido con `XOR 0xFF`:
+  ```text
+  Solicitud: [0x11, 0x06 ^ 0xFF, 0xFF, 0xFF, ...]
+  ```
+- **Respuesta (Feature Report `0x11` con `byte ^ 0xFF`):**
+  - `dec[11]`: Nivel de batería exacto (`0 - 100%`).
+  - `dec[12]`: **Estado de Carga** (`0x01` = `⚡ Cargando` en base o por cable USB, `0x00` = `Descargando`).
