@@ -1957,21 +1957,48 @@ Variants {
                     width: 240
                     height: 240
                     radius: width / 2
-                    color: Colours.palette.m3surfaceVariant
-                    border.color: Qt.alpha(Colours.palette.m3primary, 0.5)
+                    color: Colours.palette.m3surfaceContainerHigh
+                    border.color: Qt.alpha(Colours.palette.m3primary, 0.6)
                     border.width: 3
 
-                    // Fallback Icon when no art is available
-                    MaterialIcon {
-                        anchors.centerIn: parent
-                        text: "album"
-                        color: Colours.palette.m3onSurfaceVariant
-                        fontStyle: Tokens.font.icon.size(72).build()
-                        opacity: coverFadeImg.status === Image.Null || coverFadeImg.status === Image.Error || !coverFadeImg.source ? 0.7 : 0
-                        animate: true
+                    // Fallback Vinyl Center & Music Note Icon (visible when FadeImage has no art)
+                    Item {
+                        anchors.fill: parent
 
-                        Behavior on opacity {
-                            Anim { type: Anim.DefaultEffects }
+                        // Subtle vinyl record grooves
+                        Canvas {
+                            anchors.fill: parent
+                            onPaint: {
+                                const ctx = getContext("2d");
+                                ctx.reset();
+                                const cx = width / 2;
+                                const cy = height / 2;
+                                ctx.strokeStyle = Qt.alpha(Colours.palette.m3outlineVariant, 0.18);
+                                ctx.lineWidth = 1;
+                                for (let r of [45, 65, 85, 105]) {
+                                    ctx.beginPath();
+                                    ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+                                    ctx.stroke();
+                                }
+                            }
+                        }
+
+                        // Center Vinyl Hub
+                        StyledRect {
+                            anchors.centerIn: parent
+                            width: 90
+                            height: 90
+                            radius: width / 2
+                            color: Colours.palette.m3primaryContainer
+                            border.color: Qt.alpha(Colours.palette.m3primary, 0.4)
+                            border.width: 2
+
+                            MaterialIcon {
+                                anchors.centerIn: parent
+                                text: "music_note"
+                                color: Colours.palette.m3onPrimaryContainer
+                                fontStyle: Tokens.font.icon.builders.extraLarge.scale(2.2).build()
+                            }
                         }
                     }
 

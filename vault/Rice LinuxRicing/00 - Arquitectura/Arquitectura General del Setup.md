@@ -62,4 +62,8 @@ graph TD
 | **Sincronizador Global (Windows)** | `C:\Users\Alberviz\LinuxRicing\rgb\` | `rgb/sync-rgb-windows.py` |
 | **Bóveda Obsidian** | `~/LinuxRicing/vault/` | `vault/` |
 
+> [!TIP]
+> **Grafo Interactivo del Código (Code Graph):**
+> Consulta el [[00 - Grafo de Arquitectura y Dependencias|🗺️ Grafo de Arquitectura y Dependencias]] y el lienzo visual interactivo `Mapa del Sistema.canvas` para ver el flujo exacto de llamadas entre componentes UI, daemons y drivers de hardware.
+
 > Para la arquitectura equivalente en Windows, consultar [[Rice LinuxRicing/Windows - Arquitectura y Sincronización del Ecosistema|🪟 Windows · Arquitectura y Sincronización del Ecosistema]].

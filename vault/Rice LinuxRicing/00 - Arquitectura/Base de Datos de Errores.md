@@ -119,3 +119,53 @@ Ambos agentes (Claude y Gemini) escriben aquí — añadir, no reescribir.
 - **Nota de arquitectura:** este subsistema (preview de wallpaper → LEDs
   físicos) ha dado varios fallos encadenados. Está en evaluación si merece la
   pena o si los LEDs deberían seguir solo el wallpaper **confirmado**.
+
+### Desincronización y reversión al fondo anterior en Quickshell (Wallpapers.qml)
+- **Síntoma:** al elegir un nuevo wallpaper, los LEDs y aplicaciones a veces se
+  quedaban con el tema anterior o revertían bruscamente poco después.
+- **Causa:** carrera de temporizadores en `Wallpapers.qml` (`rgbRestoreTimer` a
+  los 400 ms y `previewIdleRestoreTimer` a los 15 s ejecutaban `sync-rgb.py` sin
+  variables de entorno antes de que `caelestia wallpaper -f` terminase de escribir
+  el nuevo `scheme.json`), sumado a cerrojo no bloqueante (`LOCK_NB`) en `theme.py`
+  que abortaba si `sudo` de Chromium demoraba el proceso.
+- **Arreglo:** en `Wallpapers.qml`, parada inmediata e incondicional de los
+  temporizadores de marcha atrás al seleccionar fondo; guardián `if (root.justSelected) return;`
+  en `getPreviewColoursProc`; `"enableChromium": false` en `cli.json`.
+
+### OpenRGB (RAM y ventiladores) volvía al fondo anterior tras 2 s en Super+W
+- **Síntoma:** al navegar con `Super + W` por la lista de fondos y quedarse parado
+  en uno mirando la pantalla, a los ~2-3 segundos la RAM y los ventiladores ARGB
+  volvían al color del wallpaper anterior.
+- **Causa:** `argb-wave.py` tenía `LIVE_CACHE_TTL = 2.0`, lo que invalidaba la
+  caché temporal `/tmp/caelestia-rgb-live-palette.json` a los 2 segundos de
+  inactividad y volvía a leer el `scheme.json` anterior.
+- **Arreglo:** eliminado el TTL de 2 segundos en `argb-wave.py` y eliminado
+  `previewIdleRestoreTimer` de `Wallpapers.qml`. Ahora la animación ARGB mantiene
+  el color del fondo previsualizado indefinidamente hasta que el usuario confirme
+  o cierre explícitamente el menú con `Escape`.
+
+### El efecto de carga en la base MCHOSE cambiaba a un color deslavado (theme_breathing)
+- **Síntoma:** al colocar el ratón (M8 / K7 Ultra) en la base 8K para cargar con
+  el modo `theme_breathing`, la luz parpadeaba en un color blanquecino/descolorido
+  o ámbar en lugar del color vivo del tema.
+- **Causa:** `get_theme_primary_rgb()` en `mchose-battery` leía el valor hexadecimal
+  crudo de `scheme.json` sin potenciar la saturación para LEDs físicos
+  (`enhance_color_for_leds`), mandando valores pastel al firmware que en hardware
+  LED se aprecian apagados/blanquecinos.
+- **Arreglo:** añadido el algoritmo de saturación inteligente `enhance_color_for_leds()`
+  y lectura preferente de `rgb-config.json` en `mchose-battery`.
+
+### Congelación del teclado Akko cada minuto por reescritura periódica de LEDs
+- **Síntoma:** mientras se escribe con el teclado Akko 5075B, cada 1-2 minutos
+  el teclado se quedaba bloqueado / "petado" durante ~2 segundos, perdiendo o
+  retrasando pulsaciones de teclas.
+- **Causa:** en el commit `b3b01d1`, la función `check_and_notify()` de
+  `mchose-battery` ejecutaba incondicionalmente `apply_akko_battery_lighting()`
+  en cada tick del timer de sistema (`mchose-battery.timer`). Al recibir paquetes
+  de configuración LED (`SET_REPORT 0x07/0x08`), el microcontrolador ROYUAN del
+  teclado pausa el procesamiento del escaneo de teclas mientras reinicia el PWM
+  de los LEDs.
+- **Arreglo:** eliminada la llamada a `apply_akko_battery_lighting()` dentro de
+  `check_and_notify()`. La iluminación del teclado Akko es de disparo único
+  (*One-Shot*) y solo debe escribirse al cambiar de tema/wallpaper vía `sync-rgb.py`.
+
