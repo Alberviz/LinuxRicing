@@ -63,6 +63,12 @@ Respuestas a las preguntas de la "Petición a Windows":
 ## Pendiente
 
 - **LEDs per-key / per-zona** (encender solo una fila, etc.): protocolo distinto
-  (subida de mapa RGB en frames). No capturado todavía. Pendiente de una captura
-  dedicada de la GUI subiendo un perfil per-key.
+  (subida de mapa RGB en frames). **No capturado** — bloqueado por herramientas:
+  USBPcap 1.5.4.0 (última release, proyecto muerto desde 2020) no consigue abrir los
+  dispositivos USB hijo en Windows 11 build 26200 (`USBPcapCMD -A` y `--devices` fallan
+  con `Couldn't open device - 2`; solo funciona abrir el control device sin selección,
+  que no captura nada). Funcionó a principios de esta sesión por un estado previo del
+  driver; tras reinstalar/reiniciar dejó de ir. Caminos posibles: (a) máquina con
+  Windows más antiguo, (b) analizar el binario `iot_driver_v200.exe` directamente,
+  (c) esperar un USBPcap nuevo (improbable).
 - Confirmar en Linux que el paquete Feature a `:1.2` del PID `0x4011` cambia el color.
