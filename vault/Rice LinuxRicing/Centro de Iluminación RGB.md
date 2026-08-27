@@ -1,12 +1,25 @@
 ---
 tags: [rice, rgb, proyecto]
-estado: diseño
+estado: en-implementación (fases 0-3 hechas; faltan 4-5)
 actualizado: 2026-08-27
 ---
 
 # Centro de Iluminación RGB
 
 Proyecto para sustituir el desplegable actual de ajustes de la base MCHOSE (una tarjeta que se expande al clicar el ratón en el widget de periféricos) por **una ventana única** que controle la iluminación de **todos** los periféricos.
+
+## ▶ PARA RETOMAR EN UNA SESIÓN NUEVA
+
+Rama: **`feat/obsidian-vault-and-rgb-control`**. Documento de traspaso completo y detallado:
+**`docs/CENTRO_ILUMINACION_RGB_HANDOFF.md`** (en el repo) — lo tiene todo: estado exacto,
+mapa de archivos, cómo desplegar/probar, y **Fase 4 (motor de flash) y Fase 5 (instalador)
+paso a paso con esqueletos de código**.
+
+Al decir *"empieza con las fases 4 y 5"*: leer ese handoff + `docs/CENTRO_ILUMINACION_RGB_PLAN.md`,
+`git fetch`, y ejecutar Fase 4 y luego Fase 5 tal como están descritas.
+
+Hecho y desplegado: Fases 0 (config + `sync-rgb.py`), 1 (esqueleto del panel), 2 (las 3
+pestañas funcionales), 3 (el ratón abre el panel; retirada la tarjeta inline).
 
 ## Problema
 

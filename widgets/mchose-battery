@@ -98,12 +98,10 @@ def get_v9_pro_battery():
                 if resp and len(resp) >= 4 and resp[0] == 0x55 and resp[1] == 0x65:
                     bat = resp[2]
                     st_code = resp[3]
-                    if st_code == 3:
+                    if st_code == 3 or st_code == 0:
                         st = "Cargando"
                     elif st_code == 2:
                         st = "Descargando"
-                    elif st_code == 0:
-                        st = "En espera"
                     else:
                         st = "Descargando"
                     cache["v9_battery"] = bat
