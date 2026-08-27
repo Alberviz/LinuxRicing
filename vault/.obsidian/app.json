@@ -1,0 +1,8 @@
+{
+  "alwaysUpdateLinks": true,
+  "newLinkFormat": "shortest",
+  "useMarkdownLinks": false,
+  "attachmentFolderPath": "Inbox/attachments",
+  "showFrontmatter": true,
+  "tabSize": 2
+}
