@@ -14,11 +14,18 @@ Scope {
 
     // true while the panel should be on screen; false triggers the close animation
     property bool shown
+    // which tab to show (0 Inicio, 1 Dispositivos, 2 Notificaciones)
+    property int startTab: 0
 
     function open(): void {
         unloadTimer.stop();
         loader.activeAsync = true;
         shown = true;
+    }
+
+    function openTab(i: int): void {
+        startTab = i;
+        open();
     }
 
     function close(): void {
@@ -97,6 +104,7 @@ Scope {
                 Content {
                     id: content
 
+                    tab: scope.startTab
                     anchors.centerIn: parent
                     // Only render the card on the monitor Hypr currently focuses.
                     visible: Hypr.monitorFor(win.modelData) === Hypr.focusedMonitor
@@ -129,6 +137,10 @@ Scope {
 
         function open(): void {
             scope.open();
+        }
+
+        function openTab(tab: int): void {
+            scope.openTab(tab);
         }
 
         function close(): void {

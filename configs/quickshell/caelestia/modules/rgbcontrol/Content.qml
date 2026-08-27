@@ -140,11 +140,11 @@ StyledRect {
             InicioView {
                 Layout.fillWidth: true
             }
-            Placeholder {
-                label: qsTr("Dispositivos")
+            DispositivosView {
+                Layout.fillWidth: true
             }
-            Placeholder {
-                label: qsTr("Notificaciones")
+            NotificacionesView {
+                Layout.fillWidth: true
             }
         }
 
