@@ -23,6 +23,30 @@ Variants {
         required property ShellScreen modelData
         property bool transparentWidgets: true
 
+        FileView {
+            id: widgetConfigFile
+            path: `${Quickshell.env("HOME")}/.config/caelestia/widgets-config.json`
+            printErrors: false
+            watchChanges: true
+            onFileChanged: reload()
+            onLoaded: {
+                try {
+                    const data = JSON.parse(text());
+                    if (typeof data.transparent_widgets === "boolean") {
+                        win.transparentWidgets = data.transparent_widgets;
+                    }
+                } catch (e) {}
+            }
+        }
+
+        function toggleTransparency(): void {
+            win.transparentWidgets = !win.transparentWidgets;
+            const json = JSON.stringify({
+                transparent_widgets: win.transparentWidgets
+            }, null, 2) + "\n";
+            widgetConfigFile.setText(json);
+        }
+
         screen: modelData
         name: "background"
         WlrLayershell.exclusionMode: ExclusionMode.Ignore
@@ -322,7 +346,7 @@ Variants {
 
                     StateLayer {
                         radius: Tokens.rounding.full
-                        onClicked: win.transparentWidgets = !win.transparentWidgets
+                        onClicked: win.toggleTransparency()
                     }
 
                     MaterialIcon {
