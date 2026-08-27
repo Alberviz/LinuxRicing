@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+"""
+akko-rgb: Direct RGB and Effect Controller for Akko 5075B Plus (Wired & 2.4G Wireless)
+Usage:
+  akko-rgb #ff00ff            -> Set backlight to purple
+  akko-rgb red cyan           -> Backlight red, Side-strip cyan
+  akko-rgb --charging 80      -> Test charging stream at 80% battery
+  akko-rgb --lowbat           -> Test low battery breathing red
+"""
+import sys, os, glob, fcntl, time, colorsys
+
+def HIDIOCSFEATURE(size):
+    return (3 << 30) | (size << 16) | (ord('H') << 8) | 0x06
+
+def parse_color(c_str):
+    c_str = c_str.lower().strip()
+    named = {
+        "red": (255, 0, 0), "green": (0, 255, 0), "blue": (0, 0, 255),
+        "cyan": (0, 255, 255), "magenta": (255, 0, 255), "purple": (180, 0, 255),
+        "yellow": (255, 255, 0), "orange": (255, 120, 0), "white": (255, 255, 255),
+        "pink": (255, 0, 180), "emerald": (0, 230, 118), "amber": (255, 160, 0)
+    }
+    if c_str in named:
+        return named[c_str]
+    c_str = c_str.lstrip("#")
+    if len(c_str) == 6:
+        return int(c_str[0:2], 16), int(c_str[2:4], 16), int(c_str[4:6], 16)
+    return (255, 0, 255)
+
+def get_progressive_color(pct):
+    pct = max(0, min(100, pct))
+    if pct <= 15:
+        return (255, 0, 0)
+    hue = ((pct - 15) / 85.0) * (120.0 / 360.0)
+    nr, ng, nb = colorsys.hsv_to_rgb(hue, 1.0, 1.0)
+    return int(nr * 255), int(ng * 255), int(nb * 255)
+
+def send_akko(backlight_rgb, side_rgb=None, backlight_mode=0x01, side_mode=0x01, speed=0x04, brightness=0x04):
+    r, g, b = backlight_rgb
+    sr, sg, sb = side_rgb if side_rgb else backlight_rgb
+
+    # 1. Backlight (0x07)
+    led = bytearray(64)
+    led[0] = 0x07; led[1] = backlight_mode; led[2] = speed; led[3] = brightness; led[4] = 0x08
+    led[5], led[6], led[7] = r, g, b
+    led[8] = 0xFF - (sum(led[:8]) & 0xFF)
+    raw_led = bytearray([0x00]) + led
+
+    # 2. Side-Strip (0x08)
+    sled = bytearray(64)
+    sled[0] = 0x08; sled[1] = side_mode; sled[2] = speed; sled[3] = brightness; sled[4] = 0x08
+    sled[5], sled[6], sled[7] = sr, sg, sb
+    sled[8] = 0xFF - (sum(sled[:8]) & 0xFF)
+    raw_sled = bytearray([0x00]) + sled
+
+    nodes = []
+    for h in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
+        uevent = f"{h}/device/uevent"
+        if os.path.exists(uevent):
+            try:
+                with open(uevent) as f:
+                    content = f.read()
+                if "3151" in content and ("4015" in content or "4011" in content):
+                    link = os.path.realpath(f"{h}/device")
+                    if ":1.2" in link:
+                        nodes.append("/dev/" + os.path.basename(h))
+            except Exception:
+                pass
+
+    if not nodes:
+        print("[akko-rgb] Error: No Akko HID interface (:1.2) found.")
+        return False
+
+    for node in nodes:
+        try:
+            fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
+            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
+            time.sleep(0.04)
+            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_sled)), raw_sled)
+            os.close(fd)
+            print(f"[akko-rgb] Applied to {node}:")
+            print(f"  ⌨️  Backlight : RGB{backlight_rgb} (Mode {backlight_mode})")
+            print(f"  💡 Side-Strip: RGB{(sr, sg, sb)} (Mode {side_mode})")
+            return True
+        except Exception as e:
+            print(f"[akko-rgb] Error on {node}: {e}")
+    return False
+
+def main():
+    args = sys.argv[1:]
+    if not args:
+        print("Usage: akko-rgb <backlight_color> [side_color]")
+        print("       akko-rgb red cyan")
+        print("       akko-rgb #ff00ff")
+        print("       akko-rgb --charging <0-100>")
+        print("       akko-rgb --lowbat")
+        return
+
+    if "--charging" in args:
+        idx = args.index("--charging")
+        pct = int(args[idx + 1]) if len(args) > idx + 1 else 75
+        cr, cg, cb = get_progressive_color(pct)
+        send_akko((180, 0, 255), (cr, cg, cb), backlight_mode=0x01, side_mode=0x05, speed=0x00)
+        return
+
+    if "--lowbat" in args:
+        send_akko((180, 0, 255), (255, 0, 0), backlight_mode=0x01, side_mode=0x02, speed=0x02)
+        return
+
+    c1 = parse_color(args[0])
+    c2 = parse_color(args[1]) if len(args) > 1 else c1
+    send_akko(c1, c2)
+
+if __name__ == "__main__":
+    main()
