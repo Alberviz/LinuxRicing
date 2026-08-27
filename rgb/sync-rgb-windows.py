@@ -116,7 +116,7 @@ def encode_varint(val):
     out.append(val & 0x7F)
     return bytes(out)
 
-def encode_sendmsg(device_path: str, msg: bytes, checksum_type: int = 1) -> bytes:
+def encode_sendmsg(device_path: str, msg: bytes, checksum_type: int = 0, dangle_type: int = 1) -> bytes:
     buf = bytearray()
     dp_bytes = device_path.encode('utf-8')
     buf.append(0x0A)
@@ -128,7 +128,29 @@ def encode_sendmsg(device_path: str, msg: bytes, checksum_type: int = 1) -> byte
     if checksum_type != 0:
         buf.append(0x18)
         buf.extend(encode_varint(checksum_type))
+    if dangle_type != 0:
+        buf.append(0x20)
+        buf.extend(encode_varint(dangle_type))
     return bytes(buf)
+
+def encode_readmsg(device_path: str) -> bytes:
+    buf = bytearray()
+    dp_bytes = device_path.encode('utf-8')
+    buf.append(0x0A)
+    buf.extend(encode_varint(len(dp_bytes)))
+    buf.extend(dp_bytes)
+    return bytes(buf)
+
+def grpc_call(method: str, payload: bytes):
+    url = f"http://127.0.0.1:3814/driver.DriverGrpc/{method}"
+    frame = bytes([0x00]) + struct.pack(">I", len(payload)) + payload
+    req = urllib.request.Request(url, data=frame, headers={"Content-Type": "application/grpc-web+proto", "x-grpc-web": "1"})
+    with urllib.request.urlopen(req, timeout=1.5) as resp:
+        data = resp.read()
+        if len(data) >= 5:
+            msg_len = struct.unpack(">I", data[1:5])[0]
+            return data[5:5+msg_len]
+        return data
 
 def get_akko_battery_level_color(bat_level):
     if bat_level is None or bat_level <= 20:
@@ -143,39 +165,30 @@ def get_akko_battery_level_color(bat_level):
 def sync_akko_keyboard(primary_color, brightness=4):
     import urllib.request, struct, hid
     r, g, b = primary_color
-    AKKO_FLAGS_CUSTOM_RGB = 0x08
+    AKKO_FLAGS_CUSTOM_RGB = 0x08  # 0x08 = Custom RGB mode in firmware
 
     # 1. Query current battery and charging status from keyboard (Opcode 0x83)
-    bat_pct = 100
+    bat_pct = 80
     is_charging = False
     target_dev_path = None
-    target_pid = 0x4015
+    target_pid = 0x4011
 
-    for pid in [0x4015, 0x4011]:
-        for d in hid.enumerate(0x3151, pid):
-            path_str = d['path'].decode('utf-8', errors='ignore') if isinstance(d['path'], bytes) else str(d['path'])
-            if d.get('interface_number') == 2 or 'mi_02' in path_str.lower():
-                target_dev_path = d['path']
-                target_pid = pid
-                try:
-                    dev = hid.device()
-                    dev.open_path(d['path'])
-                    req = bytearray(64); req[0] = 0x83
-                    req[8] = 0xFF - (sum(req[:8]) & 0xFF)
-                    dev.send_feature_report(bytearray([0x00]) + req)
-                    time.sleep(0.02)
-                    resp = dev.get_feature_report(0x00, 65)
-                    dev.close()
-                    if len(resp) >= 4 and resp[1] == 0x83:
-                        bat_pct = resp[2] if resp[2] > 0 else 100
-                        is_charging = (resp[3] == 1)
-                except Exception:
-                    pass
-                break
-        if target_dev_path:
-            break
+    # Query telemetry via gRPC / dongle
+    grpc_dev_path = r"\\?\HID#VID_3151&PID_4011&MI_02#8&11c3dae0&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}"
+    try:
+        req_bat = bytearray(8); req_bat[0] = 0x83
+        grpc_call("sendMsg", encode_sendmsg(grpc_dev_path, bytes(req_bat), checksum_type=0, dangle_type=1))
+        time.sleep(0.03)
+        resp = grpc_call("readMsg", encode_readmsg(grpc_dev_path))
+        if resp and len(resp) >= 3 and resp[0] == 0x12:
+            payload = resp[2:]
+            if payload[0] == 0x83:
+                bat_pct = payload[1]
+                is_charging = (payload[2] == 1)
+    except Exception:
+        pass
 
-    # 2. Main Backlight (Teclas) -> Siempre color primario sólido de Material You
+    # 2. Main Backlight (Teclas) -> Siempre color primario sólido de Material You (Flags 0x07 = NORMAL / Sin Dazzle)
     led = bytearray(64)
     led[0] = 0x07; led[1] = 0x01; led[2] = 0x04; led[3] = brightness; led[4] = AKKO_FLAGS_CUSTOM_RGB
     led[5], led[6], led[7] = r, g, b
@@ -204,38 +217,43 @@ def sync_akko_keyboard(primary_color, brightness=4):
         sled[5], sled[6], sled[7] = r, g, b
         status_log = f"Normal ({bat_pct}% -> Sincronizado Sólido)"
 
-    # Try direct HID write
+    # Direct HID or gRPC transmission
+    dev_path = target_dev_path or r"\\?\HID#VID_3151&PID_4011&MI_02#8&11c3dae0&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}"
     try:
-        sled_hid = bytearray(sled); sled_hid[8] = 0xFF - (sum(sled_hid[:8]) & 0xFF)
-        led_hid = bytearray(led); led_hid[8] = 0xFF - (sum(led_hid[:8]) & 0xFF)
-        if target_dev_path:
-            dev = hid.device()
-            dev.open_path(target_dev_path)
-            dev.send_feature_report(bytearray([0x00]) + led_hid)
-            time.sleep(0.02)
-            dev.send_feature_report(bytearray([0x00]) + sled_hid)
-            dev.close()
-            mode_label = "USB Wired" if target_pid == 0x4015 else "2.4G Wireless"
-            print(f"[Akko Keyboard (HID {mode_label})] Synced ({status_log}) | Backlight: {primary_color}")
-            return
-    except Exception as e:
-        print(f"[Akko HID Warning] {e}")
+        # 1. setLightType (light_type=2, dangle_type=1)
+        pb_lt = bytearray()
+        dp_b = dev_path.encode('utf-8')
+        pb_lt.append(0x0A); pb_lt.extend(encode_varint(len(dp_b))); pb_lt.extend(dp_b)
+        pb_lt.append(0x10); pb_lt.append(0x02) # LightType OTHER
+        pb_lt.append(0x20); pb_lt.append(0x01) # DangleType KEYBOARD
+        grpc_call("setLightType", bytes(pb_lt))
+        time.sleep(0.01)
 
-    # Fallback to gRPC bridge
-    try:
-        url = "http://127.0.0.1:3814/driver.DriverGrpc/sendMsg"
-        for pid_str in ["PID_4015", "PID_4011"]:
-            dev_path = rf"\\?\HID#VID_3151&{pid_str}&MI_02#7&26793fac&0&0000#{{4d1e55b2-f16f-11cf-88cb-001111000030}}"
-            for msg in [led, sled]:
-                pb = encode_sendmsg(dev_path, bytes(msg), checksum_type=1)
-                frame = bytes([0x00]) + struct.pack(">I", len(pb)) + pb
-                req = urllib.request.Request(url, data=frame, headers={"Content-Type": "application/grpc-web+proto", "x-grpc-web": "1"})
-                with urllib.request.urlopen(req, timeout=1) as resp:
-                    resp.read()
-            print(f"[Akko Keyboard (gRPC)] Synced ({status_log}) | Backlight: {primary_color}")
-            return
-    except Exception:
-        pass
+        # 2. Backlight packet (Opcode 0x07) FIRST
+        grpc_call("sendMsg", encode_sendmsg(dev_path, bytes(led), checksum_type=1, dangle_type=1))
+        time.sleep(0.02)
+
+        # 3. Lock wireless loop
+        grpc_call("changeWirelessLoopStatus", bytearray([0x08, 0x01]))
+        time.sleep(0.05)
+
+        # 4. SLED packet (Opcode 0x08)
+        grpc_call("sendMsg", encode_sendmsg(dev_path, bytes(sled), checksum_type=1, dangle_type=1))
+        time.sleep(0.02)
+
+        # 5. Flush pipeline commit (Opcode 0x88)
+        req_sync = bytearray(64); req_sync[0] = 0x88
+        grpc_call("sendMsg", encode_sendmsg(dev_path, bytes(req_sync), checksum_type=0, dangle_type=1))
+        time.sleep(0.02)
+
+        # 6. Unlock wireless loop
+        grpc_call("changeWirelessLoopStatus", bytearray([0x08, 0x00]))
+        time.sleep(0.01)
+
+        print(f"[Akko Keyboard (gRPC 2.4G)] Synced ({status_log}) | Backlight: {primary_color}")
+        return
+    except Exception as e:
+        print(f"[Akko Warning] {e}")
 
 def sync_magichome(primary_color):
     try:

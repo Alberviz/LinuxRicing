@@ -21,28 +21,55 @@ Este documento consolida los protocolos de ingeniería inversa y especificacione
 
 ### A. Control de Iluminación RGB (Opcodes `0x07` y `0x08`):
 - **Estructura del Payload (64 bytes):**
-  - `byte[0]`: Opcode (`0x08` para SLED / `0x07` para LED).
-  - `byte[1]`: Modo (`0x01` = Estático, `0x00` = Apagado, `0x02` = Respiración).
-  - `byte[2]`: Velocidad (`0x04`).
+  - `byte[0]`: Opcode (`0x08` para Barra Lateral SLED / `0x07` para Teclas LED).
+  - `byte[1]`: Modo (ver tablas completas más abajo).
+  - `byte[2]`: Velocidad. *(Nota técnica: Para el opcode `0x07`, la velocidad se invierte internamente como `4 - speed`; para `0x08` es directa `0..4`)*.
   - `byte[3]`: Brillo (`0x04` = 100%, rango 0 a 4).
-  - `byte[4]`: Flags (`option | dazzle`). Para color RGB personalizado sólido: **`0x08`**.
+  - `byte[4]`: Flags (`option | dazzle`). Para color RGB personalizado sólido: **`0x07`** (`e.DAZZLE`).
   - `byte[5]`: Rojo (`0 - 255`).
   - `byte[6]`: Verde (`0 - 255`).
   - `byte[7]`: Azul (`0 - 255`).
-  - `byte[8]`: **Checksum** = `0xFF - (sum(byte[0..8]) & 0xFF)` (complemento a uno de la suma de los 8 primeros bytes).
+  - `byte[8]`: **Checksum BIT7** = `0xFF - (sum(byte[0..8]) & 0xFF)`.
   - `byte[9..63]`: Relleno (`0x00`).
 
+- **Catálogo Completo de Modos SLED (Barra Lateral - Opcode `0x08`):**
+  - `0`: `LightOff` (Apagado)
+  - `1`: `LightAlwaysOn` (Estático / Sólido)
+  - `2`: `LightBreath` (Respiración monocolor)
+  - `3`: `LightNeon` (Ciclo de colores espectral)
+  - `4`: `LightWave` (Ola de color horizontal)
+  - `5`: `LightSnake` (Steady Stream / Flujo continuo)
+  - `20`: `LightMusicFollow3` (Ritmo musical)
+  - `21`: `LightScreenColor` (Ambilight / Pantalla)
+  - `22`: `LightMusicFollow2` (Ritmo musical 2)
+
+- **Catálogo de Modos Principales Backlight (Teclas - Opcode `0x07`):**
+  - `0`: `LightOff`, `1`: `LightAlwaysOn` (Estático), `2`: `LightBreath`, `3`: `LightNeon`, `4`: `LightWave`, `5`: `LightRipple` (Ondas), `6`: `LightRaindrop`, `7`: `LightSnake`, `8`: `LightPressAction` (Reactivo), `9`: `LightConverage`, `10`: `LightSineWave`, `11`: `LightKaleidoscope`, `12`: `LightLineWave`, `13`: `LightUserPicture` (Lienzo por tecla), `14`: `LightLaser`, `15`: `LightCircleWave`, `16`: `LightDazzing`, `17`: `LightRainDown`, `18`: `LightMeteor`, `19`: `LightPressActionOff`, `20..22`: Modos Música/Pantalla, `23`: `LightTrain`, `24`: `LightFireWorks`.
+
 ### B. Telemetría de Batería y Carga (Opcode `0x83`):
-- **Solicitud (Host ➔ Teclado):** Buffer de 64 bytes con `byte[0] = 0x83`, `byte[8] = 0x00` (o checksum Bit7 `0x7C`).
+- **Solicitud (Host ➔ Teclado):** Buffer de 64 bytes con `byte[0] = 0x83`, `byte[7]` = Checksum BIT7 (`0x7C`).
 - **Respuesta (Teclado ➔ Host):**
   - `byte[0]`: `0x83` (Echo del comando).
-  - `byte[1]`: **Porcentaje de Batería** (`0 - 100%`). *(En modo 2.4 GHz reporta el nivel exacto de la celda de litio; en modo cable USB reporta `0` como bypass de alimentación directa)*.
+  - `byte[1]`: **Porcentaje de Batería** (`0 - 100%`). *(En modo 2.4 GHz `PID 0x4011` reporta el nivel exacto de la celda de litio; en modo cable USB `PID 0x4015` reporta alimentación directa)*.
   - `byte[2]`: **Estado de Alimentación / Carga**:
-    - `0x00`: **Descargando / Modo Batería**.
+    - `0x00`: **Descargando / Modo Batería (Wireless 2.4 GHz)**.
     - `0x01`: **⚡ Cargando activamente por cable USB**.
     - `0x02`: **🔋 Carga completa (100%)**.
   - `byte[3]`: `batteryLp` (Umbral / bandera de batería baja).
-  - `byte[8]`: Checksum de 8 bits.
+  - `byte[7]`: Checksum BIT7.
+
+### C. Protocolo de Transmisión Inalámbrica 2.4 GHz (Dongle `PID 0x4011`):
+Cuando el teclado opera sobre el transceptor inalámbrico 2.4 GHz, las transmisiones directas al bus colisionan con el bucle de sondeo continuo del dongle. La máquina de estados oficial requiere:
+1. **Target ID en Dongle:** Pasar `dangledevtype = 1` (`KEYBOARD`) en protobuf `SendMsg` para que el dongle active el transmisor de radiofrecuencia hacia el teclado.
+2. **Conmutación de Modo de Luz:** Enviar RPC `setLightType(device_path, light_type=2, dangle_type=1)` antes de inyectar comandos de color.
+3. **Bloqueo de Bucle RF (`changeWirelessLoopStatus`):**
+   - Transmitir paquete de Teclas (`0x07`).
+   - Invocar `changeWirelessLoopStatus(lock=True)` para pausar el sondeo de teclas durante la ráfaga.
+   - Transmitir paquete de Barra Lateral SLED (`0x08`).
+   - Enviar paquete de sincronización y vaciado de pipeline `0x88` (`FEA_CMD_GET_SLEDPARAM`).
+   - Invocar `changeWirelessLoopStatus(lock=False)` para reanudar el tráfico RF normal.
+4. **Modo Lienzo por Tecla (`LightUserPicture` - Opcode `0x0C`):**
+   - Permite direccionamiento ARGB individual de las 130 teclas mediante 7 paquetes de 56 bytes RGB (`0x0C`).
 
 ### C. Estado de la Palanca / Switch y Opciones (Opcode `0x86`):
 - **Solicitud:** Buffer de 64 bytes con `byte[0] = 0x86`, `byte[1] = 0x00` (Perfil 0).
@@ -56,7 +83,12 @@ Este documento consolida los protocolos de ingeniería inversa y especificacione
     - Bit 7 (`& 0x80`): Bloqueo total de teclado.
   - `byte[4]`: Modo de Ahorro de Energía (`1` = Activo).
 
-### D. Matriz RGB Tecla por Tecla / Custom Canvas (Opcodes `0x07` y `0x0C`):
+### D. Interfaz gRPC en Windows (`127.0.0.1:3814`):
+- Si el proceso `iot_driver_v200.exe` está activo, retiene el dispositivo USB HID. La comunicación se realiza mediante HTTP POST gRPC-Web con Report ID transparente:
+  - `driver.DriverGrpc/sendMsg`: Envía buffer con `checksumtype = 0` (`CheckSumType.BIT7`).
+  - `driver.DriverGrpc/readMsg`: Devuelve buffer `VenderMsg` con la respuesta del microcontrolador.
+
+### E. Matriz RGB Tecla por Tecla / Custom Canvas (Opcodes `0x07` y `0x0C`):
 - **1. Activar Modo Lienzo Personalizado (`FEA_CMD_SET_LEDPARAM = 0x07`):**
   - `byte[0]`: `0x07`
   - `byte[1]`: **`0x0D` (13 = Modo `LightUserPicture`)**
@@ -102,13 +134,33 @@ Este documento consolida los protocolos de ingeniería inversa y especificacione
 
 ---
 
-## 2. Base de Carga / Dongle MCHOSE K7 Ultra (`VID 0x3837, PID 0x1001`)
+## 2. Ratón MCHOSE K7 Ultra y Base 8K (`VID 0x3837, PID 0x1001 / 0x4150`)
 
-- **Controlador:** RealTek SoC HID (Interface 2).
-- **Tipo de Reporte:** Feature Report de 21 bytes (`Report ID 0x11` + 20 bytes payload).
+- **Identificadores de Hardware:**
+  - **`PID 0x1001`**: Modo Inalámbrico (Base 8K / Dongle receptor).
+  - **`PID 0x4150`**: Modo Cable Directo USB.
+- **Controlador:** RealTek SoC HID (Interface 2, `UsagePage 0xFF01` / `Col02`).
+- **Tipo de Reporte:** Feature Report de 21 bytes (`Report ID 0x11` + 20 bytes payload) e Input Reports (`0x13`).
 - **Ofuscación:** Todos los bytes del payload están invertidos con operación binaria XOR `0xFF`.
+
+### A. Telemetría de Batería y Estado de Carga (Comando `0x06`):
+- **Solicitud (Host ➔ Base/Ratón):**
+  ```python
+  req = bytearray([0x11, 0x06 ^ 0xFF] + [0xFF] * 19)
+  dev.send_feature_report(req)
+  ```
+- **Respuesta (Base/Ratón ➔ Host):** Feature Report `0x11` decodificado con `byte ^ 0xFF`:
+  - `dec[0..1]`: `0x11 0x06` (Echo).
+  - `dec[2..3]`: VID `0x3837`.
+  - `dec[11]`: **Porcentaje de Batería** (`0 - 100%`).
+  - `dec[12]`: **Estado de Carga**:
+    - `0x00`: **Descargando / En Uso**.
+    - `0x01`: **⚡ Cargando activamente** (en la Base inalámbrica con `PID 0x1001` o por cable directo con `PID 0x4150`).
+- **Comportamiento Temporal:** En modo Base 8K (`PID 0x1001`), la telemetría se emite en pulsos RF periódicos cada **`3.65 segundos`** sin desconectarse.
+
+### B. Control de Iluminación Anillo LED de la Base (Comando `0x2B`):
 - **Estructura del Payload (20 bytes):**
-  - `byte[0..3]`: Encabezado `[0x2B, 0x01, 0x06, 0x00]` (Comando `0x2B`).
+  - `byte[0..3]`: Encabezado `[0x2B, 0x01, 0x06, 0x00]` (Comando `0x2B`, `0x06` = Sólido, `0x02` = Breathing, `0x07` = Wave).
   - `byte[4..8]`: `[100, 0x00, 0x03, 0x01, 0x00]` (Brillo 100, Velocidad 3, Modo Estático 1).
   - `byte[9..11]`: **Anillo LED RGB:** `[r, g, b]`.
   - `byte[12..14]`: **Relleno duplicado:** `[r, g, b]`.
@@ -116,7 +168,7 @@ Este documento consolida los protocolos de ingeniería inversa y especificacione
 - **Envío con XOR:**
   ```python
   raw = bytearray([0x11] + [x ^ 0xFF for x in payload])
-  fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw)), raw)
+  dev.send_feature_report(raw)
   ```
 
 ---
