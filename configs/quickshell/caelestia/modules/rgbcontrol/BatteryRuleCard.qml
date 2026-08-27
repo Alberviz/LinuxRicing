@@ -230,12 +230,7 @@ StyledRect {
                 model: root.rule.actions
 
                 BatteryActionRow {
-                    required property int index
-                    required property var modelData
-
                     ruleId: root.rule.id
-                    index: index
-                    action: modelData
                 }
             }
 
