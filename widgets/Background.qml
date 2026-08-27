@@ -642,7 +642,6 @@ Variants {
                 text: devItem.name
                 color: devItem.connected ? Colours.palette.m3onSurface : Colours.palette.m3outline
                 font: Tokens.font.label.medium
-                font.bold: true
             }
 
             RowLayout {
@@ -659,7 +658,6 @@ Variants {
                     text: devItem.connected ? `${devItem.battery}%` : "Off"
                     color: devItem.connected ? (devItem.isLowBattery ? Colours.palette.m3error : (devItem.charging ? Colours.palette.m3primary : Colours.palette.m3onSurface)) : Colours.palette.m3outline
                     font: Tokens.font.title.medium
-                    font.bold: true
                 }
             }
 
@@ -718,7 +716,6 @@ Variants {
                             return devItem.mode || devItem.status;
                         }
                         font: Tokens.font.label.small
-                        font.bold: true
                         color: {
                             if (!devItem.connected) return Colours.palette.m3outline;
                             if (devItem.isLowBattery) return Colours.palette.m3onErrorContainer;
