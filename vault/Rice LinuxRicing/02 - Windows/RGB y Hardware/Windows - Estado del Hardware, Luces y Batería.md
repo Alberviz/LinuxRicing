@@ -70,6 +70,9 @@ python rgb/mchose-battery-windows.py --json
   - `Byte[2] / Byte[3]`: Estado de alimentación (**`0x01` = `⚡ Cargando activamente por USB`**).
 - **Lectura en directo:** **80%** (⚡ Cargando por USB).
 
+> [!NOTE]
+> **Coordinación con Linux:** Ver [[Petición a Windows · Protocolo RF Dongle Akko 2.4GHz]] para la captura de paquetes USB requerida por el agente de Linux.
+
 ---
 
 ## 🌈 3. Control de Iluminación RGB en Windows
