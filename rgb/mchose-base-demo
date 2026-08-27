@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+import sys
+import os
+import glob
+import fcntl
+import json
+import colorsys
+from pathlib import Path
+
+def HIDIOCSFEATURE(size):
+    return (3 << 30) | (size << 16) | (ord("H") << 8) | 0x06
+
+def find_node():
+    for h in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
+        uevent = f"{h}/device/uevent"
+        if os.path.exists(uevent):
+            try:
+                with open(uevent) as f:
+                    c = f.read()
+                if "3837" in c and "1001" in c:
+                    link = os.path.realpath(f"{h}/device")
+                    if ":1.2" in link:
+                        return "/dev/" + os.path.basename(h)
+            except Exception:
+                pass
+    return "/dev/hidraw7"
+
+def get_theme_rgb():
+    state_file = Path.home() / ".local/state/caelestia/scheme.json"
+    primary = "f9b7a3"
+    if state_file.exists():
+        try:
+            data = json.loads(state_file.read_text()).get("colours", {})
+            primary = data.get("primary", "f9b7a3").lstrip("#")
+        except Exception:
+            pass
+    r, g, b = int(primary[0:2], 16), int(primary[2:4], 16), int(primary[4:6], 16)
+    h, s, v = colorsys.rgb_to_hsv(r/255.0, g/255.0, b/255.0)
+    er, eg, eb = colorsys.hsv_to_rgb(h, 1.0, 1.0)
+    return int(er*255), int(eg*255), int(eb*255)
+
+def get_battery_color():
+    cache_file = Path.home() / ".cache/mchose_battery.json"
+    bat = 90
+    if cache_file.exists():
+        try:
+            data = json.loads(cache_file.read_text())
+            bat = data.get("k7_battery", 90)
+        except Exception:
+            pass
+    if bat > 60:
+        return 0, 255, 100, f"Verde (Batería {bat}%)"
+    elif bat > 20:
+        return 255, 165, 0, f"Ámbar / Naranja (Batería {bat}%)"
+    else:
+        return 255, 0, 0, f"Rojo Alerta (Batería {bat}%)"
+
+def send(mode, r, g, b, speed=2):
+    node = find_node()
+    payload = [
+        0x2B, 0x01, 0x06, 0x00,
+        100, speed, mode, 0x01, 0x00,
+        r, g, b,
+        r, g, b,
+        0x00, 0x00, 0x00, 0x00, 0x00
+    ]
+    raw = bytearray([0x11] + [x ^ 0xFF for x in payload])
+    fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
+    fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw)), raw)
+    os.close(fd)
+
+mode_arg = sys.argv[1] if len(sys.argv) > 1 else "theme"
+
+if mode_arg == "theme":
+    r, g, b = get_theme_rgb()
+    send(1, r, g, b, speed=2)
+    print(f"✨ Aplicada RESPIRACIÓN / ONDA con el color del TEMA: RGB({r},{g},{b})")
+elif mode_arg == "battery":
+    r, g, b, label = get_battery_color()
+    send(1, r, g, b, speed=2)
+    print(f"🔋 Aplicada RESPIRACIÓN según nivel de BATERÍA: {label} -> RGB({r},{g},{b})")
+elif mode_arg == "static":
+    r, g, b = get_theme_rgb()
+    send(3, r, g, b, speed=0)
+    print(f"⏹ Restaurado modo ESTÁTICO del TEMA: RGB({r},{g},{b})")
