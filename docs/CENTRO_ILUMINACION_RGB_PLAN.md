@@ -13,16 +13,23 @@ y la bóveda `vault/Rice LinuxRicing/`.
 1. **Forma**: panel superpuesto centrado en capa Wayland (`WlrLayer.Overlay`), fondo
    oscurecido, cierra al clicar fuera. Patrón: `modules/areapicker/AreaPicker.qml`. No es
    una ventana flotante XDG.
-2. **Alcance**: global — base MCHOSE (anillo + logo), teclado Akko (retro + tira lateral),
-   placa/RAM/ventiladores (OpenRGB), tira MagicHome. Interruptor on/off por dispositivo.
-3. **Selector de color**: paleta de presets (colores del tema + fijos comunes) + campo hex
+2. **Estructura**: 3 pestañas — `Inicio` (estado en reposo) · `Dispositivos` (acordeón, una
+   ficha por dispositivo con sus ajustes dentro) · `Notificaciones`. Plan B: una columna
+   scrollable sin pestañas si algo se complica.
+3. **Alcance**: global — base MCHOSE (anillo + logo), teclado Akko (retro + tira lateral),
+   placa/RAM/ventiladores (OpenRGB), tira MagicHome. Interruptor "participa en la
+   sincronización" por dispositivo. La ficha OpenRGB además elige `RGB estático` /
+   `ARGB ola animada` para las zonas direccionables.
+4. **Selector de color**: paleta de presets (colores del tema + fijos comunes) + campo hex
    editable con validación. Sin `Canvas` ni rueda.
-4. **Reposo**: selector "seguir tema (Material You) / color fijo".
-5. **Base MCHOSE**: se conservan "efecto al cargar" y "alerta de batería baja" + umbral
-   (son solo de la base, único dispositivo con batería). Siguen guardándose vía el CLI
-   `mchose-config` (encadena `mchose-battery --trigger-lighting`).
-6. **v1** incluye el motor "efecto temporal → restaurar" y el **flash al recibir
-   notificación** (rojo / acento / complementario = tono +180° en HSV, N pulsos).
+5. **Reposo**: selector "seguir tema (Material You) / color fijo".
+6. **Base MCHOSE**: se conservan "efecto al cargar" y "alerta de batería baja" + umbral
+   dentro de su ficha en `Dispositivos` (son solo de la base, único dispositivo con
+   batería). Siguen guardándose vía el CLI `mchose-config` (encadena
+   `mchose-battery --trigger-lighting`).
+7. **v1** incluye el motor "efecto temporal → restaurar" y el **flash al recibir
+   notificación** (rojo / acento / complementario = tono +180° en HSV, N pulsos), con
+   selección de qué dispositivos flashean.
 
 ## Arquitectura
 
@@ -38,18 +45,37 @@ y la bóveda `vault/Rice LinuxRicing/`.
   - **Fuera del `LazyLoader`, en el `Scope`** (siempre vivo): el objeto de control expuesto
     en `ShellState`, un `FileView` de `rgb-config.json`, y el `Connections { target: Notifs }`
     del flash. Solo el contenido pesado es lazy.
-- **`Content.qml`** — tarjeta modal (`StyledRect`, ancho ~560, alto por contenido,
-  `VerticalFadeFlickable` si desborda). Secciones:
-  - (a) Fuente: "Seguir tema" / "Color fijo" + `ColourPicker` visible si `fixed`.
-  - (b) Dispositivos: `Repeater` de 4 → `DeviceToggleRow` (icono + label + `StyledSwitch`).
-  - (c) Base MCHOSE: chips efecto de carga / alerta batería baja / umbral + botón "Probar".
-  - (d) Flash notificación: `StyledSwitch` + chips modo (rojo/acento/complementario) +
-    nº pulsos (1-5) + "Probar flash".
-  - (e) Footer: "Aplicar ahora" + "Cerrar".
+- **`Content.qml`** — tarjeta modal (`StyledRect`, ancho ~560, alto por contenido).
+  Cabecera + **barra de 3 pestañas** (`Inicio` · `Dispositivos` · `Notificaciones`) +
+  `StackLayout` con una vista por pestaña. Cada vista con `VerticalFadeFlickable` si
+  desborda. (Plan B si algo se complica: una sola columna scrollable, sin pestañas.)
+  - **`InicioView.qml`** — "Estado en reposo" (el color base cuando no hay ningún evento):
+    segmentado "Seguir el tema" / "Color fijo" + `ColourPicker` visible si `fixed`.
+    Footer "Aplicar ahora".
+  - **`DispositivosView.qml`** — acordeón de fichas de dispositivo (`Repeater` sobre el
+    modelo de 4). Cada ficha: cabecera con icono/nombre/estado + chevron; al expandir,
+    sus ajustes:
+    - **Base MCHOSE 8K**: "Participa en la sincronización" (`StyledSwitch`); brillo
+      (`StyledSlider`, *pendiente de protocolo*); y **todos los "Eventos de batería"** —
+      chips "al cargar" (tema/batería/firmware/ola), "alerta batería baja"
+      (roja/ola/ninguna/fija), umbral (`StyledSlider`), botón "Probar". Se guardan vía el
+      CLI `mchose-config` (como hoy).
+    - **Teclado Akko 5075B**: solo "Participa en la sincronización" por ahora.
+    - **Placa · RAM · ventiladores (OpenRGB)**: "Participa en la sincronización" +
+      **modo de las zonas direccionables**: `RGB · color estático` / `ARGB · ola animada`.
+      "ARGB" engancha el daemon `argb-wave.py` (rama `feature/argb-wave`) sobre `Aura
+      Addressable 1/2`; la RAM y `Aura Mainboard` van siempre en estático (bus SMBus).
+      Nueva clave de config `devices_extra.openrgb.argb_zones: bool`.
+    - **Tira LED MagicHome**: "Participa en la sincronización" + encendido/apagado
+      (absorbe la acción del widget `DesktopLedStrip`).
+  - **`NotificacionesView.qml`** — `StyledSwitch` "Flash al recibir notificación" + chips
+    de color (rojo/acento/complementario) + nº pulsos (1-5) + **lista de casillas "qué
+    dispositivos flashean"** (base, teclado, tira; placa/RAM deshabilitada por el bus) +
+    botón "Probar flash".
 - **`ColourPicker.qml`** — `Flow` de swatches (6 del tema: `m3primary/secondary/tertiary/
   primaryContainer/error/surfaceTint` + ~7 fijos) + `StyledTextField` hex
   (`validate: /^#?[0-9a-fA-F]{6}$/`). Expone `selectedColor` (hex string).
-- **`DeviceToggleRow.qml`**, **`Chip.qml`** (port de `MchoseChip`).
+- **`DeviceCard.qml`** (acordeón), **`Chip.qml`** (port de `MchoseChip`).
 
 ### Apertura del panel
 
@@ -64,11 +90,23 @@ y la bóveda `vault/Rice LinuxRicing/`.
 ```json
 {
   "source": "theme",
-  "fixed_color": "#d8bde7",
-  "devices": { "mchose_base": true, "akko_keyboard": true, "openrgb": true, "magichome": true },
-  "notification_flash": { "enabled": false, "mode": "accent", "pulses": 2 }
+  "fixed_color": "d8bde7",
+  "devices": { "openrgb": true, "magichome": true, "mchose_base": true, "akko_keyboard": true, "spicetify": true },
+  "devices_extra": { "openrgb": { "argb_zones": false } },
+  "notification_flash": {
+    "enabled": false,
+    "mode": "accent",
+    "pulses": 2,
+    "devices": ["mchose_base", "akko_keyboard"]
+  }
 }
 ```
+
+- `devices_extra.openrgb.argb_zones` — `true` deja las zonas `Aura Addressable 1/2` al
+  daemon `argb-wave.py` (ola animada); `false` = color estático de un disparo como todo
+  lo demás.
+- `notification_flash.devices` — subconjunto de dispositivos rápidos que parpadean.
+  `openrgb` nunca entra aquí (bus SMBus).
 
 **Separado de `mchose-config.json`** a propósito: `mchose-battery` (proceso aparte, systemd
 + eventos de carga) solo lee `mchose-config.json`; `sync-rgb.py` solo lee `rgb-config.json`.
@@ -160,17 +198,34 @@ son byte-idénticos; toda edición va a las dos rutas en el mismo commit y se ve
 - **Fase 1** — Esqueleto del módulo: `RgbControl.qml` (Scope + LazyLoader + dim + IpcHandler
   + objeto en `ShellState`) con `Content.qml` placeholder; `shell.qml` + `ShellState.qml`.
   *Checkpoint*: `caelestia shell ipc call rgb open` muestra el modal; clic fuera cierra.
-- **Fase 2** — Contenido: `ColourPicker`, `DeviceToggleRow`, `Chip`; secciones (a)(b)(e) con
-  `FileView` de `rgb-config.json`; luego sección (c) base vía CLI `mchose-config`.
-  *Checkpoint*: cambiar fuente/color/toggles → JSON actualizado → "Aplicar ahora" cambia los
-  LEDs correctos; paridad con la tarjeta inline.
+- **Fase 2** — Contenido: `ColourPicker`, `DeviceCard`, `Chip`; pestaña `Inicio` +
+  `Dispositivos` (acordeón) con `FileView` de `rgb-config.json`; ficha de la base vía CLI
+  `mchose-config`; ficha OpenRGB con el toggle ARGB.
+  *Checkpoint*: cambiar fuente/color/toggles/modo ARGB → JSON actualizado → "Aplicar ahora"
+  cambia los LEDs correctos; paridad con la tarjeta inline.
 - **Fase 3** — Migrar el widget: borrar tarjeta inline de las dos copias, `onClicked` →
   panel, botón "tune" en `DesktopLedStrip`.
   *Checkpoint*: `diff -q` vacío; `grep showMchoseSettings` vacío; clic en ratón abre panel.
-- **Fase 4** — Flash: `rgb-notify-flash` + disparador QML + sección (d).
+- **Fase 4** — Flash: `rgb-notify-flash` + disparador QML + pestaña `Notificaciones` (con la
+  lista de casillas de qué dispositivos flashean).
   *Checkpoint*: `notify-send` → flash + restauración; x5 seguidos = 1 flash; DND lo suprime;
   durante carga la base vuelve al efecto de carga.
 - **Fase 5** — `install.sh`, `scripts/sync-repo.sh`, docs, checklist end-to-end completo.
+
+## Visión futura (otra versión — al backlog de la bóveda)
+
+- **Reacciones de batería por dispositivo.** Hoy "Eventos de batería" solo existe para la
+  base (reacciona a la batería del ratón). Generalizarlo: cada dispositivo inalámbrico con
+  luz define su propio efecto al cargar / de batería baja / umbral, en su ficha. El teclado
+  Akko cambia de color con SU batería (requiere antes su batería real — hoy es un stub); los
+  cascos V9 Pro no tienen luz, quedan fuera.
+- **Brillo por dispositivo** (base, teclado, tira) — requiere exponer brillo/velocidad en
+  los protocolos de teclado y tira.
+- **Color fijo propio por dispositivo** que ignora el color global de reposo.
+- **OpenRGB por zonas** (placa vs RAM vs cada cabecero de ventiladores por separado).
+- **Notificaciones más ricas**: color por app, nivel de urgencia (`critical`/`normal`/`low`),
+  indicador de "No molestar".
+- **Perfiles / escenas** ("Trabajo", "Cine", "Noche") con atajo, y un **apagado maestro**.
 
 ## Verificación end-to-end
 

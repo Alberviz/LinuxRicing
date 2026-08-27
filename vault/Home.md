@@ -41,6 +41,7 @@ graph TD
 
 ## 🚀 3. Proyectos Activos y Propuestas de Refactorización
 - [[Rice LinuxRicing/Centro de Iluminación RGB|🌈 Centro de Iluminación RGB]] — *(Proyecto activo de Claude)*: Ventana overlay única para controlar toda la iluminación del setup con un clic.
+- [[Rice LinuxRicing/Suite de Control y Laboratorio de Hardware (Vision)|🎛️ Suite de Control · Gestor de Widgets & Asistente USB]] — Visión global de la aplicación: pestañas de RGB, personalización de widgets de escritorio y asistente guiado para añadir nuevo hardware por USB.
 - [[Rice LinuxRicing/Plan de Refactorización y Modularización (rgbd)|🏗️ Plan de Unificación · Daemon rgbd & rgbctl]] — Propuesta para fusionar los scripts sueltos en un único daemon modular con control de eventos, snapshots y cero colisiones.
 
 ---
