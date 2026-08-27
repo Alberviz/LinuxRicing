@@ -114,7 +114,7 @@ def HIDIOCSFEATURE(size: int) -> int:
     return (3 << 30) | (size << 16) | (ord("H") << 8) | 0x06
 
 
-def _hidraw_nodes(vid: str, pid: str) -> list[str]:
+def _hidraw_nodes(vid: str, pids: tuple[str, ...]) -> list[str]:
     nodes = []
     for h in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
         uevent = f"{h}/device/uevent"
@@ -123,7 +123,7 @@ def _hidraw_nodes(vid: str, pid: str) -> list[str]:
         try:
             with open(uevent) as f:
                 content = f.read()
-            if vid in content and pid in content:
+            if vid in content and any(p in content for p in pids):
                 link = os.path.realpath(f"{h}/device")
                 if ":1.2" in link:
                     nodes.append("/dev/" + os.path.basename(h))
@@ -147,7 +147,7 @@ def _akko_checksum8(buf: bytearray) -> int:
 
 def mchose_base_static(r: int, g: int, b: int) -> None:
     """Base MCHOSE ring, target 0x06 static — same payload as sync_mchose_base()."""
-    nodes = _hidraw_nodes("3837", "1001")
+    nodes = _hidraw_nodes("3837", ("1001",))
     if not nodes:
         return
     payload = [
@@ -164,7 +164,7 @@ def mchose_base_static(r: int, g: int, b: int) -> None:
 
 def akko_static(r: int, g: int, b: int, brightness: int = 4) -> None:
     """Akko 5075B backlight (0x07) + side strip (0x08) — same as sync_akko_keyboard()."""
-    nodes = _hidraw_nodes("3151", "4015")
+    nodes = _hidraw_nodes("3151", ("4015", "4011"))
     if not nodes:
         return
     AKKO_FLAGS_CUSTOM_RGB = 0x08
