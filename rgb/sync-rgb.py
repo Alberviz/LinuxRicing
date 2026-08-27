@@ -278,19 +278,30 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4, throttle: bo
       - Low Battery (<=20%): Breathing Red (0x02).
       - Normal (>20%): Solid system color (0x01).
     """
-    nodes = []
+    # Both the USB cable (PID 4015) and the 2.4 GHz dongle (PID 4011) can be
+    # enumerated at once. The wireless link drops packets and the backlight
+    # freezes white, so always drive the wired node when it exists and only
+    # fall back to the dongle when USB is unplugged.
+    usb_nodes, wl_nodes = [], []
     for h in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
         uevent = f"{h}/device/uevent"
-        if os.path.exists(uevent):
-            try:
-                with open(uevent) as f:
-                    content = f.read()
-                if "3151" in content and ("4015" in content or "4011" in content):
-                    link = os.path.realpath(f"{h}/device")
-                    if ":1.2" in link:
-                        nodes.append("/dev/" + os.path.basename(h))
-            except Exception:
-                pass
+        if not os.path.exists(uevent):
+            continue
+        try:
+            with open(uevent) as f:
+                content = f.read()
+        except Exception:
+            continue
+        if "3151" not in content:
+            continue
+        if ":1.2" not in os.path.realpath(f"{h}/device"):
+            continue
+        node = "/dev/" + os.path.basename(h)
+        if "4015" in content:
+            usb_nodes.append(node)
+        elif "4011" in content:
+            wl_nodes.append(node)
+    nodes = usb_nodes or wl_nodes
 
     if not nodes:
         log("Akko Keyboard: No HID node found")
