@@ -57,13 +57,20 @@ comportamiento actual de `sync-rgb.py`), `breathing`, `solid`, `none`.
 **`reactive_enabled`**: interruptor maestro. Si está apagado, el teclado solo
 sigue el color global del tema.
 
-## Qué falta para que funcione (backend, otra rama/sesión)
+## Qué falta para que funcione (backend) — HECHO / SUPERADO
 
-1. Telemetría de batería del Akko por 2.4 GHz (el bloqueante real).
-2. `apply_akko_battery_lighting()` en `rgb/mchose-battery` y `sync_akko_keyboard()`
-   en `rgb/sync-rgb.py` deben leer `akko-config.json` en vez de tener las reglas
-   escritas a fuego.
-3. Renderer del efecto `fill` tecla a tecla (protocolo del lienzo ya documentado
-   en `docs/HARDWARE_PROTOCOLS.md` §1.D; mapa de coordenadas parcial — validar
-   contra hardware).
-4. Botón «Probar» en `AkkoCard` (ahora hay una nota informativa en su lugar).
+Implementado por el motor **`battery-lighting`** (`rgb/battery-lighting` →
+`~/.local/bin/battery-lighting`, unidad `systemd/battery-lighting.service`).
+Diseño completo en
+`docs/superpowers/specs/2026-08-27-battery-lighting-engine-design.md`.
+
+1. ~~Telemetría de batería del Akko por 2.4 GHz~~ — el motor la lee vía
+   `--dump` (Opcode `0x83`), con fallback a UPower para el ratón.
+2. ~~Reglas escritas a fuego en `mchose-battery` / `sync-rgb.py`~~ — el motor
+   lee el perfil editable `~/.config/caelestia/battery-lighting.json`
+   (con migración de los antiguos `akko-config.json` / `mchose-config.json`).
+3. Renderer del efecto `fill` / medidor tecla a tecla — implementado
+   (`build_akko_packets`, mapa `AKKO_KEY_ROWS`). **PENDIENTE:** validar el mapa
+   de coordenadas contra hardware real.
+4. Botón «Probar» en `AkkoCard` — Fase 2 (frontend); el motor ya expone
+   `battery-lighting --apply <perfil>` para el disparo inmediato.

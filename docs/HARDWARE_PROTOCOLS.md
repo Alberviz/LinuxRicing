@@ -72,6 +72,14 @@ Cuando el teclado opera sobre el transceptor inalámbrico 2.4 GHz, las transmisi
    - Permite direccionamiento ARGB individual de las 130 teclas mediante 7 paquetes de 56 bytes RGB (`0x0C`).
 
 ### D. Reglas Reactivas del Lightstrip Lateral en Linux (Side-Strip `0x08`):
+
+> **Nota (2026-08):** Estas reglas ya no están escritas a fuego. Ahora las
+> gobierna el daemon `battery-lighting` (`~/.local/bin/battery-lighting`,
+> unidad `systemd/battery-lighting.service`) a partir del perfil editable
+> `~/.config/caelestia/battery-lighting.json`. Umbrales, colores, efectos y el
+> interruptor maestro `reactive_enabled` se ajustan desde ese JSON. Lo que
+> sigue describe el comportamiento por defecto.
+
 Política de sincronización que aplica `sync-rgb.py` / `sync-rgb-windows.py` sobre la barra lateral según la telemetría del Opcode `0x83`:
 - **Reposo / Normal (> 20%):** Modo `0x01` (Estático) con el color acento/primario del sistema (Material You).
 - **Batería Baja (≤ 20%, fuera de carga):** Modo `0x01` (Estático) en **Rojo puro** (`RGB 255, 0, 0`) como advertencia.

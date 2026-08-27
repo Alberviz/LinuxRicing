@@ -1,7 +1,0 @@
-[Unit]
-Description=MCHOSE Battery Low-Level Notification Check
-After=graphical-session.target
-
-[Service]
-Type=oneshot
-ExecStart=/home/alberviz/.local/bin/mchose-battery --notify

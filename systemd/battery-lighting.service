@@ -1,0 +1,12 @@
+[Unit]
+Description=Motor de iluminación reactiva a la batería
+After=graphical-session.target openrgb.service
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/battery-lighting --daemon
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

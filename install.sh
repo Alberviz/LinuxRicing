@@ -166,15 +166,20 @@ if [ "$SELECTED_RGB" = true ]; then
     fi
     if [ -d "$BASE_DIR/systemd" ]; then
         mkdir -p "$HOME/.config/systemd/user"
-        cp -u "$BASE_DIR/systemd/"*.service "$BASE_DIR/systemd/"*.timer \
+        cp -u "$BASE_DIR/systemd/"*.service \
             "$HOME/.config/systemd/user/" 2>/dev/null || true
         systemctl --user daemon-reload || true
+        systemctl --user disable --now mchose-battery.timer mchose-battery.service 2>/dev/null || true
         systemctl --user enable --now openrgb.service argb-wave.service \
-            mchose-battery.timer 2>/dev/null || true
+            battery-lighting.service 2>/dev/null || true
     fi
     if [ -f "$BASE_DIR/rgb/mchose-battery" ]; then
         cp -u "$BASE_DIR/rgb/mchose-battery" "$HOME/.local/bin/mchose-battery"
         chmod +x "$HOME/.local/bin/mchose-battery"
+    fi
+    if [ -f "$BASE_DIR/rgb/battery-lighting" ]; then
+        cp -u "$BASE_DIR/rgb/battery-lighting" "$HOME/.local/bin/battery-lighting"
+        chmod +x "$HOME/.local/bin/battery-lighting"
     fi
     if [ -f "$BASE_DIR/rgb/magichome-control" ]; then
         cp -u "$BASE_DIR/rgb/magichome-control" "$HOME/.local/bin/magichome-control"
