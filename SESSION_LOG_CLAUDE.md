@@ -82,10 +82,72 @@ Este documento contiene un resumen detallado y exhaustivo de todos los desarroll
 
 ---
 
-## 🚀 4. PRÓXIMOS PASOS PROGRAMADOS
+### E. FASE 3: Ingeniería Inversa USB HID y Control de Iluminación MCHOSE 8K
 
-1. **FASE 3**: Alertas visuales de batería baja en periféricos y detección de carga en la base MCHOSE.
-2. **Atajo Directo de Fondos**: Configurar `SUPER + W` en `binds.lua` para abrir el selector de fondos o Caelestia nexus.
-3. **Instalador Modular para Nuevo Portátil (`install.sh`)**: Script interactivo con TUI/GUI para desplegar todo este rice en un nuevo dispositivo en minutos.
-4. **Shutdown del sistema**: Al finalizar todas las verificaciones.
+1. **Herramienta Automatizada de Análisis de Capturas (`mchose-pcap-analyzer`)**:
+   - Creada en `/home/alberviz/.local/bin/mchose-pcap-analyzer` y [`~/LinuxRicing/rgb/mchose-pcap-analyzer.py`](/home/alberviz/LinuxRicing/rgb/mchose-pcap-analyzer.py).
+   - **Metodología de Análisis para Claude / Modelos**:
+     ```bash
+     # Extrae automáticamente paquetes salientes del Host, aplica XOR 0xFF y desglosa campos
+     mchose-pcap-analyzer /tmp/captura.pcapng
+     ```
+   - **Cómo funciona el protocolo MCHOSE (VID: `0x3837`, PID: `0x1001`)**:
+     - Las transferencias se realizan mediante `SET_REPORT` (Feature Report) con Report ID `0x11` en la interfaz `:1.2` (`/dev/hidraw7`).
+     - Todos los bytes de payload van **ofuscados con `XOR 0xFF`**.
+     - **Estructura del Comando `0x2B` (20 bytes)**:
+       ```
+       [0x2B, 0x01, TARGET_ID, 0x00, BRIGHTNESS, SPEED, MODE, COLOR_MODE, 0x00, R1, G1, B1, R2, G2, B2, 0x00, 0x00, 0x00, 0x00, 0x00]
+       ```
+     - **Target IDs**:
+       - `0x02`: Anillo LED de la Base de Carga 8K (*Base Ring*).
+       - `0x06` / `0x07`: Iluminación interna del ratón / sensor.
+     - **Modos de Iluminación (`MODE`)**:
+       - `0`: Apagado (*Off*)
+       - `1`: Respiración (*Breathing*)
+       - `2`: Ola / Arcoíris dinámico (*Wave / Rainbow Cycle*)
+       - `3`: Color Fijo Estático (*Static Solid*)
+   - **Herramienta CLI de Control Rápido**:
+     ```bash
+     mchose-lighting breathing "#ff9800"   # Modo respiración ámbar
+     mchose-lighting wave                  # Modo ola arcoíris dinámico
+     mchose-lighting static "#00e5ff"     # Modo color fijo
+     ```
+
+### F. Atajos de Teclado Hyprland y Selector de Fondos
+
+1. **Lanzador Directo de Wallpapers (`Super + W`)**:
+   - Se configuró en [`~/.config/hypr/hyprland/keybinds.lua`](/home/alberviz/.config/hypr/hyprland/keybinds.lua) vinculado a `caelestia shell wallpapers open`.
+   - Se modificó [`Content.qml`](/home/alberviz/.config/quickshell/caelestia/modules/launcher/Content.qml) y [`Shortcuts.qml`](/home/alberviz/.config/quickshell/caelestia/modules/Shortcuts.qml) para inyectar reactivamente `>wallpaper ` en la barra de búsqueda y desplegar de inmediato el carrusel horizontal con miniaturas de fondos de pantalla.
+   - `Super + Shift + W`: Cambia a un fondo aleatorio instantáneamente.
+
+---
+
+## 📁 3. ESTRUCTURA DE ARCHIVOS Y RUTAS CLAVE
+
+| Componente | Ruta de Configuración Activa | Ruta en Repositorio (`~/LinuxRicing/`) |
+|---|---|---|
+| **Caelestia Quickshell** | `~/.config/quickshell/caelestia/` | `~/LinuxRicing/configs/quickshell/caelestia/` |
+| **Widget Deck & Fondo** | `~/.config/quickshell/caelestia/modules/background/Background.qml` | `~/LinuxRicing/widgets/Background.qml` |
+| **Sincronización RGB + Spotify** | `~/.config/caelestia/sync-rgb.py` | `~/LinuxRicing/rgb/sync-rgb.py` |
+| **Analizador de Capturas PCAP** | `~/.local/bin/mchose-pcap-analyzer` | `~/LinuxRicing/rgb/mchose-pcap-analyzer.py` |
+| **Controlador Iluminación Base** | `~/.local/bin/mchose-lighting` | `~/LinuxRicing/rgb/mchose-lighting` |
+| **Batería MCHOSE** | `~/.local/bin/mchose-battery` | `~/LinuxRicing/rgb/mchose-battery` |
+| **Servicio MPRIS / Carátulas** | `~/.config/quickshell/caelestia/services/Players.qml` | `~/LinuxRicing/configs/quickshell/caelestia/services/Players.qml` |
+| **Helper Deck (Clima / HW)** | `~/.local/bin/desktop-deck-helper` | `~/LinuxRicing/widgets/desktop-deck-helper` |
+| **Google Tasks CLI** | `~/.local/bin/gtasks` | `~/LinuxRicing/widgets/gtasks` |
+| **Control MagicHome LED** | `~/.local/bin/magichome-control` | `~/LinuxRicing/rgb/magichome-control` |
+| **Tema Spicetify Caelestia** | `~/.config/spicetify/Themes/caelestia/` | `~/LinuxRicing/configs/spicetify/Themes/caelestia/` |
+| **Atajos Hyprland Activos** | `~/.config/hypr/hyprland/keybinds.lua` | `~/LinuxRicing/configs/hypr/hyprland/keybinds.lua` |
+| **Variables Hyprland** | `~/.config/hypr/variables.lua` | `~/LinuxRicing/configs/hypr/variables.lua` |
+| **Instalador Modular** | `~/LinuxRicing/install.sh` | `~/LinuxRicing/install.sh` |
+
+---
+
+## 🚀 4. RESUMEN DE HITOS Y ESTADO DEL SISTEMA
+
+- **100% Completado**: Sincronización Material You global (OpenRGB, Teclado Akko, Base MCHOSE, MagicHome LED, Spotify Spicetify).
+- **100% Completado**: Deck interactivo de 4 tarjetas con scroll de ratón y Google Tasks reactivo.
+- **100% Completado**: Ingeniería inversa de paquetes USB HID para la base MCHOSE 8K (Breathing, Wave, Static).
+- **100% Completado**: Selector de wallpapers visual con `Super + W` directo en el lanzador.
+- **100% Completado**: Instalador `install.sh` empaquetado y respaldado en Git `main`.
 
