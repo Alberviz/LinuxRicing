@@ -118,14 +118,21 @@ def get_v9_pro_battery():
     return None, "Sin respuesta"
 
 def set_base_mode(mode=3, r=255, g=59, b=0, speed=0, brightness=100):
-    """Set MCHOSE Base LED mode: 1=Breathing, 2=Wave/Spectrum cycle, 3=Static solid."""
+    """Set MCHOSE Base LED mode: 1=Breathing, 2=Wave (Target 0x07), 3=Static solid (Target 0x02)."""
     nodes = glob_hidraw_nodes(0x3837, 0x1001, iface=2) or glob_hidraw_nodes(0x3837, 0x1001)
     if not nodes:
         return
-    color_mode = 0x01 if mode != 2 else 0x00
+    if mode == 2 or mode == "wave":
+        # Target 0x07 triggers the internal ARGB moving rainbow wave
+        target = 0x07
+        mode_val = 0x01
+    else:
+        target = 0x02
+        mode_val = mode if isinstance(mode, int) else 3
+        
     payload = [
-        0x2B, 0x01, 0x02, 0x00,
-        brightness, speed, mode, color_mode, 0x00,
+        0x2B, 0x01, target, 0x00,
+        brightness, speed, mode_val, 0x01, 0x00,
         r, g, b,
         r, g, b,
         0x00, 0x00, 0x00, 0x00, 0x00
@@ -142,8 +149,8 @@ def set_base_mode(mode=3, r=255, g=59, b=0, speed=0, brightness=100):
 def handle_charging_lighting_transition(is_charging: bool, cache: dict):
     was_charging = cache.get("k7_was_charging", False)
     if is_charging and not was_charging:
-        # Just docked onto base -> Start Spectrum Wave / Cycle Charging effect!
-        set_base_mode(mode=2, speed=3)
+        # Just docked onto base -> Start Full ARGB Moving Wave Charging effect!
+        set_base_mode(mode=2, speed=0)
         cache["k7_was_charging"] = True
     elif not is_charging and was_charging:
         # Just undocked from base -> Restore unified wallpaper theme color!

@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
 MCHOSE 8K Base Lighting CLI Tool
-Re-engineered from Web Hub USB captures.
-Target: 0x02 (Base Ring)
-Modes:
-  1: Breathing (Respiración)
-  2: Wave / Spectrum (Ola / Arcoíris)
-  3: Static (Color Fijo)
+Reverse-engineered from live USB HID packet captures.
+
+Targets:
+  - 0x07: Full ARGB Moving Wave (Ola Arcoíris giratoria por hardware)
+  - 0x02: Base Ring Monozone (Color estático / Respiración de color único)
 """
 import sys
 import os
@@ -37,43 +36,59 @@ def hex_to_rgb(hex_str):
         return int(hex_str[0:2], 16), int(hex_str[2:4], 16), int(hex_str[4:6], 16)
     return 255, 152, 0
 
-def set_lighting(mode="breathing", hex_color="#ff9800", brightness=100, speed=0):
+def set_lighting(mode="wave", hex_color="#ff9800", brightness=100, speed=0):
     node = find_mchose_node()
     r, g, b = hex_to_rgb(hex_color)
+    mode_lower = mode.lower()
     
-    mode_map = {
-        "off": 0x00,
-        "breathing": 0x01,
-        "breath": 0x01,
-        "wave": 0x02,
-        "rainbow": 0x02,
-        "static": 0x03,
-        "solid": 0x03
-    }
-    mode_id = mode_map.get(mode.lower(), 0x01)
-    color_mode = 0x01 if mode_id != 0x02 else 0x00
-    
-    # Target is 0x02 for Base Ring
-    payload = [
-        0x2B, 0x01, 0x02, 0x00,
-        brightness, speed, mode_id, color_mode, 0x00,
-        r, g, b,
-        r, g, b,
-        0x00, 0x00, 0x00, 0x00, 0x00
-    ]
+    if mode_lower in ["wave", "rainbow", "ola"]:
+        # Target 0x07 activa el algoritmo ARGB de Ola Arcoíris interna en la base
+        payload = [
+            0x2B, 0x01, 0x07, 0x00,
+            brightness, speed, 0x01, 0x01, 0x00,
+            r, g, b,
+            r, g, b,
+            0x00, 0x00, 0x00, 0x00, 0x00
+        ]
+    elif mode_lower in ["breathing", "respiracion", "breath"]:
+        # Target 0x02 con Mode 0x01 = Respiración monocolor
+        payload = [
+            0x2B, 0x01, 0x02, 0x00,
+            brightness, speed, 0x01, 0x01, 0x00,
+            r, g, b,
+            r, g, b,
+            0x00, 0x00, 0x00, 0x00, 0x00
+        ]
+    elif mode_lower in ["off", "apagado"]:
+        payload = [
+            0x2B, 0x01, 0x02, 0x00,
+            0, 0, 0x00, 0x00, 0x00,
+            0, 0, 0,
+            0, 0, 0,
+            0x00, 0x00, 0x00, 0x00, 0x00
+        ]
+    else:
+        # Default: Static Solid (Color Fijo) en Target 0x02
+        payload = [
+            0x2B, 0x01, 0x02, 0x00,
+            brightness, 0x00, 0x03, 0x01, 0x00,
+            r, g, b,
+            r, g, b,
+            0x00, 0x00, 0x00, 0x00, 0x00
+        ]
     
     raw = bytearray([0x11] + [x ^ 0xFF for x in payload])
     try:
         fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
         fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw)), raw)
         os.close(fd)
-        print(f"✔ Base MCHOSE configurada en modo '{mode}' (Color: {hex_color}, Brillo: {brightness}%, Velocidad: {speed})")
+        print(f"✔ Base MCHOSE configurada en modo '{mode}' (Color: {hex_color}, Brillo: {brightness}%)")
         return True
     except Exception as e:
         print(f"❌ Error al enviar comando a {node}: {e}")
         return False
 
 if __name__ == "__main__":
-    mode = sys.argv[1] if len(sys.argv) > 1 else "breathing"
+    mode = sys.argv[1] if len(sys.argv) > 1 else "wave"
     color = sys.argv[2] if len(sys.argv) > 2 else "#ff9800"
     set_lighting(mode, color)
