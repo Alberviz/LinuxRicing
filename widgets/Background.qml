@@ -476,11 +476,13 @@ Variants {
                 id: mchoseSettingsCard
                 Layout.fillWidth: true
                 visible: periphRoot.showMchoseSettings
+                clip: true
                 radius: Tokens.rounding.large
                 color: Qt.alpha(Colours.palette.m3surfaceContainerHighest, 0.6)
-                implicitHeight: settingsCol.implicitHeight + Tokens.padding.medium * 2
+                Layout.preferredHeight: periphRoot.showMchoseSettings ? (settingsCol.implicitHeight + Tokens.padding.medium * 2) : 0
+                implicitHeight: Layout.preferredHeight
 
-                Behavior on implicitHeight {
+                Behavior on Layout.preferredHeight {
                     CAnim {}
                 }
 
@@ -524,7 +526,7 @@ Variants {
                             MaterialIcon {
                                 anchors.centerIn: parent
                                 text: "close"
-                                fontStyle: Tokens.font.icon.extraSmall
+                                fontStyle: Tokens.font.icon.small
                                 color: Colours.palette.m3onSurfaceVariant
                             }
                         }
@@ -732,7 +734,7 @@ Variants {
             anchors.right: parent.right
             anchors.margins: 6
             text: "tune"
-            fontStyle: Tokens.font.icon.extraSmall
+            fontStyle: Tokens.font.icon.small
             color: Qt.alpha(devItem.accentColor, 0.6)
         }
 
@@ -991,10 +993,27 @@ Variants {
         property int focusSessions: 1
         property bool focusLightActive: false
 
+        Process {
+            id: focusLightProc
+            property var cmdArgs: []
+            command: cmdArgs
+            running: false
+        }
+
+        function setFocusLight(active) {
+            deckRoot.focusLightActive = active;
+            if (active) {
+                focusLightProc.cmdArgs = ["/home/alberviz/.local/bin/magichome-control", "--color", "#ff9800"];
+            } else {
+                focusLightProc.cmdArgs = ["/usr/bin/python3", "/home/alberviz/.config/caelestia/sync-rgb.py"];
+            }
+            focusLightProc.running = true;
+        }
+
         function toggleFocus() {
             deckRoot.focusRunning = !deckRoot.focusRunning;
             if (deckRoot.focusRunning && deckRoot.focusLightActive) {
-                Quickshell.execDetached(["/home/alberviz/.local/bin/magichome-control", "--color", "#ff9800"]);
+                deckRoot.setFocusLight(true);
             }
         }
 
@@ -1498,14 +1517,7 @@ Variants {
                         }
                         StateLayer {
                             radius: Tokens.rounding.full
-                            onClicked: {
-                                deckRoot.focusLightActive = !deckRoot.focusLightActive;
-                                if (deckRoot.focusLightActive) {
-                                    Quickshell.execDetached(["/home/alberviz/.local/bin/magichome-control", "--color", "#ff9800"]);
-                                } else {
-                                    Quickshell.execDetached(["/usr/bin/python3", "/home/alberviz/.config/caelestia/sync-rgb.py"]);
-                                }
-                            }
+                            onClicked: deckRoot.setFocusLight(!deckRoot.focusLightActive)
                         }
                     }
                 }
