@@ -20,7 +20,7 @@ Como agente **`fixes`**, se han completado con éxito las dos tareas finales de 
 
 ---
 
-## 2. Re-Integración del Panel QML (`feat/battery-panel-ui`)
+## 2. Re-Integración del Panel QML (`feat/battery-panel-ui`) y Scrollable Container
 
 Se incorporaron los cambios de la UI de Quickshell (Caelestia):
 - **Commit `339ba56`:** Corrección de `BatteryActionRow.qml` para declarar `required property var modelData` y mapear `property var action: modelData`, asegurando que `Repeater` dentro de `BatteryRuleCard.qml` no genere warnings de enlace.
@@ -30,6 +30,7 @@ Se incorporaron los cambios de la UI de Quickshell (Caelestia):
   grep -n "required property var modelData" configs/quickshell/caelestia/modules/rgbcontrol/BatteryActionRow.qml
   # Coincidencias correctas en las líneas 15, 133, 174, 205.
   ```
+- **Arreglo de Scroll en Panel:** Se envolvió el `StackLayout` de `Content.qml` dentro de un `StyledFlickable` con `StyledScrollBar.vertical`, limitando la altura máxima a `maxContentHeight` con ajuste automático por pestaña y reseteo de `contentY` al conmutar de tab, permitiendo desplazamiento fluido en la pestaña Notificaciones (con todas las reglas de batería y formulario desplegable).
 
 ---
 
