@@ -96,6 +96,14 @@ ratón abra el panel, que el acordeón colapse al clicar la cabecera.
   `DeviceItem` "K7 Ultra" → `onClicked: ShellState.rgbControl?.openTab(1)`; botón `tune` en el
   header del widget de tira LED. **Editar SIEMPRE las dos rutas idénticas** (`diff -q` vacío).
 
+## Cambio de Gemini a tener en cuenta
+
+El commit `1e335ae` (Gemini) **quitó** el `onClicked: ShellState.rgbControl?.openTab(1)` del
+`DeviceItem` "K7 Ultra" y en su lugar añadió un botón `tune` en la **cabecera del widget de
+Periféricos** que hace `ShellState.rgbControl?.open()`. Es decir: ahora el panel se abre
+desde ese botón, no clicando el ratón. Alberto pidió originalmente que fuera el clic en el
+ratón — **preguntarle** si quiere el clic en el ratón de vuelta (pueden coexistir).
+
 ## Bugs abiertos (feedback de Alberto, aún sin cerrar del todo)
 
 1. **Acordeón** — reescrito `DeviceCard.qml`; el renderizado colapsado/expandido funciona
