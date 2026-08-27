@@ -183,6 +183,9 @@ def akko_static(r: int, g: int, b: int, brightness: int = 4) -> None:
         buf[7] = b
         buf[8] = _akko_checksum8(buf)
         frames.append(bytearray([0x00]) + buf)
+    # 2.4 GHz Pipeline Commit (Opcode 0x88)
+    req_sync = bytearray(64); req_sync[0] = 0x88; req_sync[7] = 0x77
+    frames.append(bytearray([0x00]) + req_sync)
     for node in nodes:
         try:
             fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
@@ -271,24 +274,10 @@ def restore(devices: list[str]) -> None:
         except Exception:
             pass
 
-    devices = [d for d in devices if not _under_alert(d, zones)]
-    non_base = [d for d in devices if d != "mchose_base"]
-
-    if "mchose_base" in devices:
-        rc = 3
+    unclaimed = [d for d in devices if not _under_alert(d, zones)]
+    if unclaimed:
         try:
-            rc = subprocess.run([sys.executable, MCHOSE_BATTERY, "--restore-lighting"],
-                                timeout=8).returncode
-        except FileNotFoundError:
-            rc = 3
-        except Exception:
-            rc = 0  # assume it handled it
-        if rc == 3:  # no charging / low-battery state → static theme colour
-            non_base.append("mchose_base")
-
-    if non_base:
-        try:
-            subprocess.run([sys.executable, SYNC_RGB, "--only", ",".join(non_base)],
+            subprocess.run([sys.executable, SYNC_RGB, "--only", ",".join(unclaimed)],
                            timeout=10)
         except Exception:
             pass

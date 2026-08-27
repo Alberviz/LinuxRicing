@@ -792,7 +792,7 @@ def _save_state(st):
         pass
 
 
-def apply_akko_meter(level, progressive=False):
+def apply_akko_meter(level, progressive=False, force=False):
     """Pinta el medidor de batería sobre las teclas del Akko (modo lienzo).
 
     Envía 1 paquete de activación (0x07, byte[1]=0x0D, con checksum) y los 7
@@ -806,7 +806,7 @@ def apply_akko_meter(level, progressive=False):
     st = _load_state()
     cache_key = f"akko_meter_{'prog' if progressive else 'rows'}"
     cur_val = level if progressive else meter_rows(level, len(AKKO_KEY_ROWS))
-    if st.get(cache_key) == cur_val:
+    if not force and st.get(cache_key) == cur_val:
         return
     activate = bytearray(64)
     activate[0] = 0x07
@@ -814,18 +814,20 @@ def apply_akko_meter(level, progressive=False):
     activate[2] = 0x04
     activate[3] = 0x04
     activate[4] = 0x08          # flag color custom RGB
-    activate[8] = (0xFF - (sum(activate[:8]) & 0xFF)) & 0xFF
+    activate[8] = _akko_checksum8(activate)
     key_map = akko_meter_keys_progressive(level) if progressive else akko_meter_keys(level)
     packets = [bytes([0x00]) + activate] + [
         bytes([0x00]) + c for c in akko_canvas_chunks(key_map)
     ]
+    # 2.4 GHz Pipeline Commit (Opcode 0x88)
+    req_sync = bytearray(64); req_sync[0] = 0x88; req_sync[7] = 0x77
+    packets.append(bytes([0x00]) + req_sync)
+
     node = nodes[0]
     for pkt in packets:
         _write_feature(node, bytearray(pkt))
         time.sleep(0.03)
-    # 2.4 GHz Pipeline Commit (Opcode 0x88)
-    req_sync = bytearray(64); req_sync[0] = 0x88; req_sync[7] = 0x77
-    _write_feature(node, bytearray([0x00]) + req_sync)
+
     st[cache_key] = cur_val
     _save_state(st)
 
@@ -895,17 +897,17 @@ def apply_zone(zonekey, action, theme_rgb):
                 _write_feature(n, raw)
     elif target == "akko_keyboard":
         if zone == "keys" and eff == "battery_meter":
-            apply_akko_meter(level)
+            apply_akko_meter(level, force=action.get("force", False))
             return
-        for pkt in build_akko_packets(zone, eff, level, theme_rgb):
-            for n in _akko_nodes():
-                _write_feature(n, pkt)
-                time.sleep(0.02)
+        packets = [bytearray(p) for p in build_akko_packets(zone, eff, level, theme_rgb)]
         # 2.4 GHz Pipeline Commit (Opcode 0x88)
         req_sync = bytearray(64); req_sync[0] = 0x88; req_sync[7] = 0x77
-        raw_sync = bytearray([0x00]) + req_sync
+        packets.append(bytearray([0x00]) + req_sync)
+
         for n in _akko_nodes():
-            _write_feature(n, raw_sync)
+            for pkt in packets:
+                _write_feature(n, pkt)
+                time.sleep(0.02)
     elif target == "magichome":
         apply_magichome(eff, level, theme_rgb)
     elif target == "openrgb":
@@ -1144,7 +1146,7 @@ def main(argv):
         for a in rule["actions"]:
             for zk in _zone_keys(a):
                 apply_zone(zk, {"effect": a["effect"], "trigger": rule["trigger"],
-                                "source": rule["source"], "level": 50}, theme)
+                                "source": rule["source"], "level": 50, "force": True}, theme)
         return 0
     if cmd == "--daemon":
         return _daemon_loop()
