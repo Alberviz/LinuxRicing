@@ -60,8 +60,8 @@ dev.send_feature_report(bytearray([0x00]) + led_payload)   # Teclas
 payload = [
     0x2B, 0x01, 0x06, 0x00,
     100, 0x00, 0x03, 0x01, 0x00,
-    r_anillo, g_anillo, b_anillo,  # Zona 1: Anillo exterior
-    r_centro, g_centro, b_centro,  # Zona 2: Logo central
+    r, g, b,                        # Color Anillo LED
+    r, g, b,                        # Relleno duplicado
     0x00, 0x00, 0x00, 0x00, 0x00
 ]
 raw = bytearray([0x11] + [x ^ 0xFF for x in payload])

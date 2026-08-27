@@ -58,5 +58,8 @@ graph TD
 | **Quickshell Caelestia** | `~/.config/quickshell/caelestia/` | `configs/quickshell/caelestia/` |
 | **Widgets de Escritorio** | `~/.config/quickshell/.../Background.qml` | `widgets/Background.qml` |
 | **Scripts RGB** | `~/.local/bin/mchose-*`, `magichome-control` | `rgb/` |
-| **Sincronizador Global** | `~/.config/caelestia/sync-rgb.py` | `rgb/sync-rgb.py` |
+| **Sincronizador Global (Linux)** | `~/.config/caelestia/sync-rgb.py` | `rgb/sync-rgb.py` |
+| **Sincronizador Global (Windows)** | `C:\Users\Alberviz\LinuxRicing\rgb\` | `rgb/sync-rgb-windows.py` |
 | **Bóveda Obsidian** | `~/LinuxRicing/vault/` | `vault/` |
+
+> Para la arquitectura equivalente en Windows, consultar [[Rice LinuxRicing/Windows - Arquitectura y Sincronización del Ecosistema|🪟 Windows · Arquitectura y Sincronización del Ecosistema]].

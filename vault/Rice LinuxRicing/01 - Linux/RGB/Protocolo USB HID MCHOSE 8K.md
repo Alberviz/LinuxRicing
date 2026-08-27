@@ -38,12 +38,12 @@ Byte 05: SPEED          (Velocidad de animación 0 a 4)
 Byte 06: MODE_ID        (0x01 = Activo)
 Byte 07: COLOR_MODE     (0x01 = Color personalizado, 0x00 = Auto)
 Byte 08: 0x00           (Dirección / Reservado)
-Byte 09: R1             (Rojo Zona 1 / Anillo: 0-255)
-Byte 10: G1             (Verde Zona 1 / Anillo: 0-255)
-Byte 11: B1             (Azul Zona 1 / Anillo: 0-255)
-Byte 12: R2             (Rojo Zona 2 / Logo: 0-255)
-Byte 13: G2             (Verde Zona 2 / Logo: 0-255)
-Byte 14: B2             (Azul Zona 2 / Logo: 0-255)
+Byte 09: R1             (Rojo Anillo LED: 0-255)
+Byte 10: G1             (Verde Anillo LED: 0-255)
+Byte 11: B1             (Azul Anillo LED: 0-255)
+Byte 12: R2             (Rojo duplicado / relleno: 0-255)
+Byte 13: G2             (Verde duplicado / relleno: 0-255)
+Byte 14: B2             (Azul duplicado / relleno: 0-255)
 Byte 15..19: 0x00       (Padding de ceros)
 ```
 
@@ -54,7 +54,7 @@ Byte 15..19: 0x00       (Padding de ceros)
 | Target ID | Efecto en la Base | Comportamiento en Linux |
 |---|---|---|
 | **`0x06`** | **Color Fijo Constante (*Static Solid*)** | Sincronizado en tiempo real con **Material You** (`scheme.json`). Cero parpadeo. |
-| **`0x02`** | **Respiración Monocolor (*Breathing*)** | Respiración suave continua con los colores `R1,G1,B1` y `R2,G2,B2`. |
+| **`0x02`** | **Respiración Monocolor (*Breathing*)** | Respiración suave continua con el color `R1,G1,B1` en el anillo. |
 | **`0x01`** | **Modo Batería Oficial (*Hardware Battery*)** | Algoritmo nativo de fábrica del firmware (respiración verde/ámbar/rojo). |
 | **`0x07`** | **Ola Arcoíris ARGB (*Full Moving Wave*)** | Algoritmo autónomo de ola multicolor giratoria en el anillo. |
 

@@ -53,13 +53,21 @@ Muchos usuarios se preguntan: *¿Si la base tiene una tira de LEDs direccionable
 
 ---
 
-## ⌨️ 3. Próximo Paso: Telemetría de Batería Real del Teclado Akko (`3151:4015`)
+## ⌨️ 3. Protocolo Decodificado: Telemetría de Batería y Opciones de Teclado Akko (`3151:4015 / 4011`)
 
-Para atrapar el porcentaje de batería real del teclado Akko:
-1. El teclado está localizado en el **Bus USB 1** (`Bus 001 Device 002: ID 3151:4015`).
-2. Utilizaremos el comando estándar oficial:
-   ```bash
-   sudo tshark -i usbmon1 -w /tmp/akko-battery.pcapng
-   sudo chmod 666 /tmp/akko-battery.pcapng
-   ```
-3. Cuando estés listo, lanzaremos la captura, pulsaremos la combinación de consulta de batería del teclado (o abriremos el software de Akko) y extraeremos el byte exacto de porcentaje (0–100%) para integrarlo en el widget de periféricos.
+Protocolo de ingeniería inversa obtenido directamente desde el controlador ROYUAN B-series:
+
+### A. Telemetría de Batería (Opcode `0x83` - `FEA_CMD_GET_BATTERY`):
+- **Transporte:** Feature Report de 65 bytes (`Report ID 0x00` + 64 bytes) en Interfaz 2.
+- **Trama de Solicitud:** Buffer con `byte[0] = 0x83` y `byte[8] = 0x00` (o checksum Bit7).
+- **Trama de Respuesta:**
+  - `byte[0]`: `0x83` (Echo).
+  - `byte[1]`: **Porcentaje real de batería** (0–100%).
+  - `byte[2]`: **Estado de alimentación** (`0x00` = Descargando / Inalámbrico, `0x01` = ⚡ Cargando por cable USB, `0x02` = Carga completa).
+  - `byte[3]`: `batteryLp` (Umbral de batería baja).
+
+### B. Modo de Sistema y Opciones de Palanca (Opcode `0x86` - `FEA_CMD_GET_KBOPTION`):
+- `byte[2] & 0x02`: **Palanca de Sistema** (`0` = Windows / PC, `1` = Mac / macOS).
+- `byte[2] & 0x01`: Bloqueo de Tecla Windows (*WinLock*).
+- `byte[2] & 0x08`: Intercambio de teclas WASD / Flechas.
+- `byte[4]`: Modo de Ahorro de Energía.

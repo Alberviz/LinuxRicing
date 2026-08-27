@@ -16,7 +16,7 @@ y la bóveda `vault/Rice LinuxRicing/`.
 2. **Estructura**: 3 pestañas — `Inicio` (estado en reposo) · `Dispositivos` (acordeón, una
    ficha por dispositivo con sus ajustes dentro) · `Notificaciones`. Plan B: una columna
    scrollable sin pestañas si algo se complica.
-3. **Alcance**: global — base MCHOSE (anillo + logo), teclado Akko (retro + tira lateral),
+3. **Alcance**: global — base MCHOSE (anillo LED), teclado Akko (retro + tira lateral),
    placa/RAM/ventiladores (OpenRGB), tira MagicHome. Interruptor "participa en la
    sincronización" por dispositivo. La ficha OpenRGB además elige `RGB estático` /
    `ARGB ola animada` para las zonas direccionables.

@@ -31,7 +31,7 @@ ColumnLayout {
     DeviceCard {
         icon: "mouse"
         name: qsTr("Base MCHOSE 8K")
-        subtitle: qsTr("Anillo + logo")
+        subtitle: qsTr("Anillo LED")
         deviceKey: "mchose_base"
         expanded: true
 
