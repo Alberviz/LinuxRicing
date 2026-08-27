@@ -135,6 +135,32 @@ Scope {
         target: "drawers"
     }
 
+    // qmllint disable unresolved-type
+    CustomShortcut {
+        // qmllint enable unresolved-type
+        name: "wallpapers"
+        description: "Open launcher in wallpaper mode"
+        onPressed: {
+            if (root.hasFullscreen)
+                return;
+            const screenState = ShellState.forActive();
+            screenState.launcherInitialQuery = `${GlobalConfig.launcher.actionPrefix}wallpaper `;
+            screenState.launcher = true;
+        }
+    }
+
+    IpcHandler {
+        function open(): void {
+            if (root.hasFullscreen)
+                return;
+            const screenState = ShellState.forActive();
+            screenState.launcherInitialQuery = `${GlobalConfig.launcher.actionPrefix}wallpaper `;
+            screenState.launcher = true;
+        }
+
+        target: "wallpapers"
+    }
+
     IpcHandler {
         function open(): void {
             WindowFactory.create();

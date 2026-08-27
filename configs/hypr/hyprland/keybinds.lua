@@ -60,7 +60,7 @@ create_bind(
 )
 
 -- Misc
-create_bind("SUPER + W", hl.dsp.exec_cmd("caelestia shell nexus open"))
+create_bind("SUPER + W", hl.dsp.global("caelestia:wallpapers"))
 create_bind("SUPER + SHIFT + W", hl.dsp.exec_cmd("caelestia wallpaper -r"))
 create_bind(vars.kbSession, hl.dsp.global("caelestia:session"))
 create_bind(vars.kbShowSidebar, hl.dsp.global("caelestia:sidebar"))
