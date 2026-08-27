@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+"""
+MCHOSE 8K Dongle / Base LED Mode Tester & Reverse Engineering Tool
+"""
+import sys
+import os
+import glob
+import fcntl
+import argparse
+
+def HIDIOCSFEATURE(size):
+    return (3 << 30) | (size << 16) | (ord("H") << 8) | 0x06
+
+def find_mchose_node():
+    for h in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
+        uevent = f"{h}/device/uevent"
+        if os.path.exists(uevent):
+            try:
+                with open(uevent) as f:
+                    c = f.read()
+                if "3837" in content_filter(c) and "1001" in content_filter(c):
+                    link = os.path.realpath(f"{h}/device")
+                    if ":1.2" in link:
+                        return "/dev/" + os.path.basename(h)
+            except Exception:
+                pass
+    return "/dev/hidraw7"
+
+def content_filter(c):
+    return c
+
+def send_mode(mode, speed=3, brightness=100, r=0, g=255, b=120):
+    node = find_mchose_node()
+    payload = [
+        0x2B, 0x01, 0x06, 0x00,
+        brightness, speed, mode, 0x01, 0x00,
+        r, g, b,
+        r, g, b,
+        0x00, 0x00, 0x00, 0x00, 0x00
+    ]
+    raw = bytearray([0x11] + [x ^ 0xFF for x in payload])
+    try:
+        fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
+        fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw)), raw)
+        os.close(fd)
+        print(f"✔ Comando enviado a {node}: Modo {mode} (0x{mode:02X}) | Velocidad: {speed} | Brillo: {brightness}% | RGB({r},{g},{b})")
+    except Exception as e:
+        print(f"✖ Error enviando al dispositivo {node}: {e}")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="MCHOSE Base LED Mode Tester")
+    parser.add_argument("--mode", type=int, default=2, help="Mode ID: 1=Breathing, 2=Spectrum Cycle, 3=Static, 4=Wave, 5=Pulse")
+    parser.add_argument("--speed", type=int, default=3, help="Speed: 1-5")
+    parser.add_argument("--brightness", type=int, default=100, help="Brightness: 0-100")
+    parser.add_argument("--color", type=str, default="00ff78", help="Hex color (e.g. 00ff78)")
+
+    args = parser.parse_args()
+    hex_c = args.color.lstrip("#")
+    r = int(hex_c[0:2], 16) if len(hex_c) >= 2 else 0
+    g = int(hex_c[2:4], 16) if len(hex_c) >= 4 else 255
+    b = int(hex_c[4:6], 16) if len(hex_c) >= 6 else 120
+
+    send_mode(args.mode, args.speed, args.brightness, r, g, b)
