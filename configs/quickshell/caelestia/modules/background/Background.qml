@@ -2073,7 +2073,7 @@ Variants {
                     FadeImage {
                         id: coverFadeImg
                         anchors.fill: parent
-                        source: Players.getArtUrl(Players.active)
+                        source: (Players.active?.trackArtUrl, Players.active?.metadata, Players.getArtUrl(Players.active))
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                     }
