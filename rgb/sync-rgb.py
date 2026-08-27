@@ -150,7 +150,7 @@ def enhance_color_for_leds(hex_color: str) -> tuple[int, int, int]:
 
 
 def sync_openrgb(r: int, g: int, b: int):
-    """Set PC components AND Akko Keyboard Backlight in OpenRGB via SDK Server."""
+    """Set PC components (Motherboard, RAM, Fans) in OpenRGB via SDK Server, skipping Akko to avoid USB collisions."""
     try:
         from openrgb import OpenRGBClient
         from openrgb.utils import RGBColor
@@ -159,6 +159,10 @@ def sync_openrgb(r: int, g: int, b: int):
         col = RGBColor(r, g, b)
         synced = []
         for dev in client.devices:
+            # Skip Akko/ROYUAN keyboards in OpenRGB - handled by dedicated sync_akko_keyboard
+            if "akko" in dev.name.lower() or "royuan" in dev.name.lower():
+                continue
+
             if dev.modes and dev.modes[dev.active_mode].name != "Direct":
                 try:
                     direct_idx = next(
@@ -242,28 +246,15 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4):
 
     AKKO_FLAGS_CUSTOM_RGB = 0x08
 
-    # Query battery and charging status via Opcode 0x83
+    # Read cached battery/charging state from mchose-battery cache to avoid IOCTL collisions
+    cache_file = Path.home() / ".cache/mchose_battery.json"
     bat_pct = 100
     is_charging = False
-    for node in nodes:
+    if cache_file.exists():
         try:
-            fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
-            req = bytearray(64)
-            req[0] = 0x83
-            req[8] = 0xFF - (sum(req[:8]) & 0xFF)
-            raw = bytearray([0x00]) + req
-            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw)), raw)
-            time.sleep(0.02)
-            resp = bytearray(65)
-            fcntl.ioctl(fd, HIDIOCGFEATURE(len(resp)), resp)
-            os.close(fd)
-            if len(resp) >= 4:
-                bat = resp[2] if resp[2] > 0 else resp[1]
-                st_code = resp[3]
-                is_charging = (st_code == 1 or "4015" in node)
-                if 0 < bat <= 100:
-                    bat_pct = bat
-                break
+            cdata = json.loads(cache_file.read_text())
+            bat_pct = cdata.get("akko_battery", 100)
+            is_charging = (cdata.get("akko_status") == "Cargando")
         except Exception:
             pass
 
@@ -308,7 +299,7 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4):
         try:
             fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
             fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
-            time.sleep(0.02)
+            time.sleep(0.04)
             fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_sled)), raw_sled)
             os.close(fd)
             log(f"Akko Keyboard ({node}): Synced Backlight RGB({r},{g},{b}) + Side-Strip ({status_log})")
