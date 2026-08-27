@@ -1,0 +1,16 @@
+{
+  "source": "theme",
+  "fixed_color": "d8bde7",
+  "devices": {
+    "openrgb": true,
+    "magichome": true,
+    "mchose_base": true,
+    "akko_keyboard": true,
+    "spicetify": true
+  },
+  "notification_flash": {
+    "enabled": false,
+    "mode": "accent",
+    "pulses": 2
+  }
+}

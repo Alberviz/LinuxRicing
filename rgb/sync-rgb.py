@@ -25,6 +25,26 @@ MAGIC_HOME_IP = "192.168.0.136"
 COLOR_KEY = "primary"  # Primary extracted color from wallpaper
 LOG_FILE = "/tmp/sync-rgb.log"
 
+RGB_CONFIG_PATH = os.path.expanduser("~/.config/caelestia/rgb-config.json")
+
+# Default = the historical behaviour: follow the theme, every device on, no flash.
+# Absence of the config file must not change anything.
+DEFAULT_RGB_CONFIG = {
+    "source": "theme",          # "theme" | "fixed"
+    "fixed_color": "d8bde7",
+    "devices": {
+        "openrgb": True,
+        "magichome": True,
+        "mchose_base": True,
+        "akko_keyboard": True,
+        "spicetify": True,
+    },
+    "notification_flash": {"enabled": False, "mode": "accent", "pulses": 2},
+}
+
+# Maps the internal device key -> the sync function it drives.
+DEVICE_KEYS = ["openrgb", "magichome", "mchose_base", "akko_keyboard", "spicetify"]
+
 
 def log(msg: str):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -32,12 +52,52 @@ def log(msg: str):
         f.write(f"[{timestamp}] {msg}\n")
 
 
+def load_rgb_config() -> dict:
+    """Read ~/.config/caelestia/rgb-config.json, falling back to legacy behaviour."""
+    cfg = json.loads(json.dumps(DEFAULT_RGB_CONFIG))  # deep copy
+    try:
+        with open(RGB_CONFIG_PATH) as f:
+            user = json.load(f)
+        if isinstance(user, dict):
+            if user.get("source") in ("theme", "fixed"):
+                cfg["source"] = user["source"]
+            if isinstance(user.get("fixed_color"), str):
+                cfg["fixed_color"] = user["fixed_color"].lstrip("#") or cfg["fixed_color"]
+            if isinstance(user.get("devices"), dict):
+                for k, v in user["devices"].items():
+                    if k in cfg["devices"]:
+                        cfg["devices"][k] = bool(v)
+            if isinstance(user.get("notification_flash"), dict):
+                cfg["notification_flash"].update(user["notification_flash"])
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        log(f"rgb-config.json unreadable ({e}), using defaults")
+    return cfg
+
+
 def HIDIOCSFEATURE(size: int) -> int:
     return (3 << 30) | (size << 16) | (ord("H") << 8) | 0x06
 
 
-def get_hex_color() -> str:
-    """Retrieve active color from environment or Caelestia state."""
+def get_hex_color(config: dict | None = None, cli_hex: str | None = None) -> tuple[str, bool]:
+    """Resolve the colour to apply.
+
+    Priority:
+      1. explicit CLI hex (panel preview / scripting)
+      2. SCHEME_COLOURS env (wallpaper preview - keep winning so Wallpapers.qml works)
+      3. config source == "fixed" -> fixed_color
+      4. scheme.json primary
+      5. hard fallback
+
+    Returns (hex_without_hash, from_theme). ``from_theme`` is False for CLI/fixed
+    colours so the caller can skip the saturation boost and send them verbatim.
+    """
+    if cli_hex:
+        c = cli_hex.lstrip("#")
+        log(f"Using CLI colour #{c}")
+        return c, False
+
     raw_colours = os.environ.get("SCHEME_COLOURS")
     if raw_colours:
         try:
@@ -45,9 +105,14 @@ def get_hex_color() -> str:
             if COLOR_KEY in colours:
                 c = colours[COLOR_KEY].lstrip("#")
                 log(f"Extracted #{c} from SCHEME_COLOURS env")
-                return c
+                return c, True
         except Exception as e:
             log(f"Error parsing SCHEME_COLOURS: {e}")
+
+    if config and config.get("source") == "fixed":
+        c = str(config.get("fixed_color", "d8bde7")).lstrip("#")
+        log(f"Using fixed colour #{c} from rgb-config.json")
+        return c, False
 
     state_file = Path.home() / ".local/state/caelestia/scheme.json"
     if state_file.exists():
@@ -57,11 +122,11 @@ def get_hex_color() -> str:
             if COLOR_KEY in colours:
                 c = colours[COLOR_KEY].lstrip("#")
                 log(f"Extracted #{c} from scheme.json state")
-                return c
+                return c, True
         except Exception as e:
             log(f"Error reading scheme.json: {e}")
 
-    return "d8bde7"
+    return "d8bde7", True
 
 
 def enhance_color_for_leds(hex_color: str) -> tuple[int, int, int]:
@@ -344,29 +409,74 @@ tab-active          = {card}
         log(f"Spicetify sync error: {e}")
 
 
+def parse_argv(argv: list[str]) -> dict:
+    """Tiny hand-rolled parser (the project deliberately avoids argparse).
+
+    Usage:
+      sync-rgb.py [#hex]              apply an explicit colour (no theme boost)
+      sync-rgb.py --only a,b,c        restrict to these device keys
+      sync-rgb.py --skip-config       ignore rgb-config.json (legacy behaviour)
+    """
+    opts = {"hex": None, "only": None, "skip_config": False}
+    it = iter(argv)
+    for tok in it:
+        if tok == "--skip-config":
+            opts["skip_config"] = True
+        elif tok == "--only":
+            opts["only"] = next(it, "")
+        elif tok.startswith("--only="):
+            opts["only"] = tok.split("=", 1)[1]
+        elif tok in ("-h", "--help"):
+            print(parse_argv.__doc__)
+            sys.exit(0)
+        elif not tok.startswith("-"):
+            opts["hex"] = tok
+    if opts["only"] is not None:
+        opts["only"] = {k.strip() for k in opts["only"].split(",") if k.strip()}
+    return opts
+
+
 def main():
     log(f"--- sync-rgb started (PID {os.getpid()}) ---")
-    raw_hex = get_hex_color()
-    r, g, b = enhance_color_for_leds(raw_hex)
+    opts = parse_argv(sys.argv[1:])
 
-    t1 = threading.Thread(target=sync_openrgb, args=(r, g, b))
-    t2 = threading.Thread(target=sync_magichome, args=(r, g, b))
-    t3 = threading.Thread(target=sync_mchose_base, args=(r, g, b))
-    t4 = threading.Thread(target=sync_akko_keyboard, args=(r, g, b))
-    t5 = threading.Thread(target=sync_spicetify)
+    config = DEFAULT_RGB_CONFIG if opts["skip_config"] else load_rgb_config()
 
-    t1.start()
-    t2.start()
-    t3.start()
-    t4.start()
-    t5.start()
+    raw_hex, from_theme = get_hex_color(config, opts["hex"])
+    if from_theme:
+        r, g, b = enhance_color_for_leds(raw_hex)
+    else:
+        hc = raw_hex.lstrip("#")
+        r, g, b = int(hc[0:2], 16), int(hc[2:4], 16), int(hc[4:6], 16)
+        log(f"Colour #{hc} sent verbatim (no saturation boost)")
 
-    t1.join(timeout=6)
-    t2.join(timeout=6)
-    t3.join(timeout=6)
-    t4.join(timeout=6)
-    t5.join(timeout=6)
-    log(f"--- sync-rgb finished ---")
+    # A device runs only if enabled in config AND (no --only filter OR listed in it).
+    enabled = config.get("devices", DEFAULT_RGB_CONFIG["devices"])
+    only = opts["only"]
+
+    def wants(key: str) -> bool:
+        return enabled.get(key, True) and (only is None or key in only)
+
+    targets = {
+        "openrgb": lambda: sync_openrgb(r, g, b),
+        "magichome": lambda: sync_magichome(r, g, b),
+        "mchose_base": lambda: sync_mchose_base(r, g, b),
+        "akko_keyboard": lambda: sync_akko_keyboard(r, g, b),
+        "spicetify": sync_spicetify,
+    }
+
+    threads = []
+    for key, fn in targets.items():
+        if wants(key):
+            t = threading.Thread(target=fn)
+            threads.append(t)
+            t.start()
+        else:
+            log(f"Skipping {key} (disabled or filtered out)")
+
+    for t in threads:
+        t.join(timeout=6)
+    log("--- sync-rgb finished ---")
 
 
 if __name__ == "__main__":
