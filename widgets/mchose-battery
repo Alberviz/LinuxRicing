@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 """
-MCHOSE Wireless Peripherals Battery Monitor for Linux
+MCHOSE Wireless Peripherals Battery Monitor for Linux (sólo telemetría)
+
 Supports:
   - MCHOSE V9 Pro Wireless Headset (C-Media CM2025 DSP, VID: 0x291D, PID: 0x385D)
   - MCHOSE K7 Ultra Wireless Mouse (RealTek SoC, VID: 0x3837, PID: 0x1001)
+  - Akko Multi-modes Keyboard (ROYUAN B-Series, VID: 0x3151, PID: 0x4015/0x4011)
 
 Features:
-  - Native zero-dependency Linux hidraw communication
-  - CLI human-readable dashboard output
-  - Full structured JSON output for Quickshell / Caelestia / Waybar (--json)
-  - Low-battery desktop notification system (--notify)
-  - Lightweight background daemon mode (--daemon)
+  - Comunicación hidraw nativa sin dependencias
+  - Salida de tabla legible en terminal
+  - Salida JSON estructurada para Quickshell / Caelestia (--json)
+  - Salida Waybar para auriculares y ratón (--waybar-headset / --waybar-mouse)
+
+La lógica batería->iluminación y las notificaciones de escritorio viven ahora
+en el motor `rgb/battery-lighting`; este script sólo reporta estado.
 """
 
 import sys
@@ -24,6 +28,9 @@ import argparse
 import subprocess
 
 CACHE_FILE = os.path.expanduser("~/.cache/mchose_battery.json")
+DAEMON_LOG = os.path.expanduser("~/.cache/battery_lighting.log")
+CACHE_FRESH_SECS = 90     # el caché se considera reciente si se escribió hace < 90 s
+DAEMON_FRESH_SECS = 120   # el daemon se considera activo si su log tocó hace < 120 s
 
 def HIDIOCSFEATURE(size):
     return (3 << 30) | (size << 16) | (ord("H") << 8) | 0x06
@@ -47,6 +54,31 @@ def save_cache(data):
             json.dump(data, f)
     except Exception:
         pass
+
+def _daemon_is_active():
+    """True si el motor battery-lighting tocó su log hace menos de DAEMON_FRESH_SECS."""
+    try:
+        return (time.time() - os.path.getmtime(DAEMON_LOG)) < DAEMON_FRESH_SECS
+    except Exception:
+        return False
+
+def fresh_cache_reading(prefix):
+    """Si el daemon está activo y el caché es reciente, devuelve (nivel, estado)
+    leídos de ~/.cache/mchose_battery.json (escrito por el motor). Si no, None,
+    y el llamante hace la lectura HID directa."""
+    try:
+        if (time.time() - os.path.getmtime(CACHE_FILE)) >= CACHE_FRESH_SECS:
+            return None
+    except Exception:
+        return None
+    if not _daemon_is_active():
+        return None
+    cache = load_cache()
+    bat = cache.get(f"{prefix}_battery")
+    st = cache.get(f"{prefix}_status")
+    if bat is None or not st:
+        return None
+    return bat, st
 
 def glob_hidraw_nodes(target_vid, target_pid, iface=None):
     matched = []
@@ -78,6 +110,10 @@ def glob_hidraw_nodes(target_vid, target_pid, iface=None):
 # 1. MCHOSE V9 PRO HEADSET
 # ==============================================================================
 def get_v9_pro_battery():
+    fresh = fresh_cache_reading("v9")
+    if fresh is not None:
+        return fresh
+
     cache = load_cache()
     last_bat = cache.get("v9_battery")
     last_status = cache.get("v9_status", "Descargando")
@@ -117,181 +153,11 @@ def get_v9_pro_battery():
         return last_bat, "En reposo"
     return None, "Sin respuesta"
 
-def set_base_mode(mode=3, r=255, g=59, b=0, speed=0, brightness=100):
-    """Set MCHOSE Base LED mode: 1=Breathing, 2=Wave (Target 0x07), 3=Static solid (Target 0x02)."""
-    nodes = glob_hidraw_nodes(0x3837, 0x1001, iface=2) or glob_hidraw_nodes(0x3837, 0x1001)
-    if not nodes:
-        return
-    if mode == 2 or mode == "wave":
-        # Target 0x07 triggers the internal ARGB moving rainbow wave
-        target = 0x07
-        mode_val = 0x01
-    else:
-        target = 0x02
-        mode_val = mode if isinstance(mode, int) else 3
-        
-    payload = [
-        0x2B, 0x01, target, 0x00,
-        brightness, speed, mode_val, 0x01, 0x00,
-        r, g, b,
-        r, g, b,
-        0x00, 0x00, 0x00, 0x00, 0x00
-    ]
-    raw = bytearray([0x11] + [x ^ 0xFF for x in payload])
-    for n in nodes:
-        try:
-            fd = os.open(n, os.O_RDWR | os.O_NONBLOCK)
-            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw)), raw)
-            os.close(fd)
-        except Exception:
-            pass
-
-def get_theme_primary_rgb():
-    """Get active Matugen primary RGB color."""
-    scheme_file = os.path.expanduser("~/.local/state/caelestia/scheme.json")
-    if os.path.exists(scheme_file):
-        try:
-            with open(scheme_file, "r") as f:
-                data = json.load(f)
-            hex_c = data.get("colours", {}).get("primary", data.get("primary", "#ff9800")).lstrip("#")
-            return int(hex_c[0:2], 16), int(hex_c[2:4], 16), int(hex_c[4:6], 16)
-        except Exception:
-            pass
-    return 255, 152, 0
-
-def apply_charging_lighting(bat_level=100):
-    """Apply configured charging effect to MCHOSE base."""
-    config_file = os.path.expanduser("~/.config/caelestia/mchose-config.json")
-    effect = "theme_breathing"
-    if os.path.exists(config_file):
-        try:
-            with open(config_file, "r") as f:
-                effect = json.load(f).get("charging_effect", "theme_breathing")
-        except Exception:
-            pass
-
-    nodes = glob_hidraw_nodes(0x3837, 0x1001, iface=2) or glob_hidraw_nodes(0x3837, 0x1001)
-    if not nodes:
-        return
-
-    # Determine colors
-    if bat_level >= 60:
-        bat_r, bat_g, bat_b = 45, 163, 8    # Verde (#2DA308)
-    elif bat_level >= 20:
-        bat_r, bat_g, bat_b = 255, 152, 0  # Ámbar (#FF9800)
-    else:
-        bat_r, bat_g, bat_b = 255, 30, 30   # Rojo (#FF1E1E)
-
-    th_r, th_g, th_b = get_theme_primary_rgb()
-
-    if effect == "theme_breathing":
-        # Opción 1: Respiración con color del Tema (Target 0x02)
-        payload = [0x2B, 0x01, 0x02, 0x00, 100, 0x00, 0x01, 0x01, 0x00, th_r, th_g, th_b, th_r, th_g, th_b, 0, 0, 0, 0, 0]
-    elif effect == "battery_breathing":
-        # Opción 2: Respiración con color según % de Batería (Target 0x02)
-        payload = [0x2B, 0x01, 0x02, 0x00, 100, 0x00, 0x01, 0x01, 0x00, bat_r, bat_g, bat_b, bat_r, bat_g, bat_b, 0, 0, 0, 0, 0]
-    elif effect == "hardware_battery":
-        # Opción 3: Modo Batería Oficial del Firmware (Target 0x01)
-        payload = [0x2B, 0x01, 0x01, 0x00, 100, 0x00, 0x01, 0x01, 0x00, bat_r, bat_g, bat_b, bat_r, bat_g, bat_b, 0, 0, 0, 0, 0]
-    elif effect == "wave":
-        # Opción 4: Ola Arcoíris giratoria (Target 0x07)
-        payload = [0x2B, 0x01, 0x07, 0x00, 100, 0x00, 0x01, 0x01, 0x00, 255, 59, 0, 255, 59, 0, 0, 0, 0, 0, 0]
-    else:
-        payload = [0x2B, 0x01, 0x02, 0x00, 100, 0x00, 0x01, 0x01, 0x00, th_r, th_g, th_b, th_r, th_g, th_b, 0, 0, 0, 0, 0]
-
-    raw = bytearray([0x11] + [x ^ 0xFF for x in payload])
-    for n in nodes:
-        try:
-            fd = os.open(n, os.O_RDWR | os.O_NONBLOCK)
-            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw)), raw)
-            os.close(fd)
-        except Exception:
-            pass
-
-def apply_low_battery_lighting(bat_level=100):
-    """Apply configured low battery lighting alert to MCHOSE base."""
-    config_file = os.path.expanduser("~/.config/caelestia/mchose-config.json")
-    effect = "red_breathing"
-    threshold = 20
-    if os.path.exists(config_file):
-        try:
-            with open(config_file, "r") as f:
-                data = json.load(f)
-                effect = data.get("low_battery_effect", "red_breathing")
-                threshold = data.get("low_battery_threshold", 20)
-        except Exception:
-            pass
-
-    if bat_level > threshold:
-        return False
-
-    nodes = glob_hidraw_nodes(0x3837, 0x1001, iface=2) or glob_hidraw_nodes(0x3837, 0x1001)
-    if not nodes:
-        return False
-
-    if effect == "wave":
-        # Opción 1: Ola Arcoíris giratoria como aviso llamativo
-        payload = [0x2B, 0x01, 0x07, 0x00, 100, 0x00, 0x01, 0x01, 0x00, 255, 59, 0, 255, 59, 0, 0, 0, 0, 0, 0]
-    elif effect == "red_breathing":
-        # Opción 2: Respiración Roja Parpadeante
-        payload = [0x2B, 0x01, 0x02, 0x00, 100, 0x00, 0x01, 0x01, 0x00, 255, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0]
-    elif effect == "red_static":
-        # Opción 4: Rojo Fijo Constante (Target 0x06)
-        payload = [0x2B, 0x01, 0x06, 0x00, 100, 0x00, 0x01, 0x01, 0x00, 255, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0]
-    elif effect in ["none", "off"]:
-        # Opción 3: Desactivado / mantener color normal del tema
-        return False
-    else:
-        payload = [0x2B, 0x01, 0x02, 0x00, 100, 0x00, 0x01, 0x01, 0x00, 255, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0]
-
-    raw = bytearray([0x11] + [x ^ 0xFF for x in payload])
-    for n in nodes:
-        try:
-            fd = os.open(n, os.O_RDWR | os.O_NONBLOCK)
-            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw)), raw)
-            os.close(fd)
-        except Exception:
-            pass
-    return True
-
-def handle_charging_lighting_transition(is_charging: bool, cache: dict, bat_level: int = 100):
-    was_charging = cache.get("k7_was_charging", False)
-    if is_charging:
-        if not was_charging:
-            # Just docked onto base -> Apply configured charging lighting!
-            apply_charging_lighting(bat_level)
-            cache["k7_was_charging"] = True
-    else:
-        # Undocked
-        if was_charging:
-            cache["k7_was_charging"] = False
-            # If battery is low, apply low battery alert; otherwise restore theme
-            if not apply_low_battery_lighting(bat_level):
-                try:
-                    subprocess.Popen(["/usr/bin/python3", "/home/alberviz/.config/caelestia/sync-rgb.py"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                except Exception:
-                    pass
-        else:
-            # Check periodic low battery state
-            was_low = cache.get("k7_was_low", False)
-            threshold = 20
-            try:
-                with open(os.path.expanduser("~/.config/caelestia/mchose-config.json")) as f:
-                    threshold = json.load(f).get("low_battery_threshold", 20)
-            except Exception:
-                pass
-            is_low = (bat_level <= threshold)
-            if is_low and not was_low:
-                apply_low_battery_lighting(bat_level)
-                cache["k7_was_low"] = True
-            elif not is_low and was_low:
-                cache["k7_was_low"] = False
-                try:
-                    subprocess.Popen(["/usr/bin/python3", "/home/alberviz/.config/caelestia/sync-rgb.py"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                except Exception:
-                    pass
-
 def get_k7_ultra_battery():
+    fresh = fresh_cache_reading("k7")
+    if fresh is not None:
+        return fresh
+
     cache = load_cache()
     last_bat = cache.get("k7_battery")
     last_status = cache.get("k7_status", "Descargando")
@@ -325,7 +191,6 @@ def get_k7_ultra_battery():
                             os.close(fd)
                             cache["k7_battery"] = bat
                             cache["k7_status"] = st
-                            handle_charging_lighting_transition(is_charging, cache, bat)
                             save_cache(cache)
                             return bat, st
 
@@ -345,7 +210,6 @@ def get_k7_ultra_battery():
                                 os.close(fd)
                                 cache["k7_battery"] = bat
                                 cache["k7_status"] = st
-                                handle_charging_lighting_transition(is_charging, cache, bat)
                                 save_cache(cache)
                                 return bat, st
                 except Exception:
@@ -363,6 +227,10 @@ def get_k7_ultra_battery():
 # 3. AKKO MULTI-MODES KEYBOARD (ROYUAN B-Series VID: 0x3151, PID: 0x4015/0x4011)
 # ==============================================================================
 def get_akko_keyboard_battery():
+    fresh = fresh_cache_reading("akko")
+    if fresh is not None:
+        return fresh
+
     cache = load_cache()
     last_bat = cache.get("akko_battery", 100)
 
@@ -420,193 +288,15 @@ def get_akko_keyboard_battery():
 
     return None, "Desconectado"
 
-def get_akko_battery_level_color(bat_level):
-    """Calculate progressive color from Red (<=15%) -> Amber -> Yellow -> Lime -> Emerald Green (100%)."""
-    if bat_level is None:
-        bat_level = 100
-    bat_level = max(0, min(100, bat_level))
-    if bat_level <= 15:
-        return (255, 0, 0)
-    # Progressive smooth gradient
-    hue = ((bat_level - 15) / 85.0) * (120.0 / 360.0)
-    import colorsys
-    r, g, b = colorsys.hsv_to_rgb(hue, 1.0, 1.0)
-    return (int(r * 255), int(g * 255), int(b * 255))
-
-def apply_akko_battery_lighting(bat_level, status="Descargando", theme_rgb=None):
-    """
-    Applies unified lighting & reactive battery rules to Akko 5075B:
-    - Main Backlight: Always solid theme color.
-    - Side-strip:
-        * Charging / Enchufado: Steady Stream (0x05) at slowest speed (0) with progressive battery level color.
-        * Low Battery (<=20%): Breathing Red (0x02) at speed 2.
-        * Normal (>20%): Solid theme color (0x01).
-    """
-    if theme_rgb is None:
-        theme_rgb = get_theme_primary_rgb()
-    tr, tg, tb = theme_rgb
-
-    nodes = glob_hidraw_nodes(0x3151, 0x4015, iface=2) or glob_hidraw_nodes(0x3151, 0x4011, iface=2) or glob_hidraw_nodes(0x3151, 0x4015) or glob_hidraw_nodes(0x3151, 0x4011)
-    if not nodes:
-        return False
-
-    # 1. Main Backlight -> Color sólido del tema
-    led = bytearray(64)
-    led[0] = 0x07; led[1] = 0x01; led[2] = 0x04; led[3] = 0x04; led[4] = 0x08
-    led[5], led[6], led[7] = tr, tg, tb
-    led[8] = 0xFF - (sum(led[:8]) & 0xFF)
-
-    # 2. Side-strip -> Reglas reactivas
-    sled = bytearray(64)
-    sled[0] = 0x08; sled[3] = 0x04; sled[4] = 0x08
-
-    is_charging = (status == "Cargando" or status == "Conectado (USB)")
-    if is_charging:
-        br, bg, bb = get_akko_battery_level_color(bat_level)
-        sled[1] = 0x05  # Steady Stream / Snake
-        sled[2] = 0x00  # Velocidad mínima = 0 (ultracalmada)
-        sled[5], sled[6], sled[7] = br, bg, bb
-    elif bat_level is not None and bat_level <= 20:
-        sled[1] = 0x02  # Breathing / Respiración
-        sled[2] = 0x02  # Velocidad media de respiración
-        sled[5], sled[6], sled[7] = 255, 0, 0  # Rojo parpadeante/respiración
-    else:
-        sled[1] = 0x01  # Fijo
-        sled[2] = 0x04
-        sled[5], sled[6], sled[7] = tr, tg, tb
-
-    sled[8] = 0xFF - (sum(sled[:8]) & 0xFF)
-
-    for n in nodes:
-        try:
-            fd = os.open(n, os.O_RDWR | os.O_NONBLOCK)
-            raw_led = bytearray([0x00]) + led
-            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
-            time.sleep(0.02)
-            raw_sled = bytearray([0x00]) + sled
-            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_sled)), raw_sled)
-            os.close(fd)
-            return True
-        except Exception:
-            pass
-    return False
-
-# ==============================================================================
-# NOTIFICATION SYSTEM
-# ==============================================================================
-def check_and_notify():
-    v9_bat, v9_st = get_v9_pro_battery()
-    k7_bat, k7_st = get_k7_ultra_battery()
-    akko_bat, akko_st = get_akko_keyboard_battery()
-
-    # Apply reactive lighting to Akko keyboard based on state
-    try:
-        apply_akko_battery_lighting(akko_bat, akko_st)
-    except Exception:
-        pass
-
-    cache = load_cache()
-    notified = cache.get("notified_levels", {})
-
-    devices = [
-        ("Auriculares MCHOSE V9 Pro", "audio-headset", v9_bat, v9_st, "v9"),
-        ("Ratón MCHOSE K7 Ultra", "input-mouse", k7_bat, k7_st, "k7"),
-        ("Teclado Akko 5075B", "input-keyboard", akko_bat, akko_st, "akko")
-    ]
-
-    for name, icon, bat, st, key in devices:
-        if bat is not None and st not in ["Cargando"]:
-            last_warn = notified.get(key, 100)
-            if bat <= 10 and last_warn > 10:
-                send_notification(
-                    f"⚠️ Batería Crítica: {name}",
-                    f"La batería está al {bat}%. Conecta el cargador inmediatamente.",
-                    icon,
-                    urgency="critical"
-                )
-                notified[key] = 10
-            elif bat <= 20 and last_warn > 20:
-                send_notification(
-                    f"🔋 Batería Baja: {name}",
-                    f"Nivel actual: {bat}%. Considera cargarlo pronto.",
-                    icon,
-                    urgency="normal"
-                )
-                notified[key] = 20
-            elif bat > 20:
-                notified[key] = 100
-        elif st == "Cargando":
-            notified[key] = 100
-
-    cache["notified_levels"] = notified
-    save_cache(cache)
-
-def send_notification(title, message, icon, urgency="normal"):
-    try:
-        subprocess.run([
-            "notify-send",
-            "-a", "MCHOSE Battery",
-            "-u", urgency,
-            "-i", icon,
-            title,
-            message
-        ], check=False)
-    except Exception:
-        pass
-
 # ==============================================================================
 # MAIN / CLI
 # ==============================================================================
 def main():
-    parser = argparse.ArgumentParser(description="MCHOSE Wireless Peripherals Battery Monitor")
+    parser = argparse.ArgumentParser(description="MCHOSE Wireless Peripherals Battery Monitor (sólo telemetría)")
     parser.add_argument("--json", action="store_true", help="Output state in JSON format")
-    parser.add_argument("--notify", action="store_true", help="Check battery levels and send notifications")
-    parser.add_argument("--daemon", action="store_true", help="Run in background daemon mode")
     parser.add_argument("--waybar-headset", action="store_true", help="Waybar JSON for V9 Pro")
     parser.add_argument("--waybar-mouse", action="store_true", help="Waybar JSON for K7 Ultra")
-    parser.add_argument("--trigger-lighting", action="store_true", help="Apply active charging lighting effect immediately")
-    parser.add_argument("--akko-mode", choices=["charging", "lowbat", "normal"], help="Test specific Akko side-strip lighting mode")
-    parser.add_argument("--akko-battery", type=int, default=None, help="Simulate battery level percentage for Akko lighting tests")
-    parser.add_argument("--restore-lighting", action="store_true",
-                        help="Re-apply whichever base effect the state machine last chose "
-                             "(charging > low battery). Exit 3 if there is no special state "
-                             "so the caller can fall back to the static theme colour.")
     args = parser.parse_args()
-
-    if args.akko_mode:
-        sim_bat = args.akko_battery if args.akko_battery is not None else (100 if args.akko_mode == "charging" else (15 if args.akko_mode == "lowbat" else 80))
-        st = "Cargando" if args.akko_mode == "charging" else "Descargando"
-        apply_akko_battery_lighting(sim_bat, st)
-        print(f"Applied Akko mode '{args.akko_mode}' (simulated {sim_bat}%, status '{st}')")
-        return
-
-    if args.trigger_lighting:
-        cache = load_cache()
-        bat = cache.get("k7_battery", 90)
-        apply_charging_lighting(bat)
-        return
-
-    if args.restore_lighting:
-        cache = load_cache()
-        bat = cache.get("k7_battery", 90)
-        if cache.get("k7_was_charging"):
-            apply_charging_lighting(bat)
-            return
-        if cache.get("k7_was_low") and apply_low_battery_lighting(bat):
-            return
-        sys.exit(3)
-
-    if args.daemon:
-        while True:
-            try:
-                check_and_notify()
-            except Exception:
-                pass
-            time.sleep(60)
-
-    if args.notify:
-        check_and_notify()
-        return
 
     v9_bat, v9_st = get_v9_pro_battery()
     k7_bat, k7_st = get_k7_ultra_battery()

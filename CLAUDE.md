@@ -20,3 +20,4 @@ barrer tu working tree a medias).
 
 - `widgets/Background.qml` ⇔ `configs/quickshell/caelestia/modules/background/Background.qml`
   (verificar con `diff -q`, sin salida).
+- `rgb/mchose-battery` ⇔ `widgets/mchose-battery` (verificar con `diff -q`, sin salida).
