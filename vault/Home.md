@@ -28,6 +28,7 @@ graph TD
 
 ## 📚 1. Guía de Uso y Sincronización
 - [[Guía de Obsidian para Alberto|📚 Guía de Obsidian para Alberto]] — Qué es Obsidian, cómo usar enlaces `[[...]]`, etiquetas, diagramas y cómo sincronizarlo gratis con tu móvil u otros PCs con Git, Syncthing o Remotely Save.
+- [[Rice LinuxRicing/Guía de Captura USB en Windows|🪟 Guía de Captura USB en Windows]] — Instrucciones paso a paso para capturar tráfico HID en Windows con Wireshark + USBPcap y sincronizarlo con GitHub.
 
 ---
 
