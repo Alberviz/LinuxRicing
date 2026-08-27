@@ -76,3 +76,7 @@ Plan detallado y vivo en `docs/CENTRO_ILUMINACION_RGB_PLAN.md` (repo). Resumen:
   Fase 1 (esqueleto del panel), Fase 2 (las 3 pestañas funcionales), Fase 3 (el widget del
   ratón abre el panel; retirada la tarjeta inline). Pendiente: Fase 4 (flash) y Fase 5
   (`install.sh`, docs).
+- **2026-08-27** — Feedback de Alberto: bugs (acordeón no colapsaba, pestañas poco
+  redondeadas) — arreglados `DeviceCard.qml` y `Content.qml`. Falta pase de diseño fino y
+  verificar clics. Escrito `docs/CENTRO_ILUMINACION_RGB_HANDOFF.md` para reiniciar la
+  conversación. **Siguiente sesión: fases 4 y 5.**
