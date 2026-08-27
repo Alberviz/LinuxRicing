@@ -34,7 +34,8 @@ ColumnLayout {
         name: qsTr("Base MCHOSE 8K")
         subtitle: qsTr("Anillo LED")
         deviceKey: "mchose_base"
-        expanded: true
+        // Collapsed by default so the panel isn't huge next to the Akko card.
+        expanded: false
 
         SectionLabel {
             text: qsTr("Eventos de batería")
@@ -158,20 +159,7 @@ ColumnLayout {
     }
 
     // ---- Teclado Akko ----
-    DeviceCard {
-        icon: "keyboard"
-        name: qsTr("Teclado Akko 5075B")
-        subtitle: qsTr("Retro + tira lateral")
-        deviceKey: "akko_keyboard"
-
-        StyledText {
-            Layout.fillWidth: true
-            text: qsTr("Por ahora solo decide si sigue el color global. El brillo y su propia alerta de batería llegarán más adelante.")
-            font: Tokens.font.body.small
-            color: Colours.palette.m3onSurfaceVariant
-            wrapMode: Text.WordWrap
-        }
-    }
+    AkkoCard {}
 
     // ---- OpenRGB ----
     DeviceCard {
