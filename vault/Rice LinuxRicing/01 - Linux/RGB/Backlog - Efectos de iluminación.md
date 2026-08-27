@@ -33,7 +33,6 @@ Leyenda de coste: 🟢 barato · 🟡 medio · 🔴 caro / requiere trabajo de b
 | **Apagado maestro** | Un botón que apaga todas las luces (de noche) y otro que restaura el estado anterior | 🟢 |
 | **Brillo por dispositivo** | Hoy está hardcoded (base 100, teclado 4). Deslizador por dispositivo | 🟡 |
 | **Color individual por dispositivo** | En vez de un color global, cada dispositivo el suyo | 🟡 |
-| **Zonas independientes de la base** | Anillo y logo con colores distintos (el protocolo ya lo permite: `byte[9..11]` vs `byte[12..14]`) | 🟢 |
 | **Vista previa en vivo** | Al pasar el ratón por un preset, aplicarlo temporalmente sin guardar | 🟢 |
 | **Atajo global** | Abrir el panel y alternar "todo on/off" desde Hyprland | 🟢 |
 | **Nivel de urgencia de la notificación** | `critical` = flash rojo intenso · `normal` = pulso suave · `low` = nada | 🟢 |

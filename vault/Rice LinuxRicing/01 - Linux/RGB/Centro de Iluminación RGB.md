@@ -32,7 +32,7 @@ Detalle de cómo funciona hoy: [[Iluminación - Estado actual]].
 ## Decisiones (firmes)
 
 1. **Forma:** panel superpuesto centrado en capa Wayland (patrón `AreaPicker`), fondo oscurecido, cierra al clicar fuera. **No** ventana flotante XDG.
-2. **Alcance:** global — base MCHOSE (anillo + logo), teclado Akko (retro + tira lateral), placa/RAM/ventiladores (OpenRGB), tira MagicHome. Con **interruptor on/off por dispositivo**.
+2. **Alcance:** global — base MCHOSE (anillo LED), teclado Akko (retro + tira lateral), placa/RAM/ventiladores (OpenRGB), tira MagicHome. Con **interruptor on/off por dispositivo**.
 3. **Selector de color:** paleta de presets (colores del tema actual + fijos comunes) + campo hex editable. Sin rueda/Canvas.
 4. **Reposo:** selector "seguir tema (Material You) / color fijo".
 5. **Efectos de la base:** se mantienen "efecto al cargar" y "alerta de batería baja" + umbral (solo la base, es lo único con batería).

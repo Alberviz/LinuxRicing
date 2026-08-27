@@ -77,7 +77,7 @@ mindmap
 ## 🔬 5. Hardware pendiente de Ingeniería Inversa
 
 1. **Iluminación del Cuerpo del Ratón MCHOSE K7 Ultra**:
-   - Descifrar el comando para controlar el LED del logo del ratón de forma independiente a la base.
+   - Descifrar el comando para controlar el LED del cuerpo del ratón de forma independiente a la base.
 2. **Telemetría de Batería Real del Teclado Akko**:
    - Actualmente es un valor estático; descifrar el Feature Report de batería real por USB/2.4G.
 3. **Escenas de 1 Clic**:

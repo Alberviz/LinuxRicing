@@ -81,7 +81,7 @@ graph TD
     subgraph RGB_Sync["🌈 Sincronización RGB (estático, opcode 0x07 = Custom RGB)"]
         SYNC -->|"ioctl (Opcode 0x07)"| AKKO["Teclado Akko 5075B Plus<br>(Teclas + Barra Lateral)"]
         SYNC -->|"OpenRGB SDK (Direct Mode)"| RAMFANS["RAM A-DATA Spectrix +<br>Ventiladores Torre Asus ARGB"]
-        SYNC -->|"ioctl (Comando 0x2B XOR 0xFF)"| MCHOSE["Base MCHOSE K7 Ultra<br>(Anillo + Logo Central)"]
+        SYNC -->|"ioctl (Comando 0x2B XOR 0xFF)"| MCHOSE["Base MCHOSE K7 Ultra<br>(Anillo LED)"]
         SYNC -->|"Wi-Fi TCP 5577"| MAGIC["Tira LED Magic Home"]
     end
 
