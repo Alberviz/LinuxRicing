@@ -13,3 +13,6 @@ vault/Inbox/attachments/
 
 # Worktrees
 .worktrees/
+
+# Superpowers brainstorming (visual companion mockups + state)
+.superpowers/
