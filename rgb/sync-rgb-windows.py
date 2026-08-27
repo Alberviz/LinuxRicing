@@ -131,14 +131,15 @@ def encode_sendmsg(device_path: str, msg: bytes, checksum_type: int = 1) -> byte
     return bytes(buf)
 
 def get_akko_battery_level_color(bat_level):
-    if bat_level is None or bat_level <= 20:
-        return (255, 0, 0)       # Red (<20%)
-    elif bat_level <= 50:
-        return (255, 120, 0)     # Amber (20-50%)
-    elif bat_level <= 80:
-        return (0, 229, 255)     # Cyan (50-80%)
-    else:
-        return (0, 255, 80)      # Lime Green (>80%)
+    """Calculate progressive color from Red (<=15%) -> Amber -> Yellow -> Lime -> Emerald Green (100%)."""
+    if bat_level is None:
+        bat_level = 100
+    bat_level = max(0, min(100, bat_level))
+    if bat_level <= 15:
+        return (255, 0, 0)
+    hue = ((bat_level - 15) / 85.0) * (120.0 / 360.0)
+    nr, ng, nb = colorsys.hsv_to_rgb(hue, 1.0, 1.0)
+    return (int(nr * 255), int(ng * 255), int(nb * 255))
 
 def sync_akko_keyboard(primary_color, brightness=4):
     import urllib.request, struct, hid
@@ -167,8 +168,11 @@ def sync_akko_keyboard(primary_color, brightness=4):
                     resp = dev.get_feature_report(0x00, 65)
                     dev.close()
                     if len(resp) >= 4 and resp[1] == 0x83:
-                        bat_pct = resp[2] if resp[2] > 0 else 100
-                        is_charging = (resp[3] == 1)
+                        bat = resp[2]
+                        st_code = resp[3]
+                        is_charging = (st_code == 1 or pid == 0x4015)
+                        if bat > 0:
+                            bat_pct = bat
                 except Exception:
                     pass
                 break
@@ -190,13 +194,13 @@ def sync_akko_keyboard(primary_color, brightness=4):
         sled[1] = 0x05  # Steady Stream / Snake
         sled[2] = 0x00  # Velocidad mínima = 0 (ultracalmada)
         sled[5], sled[6], sled[7] = br, bg, bb
-        status_log = f"Cargando (Steady Stream a nivel {bat_pct}%)"
+        status_log = f"Cargando (Steady Stream {bat_pct}% -> RGB({br},{bg},{bb}))"
     elif bat_pct <= 20:
-        # Batería baja (<=20%): Rojo fijo sólido de advertencia
-        sled[1] = 0x01  # Fijo
-        sled[2] = 0x04
+        # Batería baja (<=20%): Rojo parpadeante/respiración de advertencia
+        sled[1] = 0x02  # Breathing / Respiración
+        sled[2] = 0x02  # Velocidad media
         sled[5], sled[6], sled[7] = 255, 0, 0
-        status_log = f"Batería Baja ({bat_pct}% -> Rojo Fijo)"
+        status_log = f"Batería Baja ({bat_pct}% -> Rojo Respiración)"
     else:
         # Normal (>20%): Sincronizado en color sólido del tema
         sled[1] = 0x01  # Fijo

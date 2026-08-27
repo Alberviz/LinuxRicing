@@ -148,10 +148,12 @@ StyledRect {
             }
         }
 
-        // Footer
+        // Footer — the Notificaciones tab saves + acts on every change, so
+        // an explicit "Aplicar ahora" there is redundant.
         StyledRect {
             Layout.fillWidth: true
             implicitHeight: 44
+            visible: root.tab !== 2
             radius: Tokens.rounding.full
             color: Colours.palette.m3primary
 

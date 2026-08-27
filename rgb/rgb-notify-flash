@@ -1,0 +1,329 @@
+#!/usr/bin/env python3
+"""
+rgb-notify-flash — brief colour pulse on the fast RGB devices, then restore.
+
+Triggered by the Lighting Center's "Flash al recibir notificación" (the QML
+Connections on Notifs in modules/rgbcontrol/RgbControl.qml). Reads everything
+from ~/.config/caelestia/rgb-config.json unless overridden on the CLI.
+
+  rgb-notify-flash [--mode red|accent|complementary] [--pulses N] [--test]
+
+NEVER touches OpenRGB (motherboard / RAM sit on a slow SMBus that fast pulses
+can hang). MagicHome only joins if pulses <= 2 (Wi-Fi latency).
+
+The project deliberately duplicates the small HID helpers between scripts
+instead of sharing a module — this file follows that style on purpose.
+"""
+
+import colorsys
+import fcntl
+import glob
+import json
+import os
+import subprocess
+import sys
+import time
+
+RGB_CONFIG_PATH = os.path.expanduser("~/.config/caelestia/rgb-config.json")
+SCHEME_PATH = os.path.expanduser("~/.local/state/caelestia/scheme.json")
+BATTERY_CACHE = os.path.expanduser("~/.cache/mchose_battery.json")
+LOCK_PATH = os.path.expanduser("~/.cache/rgb_flash.lock")
+SYNC_RGB = os.path.expanduser("~/.config/caelestia/sync-rgb.py")
+MCHOSE_BATTERY = os.path.expanduser("~/.local/bin/mchose-battery")
+MAGICHOME_CONTROL = os.path.expanduser("~/.local/bin/magichome-control")
+
+PULSE_ON = 0.18
+PULSE_OFF = 0.18
+
+DEFAULT_FLASH = {
+    "mode": "accent",
+    "pulses": 2,
+    "devices": ["mchose_base", "akko_keyboard"],
+}
+
+
+# --------------------------------------------------------------------------- #
+# config
+# --------------------------------------------------------------------------- #
+def load_config() -> dict:
+    cfg = {
+        "source": "theme",
+        "fixed_color": "d8bde7",
+        "devices": {
+            "openrgb": True, "magichome": True, "mchose_base": True,
+            "akko_keyboard": True, "spicetify": True,
+        },
+        "notification_flash": dict(DEFAULT_FLASH),
+    }
+    try:
+        with open(RGB_CONFIG_PATH) as f:
+            user = json.load(f)
+        if isinstance(user, dict):
+            if user.get("source") in ("theme", "fixed"):
+                cfg["source"] = user["source"]
+            if isinstance(user.get("fixed_color"), str):
+                cfg["fixed_color"] = user["fixed_color"].lstrip("#") or cfg["fixed_color"]
+            if isinstance(user.get("devices"), dict):
+                for k, v in user["devices"].items():
+                    if k in cfg["devices"]:
+                        cfg["devices"][k] = bool(v)
+            if isinstance(user.get("notification_flash"), dict):
+                cfg["notification_flash"].update(user["notification_flash"])
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+    return cfg
+
+
+def hex_to_rgb(hex_str: str) -> tuple[int, int, int]:
+    h = hex_str.lstrip("#")
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+def theme_primary_rgb() -> tuple[int, int, int]:
+    try:
+        with open(SCHEME_PATH) as f:
+            data = json.load(f)
+        hex_c = data.get("colours", {}).get("primary", data.get("primary", "#ff9800"))
+        return hex_to_rgb(hex_c)
+    except Exception:
+        return 255, 152, 0
+
+
+def resolve_flash_rgb(mode: str, cfg: dict) -> tuple[int, int, int]:
+    if mode == "red":
+        return 255, 0, 0
+    if mode == "accent":
+        return theme_primary_rgb()
+    # complementary: rotate the *effective* resting colour 180 deg in HSV
+    if cfg.get("source") == "fixed":
+        base = hex_to_rgb(cfg.get("fixed_color", "d8bde7"))
+    else:
+        base = theme_primary_rgb()
+    h, s, v = colorsys.rgb_to_hsv(base[0] / 255, base[1] / 255, base[2] / 255)
+    h = (h + 0.5) % 1.0
+    r, g, b = colorsys.hsv_to_rgb(h, s, v)
+    return int(r * 255), int(g * 255), int(b * 255)
+
+
+# --------------------------------------------------------------------------- #
+# HID helpers (copied from rgb/sync-rgb.py on purpose)
+# --------------------------------------------------------------------------- #
+def HIDIOCSFEATURE(size: int) -> int:
+    return (3 << 30) | (size << 16) | (ord("H") << 8) | 0x06
+
+
+def _hidraw_nodes(vid: str, pid: str) -> list[str]:
+    nodes = []
+    for h in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
+        uevent = f"{h}/device/uevent"
+        if not os.path.exists(uevent):
+            continue
+        try:
+            with open(uevent) as f:
+                content = f.read()
+            if vid in content and pid in content:
+                link = os.path.realpath(f"{h}/device")
+                if ":1.2" in link:
+                    nodes.append("/dev/" + os.path.basename(h))
+        except Exception:
+            pass
+    return nodes
+
+
+def _write_feature(node: str, raw: bytearray) -> None:
+    try:
+        fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
+        fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw)), raw)
+        os.close(fd)
+    except Exception:
+        pass
+
+
+def _akko_checksum8(buf: bytearray) -> int:
+    return 0xFF - (sum(buf[:8]) & 0xFF)
+
+
+def mchose_base_static(r: int, g: int, b: int) -> None:
+    """Base MCHOSE ring, target 0x06 static — same payload as sync_mchose_base()."""
+    nodes = _hidraw_nodes("3837", "1001")
+    if not nodes:
+        return
+    payload = [
+        0x2B, 0x01, 0x06, 0x00,
+        100, 0x00, 0x01, 0x01, 0x00,
+        r, g, b,
+        r, g, b,
+        0x00, 0x00, 0x00, 0x00, 0x00,
+    ]
+    raw = bytearray([0x11] + [x ^ 0xFF for x in payload])
+    for node in nodes:
+        _write_feature(node, raw)
+
+
+def akko_static(r: int, g: int, b: int, brightness: int = 4) -> None:
+    """Akko 5075B backlight (0x07) + side strip (0x08) — same as sync_akko_keyboard()."""
+    nodes = _hidraw_nodes("3151", "4015")
+    if not nodes:
+        return
+    AKKO_FLAGS_CUSTOM_RGB = 0x08
+    frames = []
+    for opcode in (0x08, 0x07):
+        buf = bytearray(64)
+        buf[0] = opcode
+        buf[1] = 0x01          # static
+        buf[2] = 0x04          # speed
+        buf[3] = brightness
+        buf[4] = AKKO_FLAGS_CUSTOM_RGB
+        buf[5] = r
+        buf[6] = g
+        buf[7] = b
+        buf[8] = _akko_checksum8(buf)
+        frames.append(bytearray([0x00]) + buf)
+    for node in nodes:
+        try:
+            fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
+            for raw in frames:
+                fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw)), raw)
+                time.sleep(0.02)
+            os.close(fd)
+            return
+        except Exception:
+            pass
+
+
+def magichome_color(r: int, g: int, b: int) -> None:
+    try:
+        subprocess.run(
+            [MAGICHOME_CONTROL, "--color", f"#{r:02x}{g:02x}{b:02x}"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3,
+        )
+    except Exception:
+        pass
+
+
+# --------------------------------------------------------------------------- #
+# flash + restore
+# --------------------------------------------------------------------------- #
+def pulse(devices: list[str], rgb: tuple[int, int, int], pulses: int) -> None:
+    r, g, b = rgb
+    for _ in range(pulses):
+        if "mchose_base" in devices:
+            mchose_base_static(r, g, b)
+        if "akko_keyboard" in devices:
+            akko_static(r, g, b)
+        if "magichome" in devices:
+            magichome_color(r, g, b)
+        time.sleep(PULSE_ON)
+
+        if "mchose_base" in devices:
+            mchose_base_static(0, 0, 0)
+        if "akko_keyboard" in devices:
+            akko_static(0, 0, 0)
+        if "magichome" in devices:
+            magichome_color(0, 0, 0)
+        time.sleep(PULSE_OFF)
+
+
+def restore(devices: list[str]) -> None:
+    """Put the flashed devices back to their stable rgb-config.json state."""
+    non_base = [d for d in devices if d != "mchose_base"]
+
+    if "mchose_base" in devices:
+        rc = 3
+        try:
+            rc = subprocess.run([sys.executable, MCHOSE_BATTERY, "--restore-lighting"],
+                                timeout=8).returncode
+        except FileNotFoundError:
+            rc = 3
+        except Exception:
+            rc = 0  # assume it handled it
+        if rc == 3:  # no charging / low-battery state → static theme colour
+            non_base.append("mchose_base")
+
+    if non_base:
+        try:
+            subprocess.run([sys.executable, SYNC_RGB, "--only", ",".join(non_base)],
+                           timeout=10)
+        except Exception:
+            pass
+
+
+def select_devices(cfg: dict, pulses: int) -> list[str]:
+    flash = cfg.get("notification_flash", {})
+    wanted = flash.get("devices", DEFAULT_FLASH["devices"])
+    enabled = cfg.get("devices", {})
+    out = []
+    for key in ("mchose_base", "akko_keyboard", "magichome"):
+        if key not in wanted:
+            continue
+        if not enabled.get(key, True):
+            continue
+        if key == "magichome" and pulses > 2:
+            continue  # too slow over Wi-Fi for long bursts
+        out.append(key)
+    return out
+
+
+def parse_argv(argv: list[str]) -> dict:
+    opts = {"mode": None, "pulses": None, "test": False}
+    it = iter(argv)
+    for tok in it:
+        if tok == "--test":
+            opts["test"] = True
+        elif tok == "--mode":
+            opts["mode"] = next(it, None)
+        elif tok.startswith("--mode="):
+            opts["mode"] = tok.split("=", 1)[1]
+        elif tok == "--pulses":
+            opts["pulses"] = next(it, None)
+        elif tok.startswith("--pulses="):
+            opts["pulses"] = tok.split("=", 1)[1]
+        elif tok in ("-h", "--help"):
+            print(__doc__)
+            sys.exit(0)
+    return opts
+
+
+def main() -> None:
+    opts = parse_argv(sys.argv[1:])
+    cfg = load_config()
+    flash = cfg.get("notification_flash", {})
+
+    mode = opts["mode"] or flash.get("mode", "accent")
+    if mode not in ("red", "accent", "complementary"):
+        mode = "accent"
+
+    try:
+        pulses = int(opts["pulses"]) if opts["pulses"] is not None else int(flash.get("pulses", 2))
+    except (TypeError, ValueError):
+        pulses = 2
+    pulses = max(1, min(5, pulses))
+
+    if opts["test"]:
+        pulses = 2
+
+    devices = select_devices(cfg, pulses)
+    if not devices:
+        return
+
+    # Single-flight: drop overlapping bursts instead of stacking them.
+    os.makedirs(os.path.dirname(LOCK_PATH), exist_ok=True)
+    lock_fd = os.open(LOCK_PATH, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return  # a flash is already running
+
+    try:
+        rgb = resolve_flash_rgb(mode, cfg)
+        pulse(devices, rgb, pulses)
+        restore(devices)
+    finally:
+        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        os.close(lock_fd)
+
+
+if __name__ == "__main__":
+    main()

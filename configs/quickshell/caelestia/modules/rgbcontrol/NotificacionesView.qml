@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Layouts
+import Quickshell
 import Caelestia.Config
 import qs.components
 import qs.components.controls
@@ -171,6 +172,40 @@ ColumnLayout {
                 stepSize: 1
                 value: RgbConfig.flashPulses
                 onValueModified: RgbConfig.setFlashPulses(value)
+            }
+        }
+
+        StyledRect {
+            Layout.alignment: Qt.AlignLeft
+            implicitWidth: probeRow.implicitWidth + Tokens.padding.large * 2
+            implicitHeight: 32
+            radius: Tokens.rounding.full
+            color: "transparent"
+            border.width: 1
+            border.color: Colours.palette.m3outline
+            enabled: RgbConfig.flashEnabled
+            opacity: RgbConfig.flashEnabled ? 1 : 0.45
+
+            StateLayer {
+                radius: Tokens.rounding.full
+                onClicked: Quickshell.execDetached([Quickshell.env("HOME") + "/.local/bin/rgb-notify-flash", "--test"])
+            }
+
+            RowLayout {
+                id: probeRow
+                anchors.centerIn: parent
+                spacing: Tokens.spacing.extraSmall
+
+                MaterialIcon {
+                    text: "bolt"
+                    fontStyle: Tokens.font.icon.small
+                    color: Colours.palette.m3onSurface
+                }
+                StyledText {
+                    text: qsTr("Probar flash")
+                    font: Tokens.font.label.medium
+                    color: Colours.palette.m3onSurface
+                }
             }
         }
     }

@@ -200,11 +200,27 @@ def _akko_checksum8(buf: bytearray) -> int:
     return 0xFF - (sum(buf[:8]) & 0xFF)
 
 
+def get_akko_battery_level_color(bat_level: int | None) -> tuple[int, int, int]:
+    """Calculate progressive color from Red (<=15%) -> Amber -> Yellow -> Lime -> Emerald Green (100%)."""
+    if bat_level is None:
+        bat_level = 100
+    bat_level = max(0, min(100, bat_level))
+    if bat_level <= 15:
+        return (255, 0, 0)
+    hue = ((bat_level - 15) / 85.0) * (120.0 / 360.0)
+    nr, ng, nb = colorsys.hsv_to_rgb(hue, 1.0, 1.0)
+    return (int(nr * 255), int(ng * 255), int(nb * 255))
+
+
 def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4):
     """
     Set Akko 5075B Plus Keyboard Backlight (Opcode 0x07) and Side-Strip (Opcode 0x08)
-    via direct USB HID Feature Reports on Interface 2. OpenRGB does not support this
-    keyboard's proprietary protocol, so both zones must be driven by raw HID here.
+    via direct USB HID Feature Reports on Interface 2.
+    Backlight follows the system palette in solid color.
+    Side-strip applies reactive rules:
+      - Charging / USB: Steady stream (0x05) at slowest speed with progressive battery level color.
+      - Low Battery (<=20%): Breathing Red (0x02).
+      - Normal (>20%): Solid system color (0x01).
     """
     nodes = []
     for h in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
@@ -213,7 +229,7 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4):
             try:
                 with open(uevent) as f:
                     content = f.read()
-                if "3151" in content and "4015" in content:
+                if "3151" in content and ("4015" in content or "4011" in content):
                     link = os.path.realpath(f"{h}/device")
                     if ":1.2" in link:
                         nodes.append("/dev/" + os.path.basename(h))
@@ -224,51 +240,77 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4):
         log("Akko Keyboard: No HID node found")
         return
 
-    # AkkoBSeries flags byte = option | dazzle. OpenRGB's Akko B-series
-    # profile forces option=0x08 (use RGB fields) and dazzle=0x00 for any
-    # non-direct mode - confirmed against OpenRGB's own RoyuanKeyboardController
-    # (Controllers/RoyuanKeyboardController/RoyuanKeyboardController.cpp,
-    # RoyuanKeyboardProfile::AkkoBSeries()). This is NOT the generic ROYUAN
-    # (option<<4)|flags bitfield - Akko B-series firmware treats the whole
-    # byte as a flat option value, and 0x07 turned out to select some other
-    # built-in effect (it made the LEDs cycle rainbow instead of holding a
-    # solid color).
     AKKO_FLAGS_CUSTOM_RGB = 0x08
 
-    # 1. Side-Strip (SLED = Opcode 0x08)
-    sled = bytearray(64)
-    sled[0] = 0x08
-    sled[1] = 0x01  # Mode: Static
-    sled[2] = 0x04  # Speed
-    sled[3] = brightness
-    sled[4] = AKKO_FLAGS_CUSTOM_RGB
-    sled[5] = r
-    sled[6] = g
-    sled[7] = b
-    sled[8] = _akko_checksum8(sled)
-    raw_sled = bytearray([0x00]) + sled
+    # Query battery and charging status via Opcode 0x83
+    bat_pct = 100
+    is_charging = False
+    for node in nodes:
+        try:
+            fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
+            req = bytearray(64)
+            req[0] = 0x83
+            raw = bytearray([0x00]) + req
+            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw)), raw)
+            time.sleep(0.02)
+            resp = bytearray(65)
+            fcntl.ioctl(fd, HIDIOCGFEATURE(len(resp)), resp)
+            os.close(fd)
+            if len(resp) >= 4 and resp[1] == 0x83:
+                bat = resp[2]
+                st_code = resp[3]
+                is_charging = (st_code == 1 or "4015" in node)
+                if bat > 0:
+                    bat_pct = bat
+                break
+        except Exception:
+            pass
 
-    # 2. Backlight (LED = Opcode 0x07)
+    # 1. Main Backlight (LED = Opcode 0x07) -> Solid Theme Color
     led = bytearray(64)
     led[0] = 0x07
     led[1] = 0x01  # Mode: Static
     led[2] = 0x04  # Speed
     led[3] = brightness
     led[4] = AKKO_FLAGS_CUSTOM_RGB
-    led[5] = r
-    led[6] = g
-    led[7] = b
+    led[5], led[6], led[7] = r, g, b
     led[8] = _akko_checksum8(led)
     raw_led = bytearray([0x00]) + led
+
+    # 2. Side-Strip (SLED = Opcode 0x08) -> Reactive Battery & Charging Rules
+    sled = bytearray(64)
+    sled[0] = 0x08
+    sled[3] = brightness
+    sled[4] = AKKO_FLAGS_CUSTOM_RGB
+
+    if is_charging:
+        br, bg, bb = get_akko_battery_level_color(bat_pct)
+        sled[1] = 0x05  # Steady Stream / Snake
+        sled[2] = 0x00  # Velocidad mínima = 0 (ultracalmada)
+        sled[5], sled[6], sled[7] = br, bg, bb
+        status_log = f"Cargando ({bat_pct}% -> Steady Stream RGB({br},{bg},{bb}))"
+    elif bat_pct <= 20:
+        sled[1] = 0x02  # Breathing / Respiración
+        sled[2] = 0x02  # Velocidad media
+        sled[5], sled[6], sled[7] = 255, 0, 0  # Rojo
+        status_log = f"Batería Baja ({bat_pct}% -> Breathing Rojo)"
+    else:
+        sled[1] = 0x01  # Static
+        sled[2] = 0x04
+        sled[5], sled[6], sled[7] = r, g, b
+        status_log = f"Normal ({bat_pct}% -> Static RGB({r},{g},{b}))"
+
+    sled[8] = _akko_checksum8(sled)
+    raw_sled = bytearray([0x00]) + sled
 
     for node in nodes:
         try:
             fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
-            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_sled)), raw_sled)
-            time.sleep(0.02)
             fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
+            time.sleep(0.02)
+            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_sled)), raw_sled)
             os.close(fd)
-            log(f"Akko Keyboard: Synced Backlight+Side-Strip RGB({r},{g},{b}) to {node}")
+            log(f"Akko Keyboard ({node}): Synced Backlight RGB({r},{g},{b}) + Side-Strip ({status_log})")
             return
         except Exception as e:
             log(f"Akko Keyboard error on {node}: {e}")

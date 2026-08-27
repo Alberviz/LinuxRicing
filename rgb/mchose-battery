@@ -428,29 +428,34 @@ def get_akko_keyboard_battery():
     return None, "Desconectado"
 
 def get_akko_battery_level_color(bat_level):
-    if bat_level is None or bat_level <= 20:
-        return (255, 0, 0)       # Red (<20%)
-    elif bat_level <= 50:
-        return (255, 120, 0)     # Amber (20-50%)
-    elif bat_level <= 80:
-        return (0, 229, 255)     # Cyan (50-80%)
-    else:
-        return (0, 255, 80)      # Lime Green (>80%)
+    """Calculate progressive color from Red (<=15%) -> Amber -> Yellow -> Lime -> Emerald Green (100%)."""
+    if bat_level is None:
+        bat_level = 100
+    bat_level = max(0, min(100, bat_level))
+    if bat_level <= 15:
+        return (255, 0, 0)
+    # Progressive smooth gradient
+    hue = ((bat_level - 15) / 85.0) * (120.0 / 360.0)
+    import colorsys
+    r, g, b = colorsys.hsv_to_rgb(hue, 1.0, 1.0)
+    return (int(r * 255), int(g * 255), int(b * 255))
 
-def apply_akko_battery_lighting(bat_level, status="Descargando", theme_rgb=(208, 0, 255)):
+def apply_akko_battery_lighting(bat_level, status="Descargando", theme_rgb=None):
     """
     Applies unified lighting & reactive battery rules to Akko 5075B:
     - Main Backlight: Always solid theme color.
     - Side-strip:
-        * Charging: Steady Stream (0x05) at slowest speed (0) with battery level color.
-        * Low Battery (<=20%): Solid Red (0x01).
-        * Normal (>20%): Solid theme color.
+        * Charging / Enchufado: Steady Stream (0x05) at slowest speed (0) with progressive battery level color.
+        * Low Battery (<=20%): Breathing Red (0x02) at speed 2.
+        * Normal (>20%): Solid theme color (0x01).
     """
+    if theme_rgb is None:
+        theme_rgb = get_theme_primary_rgb()
+    tr, tg, tb = theme_rgb
+
     nodes = glob_hidraw_nodes(0x3151, 0x4015, iface=2) or glob_hidraw_nodes(0x3151, 0x4011, iface=2) or glob_hidraw_nodes(0x3151, 0x4015) or glob_hidraw_nodes(0x3151, 0x4011)
     if not nodes:
         return False
-
-    tr, tg, tb = theme_rgb
 
     # 1. Main Backlight -> Color sólido del tema
     led = bytearray(64)
@@ -462,15 +467,16 @@ def apply_akko_battery_lighting(bat_level, status="Descargando", theme_rgb=(208,
     sled = bytearray(64)
     sled[0] = 0x08; sled[3] = 0x04; sled[4] = 0x08
 
-    if status == "Cargando":
+    is_charging = (status == "Cargando" or status == "Conectado (USB)")
+    if is_charging:
         br, bg, bb = get_akko_battery_level_color(bat_level)
-        sled[1] = 0x05  # Steady Stream
+        sled[1] = 0x05  # Steady Stream / Snake
         sled[2] = 0x00  # Velocidad mínima = 0 (ultracalmada)
         sled[5], sled[6], sled[7] = br, bg, bb
     elif bat_level is not None and bat_level <= 20:
-        sled[1] = 0x01  # Fijo
-        sled[2] = 0x04
-        sled[5], sled[6], sled[7] = 255, 0, 0  # Rojo Fijo
+        sled[1] = 0x02  # Breathing / Respiración
+        sled[2] = 0x02  # Velocidad media de respiración
+        sled[5], sled[6], sled[7] = 255, 0, 0  # Rojo parpadeante/respiración
     else:
         sled[1] = 0x01  # Fijo
         sled[2] = 0x04
@@ -566,13 +572,36 @@ def main():
     parser.add_argument("--waybar-headset", action="store_true", help="Waybar JSON for V9 Pro")
     parser.add_argument("--waybar-mouse", action="store_true", help="Waybar JSON for K7 Ultra")
     parser.add_argument("--trigger-lighting", action="store_true", help="Apply active charging lighting effect immediately")
+    parser.add_argument("--akko-mode", choices=["charging", "lowbat", "normal"], help="Test specific Akko side-strip lighting mode")
+    parser.add_argument("--akko-battery", type=int, default=None, help="Simulate battery level percentage for Akko lighting tests")
+    parser.add_argument("--restore-lighting", action="store_true",
+                        help="Re-apply whichever base effect the state machine last chose "
+                             "(charging > low battery). Exit 3 if there is no special state "
+                             "so the caller can fall back to the static theme colour.")
     args = parser.parse_args()
+
+    if args.akko_mode:
+        sim_bat = args.akko_battery if args.akko_battery is not None else (100 if args.akko_mode == "charging" else (15 if args.akko_mode == "lowbat" else 80))
+        st = "Cargando" if args.akko_mode == "charging" else "Descargando"
+        apply_akko_battery_lighting(sim_bat, st)
+        print(f"Applied Akko mode '{args.akko_mode}' (simulated {sim_bat}%, status '{st}')")
+        return
 
     if args.trigger_lighting:
         cache = load_cache()
         bat = cache.get("k7_battery", 90)
         apply_charging_lighting(bat)
         return
+
+    if args.restore_lighting:
+        cache = load_cache()
+        bat = cache.get("k7_battery", 90)
+        if cache.get("k7_was_charging"):
+            apply_charging_lighting(bat)
+            return
+        if cache.get("k7_was_low") and apply_low_battery_lighting(bat):
+            return
+        sys.exit(3)
 
     if args.daemon:
         while True:

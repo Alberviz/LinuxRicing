@@ -54,6 +54,46 @@ Scope {
         value: scope
     }
 
+    // ---- Notification flash ----------------------------------------------
+    // Lives in the Scope (not the LazyLoader) so it works even if the panel
+    // has never been opened. See docs/CENTRO_ILUMINACION_RGB_HANDOFF.md §Fase 4.
+    property string lastFlashedId: ""
+
+    Connections {
+        target: Notifs
+
+        function onListChanged(): void {
+            if (!RgbConfig.flashEnabled || Notifs.dnd)
+                return;
+
+            const n = Notifs.list[0]; // newest notification is prepended
+            if (!n || String(n.notificationId) === scope.lastFlashedId)
+                return;
+            scope.lastFlashedId = String(n.notificationId);
+
+            // Ignore stale entries restored from disk on shell start.
+            if (Date.now() - n.time.getTime() > 10000)
+                return;
+
+            // Never flash for our own battery / lighting notifications.
+            const app = (n.appName || "").toLowerCase();
+            if (app.includes("mchose") || app.includes("battery") || app.includes("iluminaci"))
+                return;
+
+            flashDebounce.restart();
+        }
+    }
+
+    Timer {
+        id: flashDebounce
+        interval: 400
+        onTriggered: Quickshell.execDetached([
+            Quickshell.env("HOME") + "/.local/bin/rgb-notify-flash",
+            "--mode", RgbConfig.flashMode,
+            "--pulses", String(RgbConfig.flashPulses)
+        ])
+    }
+
     LazyLoader {
         id: loader
 
