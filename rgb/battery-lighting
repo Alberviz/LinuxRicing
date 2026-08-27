@@ -18,6 +18,7 @@ compartir un módulo; este archivo sigue ese estilo.
 """
 import copy
 import colorsys
+import fcntl
 import glob
 import json
 import os
@@ -325,6 +326,268 @@ def akko_canvas_chunks(rgb_per_key):
         buf[8:8 + len(payload)] = payload
         chunks.append(bytes(buf))
     return chunks
+
+
+# ============================================================================
+# Telemetría — portado de rgb/mchose-battery (helpers HID duplicados a propósito;
+# ver la nota del encabezado). Las funciones get_* aquí NO tocan iluminación:
+# las llamadas a handle_charging_lighting_transition se omiten adrede.
+# ============================================================================
+
+def HIDIOCSFEATURE(size):
+    return (3 << 30) | (size << 16) | (ord("H") << 8) | 0x06
+
+
+def HIDIOCGFEATURE(size):
+    return (3 << 30) | (size << 16) | (ord("H") << 8) | 0x07
+
+
+def load_cache():
+    try:
+        if os.path.exists(BATTERY_CACHE):
+            with open(BATTERY_CACHE, "r") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}
+
+
+def save_cache(data):
+    try:
+        os.makedirs(os.path.dirname(BATTERY_CACHE), exist_ok=True)
+        with open(BATTERY_CACHE, "w") as f:
+            json.dump(data, f)
+    except Exception:
+        pass
+
+
+def glob_hidraw_nodes(target_vid, target_pid, iface=None):
+    matched = []
+    for h in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
+        uevent = f"{h}/device/uevent"
+        if os.path.exists(uevent):
+            try:
+                with open(uevent, "r") as f:
+                    content = f.read()
+                for line in content.splitlines():
+                    if line.startswith("HID_ID="):
+                        parts = line.split("=")[1].split(":")
+                        if len(parts) >= 3:
+                            vid = int(parts[1], 16)
+                            pid = int(parts[2], 16)
+                            if vid == target_vid and pid == target_pid:
+                                nodename = "/dev/" + os.path.basename(h)
+                                if iface is not None:
+                                    link = os.path.realpath(f"{h}/device")
+                                    if f":1.{iface}" in link:
+                                        matched.append(nodename)
+                                else:
+                                    matched.append(nodename)
+            except Exception:
+                pass
+    return matched
+
+
+def get_v9_pro_battery():
+    cache = load_cache()
+    last_bat = cache.get("v9_battery")
+    last_status = cache.get("v9_status", "Descargando")
+
+    nodes = glob_hidraw_nodes(0x291D, 0x385D)
+    if not nodes:
+        return None, "Desconectado"
+
+    for node in nodes:
+        try:
+            fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
+            pkt = bytes([0x55, 0x65, 0x01] + [0x00] * 61)
+            os.write(fd, pkt)
+            r, _, _ = select.select([fd], [], [], 0.2)
+            if r:
+                resp = os.read(fd, 64)
+                os.close(fd)
+                if resp and len(resp) >= 4 and resp[0] == 0x55 and resp[1] == 0x65:
+                    bat = resp[2]
+                    st_code = resp[3]
+                    if st_code == 3 or st_code == 0:
+                        st = "Cargando"
+                    elif st_code == 2:
+                        st = "Descargando"
+                    else:
+                        st = "Descargando"
+                    cache["v9_battery"] = bat
+                    cache["v9_status"] = st
+                    save_cache(cache)
+                    return bat, st
+            else:
+                os.close(fd)
+        except Exception:
+            pass
+
+    if last_bat:
+        return last_bat, "En reposo"
+    return None, "Sin respuesta"
+
+
+def get_k7_ultra_battery():
+    cache = load_cache()
+    last_bat = cache.get("k7_battery")
+    last_status = cache.get("k7_status", "Descargando")
+
+    nodes = glob_hidraw_nodes(0x3837, 0x1001, iface=2) or glob_hidraw_nodes(0x3837, 0x1001)
+    if not nodes:
+        return None, "Desconectado"
+
+    for node in nodes:
+        try:
+            fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
+
+            for attempt in range(4):
+                req = bytearray([0x11, 0x06 ^ 0xFF] + [0xFF] * 19)
+                try:
+                    fcntl.ioctl(fd, HIDIOCSFEATURE(len(req)), req)
+                except Exception:
+                    pass
+                time.sleep(0.025)
+
+                # Check for incoming pushed report 0x13
+                r, _, _ = select.select([fd], [], [], 0.02)
+                if r:
+                    d = os.read(fd, 64)
+                    if len(d) >= 6 and d[0] == 0x13:
+                        dec13 = [d[0]] + [b ^ 0xFF for b in d[1:]]
+                        if (dec13[1] == 0xE2 or d[1] == 0x1D) and 0 < dec13[5] <= 100:
+                            bat = dec13[5]
+                            is_charging = (dec13[3] == 2 or dec13[4] == 1)
+                            st = "Cargando" if is_charging else "Descargando"
+                            os.close(fd)
+                            cache["k7_battery"] = bat
+                            cache["k7_status"] = st
+                            save_cache(cache)
+                            return bat, st
+
+                # Read Feature Report 0x11 response
+                buf = bytearray([0x11] + [0] * 63)
+                try:
+                    fcntl.ioctl(fd, HIDIOCGFEATURE(len(buf)), buf)
+                    dec = [buf[0]] + [b ^ 0xFF for b in buf[1:]]
+                    if len(dec) >= 13 and dec[0] == 0x11 and dec[1] == 0x06:
+                        vid = dec[2] | (dec[3] << 8)
+                        if vid == 0x3837:
+                            bat = dec[11]
+                            charge_st = dec[12]
+                            if 0 < bat <= 100:
+                                is_charging = (charge_st == 1)
+                                st = "Cargando" if is_charging else "Descargando"
+                                os.close(fd)
+                                cache["k7_battery"] = bat
+                                cache["k7_status"] = st
+                                save_cache(cache)
+                                return bat, st
+                except Exception:
+                    pass
+
+            os.close(fd)
+        except Exception:
+            pass
+
+    if last_bat:
+        return last_bat, "En reposo"
+    return None, "Sin respuesta"
+
+
+def get_akko_keyboard_battery():
+    cache = load_cache()
+    last_bat = cache.get("akko_battery", 100)
+
+    # 1. Check if connected via Wired USB (PID 0x4015) - Direct VBUS USB Power / Charging
+    wired_nodes = glob_hidraw_nodes(0x3151, 0x4015, iface=2) or glob_hidraw_nodes(0x3151, 0x4015)
+    if wired_nodes:
+        for node in wired_nodes:
+            try:
+                fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
+                req = bytearray(64)
+                req[0] = 0x83  # FEA_CMD_GET_BATTERY
+                req[8] = 0xFF - (sum(req[:8]) & 0xFF)
+                raw = bytearray([0x00]) + req
+                fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw)), raw)
+                time.sleep(0.02)
+                resp = bytearray(65)
+                fcntl.ioctl(fd, HIDIOCGFEATURE(len(resp)), resp)
+                os.close(fd)
+                if len(resp) >= 4 and resp[1] == 0x83:
+                    st_code = resp[3]
+                    st = "Cargando" if st_code == 1 else "Conectado (USB)"
+                    bat = resp[2] if (0 < resp[2] <= 100) else 100
+                    cache["akko_battery"] = bat
+                    save_cache(cache)
+                    return bat, st
+            except Exception:
+                pass
+        return 100, "Cargando (USB)"
+
+    # 2. Check if connected via Bluetooth / UPower (Real BLE Battery GATT Telemetry)
+    try:
+        res = subprocess.run(["upower", "-e"], capture_output=True, text=True, timeout=1)
+        for line in res.stdout.splitlines():
+            if "keyboard" in line.lower() or "akko" in line.lower():
+                info = subprocess.run(["upower", "-i", line], capture_output=True, text=True, timeout=1).stdout
+                pct = None
+                state = "Descargando"
+                for iline in info.splitlines():
+                    if "percentage:" in iline:
+                        pct = int(iline.split(":")[1].strip().replace("%", ""))
+                    elif "state:" in iline:
+                        if "charging" in iline:
+                            state = "Cargando"
+                if pct is not None:
+                    cache["akko_battery"] = pct
+                    save_cache(cache)
+                    return pct, state
+    except Exception:
+        pass
+
+    # 3. Check if connected via 2.4 GHz Dongle (PID 0x4011)
+    dongle_nodes = glob_hidraw_nodes(0x3151, 0x4011, iface=2) or glob_hidraw_nodes(0x3151, 0x4011)
+    if dongle_nodes:
+        return last_bat, "2.4G Inalámbrico"
+
+    return None, "Desconectado"
+
+
+def read_telemetry():
+    def one(fn):
+        try:
+            lvl, st = fn()
+        except Exception:
+            lvl, st = None, "Desconectado"
+        return {"level": lvl, "charging": (st == "Cargando"), "connected": lvl is not None}
+    return {
+        "akko_keyboard": one(get_akko_keyboard_battery),
+        "mchose_mouse": one(get_k7_ultra_battery),
+        "v9_headset": one(get_v9_pro_battery),
+    }
+
+
+def read_battery_cache():
+    try:
+        with open(BATTERY_CACHE) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def write_battery_cache(tele):
+    data = read_battery_cache()
+    m = {"akko_keyboard": "akko", "mchose_mouse": "k7", "v9_headset": "v9"}
+    for src, pref in m.items():
+        t = tele[src]
+        data[f"{pref}_battery"] = t["level"]
+        data[f"{pref}_status"] = ("Cargando" if t["charging"]
+                                  else ("Descargando" if t["connected"] else "Desconectado"))
+    os.makedirs(os.path.dirname(BATTERY_CACHE), exist_ok=True)
+    with open(BATTERY_CACHE, "w") as f:
+        json.dump(data, f)
 
 
 def main(argv):
