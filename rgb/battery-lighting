@@ -289,43 +289,49 @@ def meter_rows(level, n_rows=5):
     return max(1, min(n_rows, int(level / 100 * n_rows + 0.5)))
 
 
-# docs/HARDWARE_PROTOCOLS.md §1.G — mapa PARCIAL, validar contra hardware (Task 12).
+# Mapeo físico verificado (Common82 / Akko 5075B Plus - Sharkfin)
 AKKO_KEY_ROWS = [
-    [7, 13, 19, 25, 31, 37, 43, 49, 55, 61, 67, 73],   # números (arriba)
-    [8, 14, 20, 26, 32, 38, 44, 50, 56, 62, 68],        # QWERTY
-    [9, 15, 21, 27, 33, 39, 45, 51, 57, 63, 69],        # ASDF
-    [10, 16, 22, 28, 34, 40, 46, 52, 58, 64],           # ZXCV
-    [11, 17, 23, 29, 35, 41, 47, 53, 59],               # inferior (Ctrl/Alt/Espacio)
+    [0, 12, 18, 24, 30, 36, 42, 48, 54, 60, 66, 72, 78, 86],         # F-keys / Esc / Del
+    [1, 7, 13, 19, 25, 31, 37, 43, 49, 55, 61, 67, 73, 79, 85],       # Números / Backspace / Ins
+    [2, 8, 14, 20, 26, 32, 38, 44, 50, 56, 62, 68, 74, 80, 92],       # QWERTY / End
+    [3, 9, 15, 21, 27, 33, 39, 45, 51, 57, 63, 69, 81, 87],           # ASDF / Enter / PgUp
+    [4, 16, 22, 28, 34, 40, 46, 52, 58, 64, 70, 76, 94, 88],          # ZXCV / Shift / ↑ / PgDn
+    [5, 17, 23, 41, 59, 71, 77, 83, 89, 95],                          # Inferior (Ctrl/Win/Alt/Space/Arrows)
 ]
 
 
 def akko_meter_keys(level):
-    keys = [(0, 0, 0)] * 130
+    keys = [(0, 0, 0)] * 128
     rows_on = meter_rows(level, len(AKKO_KEY_ROWS))
     colour = battery_level_color(level)
     # AKKO_KEY_ROWS[0] es la fila de arriba; encendemos desde abajo.
     for row in AKKO_KEY_ROWS[len(AKKO_KEY_ROWS) - rows_on:]:
         for idx in row:
-            if 0 <= idx < 130:
+            if 0 <= idx < 128:
                 keys[idx] = colour
     return keys
 
 
 def akko_canvas_chunks(rgb_per_key):
-    flat = bytearray()
-    for (r, g, b) in rgb_per_key[:130]:
-        flat += bytes((r, g, b))
-    flat += bytes(392 - len(flat))
+    blob = bytearray(384)
+    for idx, (r, g, b) in enumerate(rgb_per_key[:128]):
+        blob[idx * 3] = r
+        blob[idx * 3 + 1] = g
+        blob[idx * 3 + 2] = b
     chunks = []
-    for ci in range(7):
+    for page in range(7):
         buf = bytearray(64)
         buf[0] = 0x0C
         buf[1] = 0x00
-        buf[2] = 0x80
-        buf[3] = 0x01
-        buf[4] = ci
-        payload = flat[ci * 56:(ci + 1) * 56]
-        buf[8:8 + len(payload)] = payload
+        buf[2] = 384 & 0xFF        # 0x80
+        buf[3] = (384 >> 8) & 0xFF # 0x01
+        buf[4] = page
+        buf[5] = 0x00
+        buf[6] = 0x00
+        buf[7] = 0xFF - (sum(buf[:7]) & 0xFF)  # Checksum Bit7 obligatorio en yc500
+        start = page * 56
+        end = min(start + 56, len(blob))
+        buf[8:8 + (end - start)] = blob[start:end]
         chunks.append(bytes(buf))
     return chunks
 
@@ -768,10 +774,10 @@ def _save_state(st):
 def apply_akko_meter(level):
     """Pinta el medidor de batería sobre las teclas del Akko (modo lienzo).
 
-    Envía 1 paquete de activación (0x07, byte[1]=0x0D, con checksum) y los 7
-    chunks 0x0C, con time.sleep(0.03) entre escrituras para no corromper el
-    enlace RF. No hace nada si no hay nodo, o si el nivel redondeado a fila
-    (meter_rows) no cambió desde la última vez (STATE_CACHE).
+    Envía 1 paquete lateral 0x08 para despertar el bus, 1 paquete de activación
+    0x07 (modo 0x0D con Checksum Bit8) y los 7 chunks 0x0C (con Checksum Bit7),
+    con time.sleep(0.03) entre escrituras. No hace nada si no hay nodo, o si el
+    nivel redondeado a fila (meter_rows) no cambió desde la última vez (STATE_CACHE).
     """
     nodes = _akko_nodes()
     if not nodes:
@@ -780,16 +786,33 @@ def apply_akko_meter(level):
     st = _load_state()
     if st.get("akko_meter_level") == rows:
         return
+
+    # 1. Paquete lateral 0x08 para despertar el transceptor
+    sled = bytearray(64)
+    sled[0] = 0x08
+    sled[1] = 0x01
+    sled[2] = 4
+    sled[3] = 4
+    sled[4] = 0x08
+    sled[5], sled[6], sled[7] = battery_level_color(level)
+    sled[8] = _akko_checksum8(sled)
+    raw_sled = bytes([0x00]) + bytes(sled)
+
+    # 2. Paquete activación 0x07 (modo 0x0D)
     activate = bytearray(64)
     activate[0] = 0x07
-    activate[1] = 0x0D
-    activate[2] = 0x04
-    activate[3] = 0x04
-    activate[4] = 0x08          # flag color custom RGB (faltaba)
-    activate[8] = (0xFF - (sum(activate[:8]) & 0xFF)) & 0xFF
-    packets = [bytes([0x00]) + activate] + [
-        bytes([0x00]) + c for c in akko_canvas_chunks(akko_meter_keys(level))
-    ]
+    activate[1] = 0x0D          # MODE_USER_PICTURE (13)
+    activate[2] = 0x01          # speed
+    activate[3] = 0x04          # brightness
+    activate[4] = 0x00          # flags (option << 4)
+    activate[5] = 0x00
+    activate[6] = 200
+    activate[7] = 200
+    activate[8] = _akko_checksum8(activate)
+    raw_activate = bytes([0x00]) + bytes(activate)
+
+    chunks = [bytes([0x00]) + c for c in akko_canvas_chunks(akko_meter_keys(level))]
+    packets = [raw_sled, raw_activate] + chunks
     node = nodes[0]
     for pkt in packets:
         _write_feature(node, bytearray(pkt))

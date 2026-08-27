@@ -25,7 +25,7 @@ def test_akko_canvas_chunks_shape(bl):
 
 def test_akko_meter_keys_all_off_at_zero(bl):
     keys = bl.akko_meter_keys(0)
-    assert len(keys) == 130
+    assert len(keys) == 128
     assert set(keys) == {(0, 0, 0)}
 
 
