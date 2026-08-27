@@ -16,6 +16,14 @@ Alberto usa Claude y Gemini a la vez en este repo, misma identidad git. Reparto 
 `systemd/`**. `git fetch` a menudo; commitear pronto (un `git add -A` del otro agente puede
 barrer tu working tree a medias).
 
+## Captura USB / ingeniería inversa de hardware en Windows
+
+Si trabajas en la máquina Windows y el objetivo es capturar tráfico USB (protocolo del
+dongle Akko, base MCHOSE, etc.), **lee primero `docs/WINDOWS_USB_CAPTURE_RUNBOOK.md`**.
+Contiene el entorno verificado, el comando de captura que funciona, el fallo conocido de
+USBPcap en esta build de Windows (que ya costó una sesión entera), y qué está resuelto
+(`docs/AKKO_2.4G_USB_FINDINGS.md`) y qué no (per-key).
+
 ## Copias que deben ir idénticas
 
 - `widgets/Background.qml` ⇔ `configs/quickshell/caelestia/modules/background/Background.qml`
