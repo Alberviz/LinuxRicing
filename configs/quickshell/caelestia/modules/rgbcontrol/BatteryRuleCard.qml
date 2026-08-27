@@ -12,7 +12,7 @@ StyledRect {
 
     required property var rule
 
-    property bool expanded: true
+    property bool expanded: false
 
     readonly property string sourceIcon: {
         const s = BatteryLightingConfig.sources.find(src => src.key === root.rule.source);

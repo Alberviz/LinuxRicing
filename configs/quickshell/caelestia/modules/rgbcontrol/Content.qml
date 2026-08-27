@@ -144,6 +144,18 @@ StyledRect {
                 }
             }
 
+            WheelHandler {
+                target: flickable
+                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                onWheel: event => {
+                    if (flickable.contentHeight <= flickable.height)
+                        return;
+                    const dy = event.angleDelta.y ? -(event.angleDelta.y / 120) * 80 : -(event.pixelDelta.y || 0);
+                    const maxY = flickable.contentHeight - flickable.height;
+                    flickable.contentY = Math.max(0, Math.min(maxY, flickable.contentY + dy));
+                }
+            }
+
             StyledScrollBar.vertical: StyledScrollBar {
                 flickable: flickable
             }
@@ -152,6 +164,7 @@ StyledRect {
                 id: stack
 
                 width: flickable.width - (flickable.contentHeight > flickable.height ? (Tokens.padding.extraSmall + Tokens.spacing.extraSmall) : 0)
+                height: flickable.contentHeight
                 currentIndex: root.tab
 
                 component Placeholder: StyledRect {
