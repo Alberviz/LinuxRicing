@@ -146,11 +146,73 @@ def set_base_mode(mode=3, r=255, g=59, b=0, speed=0, brightness=100):
         except Exception:
             pass
 
-def handle_charging_lighting_transition(is_charging: bool, cache: dict):
+def get_theme_primary_rgb():
+    """Get active Matugen primary RGB color."""
+    scheme_file = os.path.expanduser("~/.local/state/caelestia/scheme.json")
+    if os.path.exists(scheme_file):
+        try:
+            with open(scheme_file, "r") as f:
+                data = json.load(f)
+            hex_c = data.get("colours", {}).get("primary", data.get("primary", "#ff9800")).lstrip("#")
+            return int(hex_c[0:2], 16), int(hex_c[2:4], 16), int(hex_c[4:6], 16)
+        except Exception:
+            pass
+    return 255, 152, 0
+
+def apply_charging_lighting(bat_level=100):
+    """Apply configured charging effect to MCHOSE base."""
+    config_file = os.path.expanduser("~/.config/caelestia/mchose-config.json")
+    effect = "theme_breathing"
+    if os.path.exists(config_file):
+        try:
+            with open(config_file, "r") as f:
+                effect = json.load(f).get("charging_effect", "theme_breathing")
+        except Exception:
+            pass
+
+    nodes = glob_hidraw_nodes(0x3837, 0x1001, iface=2) or glob_hidraw_nodes(0x3837, 0x1001)
+    if not nodes:
+        return
+
+    # Determine colors
+    if bat_level >= 60:
+        bat_r, bat_g, bat_b = 45, 163, 8    # Verde (#2DA308)
+    elif bat_level >= 20:
+        bat_r, bat_g, bat_b = 255, 152, 0  # Ámbar (#FF9800)
+    else:
+        bat_r, bat_g, bat_b = 255, 30, 30   # Rojo (#FF1E1E)
+
+    th_r, th_g, th_b = get_theme_primary_rgb()
+
+    if effect == "theme_breathing":
+        # Opción 1: Respiración con color del Tema (Target 0x02)
+        payload = [0x2B, 0x01, 0x02, 0x00, 100, 0x00, 0x01, 0x01, 0x00, th_r, th_g, th_b, th_r, th_g, th_b, 0, 0, 0, 0, 0]
+    elif effect == "battery_breathing":
+        # Opción 2: Respiración con color según % de Batería (Target 0x02)
+        payload = [0x2B, 0x01, 0x02, 0x00, 100, 0x00, 0x01, 0x01, 0x00, bat_r, bat_g, bat_b, bat_r, bat_g, bat_b, 0, 0, 0, 0, 0]
+    elif effect == "hardware_battery":
+        # Opción 3: Modo Batería Oficial del Firmware (Target 0x01)
+        payload = [0x2B, 0x01, 0x01, 0x00, 100, 0x00, 0x01, 0x01, 0x00, bat_r, bat_g, bat_b, bat_r, bat_g, bat_b, 0, 0, 0, 0, 0]
+    elif effect == "wave":
+        # Opción 4: Ola Arcoíris giratoria (Target 0x07)
+        payload = [0x2B, 0x01, 0x07, 0x00, 100, 0x00, 0x01, 0x01, 0x00, 255, 59, 0, 255, 59, 0, 0, 0, 0, 0, 0]
+    else:
+        payload = [0x2B, 0x01, 0x02, 0x00, 100, 0x00, 0x01, 0x01, 0x00, th_r, th_g, th_b, th_r, th_g, th_b, 0, 0, 0, 0, 0]
+
+    raw = bytearray([0x11] + [x ^ 0xFF for x in payload])
+    for n in nodes:
+        try:
+            fd = os.open(n, os.O_RDWR | os.O_NONBLOCK)
+            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw)), raw)
+            os.close(fd)
+        except Exception:
+            pass
+
+def handle_charging_lighting_transition(is_charging: bool, cache: dict, bat_level: int = 100):
     was_charging = cache.get("k7_was_charging", False)
     if is_charging and not was_charging:
-        # Just docked onto base -> Start Full ARGB Moving Wave Charging effect!
-        set_base_mode(mode=2, speed=0)
+        # Just docked onto base -> Apply configured charging lighting!
+        apply_charging_lighting(bat_level)
         cache["k7_was_charging"] = True
     elif not is_charging and was_charging:
         # Just undocked from base -> Restore unified wallpaper theme color!
@@ -194,7 +256,7 @@ def get_k7_ultra_battery():
                             os.close(fd)
                             cache["k7_battery"] = bat
                             cache["k7_status"] = st
-                            handle_charging_lighting_transition(is_charging, cache)
+                            handle_charging_lighting_transition(is_charging, cache, bat)
                             save_cache(cache)
                             return bat, st
 
@@ -214,7 +276,7 @@ def get_k7_ultra_battery():
                                 os.close(fd)
                                 cache["k7_battery"] = bat
                                 cache["k7_status"] = st
-                                handle_charging_lighting_transition(is_charging, cache)
+                                handle_charging_lighting_transition(is_charging, cache, bat)
                                 save_cache(cache)
                                 return bat, st
                 except Exception:
@@ -318,7 +380,14 @@ def main():
     parser.add_argument("--daemon", action="store_true", help="Run in background daemon mode")
     parser.add_argument("--waybar-headset", action="store_true", help="Waybar JSON for V9 Pro")
     parser.add_argument("--waybar-mouse", action="store_true", help="Waybar JSON for K7 Ultra")
+    parser.add_argument("--trigger-lighting", action="store_true", help="Apply active charging lighting effect immediately")
     args = parser.parse_args()
+
+    if args.trigger_lighting:
+        cache = load_cache()
+        bat = cache.get("k7_battery", 90)
+        apply_charging_lighting(bat)
+        return
 
     if args.daemon:
         while True:
