@@ -590,6 +590,180 @@ def write_battery_cache(tele):
         json.dump(data, f)
 
 
+# ============================================================================
+# Aplicadores de efectos (Task 7) — constructores de payload para la base
+# MCHOSE y las zonas del teclado Akko (teclas / tira lateral). El medidor de
+# batería del Akko (efecto `battery_meter`) lo añade la Task 8; MagicHome y
+# OpenRGB, la Task 9. Helpers HID copiados de rgb/rgb-notify-flash a propósito.
+# ============================================================================
+
+def _hidraw_nodes(vid, pids):
+    nodes = []
+    for h in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
+        uevent = f"{h}/device/uevent"
+        if not os.path.exists(uevent):
+            continue
+        try:
+            with open(uevent) as f:
+                content = f.read()
+            if vid in content and any(p in content for p in pids):
+                link = os.path.realpath(f"{h}/device")
+                if ":1.2" in link:
+                    nodes.append("/dev/" + os.path.basename(h))
+        except Exception:
+            pass
+    return nodes
+
+
+def _write_feature(node, raw):
+    try:
+        fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
+        fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw)), raw)
+        os.close(fd)
+    except Exception:
+        pass
+
+
+def _akko_checksum8(buf):
+    return 0xFF - (sum(buf[:8]) & 0xFF)
+
+
+def build_mchose_base_payload(effect, level, theme_rgb):
+    """21 bytes listos para ioctl (Report ID 0x11 + XOR 0xFF en byte[1..20]).
+
+    Portado de apply_charging_lighting / apply_low_battery_lighting de
+    rgb/mchose-battery. Devuelve None para `none`/`off`.
+    """
+    if effect in ("none", "off"):
+        return None
+    th_r, th_g, th_b = theme_rgb
+    bat_r, bat_g, bat_b = battery_level_color(level)
+    if effect == "theme_breathing":
+        payload = [0x2B, 0x01, 0x02, 0x00, 100, 0x00, 0x01, 0x01, 0x00,
+                   th_r, th_g, th_b, th_r, th_g, th_b, 0, 0, 0, 0, 0]
+    elif effect == "battery_color":
+        payload = [0x2B, 0x01, 0x02, 0x00, 100, 0x00, 0x01, 0x01, 0x00,
+                   bat_r, bat_g, bat_b, bat_r, bat_g, bat_b, 0, 0, 0, 0, 0]
+    elif effect == "hardware_battery":
+        payload = [0x2B, 0x01, 0x01, 0x00, 100, 0x00, 0x01, 0x01, 0x00,
+                   bat_r, bat_g, bat_b, bat_r, bat_g, bat_b, 0, 0, 0, 0, 0]
+    elif effect == "wave":
+        payload = [0x2B, 0x01, 0x07, 0x00, 100, 0x00, 0x01, 0x01, 0x00,
+                   255, 59, 0, 255, 59, 0, 0, 0, 0, 0, 0]
+    elif effect == "red_breathing":
+        payload = [0x2B, 0x01, 0x02, 0x00, 100, 0x00, 0x01, 0x01, 0x00,
+                   255, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0]
+    elif effect == "red_static":
+        payload = [0x2B, 0x01, 0x06, 0x00, 100, 0x00, 0x01, 0x01, 0x00,
+                   255, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0]
+    else:
+        return None
+    return bytes(bytearray([0x11] + [x ^ 0xFF for x in payload]))
+
+
+# efecto -> (modo byte[1], velocidad byte[2], origen de color)
+_AKKO_EFFECTS = {
+    "theme":             (0x01, 0x04, "theme"),
+    "solid_theme":       (0x01, 0x04, "theme"),
+    "red_static":        (0x01, 0x04, "red"),
+    "red_breathing":     (0x02, 0x02, "red"),
+    "breathing":         (0x02, 0x02, "theme"),
+    "breathing_battery": (0x02, 0x02, "battery"),
+    "stream":            (0x05, 0x00, "battery"),
+    "stream_battery":    (0x05, 0x00, "battery"),
+}
+
+_AKKO_ZONE_OPCODES = {"keys": (0x07,), "sidestrip": (0x08,), "both": (0x07, 0x08)}
+
+AKKO_FLAGS_CUSTOM_RGB = 0x08
+
+
+def _akko_packet(opcode, effect, level, theme_rgb):
+    spec = _AKKO_EFFECTS.get(effect)
+    if spec is None:
+        return None
+    mode, speed, ckind = spec
+    if ckind == "red":
+        r, g, b = 255, 0, 0
+    elif ckind == "battery":
+        r, g, b = battery_level_color(level)
+    else:
+        r, g, b = theme_rgb
+    buf = bytearray(64)
+    buf[0] = opcode
+    buf[1] = mode
+    buf[2] = speed
+    buf[3] = 0x04                    # brillo
+    buf[4] = AKKO_FLAGS_CUSTOM_RGB   # flags custom RGB
+    buf[5], buf[6], buf[7] = r, g, b
+    buf[8] = _akko_checksum8(buf)
+    return bytes(bytearray([0x00]) + buf)
+
+
+def build_akko_packets(zone, effect, level, theme_rgb):
+    """Lista de buffers de 65 bytes (0x00 + 64) para el teclado Akko.
+
+    Portado de sync_akko_keyboard de rgb/sync-rgb.py. `battery_meter` en la
+    zona `keys` lo maneja la Task 8; aquí cubre
+    theme|solid_theme|breathing|breathing_battery|stream|stream_battery|
+    red_breathing|red_static|none.
+    """
+    if effect == "none":
+        return []
+    out = []
+    for op in _AKKO_ZONE_OPCODES.get(zone, (0x07,)):
+        pkt = _akko_packet(op, effect, level, theme_rgb)
+        if pkt is not None:
+            out.append(pkt)
+    return out
+
+
+# --- Placeholders forward (Tasks 8-9) ---------------------------------------
+def _akko_nodes():
+    return []
+
+
+def apply_akko_meter(level):
+    pass
+
+
+def apply_magichome(*a):
+    pass
+
+
+def apply_openrgb(*a):
+    pass
+
+
+_DEVICE_OF_ZONE = {"akko_keyboard": "akko_keyboard", "mchose_base": "mchose_base",
+                   "magichome": "magichome", "openrgb": "openrgb"}
+
+
+def apply_zone(zonekey, action, theme_rgb):
+    target, zone = zonekey.split(":")
+    if action is None:
+        subprocess.run([sys.executable, SYNC_RGB, "--only", _DEVICE_OF_ZONE[target]],
+                       timeout=10, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return
+    eff, level = action["effect"], action.get("level")
+    if target == "mchose_base":
+        raw = build_mchose_base_payload(eff, level, theme_rgb)
+        if raw:
+            for n in _hidraw_nodes("3837", ("1001",)):
+                _write_feature(n, raw)
+    elif target == "akko_keyboard":
+        if zone == "keys" and eff == "battery_meter":
+            apply_akko_meter(level)
+            return
+        for pkt in build_akko_packets(zone, eff, level, theme_rgb):
+            for n in _akko_nodes():
+                _write_feature(n, pkt)
+    elif target == "magichome":
+        apply_magichome(eff, level, theme_rgb)
+    elif target == "openrgb":
+        apply_openrgb(eff, level, theme_rgb)
+
+
 def main(argv):
     if not argv or argv[0] in ("-h", "--help"):
         print(USAGE)
