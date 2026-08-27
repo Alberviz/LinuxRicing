@@ -56,6 +56,33 @@ Este documento consolida los protocolos de ingeniería inversa y especificacione
     - Bit 7 (`& 0x80`): Bloqueo total de teclado.
   - `byte[4]`: Modo de Ahorro de Energía (`1` = Activo).
 
+### D. Matriz RGB Tecla por Tecla / Custom Canvas (Opcodes `0x07` y `0x0C`):
+- **1. Activar Modo Lienzo Personalizado (`FEA_CMD_SET_LEDPARAM = 0x07`):**
+  - `byte[0]`: `0x07`
+  - `byte[1]`: **`0x0D` (13 = Modo `LightUserPicture`)**
+  - `byte[2]`: `0x04` (Velocidad)
+  - `byte[3]`: `0x04` (Brillo 100%)
+  - `byte[4..63]`: `0x00`
+  - `byte[8]`: Checksum de complemento a uno.
+
+- **2. Transmisión del Búfer de Matriz (`FEA_CMD_SET_USERPIC = 0x0C` / 12):**
+  - La matriz completa consta de **392 bytes de datos RGB** (130 teclas * 3 bytes).
+  - Se transmiten en **7 fragmentos secuenciales** de 64 bytes (8 bytes cabecera + 56 bytes payload RGB):
+    - `chunk[0]`: `0x0C` (`FEA_CMD_SET_USERPIC`).
+    - `chunk[1]`: `0x00` (Índice de imagen / perfil).
+    - `chunk[2]`: `0x80` (128, byte bajo de longitud 384).
+    - `chunk[3]`: `0x01` (1, byte alto de longitud 384).
+    - `chunk[4]`: **`chunk_index` (`0, 1, 2, 3, 4, 5, 6`)**.
+    - `chunk[5..7]`: `0x00, 0x00, 0x00`.
+    - `chunk[8..63]`: 56 bytes de color RGB de teclas (`R, G, B, R, G, B...`).
+
+- **3. Mapeo Físico de Coordenadas de Teclas (Paso de Columna = 6):**
+  - **Fila Números (`1, 2, 3, ..., 0`):** `[ 7, 13, 19, 25, 31, 37, 43, 49, 55, 61, 67, 73 ]`
+  - **Fila QWERTY (`Q, W, E, ..., P`):** `[ 8, 14, 20, 26, 32, 38, 44, 50, 56, 62, 68 ]`
+  - **Fila ASDF (`A, S, D, ..., L`):** `[ 9, 15, 21, 27, 33, 39, 45, 51, 57, 63, 69 ]`
+  - **Fila ZXCV (`Z, X, C, ..., M`):** `[ 10, 16, 22, 28, 34, 40, 46, 52, 58, 64 ]`
+  - **Fila Inferior (`Ctrl, Alt, Espacio...`):** `[ 11, 17, 23, 29, 35, 41, 47, 53, 59 ]`
+
 - **Llamada ioctl (Linux):**
   ```python
   def HIDIOCSFEATURE(size):
