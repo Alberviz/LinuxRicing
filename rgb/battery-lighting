@@ -47,9 +47,9 @@ DEFAULTS = {
         {"id": "akko-low", "source": "akko_keyboard", "trigger": "low", "threshold": 20,
          "actions": [{"target": "akko_keyboard", "zone": "both", "effect": "red_breathing"}]},
         {"id": "mouse-charging", "source": "mchose_mouse", "trigger": "charging", "threshold": None,
-         "actions": [{"target": "mchose_base", "zone": None, "effect": "theme_breathing"}]},
+         "actions": [{"target": "mchose_base", "effect": "theme_breathing"}]},
         {"id": "mouse-low", "source": "mchose_mouse", "trigger": "low", "threshold": 20,
-         "actions": [{"target": "mchose_base", "zone": None, "effect": "red_breathing"}]},
+         "actions": [{"target": "mchose_base", "effect": "red_breathing"}]},
     ],
 }
 
@@ -146,6 +146,25 @@ def validate_config(raw):
     return out, errors
 
 
+LEGACY_AKKO_BACKLIGHT = {"theme": "theme", "fill": "battery_meter",
+                         "breathing": "breathing_battery", "stream": "stream"}
+LEGACY_AKKO_SIDESTRIP = {"stream_battery": "stream_battery", "breathing": "breathing",
+                         "solid": "solid_theme", "none": "none"}
+LEGACY_AKKO_LOW = {"red_breathing": "red_breathing", "red_static": "red_static", "none": "none"}
+LEGACY_MCHOSE_CHARGE = {"theme_breathing": "theme_breathing", "battery_breathing": "battery_color",
+                        "hardware_battery": "hardware_battery", "wave": "wave"}
+LEGACY_MCHOSE_LOW = {"red_breathing": "red_breathing", "red_static": "red_static",
+                     "wave": "wave", "none": "none"}
+
+
+def _read_json(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
 def load_config():
     try:
         with open(CONFIG_PATH) as f:
@@ -162,7 +181,47 @@ def load_config():
 
 
 def seed_config():
-    return copy.deepcopy(DEFAULTS)
+    rules = []
+    akko = _read_json(AKKO_CONFIG_LEGACY)
+    if akko and akko.get("reactive_enabled", True):
+        ch = akko.get("charging", {})
+        bl_eff = LEGACY_AKKO_BACKLIGHT.get(ch.get("backlight"), "theme")
+        ss_eff = LEGACY_AKKO_SIDESTRIP.get(ch.get("sidestrip"), "stream_battery")
+        rules.append({"id": "akko-charging", "source": "akko_keyboard", "trigger": "charging",
+                      "threshold": None, "actions": [
+                          {"target": "akko_keyboard", "zone": "keys", "effect": bl_eff},
+                          {"target": "akko_keyboard", "zone": "sidestrip", "effect": ss_eff}]})
+        lb = akko.get("low_battery", {})
+        lb_bl = LEGACY_AKKO_LOW.get(lb.get("backlight"), "red_breathing")
+        lb_ss = LEGACY_AKKO_LOW.get(lb.get("sidestrip"), "red_breathing")
+        acts = []
+        if lb_bl != "none":
+            acts.append({"target": "akko_keyboard", "zone": "keys", "effect": lb_bl})
+        if lb_ss != "none":
+            acts.append({"target": "akko_keyboard", "zone": "sidestrip", "effect": lb_ss})
+        rules.append({"id": "akko-low", "source": "akko_keyboard", "trigger": "low",
+                      "threshold": akko.get("low_battery_threshold", 20), "actions": acts})
+    elif akko is None:
+        rules += [r for r in DEFAULTS["rules"] if r["source"] == "akko_keyboard"]
+
+    mchose = _read_json(MCHOSE_CONFIG_LEGACY)
+    if mchose:
+        ch_eff = LEGACY_MCHOSE_CHARGE.get(mchose.get("charging_effect"), "theme_breathing")
+        rules.append({"id": "mouse-charging", "source": "mchose_mouse", "trigger": "charging",
+                      "threshold": None,
+                      "actions": [{"target": "mchose_base", "effect": ch_eff}]})
+        lb_eff = LEGACY_MCHOSE_LOW.get(mchose.get("low_battery_effect"), "red_breathing")
+        if lb_eff != "none":
+            rules.append({"id": "mouse-low", "source": "mchose_mouse", "trigger": "low",
+                          "threshold": mchose.get("low_battery_threshold", 20),
+                          "actions": [{"target": "mchose_base", "effect": lb_eff}]})
+    else:
+        rules += [r for r in DEFAULTS["rules"] if r["source"] == "mchose_mouse"]
+
+    cfg, _ = validate_config({"poll": DEFAULTS["poll"],
+                              "critical_threshold": DEFAULTS["critical_threshold"],
+                              "rules": rules})
+    return cfg
 
 
 SEVERITY = {"critical": 3, "low": 2, "charging": 1}

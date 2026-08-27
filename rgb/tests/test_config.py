@@ -65,3 +65,46 @@ def test_validate_both_zone_allowed_only_for_akko(bl):
                       "actions": [{"target": "mchose_base", "zone": "both", "effect": "red_static"}]}]}
     cfg, _ = bl.validate_config(raw)
     assert "zone" not in cfg["rules"][0]["actions"][0] or cfg["rules"][0]["actions"][0]["zone"] is None
+
+
+def test_seed_uses_defaults_without_legacy(bl):
+    cfg = bl.seed_config()
+    assert [r["id"] for r in cfg["rules"]] == [r["id"] for r in bl.DEFAULTS["rules"]]
+
+
+def test_seed_migrates_akko_config(bl):
+    with open(bl.AKKO_CONFIG_LEGACY, "w") as f:
+        json.dump({"reactive_enabled": True,
+                   "charging": {"backlight": "fill", "sidestrip": "stream_battery"},
+                   "low_battery": {"backlight": "red_breathing", "sidestrip": "red_static"},
+                   "low_battery_threshold": 25}, f)
+    cfg = bl.seed_config()
+    charge = next(r for r in cfg["rules"] if r["source"] == "akko_keyboard" and r["trigger"] == "charging")
+    acts = {a["zone"]: a["effect"] for a in charge["actions"]}
+    assert acts["keys"] == "battery_meter"
+    assert acts["sidestrip"] == "stream_battery"
+    low = next(r for r in cfg["rules"] if r["source"] == "akko_keyboard" and r["trigger"] == "low")
+    assert low["threshold"] == 25
+
+
+def test_seed_migrates_mchose_config(bl):
+    with open(bl.MCHOSE_CONFIG_LEGACY, "w") as f:
+        json.dump({"charging_effect": "battery_breathing",
+                   "low_battery_effect": "red_static",
+                   "low_battery_threshold": 30}, f)
+    cfg = bl.seed_config()
+    low = next(r for r in cfg["rules"] if r["source"] == "mchose_mouse" and r["trigger"] == "low")
+    assert low["threshold"] == 30
+    assert low["actions"][0]["effect"] == "red_static"
+    charge = next(r for r in cfg["rules"] if r["source"] == "mchose_mouse" and r["trigger"] == "charging")
+    assert charge["actions"][0]["effect"] == "battery_color"
+
+
+def test_seed_reactive_disabled_akko_yields_no_akko_rules(bl):
+    with open(bl.AKKO_CONFIG_LEGACY, "w") as f:
+        json.dump({"reactive_enabled": False,
+                   "charging": {"backlight": "fill", "sidestrip": "stream_battery"},
+                   "low_battery": {"backlight": "red_breathing", "sidestrip": "red_breathing"},
+                   "low_battery_threshold": 20}, f)
+    cfg = bl.seed_config()
+    assert not any(r["source"] == "akko_keyboard" for r in cfg["rules"])
