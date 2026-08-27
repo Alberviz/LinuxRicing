@@ -198,40 +198,43 @@ Variants {
         Loader {
             id: peripheralsLoader
 
-            asynchronous: true
+            asynchronous: false
             active: Config.background.desktopClock.enabled
+            width: 640
+            height: item ? (item as Item).implicitHeight : 0
             sourceComponent: DesktopPeripherals {}
 
             anchors.top: clockLoader.bottom
             anchors.topMargin: Tokens.spacing.extraLarge
             anchors.left: clockLoader.left
-            width: clockLoader.width > 0 ? clockLoader.width : 640
         }
 
         Loader {
             id: deckLoader
 
-            asynchronous: true
+            asynchronous: false
             active: Config.background.desktopClock.enabled
+            width: 640
+            height: item ? (item as Item).implicitHeight : 0
             sourceComponent: DesktopWidgetDeck {}
 
             anchors.top: peripheralsLoader.bottom
             anchors.topMargin: Tokens.spacing.large
             anchors.left: clockLoader.left
-            width: clockLoader.width > 0 ? clockLoader.width : 640
         }
 
         Loader {
             id: ledStripLoader
 
-            asynchronous: true
+            asynchronous: false
             active: Config.background.desktopClock.enabled
+            width: 640
+            height: item ? (item as Item).implicitHeight : 0
             sourceComponent: DesktopLedStrip {}
 
             anchors.top: deckLoader.bottom
             anchors.topMargin: Tokens.spacing.large
             anchors.left: clockLoader.left
-            width: clockLoader.width > 0 ? clockLoader.width : 640
         }
     }
 
@@ -317,7 +320,7 @@ Variants {
 
             anchors.left: parent.left
             anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
+            anchors.top: parent.top
             anchors.margins: Tokens.padding.large
             spacing: Tokens.spacing.medium
 

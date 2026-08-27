@@ -72,14 +72,14 @@ StyledRect {
         // Tab bar
         StyledRect {
             Layout.fillWidth: true
-            implicitHeight: 42
-            radius: Tokens.rounding.large
-            color: Colours.palette.m3surfaceContainerLow
+            implicitHeight: 46
+            radius: height / 2
+            color: Qt.alpha(Colours.palette.m3surfaceContainerLowest, 0.55)
 
             RowLayout {
                 anchors.fill: parent
-                anchors.margins: 4
-                spacing: 4
+                anchors.margins: 5
+                spacing: 5
 
                 Repeater {
                     model: root.tabs
@@ -93,23 +93,23 @@ StyledRect {
 
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        radius: Tokens.rounding.normal
-                        color: active ? Colours.palette.m3surfaceContainerHighest : "transparent"
+                        radius: height / 2
+                        color: active ? Colours.palette.m3secondaryContainer : "transparent"
 
                         Behavior on color {
                             CAnim {}
                         }
 
                         StateLayer {
-                            radius: Tokens.rounding.normal
+                            radius: parent.radius
                             onClicked: root.tab = tabBtn.index
                         }
 
                         StyledText {
                             anchors.centerIn: parent
                             text: tabBtn.modelData
-                            font: Tokens.font.label.medium
-                            color: tabBtn.active ? Colours.palette.m3primary : Colours.palette.m3onSurfaceVariant
+                            font: tabBtn.active ? Tokens.font.label.large : Tokens.font.label.medium
+                            color: tabBtn.active ? Colours.palette.m3onSecondaryContainer : Colours.palette.m3onSurfaceVariant
                         }
                     }
                 }
