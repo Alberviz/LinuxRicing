@@ -288,62 +288,6 @@ Variants {
             }
         }
 
-        property bool showMchoseSettings: false
-        property string chargingEffect: "theme_breathing"
-        property string lowBatEffect: "red_breathing"
-        property int lowBatThreshold: 20
-
-        Process {
-            id: configReadProc
-            command: ["/usr/bin/cat", "/home/alberviz/.config/caelestia/mchose-config.json"]
-            running: false
-            stdout: StdioCollector {
-                onStreamFinished: {
-                    try {
-                        const c = JSON.parse(text);
-                        if (c.charging_effect) periphRoot.chargingEffect = c.charging_effect;
-                        if (c.low_battery_effect) periphRoot.lowBatEffect = c.low_battery_effect;
-                        if (c.low_battery_threshold) periphRoot.lowBatThreshold = c.low_battery_threshold;
-                    } catch (e) {}
-                }
-            }
-        }
-
-        Component.onCompleted: {
-            if (!configReadProc.running)
-                configReadProc.running = true;
-        }
-
-        Process {
-            id: configSaveProc
-            property var cmdArgs: []
-            command: cmdArgs
-            running: false
-        }
-
-        function saveCharging(opt) {
-            chargingEffect = opt;
-            configSaveProc.cmdArgs = ["/home/alberviz/.local/bin/mchose-config", "charge", opt];
-            configSaveProc.running = true;
-        }
-
-        function saveLowBat(opt) {
-            lowBatEffect = opt;
-            configSaveProc.cmdArgs = ["/home/alberviz/.local/bin/mchose-config", "lowbat", opt];
-            configSaveProc.running = true;
-        }
-
-        function saveThreshold(th) {
-            lowBatThreshold = th;
-            configSaveProc.cmdArgs = ["/home/alberviz/.local/bin/mchose-config", "threshold", String(th)];
-            configSaveProc.running = true;
-        }
-
-        function previewEffect(mode) {
-            configSaveProc.cmdArgs = ["/home/alberviz/.local/bin/mchose-lighting", mode];
-            configSaveProc.running = true;
-        }
-
         ColumnLayout {
             id: periphLayout
 
@@ -450,11 +394,7 @@ Variants {
                     connected: periphRoot.mouseConnected
                     accentColor: Colours.palette.m3tertiary
                     isClickable: true
-                    onClicked: {
-                        periphRoot.showMchoseSettings = !periphRoot.showMchoseSettings;
-                        if (periphRoot.showMchoseSettings && !configReadProc.running)
-                            configReadProc.running = true;
-                    }
+                    onClicked: ShellState.rgbControl?.openTab(1)
                 }
 
                 DeviceItem {
@@ -469,233 +409,6 @@ Variants {
                 }
             }
 
-            // =========================================================================
-            // MCHOSE 8K BASE LIGHTING SETTINGS CARD (Expandable on K7 Ultra Click)
-            // =========================================================================
-            StyledRect {
-                id: mchoseSettingsCard
-                Layout.fillWidth: true
-                visible: periphRoot.showMchoseSettings
-                clip: true
-                radius: Tokens.rounding.large
-                color: Qt.alpha(Colours.palette.m3surfaceContainerHighest, 0.6)
-                Layout.preferredHeight: periphRoot.showMchoseSettings ? (settingsCol.implicitHeight + Tokens.padding.medium * 2) : 0
-                implicitHeight: Layout.preferredHeight
-
-                Behavior on Layout.preferredHeight {
-                    CAnim {}
-                }
-
-                ColumnLayout {
-                    id: settingsCol
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.margins: Tokens.padding.medium
-                    spacing: Tokens.spacing.small
-
-                    // Header
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Tokens.spacing.small
-
-                        MaterialIcon {
-                            text: "tune"
-                            fontStyle: Tokens.font.icon.small
-                            color: Colours.palette.m3primary
-                        }
-
-                        StyledText {
-                            text: "Ajustes de Iluminación Base 8K"
-                            font: Tokens.font.title.small
-                            color: Colours.palette.m3primary
-                            Layout.fillWidth: true
-                        }
-
-                        StyledRect {
-                            implicitWidth: 24
-                            implicitHeight: 24
-                            radius: Tokens.rounding.full
-                            color: Qt.alpha(Colours.palette.m3surfaceContainerHigh, 0.6)
-
-                            StateLayer {
-                                radius: Tokens.rounding.full
-                                onClicked: periphRoot.showMchoseSettings = false
-                            }
-
-                            MaterialIcon {
-                                anchors.centerIn: parent
-                                text: "close"
-                                fontStyle: Tokens.font.icon.small
-                                color: Colours.palette.m3onSurfaceVariant
-                            }
-                        }
-                    }
-
-                    // Seccion 1: Efecto de Carga
-                    StyledText {
-                        text: "🔌 Efecto al Poner a Cargar:"
-                        font: Tokens.font.label.medium
-                        color: Colours.palette.m3onSurfaceVariant
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Tokens.spacing.extraSmall
-
-                        MchoseChip {
-                            Layout.fillWidth: true
-                            label: "🎨 Tema"
-                            selected: periphRoot.chargingEffect === "theme_breathing"
-                            onClicked: periphRoot.saveCharging("theme")
-                        }
-                        MchoseChip {
-                            Layout.fillWidth: true
-                            label: "🔋 Batería"
-                            selected: periphRoot.chargingEffect === "battery_breathing"
-                            onClicked: periphRoot.saveCharging("battery")
-                        }
-                        MchoseChip {
-                            Layout.fillWidth: true
-                            label: "⚡ Oficial"
-                            selected: periphRoot.chargingEffect === "hardware_battery"
-                            onClicked: periphRoot.saveCharging("hardware")
-                        }
-                        MchoseChip {
-                            Layout.fillWidth: true
-                            label: "🌊 Ola"
-                            selected: periphRoot.chargingEffect === "wave"
-                            onClicked: periphRoot.saveCharging("wave")
-                        }
-                    }
-
-                    // Seccion 2: Alerta de Bateria Baja
-                    StyledText {
-                        text: "🪫 Alerta de Batería Baja:"
-                        font: Tokens.font.label.medium
-                        color: Colours.palette.m3onSurfaceVariant
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Tokens.spacing.extraSmall
-
-                        MchoseChip {
-                            Layout.fillWidth: true
-                            label: "🚨 Roja"
-                            selected: periphRoot.lowBatEffect === "red_breathing"
-                            onClicked: periphRoot.saveLowBat("red")
-                        }
-                        MchoseChip {
-                            Layout.fillWidth: true
-                            label: "🌊 Ola"
-                            selected: periphRoot.lowBatEffect === "wave"
-                            onClicked: periphRoot.saveLowBat("wave")
-                        }
-                        MchoseChip {
-                            Layout.fillWidth: true
-                            label: "⚪ Ninguna"
-                            selected: periphRoot.lowBatEffect === "none"
-                            onClicked: periphRoot.saveLowBat("none")
-                        }
-                        MchoseChip {
-                            Layout.fillWidth: true
-                            label: "🔴 Fijo"
-                            selected: periphRoot.lowBatEffect === "red_static"
-                            onClicked: periphRoot.saveLowBat("static")
-                        }
-                    }
-
-                    // Seccion 3: Umbral y Boton de Prueba
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Tokens.spacing.medium
-
-                        StyledText {
-                            text: `📊 Umbral: <= ${periphRoot.lowBatThreshold}%`
-                            font: Tokens.font.label.medium
-                            color: Colours.palette.m3onSurfaceVariant
-                        }
-
-                        RowLayout {
-                            spacing: 4
-                            MchoseChip {
-                                label: "15%"
-                                selected: periphRoot.lowBatThreshold === 15
-                                onClicked: periphRoot.saveThreshold(15)
-                            }
-                            MchoseChip {
-                                label: "20%"
-                                selected: periphRoot.lowBatThreshold === 20
-                                onClicked: periphRoot.saveThreshold(20)
-                            }
-                            MchoseChip {
-                                label: "30%"
-                                selected: periphRoot.lowBatThreshold === 30
-                                onClicked: periphRoot.saveThreshold(30)
-                            }
-                        }
-
-                        Item { Layout.fillWidth: true }
-
-                        // Boton Probar en Vivo
-                        StyledRect {
-                            implicitWidth: 100
-                            implicitHeight: 28
-                            radius: Tokens.rounding.full
-                            color: Qt.alpha(Colours.palette.m3primaryContainer, 0.7)
-
-                            StateLayer {
-                                radius: Tokens.rounding.full
-                                onClicked: {
-                                    if (periphRoot.chargingEffect === "wave")
-                                        periphRoot.previewEffect("wave");
-                                    else if (periphRoot.chargingEffect === "hardware_battery")
-                                        periphRoot.previewEffect("hardware");
-                                    else if (periphRoot.chargingEffect === "battery_breathing")
-                                        periphRoot.previewEffect("battery");
-                                    else
-                                        periphRoot.previewEffect("breathing");
-                                }
-                            }
-
-                            StyledText {
-                                anchors.centerIn: parent
-                                text: "🧪 Probar"
-                                font: Tokens.font.label.small
-                                color: Colours.palette.m3onPrimaryContainer
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    component MchoseChip: StyledRect {
-        id: chipRoot
-        required property string label
-        required property bool selected
-        signal clicked()
-
-        implicitHeight: 28
-        radius: Tokens.rounding.small
-        color: selected ? Colours.palette.m3primary : Qt.alpha(Colours.palette.m3surfaceContainerHigh, 0.5)
-
-        Behavior on color {
-            CAnim {}
-        }
-
-        StateLayer {
-            radius: Tokens.rounding.small
-            onClicked: chipRoot.clicked()
-        }
-
-        StyledText {
-            anchors.centerIn: parent
-            text: chipRoot.label
-            font: Tokens.font.label.small
-            color: chipRoot.selected ? Colours.palette.m3onPrimary : Colours.palette.m3onSurface
         }
     }
 
@@ -1737,6 +1450,26 @@ Variants {
                     font: Tokens.font.title.small
                     Layout.fillWidth: true
                     elide: Text.ElideRight
+                }
+
+                // Open the full lighting control center
+                StyledRect {
+                    implicitWidth: 28
+                    implicitHeight: 28
+                    radius: Tokens.rounding.full
+                    color: win.transparentWidgets ? Qt.alpha(Colours.palette.m3surfaceContainerHigh, 0.4) : Qt.alpha(Colours.palette.m3surfaceContainerHigh, 0.5)
+
+                    StateLayer {
+                        radius: Tokens.rounding.full
+                        onClicked: ShellState.rgbControl?.open()
+                    }
+
+                    MaterialIcon {
+                        anchors.centerIn: parent
+                        text: "tune"
+                        fontStyle: Tokens.font.icon.small
+                        color: Colours.palette.m3onSurfaceVariant
+                    }
                 }
 
                 MaterialIcon {
