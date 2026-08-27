@@ -18,6 +18,31 @@ Ambos agentes (Claude y Gemini) escriben aquí — añadir, no reescribir.
 
 ## 2026-08-27
 
+### La RAM se quedaba en arco iris tras un reinicio forzoso
+- **Síntoma:** tras apagar el PC en forzoso, los LEDs de la caja (los módulos
+  de RAM) arrancaban en multicolor/arco iris y no había forma de recuperarlos;
+  ejecutar `sync-rgb.py` no arreglaba nada.
+- **Causa:** dos cosas que solo coinciden en un reinicio sucio. (1) Los módulos
+  ENE DRAM guardan su último modo hardware en su propio controlador; en un
+  apagado limpio quedan neutros, en uno forzoso arrancan en el modo guardado
+  (`Rainbow`). Mientras un modo hardware está activo, OpenRGB ignora en
+  silencio cualquier `set_colors`. (2) El daemon `argb-wave.py` arrancaba a la
+  vez que `openrgb.service`, que acepta conexiones SDK **antes** de terminar de
+  enumerar el hardware SMBus/AURA. `argb-wave` se conectaba, recibía una lista
+  de dispositivos vacía (`Synced ... to []` en el log de sync-rgb) y se quedaba
+  girando eternamente sin tocar nada, porque nunca volvía a pedir la lista ni
+  se reconectaba si no había excepción. Con `argb_zones: true`, `sync-rgb.py`
+  cede la RAM y la placa a `argb-wave`, así que con el daemon K.O. nadie sacaba
+  la RAM de `Rainbow`.
+- **Arreglo:** `argb-wave.py` ahora tiene `connect()`, que bloquea con backoff
+  hasta que OpenRGB ha enumerado de verdad la RAM y la placa antes de animar; y
+  cada 20 s hace `client.update()` para detectar una enumeración tardía o un
+  dispositivo que se ha caído a modo hardware, reafirmando `Direct`.
+  `sync_openrgb()` reintenta hasta 10 s si `client.devices` viene vacío en vez
+  de dar el sync por bueno. `install.sh` ahora despliega `argb-wave.py` y las
+  units de systemd (antes no lo hacía). Remedio inmediato si vuelve a pasar
+  antes de reiniciar: `systemctl --user restart argb-wave.service`.
+
 ### La placa y los ventiladores ARGB parpadeaban y ciclaban colores
 - **Síntoma:** al activar la ola ARGB, la placa base y los ventiladores de la
   caja pasaban por varios colores a saltos en cada cambio de fondo/tema.

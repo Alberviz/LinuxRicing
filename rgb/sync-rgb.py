@@ -198,6 +198,17 @@ def sync_openrgb(r: int, g: int, b: int, argb_zones: bool = False):
         from openrgb.utils import RGBColor
 
         client = OpenRGBClient()
+        # The SDK server answers before it has finished probing the SMBus / AURA
+        # hardware, so right after boot client.devices can come back empty. Give
+        # it a few seconds to enumerate rather than silently syncing nothing.
+        for _ in range(10):
+            if client.devices:
+                break
+            time.sleep(1)
+            client.update()
+        if not client.devices:
+            raise RuntimeError("OpenRGB server has no devices yet")
+
         col = RGBColor(r, g, b)
         synced = []
         for dev in client.devices:

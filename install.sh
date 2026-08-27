@@ -160,6 +160,18 @@ if [ "$SELECTED_RGB" = true ]; then
         cp -u "$BASE_DIR/rgb/sync-rgb.py" "$HOME/.config/caelestia/sync-rgb.py"
         chmod +x "$HOME/.config/caelestia/sync-rgb.py"
     fi
+    if [ -f "$BASE_DIR/rgb/argb-wave.py" ]; then
+        cp -u "$BASE_DIR/rgb/argb-wave.py" "$HOME/.config/caelestia/argb-wave.py"
+        chmod +x "$HOME/.config/caelestia/argb-wave.py"
+    fi
+    if [ -d "$BASE_DIR/systemd" ]; then
+        mkdir -p "$HOME/.config/systemd/user"
+        cp -u "$BASE_DIR/systemd/"*.service "$BASE_DIR/systemd/"*.timer \
+            "$HOME/.config/systemd/user/" 2>/dev/null || true
+        systemctl --user daemon-reload || true
+        systemctl --user enable --now openrgb.service argb-wave.service \
+            mchose-battery.timer 2>/dev/null || true
+    fi
     if [ -f "$BASE_DIR/rgb/mchose-battery" ]; then
         cp -u "$BASE_DIR/rgb/mchose-battery" "$HOME/.local/bin/mchose-battery"
         chmod +x "$HOME/.local/bin/mchose-battery"
