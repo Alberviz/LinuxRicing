@@ -306,16 +306,9 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4):
         for node in nodes:
             try:
                 fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
-                # 1. Send Side-strip first (also acts as RF link wake)
+                fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
+                time.sleep(0.015)
                 fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_sled)), raw_sled)
-                time.sleep(0.03)
-
-                # 2. Send Backlight packet
-                fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
-                time.sleep(0.03)
-
-                # 3. Confirmation retransmission for Backlight
-                fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
                 os.close(fd)
                 log(f"Akko Keyboard ({node}): Synced Backlight RGB({r},{g},{b}) + Side-Strip ({status_log})")
                 return
@@ -530,6 +523,23 @@ def main():
         hc = raw_hex.lstrip("#")
         r, g, b = int(hc[0:2], 16), int(hc[2:4], 16), int(hc[4:6], 16)
         log(f"Colour #{hc} sent verbatim (no saturation boost)")
+
+    # Prevent double-flashes when Caelestia fires multiple hooks (wallpaper + theme) simultaneously
+    cache_color_file = Path("/tmp/sync_rgb_last_applied.txt")
+    target_sig = f"{r},{g},{b}:{opts['only']}"
+    now = time.time()
+    if cache_color_file.exists() and not opts["hex"]:
+        try:
+            last_sig, last_time = cache_color_file.read_text().strip().split("@")
+            if last_sig == target_sig and (now - float(last_time)) < 0.4:
+                log(f"Skipping duplicate sync call (already applied {target_sig} < 0.4s ago)")
+                return
+        except Exception:
+            pass
+    try:
+        cache_color_file.write_text(f"{target_sig}@{now}")
+    except Exception:
+        pass
 
     # A device runs only if enabled in config AND (no --only filter OR listed in it).
     enabled = config.get("devices", DEFAULT_RGB_CONFIG["devices"])
