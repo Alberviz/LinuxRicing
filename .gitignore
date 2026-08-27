@@ -10,3 +10,6 @@ vault/.obsidian/workspace-mobile.json
 vault/.obsidian/workspace
 vault/.trash/
 vault/Inbox/attachments/
+
+# Worktrees
+.worktrees/
