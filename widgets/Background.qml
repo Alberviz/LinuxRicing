@@ -436,7 +436,7 @@ Variants {
                     status: periphRoot.headsetStatus
                     charging: periphRoot.headsetCharging
                     connected: periphRoot.headsetConnected
-                    accentColor: Colours.palette.m3secondary
+                    accentColor: Colours.palette.m3primary
                 }
 
                 DeviceItem {
@@ -447,7 +447,7 @@ Variants {
                     status: periphRoot.mouseStatus
                     charging: periphRoot.mouseCharging
                     connected: periphRoot.mouseConnected
-                    accentColor: Colours.palette.m3tertiary
+                    accentColor: Colours.palette.m3primary
                 }
 
                 DeviceItem {
@@ -489,7 +489,7 @@ Variants {
             CAnim {}
         }
 
-        // --- ANIMATED LIQUID WAVE FILL ---
+        // --- ANIMATED LIQUID WAVE FILL & ENERGY FLOW ---
         Item {
             id: liquidContainer
             anchors.fill: parent
@@ -510,18 +510,30 @@ Variants {
                 anchors.fill: parent
 
                 property real phase: 0.0
-                property color waveColor1: devItem.isLowBattery ? Qt.alpha(Colours.palette.m3error, 0.25) : (devItem.charging ? Qt.alpha(Colours.palette.m3primary, 0.28) : Qt.alpha(devItem.accentColor, 0.20))
-                property color waveColor2: devItem.isLowBattery ? Qt.alpha(Colours.palette.m3error, 0.42) : (devItem.charging ? Qt.alpha(Colours.palette.m3primary, 0.45) : Qt.alpha(devItem.accentColor, 0.35))
+                property real particleProgress: 0.0
+
+                property color waveColor1: devItem.isLowBattery ? Qt.alpha(Colours.palette.m3error, 0.25) : (devItem.charging ? Qt.alpha(Colours.palette.m3primary, 0.35) : Qt.alpha(devItem.accentColor, 0.22))
+                property color waveColor2: devItem.isLowBattery ? Qt.alpha(Colours.palette.m3error, 0.42) : (devItem.charging ? Qt.alpha(Colours.palette.m3primary, 0.52) : Qt.alpha(devItem.accentColor, 0.36))
+                property color plasmaColor: devItem.isLowBattery ? Colours.palette.m3error : Colours.palette.m3primary
 
                 NumberAnimation on phase {
                     from: 0
                     to: Math.PI * 2
-                    duration: devItem.charging ? 1800 : 3400
+                    duration: devItem.charging ? 1600 : 3400
                     loops: Animation.Infinite
                     running: devItem.connected
                 }
 
+                NumberAnimation on particleProgress {
+                    from: 0
+                    to: 1.0
+                    duration: 2200
+                    loops: Animation.Infinite
+                    running: devItem.charging
+                }
+
                 onPhaseChanged: requestPaint()
+                onParticleProgressChanged: if (devItem.charging) requestPaint()
 
                 onPaint: {
                     const ctx = getContext("2d");
@@ -532,7 +544,7 @@ Variants {
                     const h = height;
                     const surfaceY = h - baseH;
 
-                    const amplitude = (baseH < 8 || baseH > h - 6) ? 1.5 : 3.2;
+                    const amplitude = (baseH < 8 || baseH > h - 6) ? 1.5 : (devItem.charging ? 4.0 : 3.0);
 
                     // Wave 1: Capa profunda
                     ctx.beginPath();
@@ -557,6 +569,38 @@ Variants {
                     ctx.closePath();
                     ctx.fillStyle = waveColor2;
                     ctx.fill();
+
+                    // --- ENERGÍA FLUIDA: RAYO DE PLASMA & BURBUJAS DE VOLTAJE AL CARGAR ---
+                    if (devItem.charging && baseH > 8) {
+                        // 1. Línea brillante de Plasma en la superficie
+                        ctx.beginPath();
+                        for (let x = 0; x <= w; x += 4) {
+                            const y = surfaceY + Math.sin(x * 0.05 - phase + 1.2) * (amplitude * 0.85);
+                            if (x === 0) ctx.moveTo(x, y);
+                            else ctx.lineTo(x, y);
+                        }
+                        ctx.strokeStyle = Qt.alpha(plasmaColor, 0.95);
+                        ctx.lineWidth = 2.2;
+                        ctx.stroke();
+
+                        // 2. Chispas y burbujas de energía ascendentes
+                        const count = 5;
+                        for (let i = 0; i < count; i++) {
+                            const seed = (i * 29 + 11) % (w - 16) + 8;
+                            const pProg = (particleProgress + i * (1.0 / count)) % 1.0;
+                            const px = seed + Math.sin(pProg * Math.PI * 2 + i) * 3;
+                            const py = h - (pProg * baseH);
+                            const pRadius = 1.4 + (i % 2) * 1.0;
+                            const pAlpha = Math.sin(pProg * Math.PI) * 0.85;
+
+                            if (py >= surfaceY - 2 && py <= h) {
+                                ctx.beginPath();
+                                ctx.arc(px, py, pRadius, 0, Math.PI * 2);
+                                ctx.fillStyle = Qt.alpha(plasmaColor, pAlpha);
+                                ctx.fill();
+                            }
+                        }
+                    }
                 }
             }
         }
