@@ -284,6 +284,25 @@ def get_akko_keyboard_battery():
     # 3. Check if connected via 2.4 GHz Dongle (PID 0x4011)
     dongle_nodes = glob_hidraw_nodes(0x3151, 0x4011, iface=2) or glob_hidraw_nodes(0x3151, 0x4011)
     if dongle_nodes:
+        for node in dongle_nodes:
+            try:
+                fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
+                cmd = bytearray([0x00, 0xF7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08] + [0] * 57)
+                fcntl.ioctl(fd, HIDIOCSFEATURE(65), cmd)
+                time.sleep(0.02)
+                resp = bytearray(65)
+                fcntl.ioctl(fd, HIDIOCGFEATURE(65), resp)
+                os.close(fd)
+                bat = resp[2]
+                is_chg = (resp[4] == 1)
+                st = "Cargando" if is_chg else "Descargando"
+                if 0 < bat <= 100:
+                    cache["akko_battery"] = bat
+                    cache["akko_status"] = st
+                    save_cache(cache)
+                    return bat, st
+            except Exception:
+                pass
         return last_bat, "2.4G Inalámbrico"
 
     return None, "Desconectado"
