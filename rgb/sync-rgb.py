@@ -250,17 +250,18 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4):
             fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
             req = bytearray(64)
             req[0] = 0x83
+            req[8] = 0xFF - (sum(req[:8]) & 0xFF)
             raw = bytearray([0x00]) + req
             fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw)), raw)
             time.sleep(0.02)
             resp = bytearray(65)
             fcntl.ioctl(fd, HIDIOCGFEATURE(len(resp)), resp)
             os.close(fd)
-            if len(resp) >= 4 and resp[1] == 0x83:
-                bat = resp[2]
+            if len(resp) >= 4:
+                bat = resp[2] if resp[2] > 0 else resp[1]
                 st_code = resp[3]
                 is_charging = (st_code == 1 or "4015" in node)
-                if bat > 0:
+                if 0 < bat <= 100:
                     bat_pct = bat
                 break
         except Exception:

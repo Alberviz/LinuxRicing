@@ -373,17 +373,19 @@ def get_akko_keyboard_battery():
             fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
             req = bytearray(64)
             req[0] = 0x83  # FEA_CMD_GET_BATTERY
+            req[8] = 0xFF - (sum(req[:8]) & 0xFF)
             raw = bytearray([0x00]) + req
             fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw)), raw)
             time.sleep(0.02)
             resp = bytearray(65)
             fcntl.ioctl(fd, HIDIOCGFEATURE(len(resp)), resp)
             os.close(fd)
-            if len(resp) >= 4 and resp[1] == 0x83:
-                bat = resp[2]
+            # In 2.4G dongle mode, resp[8] matches checksum 0x7C / 124, resp[2] is battery %, resp[3] is charge code
+            if len(resp) >= 4 and (resp[1] == 0x83 or resp[8] == 0x7C or resp[2] > 0):
+                bat = resp[2] if resp[2] > 0 else (resp[1] if resp[1] > 0 else last_bat)
                 st_code = resp[3]
                 st = "Cargando" if st_code == 1 else ("Completa" if st_code == 2 else "Descargando")
-                if bat > 0:
+                if 0 < bat <= 100:
                     cache["akko_battery"] = bat
                     save_cache(cache)
                     return bat, st
@@ -398,16 +400,18 @@ def get_akko_keyboard_battery():
                 fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
                 req = bytearray(64)
                 req[0] = 0x83
+                req[8] = 0xFF - (sum(req[:8]) & 0xFF)
                 raw = bytearray([0x00]) + req
                 fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw)), raw)
                 time.sleep(0.02)
                 resp = bytearray(65)
                 fcntl.ioctl(fd, HIDIOCGFEATURE(len(resp)), resp)
                 os.close(fd)
-                if len(resp) >= 4 and resp[1] == 0x83:
+                if len(resp) >= 4:
                     st_code = resp[3]
                     st = "Cargando" if st_code == 1 else "Conectado (USB)"
-                    return last_bat, st
+                    bat = resp[2] if (resp[2] > 0 and resp[2] <= 100) else last_bat
+                    return bat, st
             except Exception:
                 pass
         return last_bat, "Cargando"
