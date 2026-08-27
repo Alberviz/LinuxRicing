@@ -77,15 +77,15 @@ Leyenda de coste: 🟢 barato · 🟡 medio · 🔴 caro / requiere trabajo de b
 
 ## Infra y calidad (no son features, pero desatascan)
 
-| Tarea | Motivo | Coste |
-|---|---|---|
-| **Esquema y CLI unificados** `rgb-config` | Fusionar `mchose-config.json` + el nuevo `rgb-config.json` en uno solo | 🟡 |
-| **Un solo `mchose-battery`** | Quitar la divergencia `rgb/` vs `widgets/` (payload de `red_static`) | 🟢 |
-| **Script de sync repo↔sistema** + `install.sh` completo | Hoy `install.sh` no despliega `mchose-config` ni `mchose-lighting`; los dos `Background.qml` se editan a mano | 🟡 |
-| **Daemon único `rgbd`** | Centralizar estado, eventos, restauración y cola de efectos temporales, en vez de 3 vías (`sync-rgb`, `mchose-battery`, `argb-wave`) pisándose | 🔴 |
-| **Tests de humo** | Script que aplica un color conocido a cada dispositivo y pide confirmación visual | 🟢 |
-| **Aviso si un dispositivo no responde** | Base desconectada, OpenRGB caído, tira sin red | 🟢 |
-| **Detección de wave/target del cuerpo del ratón** documentada en [[Iluminación - Estado actual]] | Cerrar las divergencias de `target` entre commits | 🟢 |
+| Tarea                                                                                            | Motivo                                                                                                                                         | Coste |
+| ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
+| **Esquema y CLI unificados** `rgb-config`                                                        | Fusionar `mchose-config.json` + el nuevo `rgb-config.json` en uno solo                                                                         | 🟡    |
+| **Un solo `mchose-battery`**                                                                     | Quitar la divergencia `rgb/` vs `widgets/` (payload de `red_static`)                                                                           | 🟢    |
+| **Script de sync repo↔sistema** + `install.sh` completo                                          | Hoy `install.sh` no despliega `mchose-config` ni `mchose-lighting`; los dos `Background.qml` se editan a mano                                  | 🟡    |
+| **Daemon único `rgbd`**                                                                          | Centralizar estado, eventos, restauración y cola de efectos temporales, en vez de 3 vías (`sync-rgb`, `mchose-battery`, `argb-wave`) pisándose | 🔴    |
+| **Tests de humo**                                                                                | Script que aplica un color conocido a cada dispositivo y pide confirmación visual                                                              | 🟢    |
+| **Aviso si un dispositivo no responde**                                                          | Base desconectada, OpenRGB caído, tira sin red                                                                                                 | 🟢    |
+| **Detección de wave/target del cuerpo del ratón** documentada en [[Iluminación - Estado actual]] | Cerrar las divergencias de `target` entre commits                                                                                              | 🟢    |
 
 ---
 

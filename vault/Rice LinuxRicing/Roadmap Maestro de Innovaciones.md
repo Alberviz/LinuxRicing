@@ -35,23 +35,23 @@ mindmap
 
 ## 🌟 1. Iluminación Ambiente e Inmersión RGB
 
-| Proyecto | Descripción | Dificultad | Impacto Visual |
-|---|---|:---:|:---:|
-| **Ambilight Screen-Mirroring** | Captura continua a 10-15 FPS del borde superior de la pantalla mediante PipeWire/Grim y proyección del color promedio en la tira LED tras el monitor para películas y videojuegos. | 🔴 Alta | 🌟🌟🌟🌟🌟 |
-| **Flashes de Notificación Inteligentes** | La tira LED y el teclado emiten un destello del color de la app que envía la notificación (ej. Blurple para Discord, Verde para WhatsApp, Azul para Telegram, Rojo para alertas críticas). | 🟡 Media | 🌟🌟🌟🌟 |
-| **Espejo de Barra OSD (Volumen/Brillo)** | Al subir o bajar el volumen con las teclas multimedia, la base MCHOSE o la tira LED dibuja un pulso o barra de color proporcional de 1 segundo. | 🟡 Media | 🌟🌟🌟🌟 |
-| **Modo Cine / Pantalla Completa** | Detección de ventana maximizada de vídeo (MPV, YouTube, Netflix): atenúa o apaga automáticamente la iluminación general para maximizar el contraste. | 🟢 Baja | 🌟🌟🌟 |
-| **Iluminación Circadiana / Hora del Día** | De día tonos vivos y energéticos; a partir del atardecer pasa a tonos ámbar cálidos sincronizados con el modo noche (`gammastep`). | 🟢 Baja | 🌟🌟🌟 |
+| Proyecto                                  | Descripción                                                                                                                                                                                | Dificultad | Impacto Visual |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | :--------: | :------------: |
+| **Ambilight Screen-Mirroring**            | Captura continua a 10-15 FPS del borde superior de la pantalla mediante PipeWire/Grim y proyección del color promedio en la tira LED tras el monitor para películas y videojuegos.         |  🔴 Alta   |   🌟🌟🌟🌟🌟   |
+| **Flashes de Notificación Inteligentes**  | La tira LED y el teclado emiten un destello del color de la app que envía la notificación (ej. Blurple para Discord, Verde para WhatsApp, Azul para Telegram, Rojo para alertas críticas). |  🟡 Media  |    🌟🌟🌟🌟    |
+| **Espejo de Barra OSD (Volumen/Brillo)**  | Al subir o bajar el volumen con las teclas multimedia, la base MCHOSE o la tira LED dibuja un pulso o barra de color proporcional de 1 segundo.                                            |  🟡 Media  |    🌟🌟🌟🌟    |
+| **Modo Cine / Pantalla Completa**         | Detección de ventana maximizada de vídeo (MPV, YouTube, Netflix): atenúa o apaga automáticamente la iluminación general para maximizar el contraste.                                       |  🟢 Baja   |     🌟🌟🌟     |
+| **Iluminación Circadiana / Hora del Día** | De día tonos vivos y energéticos; a partir del atardecer pasa a tonos ámbar cálidos sincronizados con el modo noche (`gammastep`).                                                         |  🟢 Baja   |     🌟🌟🌟     |
 
 ---
 
 ## 🎵 2. Música, Multimedia y Visuales
 
-| Proyecto | Descripción | Dificultad | Impacto |
-|---|---|:---:|:---:|
-| **Overlay de Letras Sincronizadas (*Synced Lyrics*)** | Mostrar las letras de la canción en reproducción en tiempo real sobre el visualizador orbital del escritorio usando backend con LRCLIB / Spotify API. | 🟡 Media | 🌟🌟🌟🌟🌟 |
-| **Paleta Reactiva por Carátula** | En lugar de basarse siempre en el fondo de pantalla, opción de que todo el setup adopte dinámicamente los colores dominantes del álbum musical que esté sonando en Spotify. | 🟡 Media | 🌟🌟🌟🌟 |
-| **Pulsación Rítmica CAVA en Tira LED** | Conectar el backend de CAVA para modular sutilmente el brillo de la tira al ritmo de los graves de la música. | 🟡 Media | 🌟🌟🌟🌟 |
+| Proyecto                                              | Descripción                                                                                                                                                                 | Dificultad |  Impacto   |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :--------: | :--------: |
+| **Overlay de Letras Sincronizadas (*Synced Lyrics*)** | Mostrar las letras de la canción en reproducción en tiempo real sobre el visualizador orbital del escritorio usando backend con LRCLIB / Spotify API.                       |  🟡 Media  | 🌟🌟🌟🌟🌟 |
+| **Paleta Reactiva por Carátula**                      | En lugar de basarse siempre en el fondo de pantalla, opción de que todo el setup adopte dinámicamente los colores dominantes del álbum musical que esté sonando en Spotify. |  🟡 Media  |  🌟🌟🌟🌟  |
+| **Pulsación Rítmica CAVA en Tira LED**                | Conectar el backend de CAVA para modular sutilmente el brillo de la tira al ritmo de los graves de la música.                                                               |  🟡 Media  |  🌟🌟🌟🌟  |
 
 ---
 

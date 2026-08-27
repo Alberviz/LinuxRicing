@@ -34,6 +34,7 @@ graph TD
 ## 🏛️ 2. Arquitectura del Sistema y Hardware
 - [[Rice LinuxRicing/Arquitectura General del Setup|🏛️ Arquitectura General del Setup]] — Diagrama integral de Wayland, QML, Matugen, Spicetify, OpenRGB y los controladores USB.
 - [[Rice LinuxRicing/Protocolo USB HID MCHOSE 8K|🐭 Protocolo USB HID · Base MCHOSE 8K]] — Ingeniería inversa de los 20 bytes del comando `0x2B`, Target IDs confirmados (`0x06`, `0x02`, `0x01`, `0x07`) y automatizaciones de carga.
+- [[Rice LinuxRicing/Estado del Arte e Ingeniería Inversa en la Comunidad|🌐 Estado del Arte e Ingeniería Inversa]] — Análisis del ecosistema Open Source (OpenRGB, HID-BPF, por qué los dongles 8K usan ROM ARGB y telemetría Akko).
 - [[Rice LinuxRicing/Iluminación - Estado actual|💡 Iluminación · Estado Actual]] — Detalle técnico de cada periférico (teclado Akko, placa ASUS TUF, RAM, tira MagicHome, ratón y base).
 
 ---
