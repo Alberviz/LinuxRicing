@@ -298,9 +298,20 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4):
     for node in nodes:
         try:
             fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
+            # 1. Send first packet to wake up RF link
+            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
+            time.sleep(0.05)
+
+            # 2. Send Backlight packet
             fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
             time.sleep(0.04)
+
+            # 3. Send Side-strip packet
             fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_sled)), raw_sled)
+            time.sleep(0.04)
+
+            # 4. Confirmation retransmission for Backlight
+            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
             os.close(fd)
             log(f"Akko Keyboard ({node}): Synced Backlight RGB({r},{g},{b}) + Side-Strip ({status_log})")
             return

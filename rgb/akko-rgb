@@ -74,9 +74,20 @@ def send_akko(backlight_rgb, side_rgb=None, backlight_mode=0x01, side_mode=0x01,
     for node in nodes:
         try:
             fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
+            # 1. Wake RF transceiver
+            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
+            time.sleep(0.05)
+
+            # 2. Send Backlight packet
             fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
             time.sleep(0.04)
+
+            # 3. Send Side-strip packet
             fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_sled)), raw_sled)
+            time.sleep(0.04)
+
+            # 4. Confirmation retransmission for Backlight
+            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
             os.close(fd)
             print(f"[akko-rgb] Applied to {node}:")
             print(f"  ⌨️  Backlight : RGB{backlight_rgb} (Mode {backlight_mode})")
