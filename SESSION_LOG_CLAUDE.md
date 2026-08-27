@@ -105,20 +105,16 @@ Este documento contiene un resumen detallado y exhaustivo de todos los desarroll
        ```
        [0x2B, 0x01, TARGET_ID, 0x00, BRIGHTNESS, SPEED, MODE, COLOR_MODE, 0x00, R1, G1, B1, R2, G2, B2, 0x00, 0x00, 0x00, 0x00, 0x00]
        ```
-     - **Target IDs**:
-       - `0x02`: Anillo LED de la Base de Carga 8K (*Base Ring*).
-       - `0x06` / `0x07`: Iluminación interna del ratón / sensor.
-     - **Modos de Iluminación (`MODE`)**:
-       - `0`: Apagado (*Off*)
-       - `1`: Respiración (*Breathing*)
-       - `2`: Ola / Arcoíris dinámico (*Wave / Rainbow Cycle*)
-       - `3`: Color Fijo Estático (*Static Solid*)
-   - **Herramienta CLI de Control Rápido**:
-     ```bash
-     mchose-lighting breathing "#ff9800"   # Modo respiración ámbar
-     mchose-lighting wave                  # Modo ola arcoíris dinámico
-     mchose-lighting static "#00e5ff"     # Modo color fijo
-     ```
+      - **Target IDs Verificados para el Anillo Base 8K**:
+        - `0x06`: **Color Fijo Constante / Estático** (*Static Solid*). Sincronizado con Material You.
+        - `0x02`: **Modo Respiración Monocolor** (*Breathing Monozone*).
+        - `0x01`: **Modo Batería Oficial del Firmware** (*Hardware Battery Indicator*).
+        - `0x07`: **Ola Arcoíris Hardware** (*Full ARGB Moving Wave*).
+      - **Herramientas Creadas**:
+        - `mchose-lighting <static|breathing|wave|battery|off> [color]`: Control instantáneo de iluminación.
+        - `mchose-config <charge|lowbat|threshold>`: Panel de control de efectos de carga y alertas de batería.
+        - `mchose-pcap-analyzer <pcapng>`: Decodificador automático de paquetes Wireshark/tshark.
+        - **Widget de Periféricos en el Escritorio**: Al hacer clic en el ratón `K7 Ultra`, se despliega una tarjeta interactiva Material You en QML para configurar todos estos efectos en vivo.
 
 ### F. Atajos de Teclado Hyprland y Selector de Fondos
 

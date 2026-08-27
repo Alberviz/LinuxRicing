@@ -59,6 +59,15 @@ def set_lighting(mode="wave", hex_color="#ff9800", brightness=100, speed=0):
             r, g, b,
             0x00, 0x00, 0x00, 0x00, 0x00
         ]
+    elif mode_lower in ["battery", "bateria", "hardware"]:
+        # Target 0x01 = Modo Batería oficial por firmware
+        payload = [
+            0x2B, 0x01, 0x01, 0x00,
+            brightness, speed, 0x01, 0x01, 0x00,
+            r, g, b,
+            r, g, b,
+            0x00, 0x00, 0x00, 0x00, 0x00
+        ]
     elif mode_lower in ["off", "apagado"]:
         payload = [
             0x2B, 0x01, 0x02, 0x00,
@@ -68,10 +77,10 @@ def set_lighting(mode="wave", hex_color="#ff9800", brightness=100, speed=0):
             0x00, 0x00, 0x00, 0x00, 0x00
         ]
     else:
-        # Default: Static Solid (Color Fijo) en Target 0x02
+        # Default: Static Solid (Color Fijo Constante) en Target 0x06
         payload = [
-            0x2B, 0x01, 0x02, 0x00,
-            brightness, 0x00, 0x00, 0x01, 0x00,
+            0x2B, 0x01, 0x06, 0x00,
+            brightness, 0x00, 0x01, 0x01, 0x00,
             r, g, b,
             r, g, b,
             0x00, 0x00, 0x00, 0x00, 0x00
