@@ -320,7 +320,21 @@ tab-active          = {card}
 """
         theme_dir = Path.home() / ".config/spicetify/Themes/caelestia"
         theme_dir.mkdir(parents=True, exist_ok=True)
-        (theme_dir / "color.ini").write_text(color_ini_content)
+        color_ini_file = theme_dir / "color.ini"
+
+        # Check if colors actually changed to avoid reloading Spotify unnecessarily
+        old_content = ""
+        if color_ini_file.exists():
+            try:
+                old_content = color_ini_file.read_text()
+            except Exception:
+                pass
+
+        if old_content.strip() == color_ini_content.strip():
+            log("Spicetify: Colors unchanged, skipping apply")
+            return
+
+        color_ini_file.write_text(color_ini_content)
 
         spicetify_bin = Path.home() / ".spicetify/spicetify"
         if spicetify_bin.exists():

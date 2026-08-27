@@ -1336,10 +1336,31 @@ Variants {
                 onStreamFinished: {
                     try {
                         const data = JSON.parse(text);
-                        ledRoot.isPowered = data.is_on ?? false;
-                        ledRoot.currentHex = data.color ?? "#ffffff";
-                        ledRoot.isConnecting = false;
+                        if (data && data.success) {
+                            ledRoot.isPowered = data.is_on ?? false;
+                            ledRoot.currentHex = data.color ?? "#ffffff";
+                        }
                     } catch (e) {}
+                    ledRoot.isConnecting = false;
+                }
+            }
+        }
+
+        Process {
+            id: ledToggleProc
+            command: ["/home/alberviz/.local/bin/magichome-control", "--toggle"]
+            running: false
+            stdout: StdioCollector {
+                onStreamFinished: {
+                    try {
+                        const data = JSON.parse(text);
+                        if (data && data.success) {
+                            ledRoot.isPowered = data.is_on ?? !ledRoot.isPowered;
+                        }
+                    } catch (e) {}
+                    ledRoot.isConnecting = false;
+                    if (!ledStatusProc.running)
+                        ledStatusProc.running = true;
                 }
             }
         }
@@ -1358,19 +1379,19 @@ Variants {
         }
 
         Timer {
-            interval: 5000
+            interval: 4000
             running: true
             repeat: true
             onTriggered: {
-                if (!ledStatusProc.running && !ledRoot.isConnecting && !ledRoot.isSyncing)
+                if (!ledStatusProc.running && !ledToggleProc.running && !ledRoot.isSyncing)
                     ledStatusProc.running = true;
             }
         }
 
         function togglePower() {
-            ledRoot.isPowered = !ledRoot.isPowered;
             ledRoot.isConnecting = true;
-            Quickshell.execDetached(["/home/alberviz/.local/bin/magichome-control", "--toggle"]);
+            if (!ledToggleProc.running)
+                ledToggleProc.running = true;
         }
 
         function syncColors() {
