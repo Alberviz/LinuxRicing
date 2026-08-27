@@ -12,7 +12,6 @@ import colorsys
 import fcntl
 import glob
 import json
-import math
 import os
 import subprocess
 import sys
@@ -150,34 +149,15 @@ def enhance_color_for_leds(hex_color: str) -> tuple[int, int, int]:
         return (int(r * 255), int(g * 255), int(b * 255))
 
 
-def get_color_transition(start_rgb: tuple[int, int, int] | None, end_rgb: tuple[int, int, int], steps: int = 5) -> list[tuple[int, int, int]]:
-    """Generate smooth cosine-eased intermediate RGB colors for fade transitions."""
-    if not start_rgb or start_rgb == end_rgb or steps <= 1:
-        return [end_rgb]
-
-    r1, g1, b1 = start_rgb
-    r2, g2, b2 = end_rgb
-    frames = []
-    for i in range(1, steps + 1):
-        t = i / steps
-        ease = (1.0 - math.cos(t * math.pi)) / 2.0
-        r = int(r1 + (r2 - r1) * ease)
-        g = int(g1 + (g2 - g1) * ease)
-        b = int(b1 + (b2 - b1) * ease)
-        frames.append((max(0, min(255, r)), max(0, min(255, g)), max(0, min(255, b))))
-    return frames
-
-
-def sync_openrgb(r: int, g: int, b: int, prev_rgb: tuple[int, int, int] | None = None, is_instant: bool = False):
+def sync_openrgb(r: int, g: int, b: int):
     """Set PC components (Motherboard, RAM, Fans) in OpenRGB via SDK Server, skipping Akko to avoid USB collisions."""
-    frames = [(r, g, b)] if is_instant or not prev_rgb else get_color_transition(prev_rgb, (r, g, b), steps=5)
-
     try:
         from openrgb import OpenRGBClient
         from openrgb.utils import RGBColor
 
         client = OpenRGBClient()
-        target_devs = []
+        col = RGBColor(r, g, b)
+        synced = []
         for dev in client.devices:
             # Skip Akko/ROYUAN keyboards in OpenRGB - handled by dedicated sync_akko_keyboard
             if "akko" in dev.name.lower() or "royuan" in dev.name.lower():
@@ -193,18 +173,11 @@ def sync_openrgb(r: int, g: int, b: int, prev_rgb: tuple[int, int, int] | None =
                     log(f"Device {dev.name} has no Direct mode, skipping mode switch")
                 except Exception as em:
                     log(f"Mode set error on {dev.name}: {em}")
-            target_devs.append(dev)
 
-        for fr, fg, fb in frames:
-            col = RGBColor(fr, fg, fb)
-            for dev in target_devs:
-                for zone in dev.zones:
-                    zone.set_color(col)
-            if len(frames) > 1:
-                time.sleep(0.025)
-
-        synced = [d.name for d in target_devs]
-        log(f"OpenRGB (SDK): Synced RGB({r},{g},{b}) to {synced} [{'Fade' if len(frames) > 1 else 'Instant'}]")
+            for zone in dev.zones:
+                zone.set_color(col)
+            synced.append(dev.name)
+        log(f"OpenRGB (SDK): Synced RGB({r},{g},{b}) to {synced}")
         return
     except Exception as e:
         log(f"OpenRGB SDK error ({e}), attempting CLI fallback...")
@@ -285,33 +258,42 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4):
         except Exception:
             pass
 
-    # Read previous color for smooth fade transition
-    prev_color_file = Path("/tmp/akko_prev_color.txt")
-    prev_rgb = None
-    if prev_color_file.exists():
-        try:
-            parts = prev_color_file.read_text().strip().split(",")
-            prev_rgb = (int(parts[0]), int(parts[1]), int(parts[2]))
-        except Exception:
-            pass
+    # 1. Main Backlight (LED = Opcode 0x07) -> Solid Theme Color
+    led = bytearray(64)
+    led[0] = 0x07
+    led[1] = 0x01  # Mode: Static
+    led[2] = 0x04  # Speed
+    led[3] = brightness
+    led[4] = AKKO_FLAGS_CUSTOM_RGB
+    led[5], led[6], led[7] = r, g, b
+    led[8] = _akko_checksum8(led)
+    raw_led = bytearray([0x00]) + led
 
-    # Determine side-strip final target and mode
+    # 2. Side-Strip (SLED = Opcode 0x08) -> Reactive Battery & Charging Rules
+    sled = bytearray(64)
+    sled[0] = 0x08
+    sled[3] = brightness
+    sled[4] = AKKO_FLAGS_CUSTOM_RGB
+
     if is_charging:
-        sr, sg, sb = get_akko_battery_level_color(bat_pct)
-        side_mode, side_speed = 0x05, 0x00
-        status_log = f"Cargando ({bat_pct}% -> Steady Stream RGB({sr},{sg},{sb}))"
+        br, bg, bb = get_akko_battery_level_color(bat_pct)
+        sled[1] = 0x05  # Steady Stream / Snake
+        sled[2] = 0x00  # Velocidad mínima = 0 (ultracalmada)
+        sled[5], sled[6], sled[7] = br, bg, bb
+        status_log = f"Cargando ({bat_pct}% -> Steady Stream RGB({br},{bg},{bb}))"
     elif bat_pct <= 20:
-        sr, sg, sb = 255, 0, 0
-        side_mode, side_speed = 0x02, 0x02
+        sled[1] = 0x02  # Breathing / Respiración
+        sled[2] = 0x02  # Velocidad media
+        sled[5], sled[6], sled[7] = 255, 0, 0  # Rojo
         status_log = f"Batería Baja ({bat_pct}% -> Breathing Rojo)"
     else:
-        sr, sg, sb = r, g, b
-        side_mode, side_speed = 0x01, 0x04
-        status_log = f"Normal ({bat_pct}% -> Static RGB({sr},{sg},{sb}))"
+        sled[1] = 0x01  # Static
+        sled[2] = 0x04
+        sled[5], sled[6], sled[7] = r, g, b
+        status_log = f"Normal ({bat_pct}% -> Static RGB({r},{g},{b}))"
 
-    # Only fade in normal mode (not charging/low-battery effects)
-    use_fade = (not is_charging) and (bat_pct > 20) and (prev_rgb is not None)
-    frames = get_color_transition(prev_rgb, (r, g, b), steps=5) if use_fade else [(r, g, b)]
+    sled[8] = _akko_checksum8(sled)
+    raw_sled = bytearray([0x00]) + sled
 
     lock_fd = None
     try:
@@ -324,36 +306,11 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4):
         for node in nodes:
             try:
                 fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
-                for fi, (fr, fg, fb) in enumerate(frames):
-                    is_last = (fi == len(frames) - 1)
-
-                    led = bytearray(64)
-                    led[0] = 0x07; led[1] = 0x01; led[2] = 0x04; led[3] = brightness; led[4] = AKKO_FLAGS_CUSTOM_RGB
-                    led[5], led[6], led[7] = fr, fg, fb
-                    led[8] = _akko_checksum8(led)
-                    raw_led = bytearray([0x00]) + led
-
-                    sled = bytearray(64)
-                    sled[0] = 0x08
-                    sled[1] = side_mode if is_last else 0x01
-                    sled[2] = side_speed if is_last else 0x04
-                    sled[3] = brightness; sled[4] = AKKO_FLAGS_CUSTOM_RGB
-                    sled[5], sled[6], sled[7] = fr, fg, fb
-                    sled[8] = _akko_checksum8(sled)
-                    raw_sled = bytearray([0x00]) + sled
-
-                    fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
-                    time.sleep(0.015)
-                    fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_sled)), raw_sled)
-                    if not is_last:
-                        time.sleep(0.025)
-
+                fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
+                time.sleep(0.015)
+                fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_sled)), raw_sled)
                 os.close(fd)
-                try:
-                    prev_color_file.write_text(f"{r},{g},{b}")
-                except Exception:
-                    pass
-                log(f"Akko Keyboard ({node}): Synced Backlight RGB({r},{g},{b}) + Side-Strip ({status_log}) [{'Fade' if use_fade else 'Instant'}]")
+                log(f"Akko Keyboard ({node}): Synced Backlight RGB({r},{g},{b}) + Side-Strip ({status_log})")
                 return
             except Exception as e:
                 log(f"Akko Keyboard error on {node}: {e}")
@@ -385,38 +342,21 @@ def sync_mchose_base(r: int, g: int, b: int):
     if not nodes:
         return
 
-    prev_color_file = Path("/tmp/mchose_prev_color.txt")
-    prev_rgb = None
-    if prev_color_file.exists():
-        try:
-            parts = prev_color_file.read_text().strip().split(",")
-            prev_rgb = (int(parts[0]), int(parts[1]), int(parts[2]))
-        except Exception:
-            pass
-
-    frames = get_color_transition(prev_rgb, (r, g, b), steps=5)
+    payload = [
+        0x2B, 0x01, 0x06, 0x00,
+        100, 0x00, 0x01, 0x01, 0x00,
+        r, g, b,
+        r, g, b,
+        0x00, 0x00, 0x00, 0x00, 0x00
+    ]
+    raw = bytearray([0x11] + [x ^ 0xFF for x in payload])
 
     for node in nodes:
         try:
             fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
-            for fi, (fr, fg, fb) in enumerate(frames):
-                payload = [
-                    0x2B, 0x01, 0x06, 0x00,
-                    100, 0x00, 0x01, 0x01, 0x00,
-                    fr, fg, fb,
-                    fr, fg, fb,
-                    0x00, 0x00, 0x00, 0x00, 0x00
-                ]
-                raw = bytearray([0x11] + [x ^ 0xFF for x in payload])
-                fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw)), raw)
-                if fi < len(frames) - 1:
-                    time.sleep(0.025)
+            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw)), raw)
             os.close(fd)
-            try:
-                prev_color_file.write_text(f"{r},{g},{b}")
-            except Exception:
-                pass
-            log(f"MCHOSE Base: Synced RGB({r},{g},{b}) to {node} via Cmd 0x2B [{'Fade' if len(frames) > 1 else 'Instant'}]")
+            log(f"MCHOSE Base: Synced RGB({r},{g},{b}) to {node} via Cmd 0x2B")
         except Exception as e:
             log(f"MCHOSE Base error on {node}: {e}")
 
