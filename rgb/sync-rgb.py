@@ -27,6 +27,10 @@ LOG_FILE = "/tmp/sync-rgb.log"
 
 RGB_CONFIG_PATH = os.path.expanduser("~/.config/caelestia/rgb-config.json")
 
+# Written by rgb/battery-lighting: {"<target>:<zone>": {effect, trigger, source, level}}.
+# Zones we must not stomp while a battery alert owns them.
+ALERTS_CACHE = os.path.expanduser("~/.cache/battery_alerts.json")
+
 # Default = the historical behaviour: follow the theme, every device on, no flash.
 # Absence of the config file must not change anything.
 DEFAULT_RGB_CONFIG = {
@@ -84,6 +88,24 @@ def load_rgb_config() -> dict:
     except Exception as e:
         log(f"rgb-config.json unreadable ({e}), using defaults")
     return cfg
+
+
+def battery_alert_zones() -> set:
+    """Set of "<target>:<zone>" keys currently claimed by an active battery alert.
+
+    Reads ~/.cache/battery_alerts.json (written by rgb/battery-lighting). Returns
+    an empty set if the file is missing or unreadable, so absence changes nothing.
+    """
+    try:
+        with open(ALERTS_CACHE) as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return set(data.keys())
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        log(f"battery_alerts.json unreadable ({e}), ignoring")
+    return set()
 
 
 def HIDIOCSFEATURE(size: int) -> int:
@@ -193,6 +215,9 @@ def sync_openrgb(r: int, g: int, b: int, argb_zones: bool = False):
     RAM and the ``Aura Addressable`` fan headers, so we only push the solid
     accent to the non-addressable motherboard LEDs and leave the rest alone.
     """
+    if "openrgb:_" in battery_alert_zones():
+        log("OpenRGB: reclamado por una alerta de batería, se omite el sync de tema")
+        return
     try:
         from openrgb import OpenRGBClient
         from openrgb.utils import RGBColor
@@ -283,11 +308,11 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4, throttle: bo
     """
     Set Akko 5075B Plus Keyboard Backlight (Opcode 0x07) and Side-Strip (Opcode 0x08)
     via direct USB HID Feature Reports on Interface 2.
-    Backlight follows the system palette in solid color.
-    Side-strip applies reactive rules:
-      - Charging / USB: Steady stream (0x05) at slowest speed with progressive battery level color.
-      - Low Battery (<=20%): Breathing Red (0x02).
-      - Normal (>20%): Solid system color (0x01).
+    Both the backlight and the side-strip follow the system palette in solid color.
+
+    Battery-reactive behaviour now lives in rgb/battery-lighting: if it owns a
+    zone (listed in ~/.cache/battery_alerts.json) we skip that packet so the
+    theme sync does not stomp the active alert effect.
     """
     # Both the USB cable (PID 4015) and the 2.4 GHz dongle (PID 4011) can be
     # enumerated at once. The wireless link drops packets and the backlight
@@ -320,17 +345,14 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4, throttle: bo
 
     AKKO_FLAGS_CUSTOM_RGB = 0x08
 
-    # Read cached battery/charging state from mchose-battery cache to avoid IOCTL collisions
-    cache_file = Path.home() / ".cache/mchose_battery.json"
-    bat_pct = 100
-    is_charging = False
-    if cache_file.exists():
-        try:
-            cdata = json.loads(cache_file.read_text())
-            bat_pct = cdata.get("akko_battery", 100)
-            is_charging = (cdata.get("akko_status") == "Cargando")
-        except Exception:
-            pass
+    # rgb/battery-lighting may own one or both Akko zones. Skip the packet for a
+    # claimed zone; if both are claimed there is nothing left to do.
+    alert_zones = battery_alert_zones()
+    skip_sidestrip = "akko_keyboard:sidestrip" in alert_zones
+    skip_keys = "akko_keyboard:keys" in alert_zones
+    if skip_sidestrip and skip_keys:
+        log("Akko Keyboard: ambas zonas reclamadas por una alerta de batería, no se toca")
+        return
 
     # 1. Main Backlight (LED = Opcode 0x07) -> Solid Theme Color
     led = bytearray(64)
@@ -343,29 +365,14 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4, throttle: bo
     led[8] = _akko_checksum8(led)
     raw_led = bytearray([0x00]) + led
 
-    # 2. Side-Strip (SLED = Opcode 0x08) -> Reactive Battery & Charging Rules
+    # 2. Side-Strip (SLED = Opcode 0x08) -> Solid Theme Color
     sled = bytearray(64)
     sled[0] = 0x08
+    sled[1] = 0x01  # Static
+    sled[2] = 0x04  # Speed
     sled[3] = brightness
     sled[4] = AKKO_FLAGS_CUSTOM_RGB
-
-    if is_charging:
-        br, bg, bb = get_akko_battery_level_color(bat_pct)
-        sled[1] = 0x05  # Steady Stream / Snake
-        sled[2] = 0x00  # Velocidad mínima = 0 (ultracalmada)
-        sled[5], sled[6], sled[7] = br, bg, bb
-        status_log = f"Cargando ({bat_pct}% -> Steady Stream RGB({br},{bg},{bb}))"
-    elif bat_pct <= 20:
-        sled[1] = 0x02  # Breathing / Respiración
-        sled[2] = 0x02  # Velocidad media
-        sled[5], sled[6], sled[7] = 255, 0, 0  # Rojo
-        status_log = f"Batería Baja ({bat_pct}% -> Breathing Rojo)"
-    else:
-        sled[1] = 0x01  # Static
-        sled[2] = 0x04
-        sled[5], sled[6], sled[7] = r, g, b
-        status_log = f"Normal ({bat_pct}% -> Static RGB({r},{g},{b}))"
-
+    sled[5], sled[6], sled[7] = r, g, b
     sled[8] = _akko_checksum8(sled)
     raw_sled = bytearray([0x00]) + sled
 
@@ -402,17 +409,21 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4, throttle: bo
                 # packet lands, then a repeat confirms it - a single backlight
                 # send gets dropped on the wireless link and the LEDs stay on
                 # whatever they were (which reads as white/frozen).
-                fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_sled)), raw_sled)
-                time.sleep(0.03)
-                fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
-                time.sleep(0.03)
-                fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
+                if not skip_sidestrip:
+                    fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_sled)), raw_sled)
+                    time.sleep(0.03)
+                if not skip_keys:
+                    fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
+                    time.sleep(0.03)
+                    fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
                 os.close(fd)
                 try:
                     stamp.write_text(str(time.time()))
                 except Exception:
                     pass
-                log(f"Akko Keyboard ({node}): Synced Backlight RGB({r},{g},{b}) + Side-Strip ({status_log})")
+                bl_txt = "omitido (alerta)" if skip_keys else f"RGB({r},{g},{b})"
+                ss_txt = "omitido (alerta)" if skip_sidestrip else f"RGB({r},{g},{b})"
+                log(f"Akko Keyboard ({node}): Backlight {bl_txt} + Side-Strip {ss_txt}")
                 return
             except Exception as e:
                 log(f"Akko Keyboard error on {node}: {e}")
@@ -427,6 +438,9 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4, throttle: bo
 
 def sync_mchose_base(r: int, g: int, b: int):
     """Set MCHOSE 8K Dongle / Charging Base RGB via reverse-engineered Command 0x2B protocol."""
+    if "mchose_base:_" in battery_alert_zones():
+        log("MCHOSE Base: reclamado por una alerta de batería, se omite el sync de tema")
+        return
     nodes = []
     for h in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
         uevent = f"{h}/device/uevent"
@@ -465,6 +479,9 @@ def sync_mchose_base(r: int, g: int, b: int):
 
 def sync_magichome(r: int, g: int, b: int):
     """Set Magic Home LED strip color and power on."""
+    if "magichome:_" in battery_alert_zones():
+        log("MagicHome: reclamado por una alerta de batería, se omite el sync de tema")
+        return
     if not MAGIC_HOME_IP:
         return
 

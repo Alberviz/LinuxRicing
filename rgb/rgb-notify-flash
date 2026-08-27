@@ -27,9 +27,11 @@ import time
 RGB_CONFIG_PATH = os.path.expanduser("~/.config/caelestia/rgb-config.json")
 SCHEME_PATH = os.path.expanduser("~/.local/state/caelestia/scheme.json")
 BATTERY_CACHE = os.path.expanduser("~/.cache/mchose_battery.json")
+ALERTS_CACHE = os.path.expanduser("~/.cache/battery_alerts.json")
 LOCK_PATH = os.path.expanduser("~/.cache/rgb_flash.lock")
 SYNC_RGB = os.path.expanduser("~/.config/caelestia/sync-rgb.py")
 MCHOSE_BATTERY = os.path.expanduser("~/.local/bin/mchose-battery")
+BATTERY_LIGHTING = os.path.expanduser("~/.local/bin/battery-lighting")
 MAGICHOME_CONTROL = os.path.expanduser("~/.local/bin/magichome-control")
 
 PULSE_ON = 0.18
@@ -226,8 +228,50 @@ def pulse(devices: list[str], rgb: tuple[int, int, int], pulses: int) -> None:
         time.sleep(PULSE_OFF)
 
 
+def _alert_zones() -> set:
+    """Keys of ~/.cache/battery_alerts.json; empty set if missing/unreadable.
+
+    Copied helper — this file duplicates small helpers between scripts on purpose.
+    """
+    try:
+        with open(ALERTS_CACHE) as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return set(data.keys())
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+    return set()
+
+
+_DEVICE_ALERT_KEYS = {
+    "mchose_base": ("mchose_base:_",),
+    "magichome": ("magichome:_",),
+    "akko_keyboard": ("akko_keyboard:keys", "akko_keyboard:sidestrip"),
+}
+
+
+def _under_alert(dev: str, zones: set) -> bool:
+    return any(k in zones for k in _DEVICE_ALERT_KEYS.get(dev, ()))
+
+
 def restore(devices: list[str]) -> None:
-    """Put the flashed devices back to their stable rgb-config.json state."""
+    """Put the flashed devices back to their stable state.
+
+    A device whose zone(s) are currently claimed in battery_alerts.json is
+    restored by re-running the battery-lighting engine (one --tick) so the alert
+    effect is re-asserted; the rest fall back to the theme colour as before.
+    """
+    zones = _alert_zones()
+    if any(_under_alert(d, zones) for d in devices):
+        try:
+            subprocess.run([sys.executable, BATTERY_LIGHTING, "--tick"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+        except Exception:
+            pass
+
+    devices = [d for d in devices if not _under_alert(d, zones)]
     non_base = [d for d in devices if d != "mchose_base"]
 
     if "mchose_base" in devices:
