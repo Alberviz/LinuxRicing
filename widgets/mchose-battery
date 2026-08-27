@@ -91,16 +91,16 @@ def get_v9_pro_battery():
             fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
             pkt = bytes([0x55, 0x65, 0x01] + [0x00] * 61)
             os.write(fd, pkt)
-            r, _, _ = select.select([fd], [], [], 0.05)
+            r, _, _ = select.select([fd], [], [], 0.2)
             if r:
                 resp = os.read(fd, 64)
                 os.close(fd)
                 if resp and len(resp) >= 4 and resp[0] == 0x55 and resp[1] == 0x65:
                     bat = resp[2]
                     st_code = resp[3]
-                    if st_code == 1:
+                    if st_code == 2 or st_code == 3:
                         st = "Cargando"
-                    elif st_code == 2:
+                    elif st_code == 1:
                         st = "Descargando"
                     else:
                         st = "En espera"
@@ -236,8 +236,8 @@ def apply_low_battery_lighting(bat_level=100):
         # Opción 2: Respiración Roja Parpadeante
         payload = [0x2B, 0x01, 0x02, 0x00, 100, 0x00, 0x01, 0x01, 0x00, 255, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0]
     elif effect == "red_static":
-        # Opción 4: Rojo Fijo Constante
-        payload = [0x2B, 0x01, 0x02, 0x00, 100, 0x00, 0x03, 0x01, 0x00, 255, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0]
+        # Opción 4: Rojo Fijo Constante (Target 0x06)
+        payload = [0x2B, 0x01, 0x06, 0x00, 100, 0x00, 0x01, 0x01, 0x00, 255, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0]
     elif effect in ["none", "off"]:
         # Opción 3: Desactivado / mantener color normal del tema
         return False

@@ -336,6 +336,34 @@ Variants {
                     elide: Text.ElideRight
                 }
 
+                // Open Lighting Center Button
+                StyledRect {
+                    implicitWidth: 28
+                    implicitHeight: 28
+                    radius: Tokens.rounding.full
+                    color: win.transparentWidgets ? Qt.alpha(Colours.palette.m3surfaceContainerHigh, 0.4) : Qt.alpha(Colours.palette.m3surfaceContainerHigh, 0.5)
+
+                    Behavior on color {
+                        CAnim {}
+                    }
+
+                    StateLayer {
+                        radius: Tokens.rounding.full
+                        onClicked: ShellState.rgbControl?.open()
+                    }
+
+                    MaterialIcon {
+                        anchors.centerIn: parent
+                        text: "tune"
+                        fontStyle: Tokens.font.icon.small
+                        color: Colours.palette.m3primary
+
+                        Behavior on color {
+                            CAnim {}
+                        }
+                    }
+                }
+
                 // Toggle Transparency Button
                 StyledRect {
                     implicitWidth: 28
@@ -420,8 +448,6 @@ Variants {
                     charging: periphRoot.mouseCharging
                     connected: periphRoot.mouseConnected
                     accentColor: Colours.palette.m3tertiary
-                    isClickable: true
-                    onClicked: ShellState.rgbControl?.openTab(1)
                 }
 
                 DeviceItem {

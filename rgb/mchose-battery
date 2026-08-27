@@ -91,16 +91,16 @@ def get_v9_pro_battery():
             fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
             pkt = bytes([0x55, 0x65, 0x01] + [0x00] * 61)
             os.write(fd, pkt)
-            r, _, _ = select.select([fd], [], [], 0.05)
+            r, _, _ = select.select([fd], [], [], 0.2)
             if r:
                 resp = os.read(fd, 64)
                 os.close(fd)
                 if resp and len(resp) >= 4 and resp[0] == 0x55 and resp[1] == 0x65:
                     bat = resp[2]
                     st_code = resp[3]
-                    if st_code == 1:
+                    if st_code == 2 or st_code == 3:
                         st = "Cargando"
-                    elif st_code == 2:
+                    elif st_code == 1:
                         st = "Descargando"
                     else:
                         st = "En espera"
