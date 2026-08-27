@@ -823,6 +823,9 @@ def apply_akko_meter(level, progressive=False):
     for pkt in packets:
         _write_feature(node, bytearray(pkt))
         time.sleep(0.03)
+    # 2.4 GHz Pipeline Commit (Opcode 0x88)
+    req_sync = bytearray(64); req_sync[0] = 0x88; req_sync[7] = 0x77
+    _write_feature(node, bytearray([0x00]) + req_sync)
     st[cache_key] = cur_val
     _save_state(st)
 
@@ -897,6 +900,12 @@ def apply_zone(zonekey, action, theme_rgb):
         for pkt in build_akko_packets(zone, eff, level, theme_rgb):
             for n in _akko_nodes():
                 _write_feature(n, pkt)
+                time.sleep(0.02)
+        # 2.4 GHz Pipeline Commit (Opcode 0x88)
+        req_sync = bytearray(64); req_sync[0] = 0x88; req_sync[7] = 0x77
+        raw_sync = bytearray([0x00]) + req_sync
+        for n in _akko_nodes():
+            _write_feature(n, raw_sync)
     elif target == "magichome":
         apply_magichome(eff, level, theme_rgb)
     elif target == "openrgb":
