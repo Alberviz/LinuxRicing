@@ -609,7 +609,7 @@ def read_telemetry():
             lvl, st = fn()
         except Exception:
             lvl, st = None, "Desconectado"
-        charging = (st == "Cargando" or "cargando" in str(st).lower())
+        charging = (st == "Cargando" or (isinstance(st, str) and "cargando" in st.lower() and "descargando" not in st.lower()))
         connected = (lvl is not None and st != "Desconectado")
         mode = "Desconectado"
         if connected:
