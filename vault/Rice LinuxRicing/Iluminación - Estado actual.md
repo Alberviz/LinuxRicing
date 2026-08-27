@@ -16,7 +16,7 @@ Foto de cómo funciona el control RGB del setup **antes** del proyecto [[Centro 
 | **Placa ASUS TUF B560M-PLUS + RAM + ventiladores** | OpenRGB SDK `localhost:6742` | `sync-rgb.py:sync_openrgb` | `Aura Mainboard` (4 LEDs), `Aura Addressable 1/2` (ventiladores), RAM `ENE DRAM` (5 LEDs/módulo) | Solo color estático de un disparo (modo Direct). **El bus SMBus/I2C es lento: nunca loops a alto FPS** |
 | **Tira LED Magic Home Wi-Fi** | TCP `192.168.0.136:5577`, librería `flux_led` | `magichome-control`, `sync-rgb.py:sync_magichome` | 1 zona | Color estático + power on/off. Sin modos ni brillo |
 | **Cuerpo del ratón MCHOSE K7 Ultra** | mismo `3837:1001` | — | logo/cuerpo | **No caracterizado todavía** (ambigüedad target `0x06` vs `0x07`) |
-| Auriculares MCHOSE V9 Pro | USB HID `291D:385D` | `mchose-battery` | — | Solo batería, sin luz |
+| **Auriculares MCHOSE V9 Pro** | USB HID `291D:385D`, cmd `[0x55, 0x65, 0x01]` | `mchose-battery` | — | Telemetría real de batería (byte 2: 0-100%) y estado real verificado (byte 3: `0x03`=Cargando, `0x02`=Descargando/Inalámbrico, `0x00`=En espera) |
 
 ## Scripts (repo `rgb/`, instalados en `~/.local/bin/` y `~/.config/caelestia/`)
 
