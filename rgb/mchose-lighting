@@ -71,7 +71,7 @@ def set_lighting(mode="wave", hex_color="#ff9800", brightness=100, speed=0):
         # Default: Static Solid (Color Fijo) en Target 0x02
         payload = [
             0x2B, 0x01, 0x02, 0x00,
-            brightness, 0x00, 0x03, 0x01, 0x00,
+            brightness, 0x00, 0x00, 0x01, 0x00,
             r, g, b,
             r, g, b,
             0x00, 0x00, 0x00, 0x00, 0x00
