@@ -68,3 +68,29 @@ Ambos agentes (Claude y Gemini) escriben aquí — añadir, no reescribir.
 - **Resolución:** revertido (commit `f1b7f94`). Decisión: no se implementa el
   fade — la ola ARGB ya da transiciones suaves en RAM/ventiladores, y en los
   demás dispositivos el coste (riesgo de romper hardware) no compensa.
+
+### El teclado no seguía el color al cambiar de wallpaper/tema
+- **Síntoma:** tras reiniciar, Caelestia cambiaba el tema pero el backlight del
+  teclado no se actualizaba nunca al color nuevo.
+- **Causa:** Caelestia exporta `SCHEME_COLOURS` en el entorno para **toda**
+  llamada al `postHook` (`theme.py:469`, `wallpaper.py:200`), no solo en el
+  preview. Un arreglo previo detectaba "preview" por esa variable y se saltaba
+  el teclado → se lo saltaba también en cada cambio real.
+- **Arreglo:** commit `d2e4a69`. La señal real de preview es el argumento
+  `--only` (lo pasa `Wallpapers.qml`); el `postHook` confirmado va sin
+  argumentos. El *throttle* de 250 ms del teclado ahora solo aplica en la ruta
+  `--only`.
+
+### Al cancelar el preview de wallpaper (Escape) las luces no volvían
+- **Síntoma:** entras al selector de wallpapers, haces preview (las luces
+  cambian), pulsas Escape → el fondo vuelve al original pero las luces se
+  quedan con el color del preview.
+- **Causa:** `Wallpapers.qml::stopPreview()` revertía los colores del shell
+  (`Colours.showPreview = false`) pero **nunca re-lanzaba `sync-rgb.py`** para
+  devolver los LEDs al esquema real.
+- **Arreglo:** commit `d2e4a69`. `stopPreview()` para el write de preview
+  pendiente y, salvo que se haya elegido un wallpaper (`justSelected`), re-lanza
+  `sync-rgb.py` sin argumentos (lee `scheme.json`) tras 400 ms.
+- **Nota de arquitectura:** este subsistema (preview de wallpaper → LEDs
+  físicos) ha dado varios fallos encadenados. Está en evaluación si merece la
+  pena o si los LEDs deberían seguir solo el wallpaper **confirmado**.
