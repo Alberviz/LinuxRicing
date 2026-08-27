@@ -80,6 +80,7 @@ def test_apply_akko_meter_dedupes_same_level(bl, monkeypatch):
     bl.apply_akko_meter(48)
     first = len(calls)
     assert first >= 8                 # 1 activación + 7 chunks
+    assert calls[0][1 + 4] == 0x08    # flag color custom RGB
     bl.apply_akko_meter(49)           # mismo nivel redondeado a fila -> no reenvía
     assert len(calls) == first
 

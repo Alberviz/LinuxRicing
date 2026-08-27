@@ -60,3 +60,25 @@ def test_main_dump_prints_json(bl, monkeypatch, capsys):
         "v9_headset": {"level": None, "charging": False, "connected": False}})
     assert bl.main(["--dump"]) == 0
     json.loads(capsys.readouterr().out)   # salida es JSON válido
+
+
+def test_boost_for_leds_preserves_low_sat(bl):
+    assert bl._boost_for_leds(100, 100, 100) == (100, 100, 100)
+
+
+def test_boost_for_leds_boosts_pastel(bl):
+    # Pastel color (e.g., desaturated pink/purple) gets saturation boosted
+    r, g, b = bl._boost_for_leds(216, 189, 231)  # #d8bde7
+    # Boosted color has high saturation (v=1.0)
+    assert max(r, g, b) == 255
+    assert (r, g, b) != (216, 189, 231)
+
+
+def test_theme_primary_rgb_applies_boost(bl, monkeypatch, tmp_path):
+    scheme = tmp_path / "scheme.json"
+    scheme.write_text(json.dumps({"colours": {"primary": "#d8bde7"}}))
+    monkeypatch.setattr("os.path.expanduser",
+                        lambda p: str(scheme) if "scheme.json" in p else p)
+    rgb = bl.theme_primary_rgb()
+    assert max(rgb) == 255
+

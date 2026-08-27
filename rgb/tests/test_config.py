@@ -81,7 +81,7 @@ def test_seed_migrates_akko_config(bl):
     cfg = bl.seed_config()
     charge = next(r for r in cfg["rules"] if r["source"] == "akko_keyboard" and r["trigger"] == "charging")
     acts = {a["zone"]: a["effect"] for a in charge["actions"]}
-    assert acts["keys"] == "battery_meter"
+    assert acts["keys"] == "breathing_battery"
     assert acts["sidestrip"] == "stream_battery"
     low = next(r for r in cfg["rules"] if r["source"] == "akko_keyboard" and r["trigger"] == "low")
     assert low["threshold"] == 25

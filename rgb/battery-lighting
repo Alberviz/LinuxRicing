@@ -44,7 +44,7 @@ DEFAULTS = {
     "rules": [
         {"id": "akko-charging", "source": "akko_keyboard", "trigger": "charging", "threshold": None,
          "actions": [
-             {"target": "akko_keyboard", "zone": "keys", "effect": "battery_meter"},
+             {"target": "akko_keyboard", "zone": "keys", "effect": "breathing_battery"},
              {"target": "akko_keyboard", "zone": "sidestrip", "effect": "stream_battery"}]},
         {"id": "akko-low", "source": "akko_keyboard", "trigger": "low", "threshold": 20,
          "actions": [{"target": "akko_keyboard", "zone": "both", "effect": "red_breathing"}]},
@@ -71,6 +71,7 @@ VALID_TRIGGERS = {"charging", "low", "critical"}
 VALID_TARGETS = {"akko_keyboard", "mchose_base", "magichome", "openrgb"}
 VALID_ZONES = {"keys", "sidestrip", "both"}
 
+# battery_meter: experimental, el firmware 5075B no conmuta a modo lienzo (ver informe hw 2026-08)
 EFFECTS = {
     "akko_keyboard:keys": {"theme", "battery_meter", "breathing_battery", "stream",
                            "red_breathing", "red_static", "none"},
@@ -148,7 +149,7 @@ def validate_config(raw):
     return out, errors
 
 
-LEGACY_AKKO_BACKLIGHT = {"theme": "theme", "fill": "battery_meter",
+LEGACY_AKKO_BACKLIGHT = {"theme": "theme", "fill": "breathing_battery",
                          "breathing": "breathing_battery", "stream": "stream"}
 LEGACY_AKKO_SIDESTRIP = {"stream_battery": "stream_battery", "breathing": "breathing",
                          "solid": "solid_theme", "none": "none"}
@@ -784,6 +785,7 @@ def apply_akko_meter(level):
     activate[1] = 0x0D
     activate[2] = 0x04
     activate[3] = 0x04
+    activate[4] = 0x08          # flag color custom RGB (faltaba)
     activate[8] = (0xFF - (sum(activate[:8]) & 0xFF)) & 0xFF
     packets = [bytes([0x00]) + activate] + [
         bytes([0x00]) + c for c in akko_canvas_chunks(akko_meter_keys(level))
@@ -876,10 +878,19 @@ def apply_zone(zonekey, action, theme_rgb):
 # Ciclo tick, caché de alertas, tema, notificaciones y CLI (Task 10)
 # ============================================================================
 
+def _boost_for_leds(r, g, b):
+    h, s, v = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
+    if s > 0.05:
+        s2 = min(1.0, max(0.80, s * 3.5))
+        nr, ng, nb = colorsys.hsv_to_rgb(h, s2, 1.0)
+        return int(nr * 255), int(ng * 255), int(nb * 255)
+    return r, g, b
+
+
 def theme_primary_rgb():
     """Color primario activo de Matugen (~/.local/state/caelestia/scheme.json).
 
-    Portado de get_theme_primary_rgb de rgb/mchose-battery.
+    Portado de get_theme_primary_rgb de rgb/mchose-battery con boost de saturación para LEDs.
     """
     scheme_file = os.path.expanduser("~/.local/state/caelestia/scheme.json")
     if os.path.exists(scheme_file):
@@ -888,7 +899,8 @@ def theme_primary_rgb():
                 data = json.load(f)
             hex_c = data.get("colours", {}).get("primary",
                                                 data.get("primary", "#ff9800")).lstrip("#")
-            return int(hex_c[0:2], 16), int(hex_c[2:4], 16), int(hex_c[4:6], 16)
+            r, g, b = int(hex_c[0:2], 16), int(hex_c[2:4], 16), int(hex_c[4:6], 16)
+            return _boost_for_leds(r, g, b)
         except Exception:
             pass
     return 255, 152, 0
@@ -999,15 +1011,24 @@ def tick(config=None, telemetry=None):
 
 
 def _daemon_loop():
+    last_secs = None
+    last_alerts = None
     while True:
         charging = False
         try:
             new = tick()
+            if last_alerts is None or new != last_alerts:
+                print(f"[battery-lighting] alertas activas: {list(new)}", flush=True)
+                last_alerts = copy.deepcopy(new)
             charging = any(v.get("trigger") == "charging" for v in new.values())
         except Exception as e:
             log(f"tick error: {e}")
         cfg = load_config()
-        time.sleep(cfg["poll"]["charging_seconds"] if charging else cfg["poll"]["idle_seconds"])
+        secs = cfg["poll"]["charging_seconds"] if charging else cfg["poll"]["idle_seconds"]
+        if last_secs != secs:
+            print(f"[battery-lighting] cadencia -> {secs}s (charging={charging})", flush=True)
+            last_secs = secs
+        time.sleep(secs)
 
 
 def main(argv):
