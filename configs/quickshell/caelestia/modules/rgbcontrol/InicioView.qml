@@ -49,7 +49,7 @@ StyledRect {
             StyledRect {
                 implicitWidth: 48
                 implicitHeight: 48
-                radius: Tokens.rounding.normal
+                radius: Tokens.rounding.large
                 color: preview.effective
                 border.width: 1
                 border.color: Qt.alpha(Colours.palette.m3outlineVariant, 0.8)

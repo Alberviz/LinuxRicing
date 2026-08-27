@@ -82,6 +82,9 @@ Singleton {
 
     function setOpenrgbArgbZones(on: bool): void {
         root.openrgbArgbZones = on;
+        // The animated wave over the RAM + fan headers is a systemd --user
+        // daemon (argb-wave.service). Toggle it and persist across reboots.
+        Quickshell.execDetached(["systemctl", "--user", on ? "enable" : "disable", "--now", "argb-wave.service"]);
         change();
     }
 

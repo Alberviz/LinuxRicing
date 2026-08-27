@@ -39,8 +39,13 @@ DEFAULT_RGB_CONFIG = {
         "akko_keyboard": True,
         "spicetify": True,
     },
+    "devices_extra": {"openrgb": {"argb_zones": False}},
     "notification_flash": {"enabled": False, "mode": "accent", "pulses": 2},
 }
+
+# Written every run so argb-wave.py can react to wallpaper *preview* (before
+# Enter is pressed), not just to a confirmed theme change.
+LIVE_PALETTE_CACHE = Path("/tmp/caelestia-rgb-live-palette.json")
 
 # Maps the internal device key -> the sync function it drives.
 DEVICE_KEYS = ["openrgb", "magichome", "mchose_base", "akko_keyboard", "spicetify"]
@@ -69,6 +74,11 @@ def load_rgb_config() -> dict:
                         cfg["devices"][k] = bool(v)
             if isinstance(user.get("notification_flash"), dict):
                 cfg["notification_flash"].update(user["notification_flash"])
+            extra = user.get("devices_extra")
+            if isinstance(extra, dict) and isinstance(extra.get("openrgb"), dict):
+                cfg["devices_extra"]["openrgb"]["argb_zones"] = bool(
+                    extra["openrgb"].get("argb_zones", False)
+                )
     except FileNotFoundError:
         pass
     except Exception as e:
@@ -149,8 +159,40 @@ def enhance_color_for_leds(hex_color: str) -> tuple[int, int, int]:
         return (int(r * 255), int(g * 255), int(b * 255))
 
 
-def sync_openrgb(r: int, g: int, b: int):
-    """Set PC components (Motherboard, RAM, Fans) in OpenRGB via SDK Server, skipping Akko to avoid USB collisions."""
+def get_palette() -> dict:
+    """Full colour palette dict from the wallpaper-preview env or Caelestia state."""
+    raw_colours = os.environ.get("SCHEME_COLOURS")
+    if raw_colours:
+        try:
+            return json.loads(raw_colours)
+        except Exception as e:
+            log(f"Error parsing SCHEME_COLOURS for palette: {e}")
+    state_file = Path.home() / ".local/state/caelestia/scheme.json"
+    if state_file.exists():
+        try:
+            return json.loads(state_file.read_text()).get("colours", {})
+        except Exception as e:
+            log(f"Error reading scheme.json for palette: {e}")
+    return {}
+
+
+def cache_live_palette():
+    """Publish the current palette so argb-wave.py reacts every frame."""
+    try:
+        palette = get_palette()
+        if palette:
+            LIVE_PALETTE_CACHE.write_text(json.dumps(palette))
+    except Exception as e:
+        log(f"Error caching live palette: {e}")
+
+
+def sync_openrgb(r: int, g: int, b: int, argb_zones: bool = False):
+    """Set PC components (Motherboard, RAM, Fans) in OpenRGB via SDK Server, skipping Akko to avoid USB collisions.
+
+    When ``argb_zones`` is True the animated wave daemon (argb-wave.py) owns the
+    RAM and the ``Aura Addressable`` fan headers, so we only push the solid
+    accent to the non-addressable motherboard LEDs and leave the rest alone.
+    """
     try:
         from openrgb import OpenRGBClient
         from openrgb.utils import RGBColor
@@ -161,6 +203,10 @@ def sync_openrgb(r: int, g: int, b: int):
         for dev in client.devices:
             # Skip Akko/ROYUAN keyboards in OpenRGB - handled by dedicated sync_akko_keyboard
             if "akko" in dev.name.lower() or "royuan" in dev.name.lower():
+                continue
+
+            # The wave daemon drives RAM + addressable headers; don't fight it.
+            if argb_zones and "dram" in dev.name.lower():
                 continue
 
             if dev.modes and dev.modes[dev.active_mode].name != "Direct":
@@ -175,9 +221,11 @@ def sync_openrgb(r: int, g: int, b: int):
                     log(f"Mode set error on {dev.name}: {em}")
 
             for zone in dev.zones:
+                if argb_zones and "addressable" in zone.name.lower():
+                    continue
                 zone.set_color(col)
             synced.append(dev.name)
-        log(f"OpenRGB (SDK): Synced RGB({r},{g},{b}) to {synced}")
+        log(f"OpenRGB (SDK): Synced RGB({r},{g},{b}) to {synced} (argb_zones={argb_zones})")
         return
     except Exception as e:
         log(f"OpenRGB SDK error ({e}), attempting CLI fallback...")
@@ -513,6 +561,7 @@ def parse_argv(argv: list[str]) -> dict:
 def main():
     log(f"--- sync-rgb started (PID {os.getpid()}) ---")
     opts = parse_argv(sys.argv[1:])
+    cache_live_palette()
 
     config = DEFAULT_RGB_CONFIG if opts["skip_config"] else load_rgb_config()
 
@@ -548,8 +597,10 @@ def main():
     def wants(key: str) -> bool:
         return enabled.get(key, True) and (only is None or key in only)
 
+    argb_zones = config.get("devices_extra", {}).get("openrgb", {}).get("argb_zones", False)
+
     targets = {
-        "openrgb": lambda: sync_openrgb(r, g, b),
+        "openrgb": lambda: sync_openrgb(r, g, b, argb_zones),
         "magichome": lambda: sync_magichome(r, g, b),
         "mchose_base": lambda: sync_mchose_base(r, g, b),
         "akko_keyboard": lambda: sync_akko_keyboard(r, g, b),

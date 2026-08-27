@@ -18,27 +18,46 @@ StyledRect {
     property bool expanded
     default property alias content: bodyCol.data
 
+    readonly property real headerBand: Tokens.padding.large * 2 + header.implicitHeight
+
     Layout.fillWidth: true
-    implicitHeight: Tokens.padding.large * 2 + header.implicitHeight + (root.expanded ? Tokens.spacing.medium * 2 + 1 + bodyCol.implicitHeight : 0)
+    implicitHeight: headerBand + (root.expanded ? Tokens.spacing.medium * 2 + 1 + bodyCol.implicitHeight : 0)
     radius: Tokens.rounding.large
     color: Colours.palette.m3surfaceContainerHigh
     clip: true
-
-    border.width: root.expanded ? 1 : 0
-    border.color: Qt.alpha(Colours.palette.m3outlineVariant, 0.7)
-
-    Behavior on border.width {
-        Anim {}
-    }
 
     Behavior on implicitHeight {
         Anim {}
     }
 
-    // ---- Header (click toggles expansion) ----
-    // A bare Item does not adopt implicitHeight as height, which left the
-    // StateLayer below sized 0px tall and swallowing no clicks. Give the
-    // header a real height and let the ripple bleed into the card padding.
+    // Full-width hover / press surface for the header. Declared before the
+    // content so the icon/switch/chevron sit on top; a bare Item passes
+    // clicks through to this, the switch keeps its own. Matches the card's
+    // shape (square bottom corners once the body is showing) so the ripple
+    // never looks like a stray rectangle.
+    StateLayer {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        height: root.headerBand
+
+        topLeftRadius: root.radius
+        topRightRadius: root.radius
+        bottomLeftRadius: root.expanded ? 0 : root.radius
+        bottomRightRadius: root.expanded ? 0 : root.radius
+
+        disabled: !root.expandable
+        onClicked: root.expanded = !root.expanded
+
+        Behavior on bottomLeftRadius {
+            Anim {}
+        }
+        Behavior on bottomRightRadius {
+            Anim {}
+        }
+    }
+
+    // ---- Header content ----
     Item {
         id: header
 
@@ -49,13 +68,6 @@ StyledRect {
         implicitHeight: 36
         height: 36
 
-        StateLayer {
-            anchors.fill: parent
-            radius: Tokens.rounding.normal
-            disabled: !root.expandable
-            onClicked: root.expanded = !root.expanded
-        }
-
         RowLayout {
             anchors.fill: parent
             spacing: Tokens.spacing.small
@@ -63,7 +75,7 @@ StyledRect {
             StyledRect {
                 implicitWidth: 34
                 implicitHeight: 34
-                radius: Tokens.rounding.normal
+                radius: Tokens.rounding.full
                 color: Qt.alpha(Colours.palette.m3surfaceContainerHighest, 0.7)
 
                 MaterialIcon {

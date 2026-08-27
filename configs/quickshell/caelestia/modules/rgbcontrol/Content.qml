@@ -39,7 +39,7 @@ StyledRect {
             MaterialIcon {
                 text: "colors"
                 color: Colours.palette.m3primary
-                fontStyle: Tokens.font.icon.normal
+                fontStyle: Tokens.font.icon.medium
             }
 
             StyledText {

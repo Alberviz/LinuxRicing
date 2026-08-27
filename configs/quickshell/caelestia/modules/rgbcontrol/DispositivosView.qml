@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Layouts
 import Caelestia.Config
 import qs.components
+import qs.components.controls
 import qs.services
 
 ColumnLayout {
@@ -103,23 +104,23 @@ ColumnLayout {
             }
         }
 
-        RowLayout {
+        ColumnLayout {
             Layout.fillWidth: true
-            spacing: Tokens.spacing.medium
+            Layout.topMargin: Tokens.spacing.extraSmall
+            spacing: Tokens.spacing.extraSmall
 
             SectionLabel {
-                text: qsTr("Umbral: ≤ %1 %").arg(MchoseConfig.lowBatThreshold)
-                Layout.fillWidth: true
+                text: qsTr("Umbral de aviso: ≤ %1 %").arg(MchoseConfig.lowBatThreshold)
             }
-            Repeater {
-                model: [15, 20, 30]
-                Chip {
-                    required property int modelData
-                    implicitWidth: 44
-                    label: `${modelData}%`
-                    selected: MchoseConfig.lowBatThreshold === modelData
-                    onClicked: MchoseConfig.setThreshold(modelData)
-                }
+
+            StyledSlider {
+                // interaction(v) delivers a normalised 0..1 position, not the
+                // real value, so map it onto the 5..40 % range in steps of 5.
+                Layout.fillWidth: true
+                implicitHeight: 14
+
+                value: (MchoseConfig.lowBatThreshold - 5) / 35
+                onInteraction: v => MchoseConfig.setThreshold(Math.min(40, Math.max(5, Math.round((5 + v * 35) / 5) * 5)))
             }
         }
 

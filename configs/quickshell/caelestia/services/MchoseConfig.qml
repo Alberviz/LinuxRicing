@@ -42,8 +42,11 @@ Singleton {
     }
 
     function setThreshold(n: int): void {
-        lowBatThreshold = n;
-        Quickshell.execDetached([root.cli, "threshold", String(n)]);
+        const v = Math.min(40, Math.max(5, n));
+        if (v === lowBatThreshold)
+            return;
+        lowBatThreshold = v;
+        Quickshell.execDetached([root.cli, "threshold", String(v)]);
     }
 
     function previewCharging(): void {

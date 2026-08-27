@@ -15,7 +15,7 @@ StyledRect {
     signal clicked
 
     implicitHeight: 30
-    radius: Tokens.rounding.normal
+    radius: Tokens.rounding.full
     color: selected ? activeColour : Qt.alpha(Colours.palette.m3surfaceContainerHighest, 0.7)
 
     Behavior on color {
