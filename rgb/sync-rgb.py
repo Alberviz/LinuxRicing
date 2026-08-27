@@ -201,12 +201,16 @@ def sync_openrgb(r: int, g: int, b: int, argb_zones: bool = False):
         col = RGBColor(r, g, b)
         synced = []
         for dev in client.devices:
+            name_l = dev.name.lower()
             # Skip Akko/ROYUAN keyboards in OpenRGB - handled by dedicated sync_akko_keyboard
-            if "akko" in dev.name.lower() or "royuan" in dev.name.lower():
+            if "akko" in name_l or "royuan" in name_l:
                 continue
 
-            # The wave daemon drives RAM + addressable headers; don't fight it.
-            if argb_zones and "dram" in dev.name.lower():
+            # When the animated wave daemon (argb-wave.py) is running it owns
+            # the whole ASUS board (mainboard + addressable headers) and the
+            # RAM via its own OpenRGB client. A second client writing here at
+            # the same time makes the LEDs race and strobe, so bail entirely.
+            if argb_zones and ("dram" in name_l or "asus" in name_l or "aura" in name_l):
                 continue
 
             if dev.modes and dev.modes[dev.active_mode].name != "Direct":
