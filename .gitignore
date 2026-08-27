@@ -3,3 +3,10 @@ __pycache__/
 *$py.class
 *.log
 .DS_Store
+
+# Obsidian vault: ignore per-machine state, keep notes and shared config
+vault/.obsidian/workspace.json
+vault/.obsidian/workspace-mobile.json
+vault/.obsidian/workspace
+vault/.trash/
+vault/Inbox/attachments/
