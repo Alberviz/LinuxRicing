@@ -8,7 +8,7 @@ import qs.services
 // Compact, non-interactive mock of the Akko 5075B used to show what a given
 // battery lighting effect looks like. Purely decorative - it does not talk to
 // the keyboard. `mode` picks the backlight animation, `sidestripMode` the
-// lateral strip; both accept the effect keys stored in AkkoConfig.
+// lateral strip; both accept the effect keys stored in BatteryLightingConfig.
 Item {
     id: root
 
