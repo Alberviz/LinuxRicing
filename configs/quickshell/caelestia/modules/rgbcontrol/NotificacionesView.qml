@@ -11,6 +11,18 @@ import qs.services
 ColumnLayout {
     id: root
 
+    property var expandedRules: ({})
+
+    function isRuleExpanded(ruleId: string): bool {
+        return !!root.expandedRules[ruleId];
+    }
+
+    function toggleRuleExpanded(ruleId: string): void {
+        const next = Object.assign({}, root.expandedRules);
+        next[ruleId] = !next[ruleId];
+        root.expandedRules = next;
+    }
+
     spacing: Tokens.spacing.medium
 
     component Card: StyledRect {
@@ -282,6 +294,8 @@ ColumnLayout {
                 required property var modelData
 
                 rule: modelData
+                expanded: root.isRuleExpanded(modelData.id)
+                onToggleExpand: root.toggleRuleExpanded(modelData.id)
             }
         }
 

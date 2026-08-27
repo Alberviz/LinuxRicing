@@ -13,6 +13,7 @@ StyledRect {
     required property var rule
 
     property bool expanded: false
+    signal toggleExpand()
 
     readonly property string sourceIcon: {
         const s = BatteryLightingConfig.sources.find(src => src.key === root.rule.source);
@@ -64,7 +65,7 @@ StyledRect {
         bottomLeftRadius: root.expanded ? 0 : root.radius
         bottomRightRadius: root.expanded ? 0 : root.radius
 
-        onClicked: root.expanded = !root.expanded
+        onClicked: root.toggleExpand()
 
         Behavior on bottomLeftRadius {
             Anim {}
@@ -212,15 +213,20 @@ StyledRect {
                 visible: root.rule.trigger === "low"
 
                 StyledText {
-                    text: qsTr("Umbral de aviso: ≤ %1 %").arg(root.rule.threshold ?? 20)
+                    readonly property int displayThreshold: thresholdSlider.dragging
+                        ? Math.min(40, Math.max(5, Math.round((5 + thresholdSlider.pos * 35) / 5) * 5))
+                        : (root.rule.threshold ?? 20)
+                    text: qsTr("Umbral de aviso: ≤ %1 %").arg(displayThreshold)
                     font: Tokens.font.label.medium
                     color: Colours.palette.m3onSurfaceVariant
                 }
 
                 StyledSlider {
+                    id: thresholdSlider
                     Layout.fillWidth: true
                     implicitHeight: 14
                     value: ((root.rule.threshold ?? 20) - 5) / 35
+                    interactionOnMove: false
                     onInteraction: v => BatteryLightingConfig.setRuleThreshold(root.rule.id, Math.min(40, Math.max(5, Math.round((5 + v * 35) / 5) * 5)))
                 }
             }
