@@ -229,7 +229,7 @@ def sync_mchose_base(r: int, g: int, b: int):
         return
 
     payload = [
-        0x2B, 0x01, 0x06, 0x00,
+        0x2B, 0x01, 0x02, 0x00,
         100, 0x00, 0x03, 0x01, 0x00,
         r, g, b,
         r, g, b,

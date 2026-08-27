@@ -117,14 +117,15 @@ def get_v9_pro_battery():
         return last_bat, "En reposo"
     return None, "Sin respuesta"
 
-def set_base_mode(mode=3, r=255, g=59, b=0, speed=2, brightness=100):
-    """Set MCHOSE Base LED mode: 1=Breathing, 2=Spectrum wave/cycle, 3=Static solid, 4=Wave."""
+def set_base_mode(mode=3, r=255, g=59, b=0, speed=0, brightness=100):
+    """Set MCHOSE Base LED mode: 1=Breathing, 2=Wave/Spectrum cycle, 3=Static solid."""
     nodes = glob_hidraw_nodes(0x3837, 0x1001, iface=2) or glob_hidraw_nodes(0x3837, 0x1001)
     if not nodes:
         return
+    color_mode = 0x01 if mode != 2 else 0x00
     payload = [
-        0x2B, 0x01, 0x06, 0x00,
-        brightness, speed, mode, 0x01, 0x00,
+        0x2B, 0x01, 0x02, 0x00,
+        brightness, speed, mode, color_mode, 0x00,
         r, g, b,
         r, g, b,
         0x00, 0x00, 0x00, 0x00, 0x00
