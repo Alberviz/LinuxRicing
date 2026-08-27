@@ -9,6 +9,9 @@ import qs.services
 Singleton {
     property ShellRoot shellRoot
 
+    // Set by modules/rgbcontrol/RgbControl.qml; exposes open()/close()/toggle().
+    property QtObject rgbControl
+
     function anySidebarOpen(): bool {
         return states.instances.some(s => s.sidebar);
     }
