@@ -374,9 +374,17 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4, throttle: bo
         for node in nodes:
             try:
                 fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
-                fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
-                time.sleep(0.015)
+                # Exact send sequence from rgb/akko-rgb (the one that reliably
+                # drives the 2.4 GHz keyboard): the side-strip packet goes
+                # first and wakes the RF transceiver, then the backlight
+                # packet lands, then a repeat confirms it - a single backlight
+                # send gets dropped on the wireless link and the LEDs stay on
+                # whatever they were (which reads as white/frozen).
                 fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_sled)), raw_sled)
+                time.sleep(0.03)
+                fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
+                time.sleep(0.03)
+                fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
                 os.close(fd)
                 try:
                     stamp.write_text(str(time.time()))
