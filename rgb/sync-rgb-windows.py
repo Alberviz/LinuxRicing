@@ -130,53 +130,109 @@ def encode_sendmsg(device_path: str, msg: bytes, checksum_type: int = 1) -> byte
         buf.extend(encode_varint(checksum_type))
     return bytes(buf)
 
+def get_akko_battery_level_color(bat_level):
+    if bat_level is None or bat_level <= 20:
+        return (255, 0, 0)       # Red (<20%)
+    elif bat_level <= 50:
+        return (255, 120, 0)     # Amber (20-50%)
+    elif bat_level <= 80:
+        return (0, 229, 255)     # Cyan (50-80%)
+    else:
+        return (0, 255, 80)      # Lime Green (>80%)
+
 def sync_akko_keyboard(primary_color, brightness=4):
-    import urllib.request, struct
+    import urllib.request, struct, hid
     r, g, b = primary_color
-    
-    # AkkoBSeries flags byte = option | dazzle = 0x08 for solid custom RGB.
     AKKO_FLAGS_CUSTOM_RGB = 0x08
 
-    sled = bytearray(64)
-    sled[0] = 0x08; sled[1] = 0x01; sled[2] = 0x04; sled[3] = brightness; sled[4] = AKKO_FLAGS_CUSTOM_RGB
-    sled[5], sled[6], sled[7] = r, g, b
+    # 1. Query current battery and charging status from keyboard (Opcode 0x83)
+    bat_pct = 100
+    is_charging = False
+    target_dev_path = None
+    target_pid = 0x4015
 
+    for pid in [0x4015, 0x4011]:
+        for d in hid.enumerate(0x3151, pid):
+            path_str = d['path'].decode('utf-8', errors='ignore') if isinstance(d['path'], bytes) else str(d['path'])
+            if d.get('interface_number') == 2 or 'mi_02' in path_str.lower():
+                target_dev_path = d['path']
+                target_pid = pid
+                try:
+                    dev = hid.device()
+                    dev.open_path(d['path'])
+                    req = bytearray(64); req[0] = 0x83
+                    req[8] = 0xFF - (sum(req[:8]) & 0xFF)
+                    dev.send_feature_report(bytearray([0x00]) + req)
+                    time.sleep(0.02)
+                    resp = dev.get_feature_report(0x00, 65)
+                    dev.close()
+                    if len(resp) >= 4 and resp[1] == 0x83:
+                        bat_pct = resp[2] if resp[2] > 0 else 100
+                        is_charging = (resp[3] == 1)
+                except Exception:
+                    pass
+                break
+        if target_dev_path:
+            break
+
+    # 2. Main Backlight (Teclas) -> Siempre color primario sólido de Material You
     led = bytearray(64)
     led[0] = 0x07; led[1] = 0x01; led[2] = 0x04; led[3] = brightness; led[4] = AKKO_FLAGS_CUSTOM_RGB
     led[5], led[6], led[7] = r, g, b
 
-    # Try direct HID first (PID 0x4011 for 2.4G Wireless, PID 0x4015 for USB Wired)
+    # 3. Side-strip (Tira Lateral) -> Reglas reactivas de batería
+    sled = bytearray(64)
+    sled[0] = 0x08; sled[3] = brightness; sled[4] = AKKO_FLAGS_CUSTOM_RGB
+
+    if is_charging:
+        # Enchufado/Cargando: Flujo de luz (Steady Stream) a velocidad mínima (0) con el color del nivel de batería
+        br, bg, bb = get_akko_battery_level_color(bat_pct)
+        sled[1] = 0x05  # Steady Stream / Snake
+        sled[2] = 0x00  # Velocidad mínima = 0 (ultracalmada)
+        sled[5], sled[6], sled[7] = br, bg, bb
+        status_log = f"Cargando (Steady Stream a nivel {bat_pct}%)"
+    elif bat_pct <= 20:
+        # Batería baja (<=20%): Rojo fijo sólido de advertencia
+        sled[1] = 0x01  # Fijo
+        sled[2] = 0x04
+        sled[5], sled[6], sled[7] = 255, 0, 0
+        status_log = f"Batería Baja ({bat_pct}% -> Rojo Fijo)"
+    else:
+        # Normal (>20%): Sincronizado en color sólido del tema
+        sled[1] = 0x01  # Fijo
+        sled[2] = 0x04
+        sled[5], sled[6], sled[7] = r, g, b
+        status_log = f"Normal ({bat_pct}% -> Sincronizado Sólido)"
+
+    # Try direct HID write
     try:
-        import hid
         sled_hid = bytearray(sled); sled_hid[8] = 0xFF - (sum(sled_hid[:8]) & 0xFF)
         led_hid = bytearray(led); led_hid[8] = 0xFF - (sum(led_hid[:8]) & 0xFF)
-        for target_pid in [0x4011, 0x4015]:
-            for d in hid.enumerate(0x3151, target_pid):
-                if d.get('interface_number') == 2 or '&mi_02' in str(d.get('path', '')).lower():
-                    dev = hid.device()
-                    dev.open_path(d['path'])
-                    dev.send_feature_report(bytearray([0x00]) + sled_hid)
-                    time.sleep(0.02)
-                    dev.send_feature_report(bytearray([0x00]) + led_hid)
-                    dev.close()
-                    mode_label = "2.4G Wireless" if target_pid == 0x4011 else "USB Wired"
-                    print(f"[Akko Keyboard (HID {mode_label})] Synced Backlight & Side-Strip to unified color: {primary_color}")
-                    return
+        if target_dev_path:
+            dev = hid.device()
+            dev.open_path(target_dev_path)
+            dev.send_feature_report(bytearray([0x00]) + led_hid)
+            time.sleep(0.02)
+            dev.send_feature_report(bytearray([0x00]) + sled_hid)
+            dev.close()
+            mode_label = "USB Wired" if target_pid == 0x4015 else "2.4G Wireless"
+            print(f"[Akko Keyboard (HID {mode_label})] Synced ({status_log}) | Backlight: {primary_color}")
+            return
     except Exception as e:
         print(f"[Akko HID Warning] {e}")
 
-    # Fallback to gRPC bridge (Akko Cloud Driver)
+    # Fallback to gRPC bridge
     try:
         url = "http://127.0.0.1:3814/driver.DriverGrpc/sendMsg"
-        for pid_str in ["PID_4011", "PID_4015"]:
+        for pid_str in ["PID_4015", "PID_4011"]:
             dev_path = rf"\\?\HID#VID_3151&{pid_str}&MI_02#7&26793fac&0&0000#{{4d1e55b2-f16f-11cf-88cb-001111000030}}"
-            for msg in [sled, led]:
+            for msg in [led, sled]:
                 pb = encode_sendmsg(dev_path, bytes(msg), checksum_type=1)
                 frame = bytes([0x00]) + struct.pack(">I", len(pb)) + pb
                 req = urllib.request.Request(url, data=frame, headers={"Content-Type": "application/grpc-web+proto", "x-grpc-web": "1"})
                 with urllib.request.urlopen(req, timeout=1) as resp:
                     resp.read()
-            print(f"[Akko Keyboard (gRPC)] Synced Backlight & Side-Strip to unified color: {primary_color}")
+            print(f"[Akko Keyboard (gRPC)] Synced ({status_log}) | Backlight: {primary_color}")
             return
     except Exception:
         pass

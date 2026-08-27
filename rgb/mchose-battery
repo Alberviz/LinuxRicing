@@ -427,6 +427,71 @@ def get_akko_keyboard_battery():
 
     return None, "Desconectado"
 
+def get_akko_battery_level_color(bat_level):
+    if bat_level is None or bat_level <= 20:
+        return (255, 0, 0)       # Red (<20%)
+    elif bat_level <= 50:
+        return (255, 120, 0)     # Amber (20-50%)
+    elif bat_level <= 80:
+        return (0, 229, 255)     # Cyan (50-80%)
+    else:
+        return (0, 255, 80)      # Lime Green (>80%)
+
+def apply_akko_battery_lighting(bat_level, status="Descargando", theme_rgb=(208, 0, 255)):
+    """
+    Applies unified lighting & reactive battery rules to Akko 5075B:
+    - Main Backlight: Always solid theme color.
+    - Side-strip:
+        * Charging: Steady Stream (0x05) at slowest speed (0) with battery level color.
+        * Low Battery (<=20%): Solid Red (0x01).
+        * Normal (>20%): Solid theme color.
+    """
+    nodes = glob_hidraw_nodes(0x3151, 0x4015, iface=2) or glob_hidraw_nodes(0x3151, 0x4011, iface=2) or glob_hidraw_nodes(0x3151, 0x4015) or glob_hidraw_nodes(0x3151, 0x4011)
+    if not nodes:
+        return False
+
+    tr, tg, tb = theme_rgb
+
+    # 1. Main Backlight -> Color sólido del tema
+    led = bytearray(64)
+    led[0] = 0x07; led[1] = 0x01; led[2] = 0x04; led[3] = 0x04; led[4] = 0x08
+    led[5], led[6], led[7] = tr, tg, tb
+    led[8] = 0xFF - (sum(led[:8]) & 0xFF)
+
+    # 2. Side-strip -> Reglas reactivas
+    sled = bytearray(64)
+    sled[0] = 0x08; sled[3] = 0x04; sled[4] = 0x08
+
+    if status == "Cargando":
+        br, bg, bb = get_akko_battery_level_color(bat_level)
+        sled[1] = 0x05  # Steady Stream
+        sled[2] = 0x00  # Velocidad mínima = 0 (ultracalmada)
+        sled[5], sled[6], sled[7] = br, bg, bb
+    elif bat_level is not None and bat_level <= 20:
+        sled[1] = 0x01  # Fijo
+        sled[2] = 0x04
+        sled[5], sled[6], sled[7] = 255, 0, 0  # Rojo Fijo
+    else:
+        sled[1] = 0x01  # Fijo
+        sled[2] = 0x04
+        sled[5], sled[6], sled[7] = tr, tg, tb
+
+    sled[8] = 0xFF - (sum(sled[:8]) & 0xFF)
+
+    for n in nodes:
+        try:
+            fd = os.open(n, os.O_RDWR | os.O_NONBLOCK)
+            raw_led = bytearray([0x00]) + led
+            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
+            time.sleep(0.02)
+            raw_sled = bytearray([0x00]) + sled
+            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_sled)), raw_sled)
+            os.close(fd)
+            return True
+        except Exception:
+            pass
+    return False
+
 # ==============================================================================
 # NOTIFICATION SYSTEM
 # ==============================================================================
@@ -435,12 +500,19 @@ def check_and_notify():
     k7_bat, k7_st = get_k7_ultra_battery()
     akko_bat, akko_st = get_akko_keyboard_battery()
 
+    # Apply reactive lighting to Akko keyboard based on state
+    try:
+        apply_akko_battery_lighting(akko_bat, akko_st)
+    except Exception:
+        pass
+
     cache = load_cache()
     notified = cache.get("notified_levels", {})
 
     devices = [
         ("Auriculares MCHOSE V9 Pro", "audio-headset", v9_bat, v9_st, "v9"),
-        ("Ratón MCHOSE K7 Ultra", "input-mouse", k7_bat, k7_st, "k7")
+        ("Ratón MCHOSE K7 Ultra", "input-mouse", k7_bat, k7_st, "k7"),
+        ("Teclado Akko 5075B", "input-keyboard", akko_bat, akko_st, "akko")
     ]
 
     for name, icon, bat, st, key in devices:

@@ -20,6 +20,8 @@ import json
 import argparse
 import hid
 
+sys.stdout.reconfigure(encoding='utf-8')
+
 CACHE_FILE = os.path.expandvars(r"%LOCALAPPDATA%\LinuxRicing\mchose_battery.json")
 
 def load_cache():
@@ -101,10 +103,38 @@ def get_k7_ultra_battery():
     return None, "Desconectado"
 
 def get_akko_keyboard_battery():
-    for pid in [0x4011, 0x4015]:
+    cache = load_cache()
+    last_bat = cache.get("akko_battery", 100)
+
+    # Query Interface 2 with Opcode 0x83
+    for pid in [0x4015, 0x4011]:
         for d in hid.enumerate(0x3151, pid):
-            mode = "Inalámbrico (2.4G)" if pid == 0x4011 else "Conectado (USB)"
-            return 100, mode
+            path_str = d['path'].decode('utf-8', errors='ignore') if isinstance(d['path'], bytes) else str(d['path'])
+            if d.get('interface_number') == 2 or 'mi_02' in path_str.lower():
+                try:
+                    dev = hid.device()
+                    dev.open_path(d['path'])
+                    req = bytearray(64)
+                    req[0] = 0x83
+                    req[8] = 0xFF - (sum(req[:8]) & 0xFF)
+                    dev.send_feature_report(bytearray([0x00]) + req)
+                    time.sleep(0.02)
+                    resp = dev.get_feature_report(0x00, 65)
+                    dev.close()
+                    if len(resp) >= 4 and resp[1] == 0x83:
+                        bat = resp[2]
+                        st_code = resp[3]
+                        st = "Cargando" if st_code == 1 else ("Completa" if st_code == 2 else "Descargando")
+                        if bat > 0:
+                            cache["akko_battery"] = bat
+                            save_cache(cache)
+                            return bat, st
+                        else:
+                            return last_bat, st
+                except Exception:
+                    pass
+    if last_bat is not None:
+        return last_bat, "En reposo"
     return None, "Desconectado"
 
 def main():
@@ -136,7 +166,7 @@ def main():
                 "name": "Akko Multi-modes",
                 "battery": akko_bat,
                 "status": akko_st,
-                "charging": True,
+                "charging": (akko_st == "Cargando"),
                 "connected": (akko_bat is not None)
             }
         }
