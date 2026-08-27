@@ -340,22 +340,25 @@ def main():
                 "name": "MCHOSE V9 Pro",
                 "battery": v9_bat,
                 "status": v9_st,
+                "mode": "2.4G Inalámbrico" if (v9_bat is not None and v9_st != "Desconectado") else "Desconectado",
                 "charging": (v9_st == "Cargando"),
-                "connected": (v9_bat is not None)
+                "connected": (v9_bat is not None and v9_st != "Desconectado")
             },
             "mouse": {
                 "name": "MCHOSE K7 Ultra",
                 "battery": k7_bat,
                 "status": k7_st,
+                "mode": "2.4G Inalámbrico" if (k7_bat is not None and k7_st != "Desconectado") else "Desconectado",
                 "charging": (k7_st == "Cargando"),
-                "connected": (k7_bat is not None)
+                "connected": (k7_bat is not None and k7_st != "Desconectado")
             },
             "keyboard": {
-                "name": "Akko Multi-modes",
+                "name": "Akko 5075B",
                 "battery": akko_bat,
                 "status": akko_st,
-                "charging": (akko_st == "Cargando"),
-                "connected": (akko_bat is not None)
+                "mode": "Cable USB" if "usb" in akko_st.lower() else ("Bluetooth" if "bluetooth" in akko_st.lower() else ("2.4G Inalámbrico" if (akko_bat is not None and akko_st != "Desconectado") else "Desconectado")),
+                "charging": ("cargando" in akko_st.lower()),
+                "connected": (akko_bat is not None and akko_st != "Desconectado")
             }
         }
         print(json.dumps(data, indent=2))

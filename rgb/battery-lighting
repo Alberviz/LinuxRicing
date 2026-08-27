@@ -585,16 +585,32 @@ def get_akko_keyboard_battery():
 
 
 def read_telemetry():
-    def one(fn):
+    def one(fn, default_mode="2.4G Inalámbrico"):
         try:
             lvl, st = fn()
         except Exception:
             lvl, st = None, "Desconectado"
-        return {"level": lvl, "charging": (st == "Cargando"), "connected": lvl is not None}
+        charging = (st == "Cargando" or "cargando" in str(st).lower())
+        connected = (lvl is not None and st != "Desconectado")
+        mode = "Desconectado"
+        if connected:
+            if "bluetooth" in str(st).lower():
+                mode = "Bluetooth"
+            elif "usb" in str(st).lower():
+                mode = "Cable USB"
+            else:
+                mode = default_mode
+        return {
+            "level": lvl,
+            "charging": charging,
+            "connected": connected,
+            "status": st,
+            "mode": mode,
+        }
     return {
-        "akko_keyboard": one(get_akko_keyboard_battery),
-        "mchose_mouse": one(get_k7_ultra_battery),
-        "v9_headset": one(get_v9_pro_battery),
+        "akko_keyboard": one(get_akko_keyboard_battery, default_mode="2.4G Inalámbrico"),
+        "mchose_mouse": one(get_k7_ultra_battery, default_mode="2.4G Inalámbrico"),
+        "v9_headset": one(get_v9_pro_battery, default_mode="2.4G Inalámbrico"),
     }
 
 
@@ -614,6 +630,7 @@ def write_battery_cache(tele):
         data[f"{pref}_battery"] = t["level"]
         data[f"{pref}_status"] = ("Cargando" if t["charging"]
                                   else ("Descargando" if t["connected"] else "Desconectado"))
+        data[f"{pref}_mode"] = t.get("mode", "2.4G Inalámbrico" if t["connected"] else "Desconectado")
     os.makedirs(os.path.dirname(BATTERY_CACHE), exist_ok=True)
     with open(BATTERY_CACHE, "w") as f:
         json.dump(data, f)

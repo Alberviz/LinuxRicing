@@ -26,4 +26,4 @@ def test_read_telemetry_runs_without_hardware(bl):
     tele = bl.read_telemetry()
     assert set(tele) == {"akko_keyboard", "mchose_mouse", "v9_headset"}
     for v in tele.values():
-        assert set(v) == {"level", "charging", "connected"}
+        assert {"level", "charging", "connected", "status", "mode"}.issubset(set(v))

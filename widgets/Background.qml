@@ -252,16 +252,19 @@ Variants {
 
         property int headsetBat: 0
         property string headsetStatus: "Desconectado"
+        property string headsetMode: "Desconectado"
         property bool headsetCharging: false
         property bool headsetConnected: false
 
         property int mouseBat: 0
         property string mouseStatus: "Desconectado"
+        property string mouseMode: "Desconectado"
         property bool mouseCharging: false
         property bool mouseConnected: false
 
         property int kbBat: 0
         property string kbStatus: "Desconectado"
+        property string kbMode: "Desconectado"
         property bool kbCharging: false
         property bool kbConnected: false
 
@@ -276,18 +279,21 @@ Variants {
                         if (data.headset) {
                             periphRoot.headsetBat = data.headset.battery ?? 0;
                             periphRoot.headsetStatus = data.headset.status ?? "Desconectado";
+                            periphRoot.headsetMode = data.headset.mode ?? (data.headset.connected ? "2.4G Inalámbrico" : "Desconectado");
                             periphRoot.headsetCharging = data.headset.charging ?? false;
                             periphRoot.headsetConnected = data.headset.connected ?? false;
                         }
                         if (data.mouse) {
                             periphRoot.mouseBat = data.mouse.battery ?? 0;
                             periphRoot.mouseStatus = data.mouse.status ?? "Desconectado";
+                            periphRoot.mouseMode = data.mouse.mode ?? (data.mouse.connected ? "2.4G Inalámbrico" : "Desconectado");
                             periphRoot.mouseCharging = data.mouse.charging ?? false;
                             periphRoot.mouseConnected = data.mouse.connected ?? false;
                         }
                         if (data.keyboard) {
                             periphRoot.kbBat = data.keyboard.battery ?? 0;
                             periphRoot.kbStatus = data.keyboard.status ?? "Desconectado";
+                            periphRoot.kbMode = data.keyboard.mode ?? (data.keyboard.connected ? "2.4G Inalámbrico" : "Desconectado");
                             periphRoot.kbCharging = data.keyboard.charging ?? false;
                             periphRoot.kbConnected = data.keyboard.connected ?? false;
                         }
@@ -434,6 +440,7 @@ Variants {
                     icon: periphRoot.headsetCharging ? "battery_charging_full" : "headphones"
                     battery: periphRoot.headsetBat
                     status: periphRoot.headsetStatus
+                    mode: periphRoot.headsetMode
                     charging: periphRoot.headsetCharging
                     connected: periphRoot.headsetConnected
                     accentColor: Colours.palette.m3primary
@@ -445,6 +452,7 @@ Variants {
                     icon: periphRoot.mouseCharging ? "battery_charging_full" : "mouse"
                     battery: periphRoot.mouseBat
                     status: periphRoot.mouseStatus
+                    mode: periphRoot.mouseMode
                     charging: periphRoot.mouseCharging
                     connected: periphRoot.mouseConnected
                     accentColor: Colours.palette.m3primary
@@ -452,10 +460,11 @@ Variants {
 
                 DeviceItem {
                     Layout.fillWidth: true
-                    name: "Akko B"
+                    name: "Akko 5075B"
                     icon: periphRoot.kbCharging ? "battery_charging_full" : "keyboard"
                     battery: periphRoot.kbBat
                     status: periphRoot.kbStatus
+                    mode: periphRoot.kbMode
                     charging: periphRoot.kbCharging
                     connected: periphRoot.kbConnected
                     accentColor: Colours.palette.m3primary
@@ -472,6 +481,7 @@ Variants {
         required property string icon
         required property int battery
         required property string status
+        property string mode: "Desconectado"
         required property bool charging
         required property bool connected
         required property color accentColor
@@ -481,7 +491,7 @@ Variants {
         readonly property bool isLowBattery: connected && battery <= 20 && !charging
         readonly property real fillPercent: devItem.connected ? Math.max(0.06, Math.min(1.0, devItem.battery / 100.0)) : 0.0
 
-        implicitHeight: itemCol.implicitHeight + Tokens.padding.medium * 2
+        implicitHeight: Math.max(116, itemCol.implicitHeight + Tokens.padding.medium * 2)
         radius: Tokens.rounding.large
         color: isLowBattery ? Qt.alpha(Colours.palette.m3errorContainer, 0.4) : (win.transparentWidgets ? Qt.alpha(Colours.palette.m3surfaceContainerHigh, 0.4) : Colours.palette.m3surfaceContainerHigh)
 
@@ -627,6 +637,14 @@ Variants {
             anchors.centerIn: parent
             spacing: Tokens.spacing.extraSmall
 
+            StyledText {
+                Layout.alignment: Qt.AlignHCenter
+                text: devItem.name
+                color: devItem.connected ? Colours.palette.m3onSurface : Colours.palette.m3outline
+                font: Tokens.font.label.medium
+                font.bold: true
+            }
+
             RowLayout {
                 Layout.alignment: Qt.AlignHCenter
                 spacing: Tokens.spacing.extraSmall
@@ -639,23 +657,76 @@ Variants {
 
                 StyledText {
                     text: devItem.connected ? `${devItem.battery}%` : "Off"
-                    color: devItem.connected ? (devItem.isLowBattery ? Colours.palette.m3error : Colours.palette.m3onSurface) : Colours.palette.m3outline
+                    color: devItem.connected ? (devItem.isLowBattery ? Colours.palette.m3error : (devItem.charging ? Colours.palette.m3primary : Colours.palette.m3onSurface)) : Colours.palette.m3outline
                     font: Tokens.font.title.medium
+                    font.bold: true
                 }
             }
 
-            StyledText {
+            StyledRect {
                 Layout.alignment: Qt.AlignHCenter
-                text: devItem.name
-                color: devItem.isLowBattery ? Colours.palette.m3error : Colours.palette.m3onSurfaceVariant
-                font: Tokens.font.label.medium
-            }
+                implicitHeight: 22
+                implicitWidth: modeRow.implicitWidth + 12
+                radius: Tokens.rounding.full
+                color: {
+                    if (!devItem.connected) return Qt.alpha(Colours.palette.m3surfaceContainerLowest, 0.7);
+                    if (devItem.isLowBattery) return Qt.alpha(Colours.palette.m3errorContainer, 0.9);
+                    if (devItem.charging) return Qt.alpha(Colours.palette.m3primaryContainer, 0.9);
+                    return Qt.alpha(Colours.palette.m3surfaceContainerLowest, 0.75);
+                }
+                border.width: 1
+                border.color: {
+                    if (!devItem.connected) return Qt.alpha(Colours.palette.m3outlineVariant, 0.2);
+                    if (devItem.isLowBattery) return Qt.alpha(Colours.palette.m3error, 0.6);
+                    if (devItem.charging) return Qt.alpha(Colours.palette.m3primary, 0.6);
+                    return Qt.alpha(Colours.palette.m3outlineVariant, 0.35);
+                }
 
-            StyledText {
-                Layout.alignment: Qt.AlignHCenter
-                text: devItem.connected ? (devItem.isLowBattery ? "¡Batería Baja!" : devItem.status) : "Desconectado"
-                color: devItem.isLowBattery ? Colours.palette.m3error : (devItem.charging ? Colours.palette.m3primary : Colours.palette.m3outline)
-                font: Tokens.font.label.small
+                RowLayout {
+                    id: modeRow
+                    anchors.centerIn: parent
+                    spacing: 4
+
+                    MaterialIcon {
+                        text: {
+                            if (!devItem.connected) return "power_off";
+                            if (devItem.charging) return "bolt";
+                            if (devItem.isLowBattery) return "battery_alert";
+                            const m = devItem.mode.toLowerCase();
+                            if (m.includes("usb")) return "usb";
+                            if (m.includes("bluetooth")) return "bluetooth";
+                            if (m.includes("2.4g") || m.includes("inalámbrico") || m.includes("inalambrico")) return "sensors";
+                            return "devices";
+                        }
+                        fontStyle: Tokens.font.icon.extraSmall
+                        color: {
+                            if (!devItem.connected) return Colours.palette.m3outline;
+                            if (devItem.isLowBattery) return Colours.palette.m3onErrorContainer;
+                            if (devItem.charging) return Colours.palette.m3onPrimaryContainer;
+                            return Colours.palette.m3onSurface;
+                        }
+                    }
+
+                    StyledText {
+                        text: {
+                            if (!devItem.connected) return "Desconectado";
+                            if (devItem.isLowBattery) return "¡Batería Baja!";
+                            if (devItem.charging) {
+                                const cleanMode = devItem.mode.replace(" Inalámbrico", "").replace(" Inalambrico", "");
+                                return cleanMode ? `Cargando · ${cleanMode}` : "Cargando";
+                            }
+                            return devItem.mode || devItem.status;
+                        }
+                        font: Tokens.font.label.small
+                        font.bold: true
+                        color: {
+                            if (!devItem.connected) return Colours.palette.m3outline;
+                            if (devItem.isLowBattery) return Colours.palette.m3onErrorContainer;
+                            if (devItem.charging) return Colours.palette.m3onPrimaryContainer;
+                            return Colours.palette.m3onSurface;
+                        }
+                    }
+                }
             }
         }
     }
