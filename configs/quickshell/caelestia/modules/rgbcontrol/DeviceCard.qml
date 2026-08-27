@@ -19,10 +19,17 @@ StyledRect {
     default property alias content: bodyCol.data
 
     Layout.fillWidth: true
-    implicitHeight: Tokens.padding.large * 2 + header.implicitHeight + (root.expanded ? Tokens.spacing.medium + bodyCol.implicitHeight : 0)
+    implicitHeight: Tokens.padding.large * 2 + header.implicitHeight + (root.expanded ? Tokens.spacing.medium * 2 + 1 + bodyCol.implicitHeight : 0)
     radius: Tokens.rounding.large
     color: Colours.palette.m3surfaceContainerHigh
     clip: true
+
+    border.width: root.expanded ? 1 : 0
+    border.color: Qt.alpha(Colours.palette.m3outlineVariant, 0.7)
+
+    Behavior on border.width {
+        Anim {}
+    }
 
     Behavior on implicitHeight {
         Anim {}
@@ -104,6 +111,23 @@ StyledRect {
         }
     }
 
+    // ---- Divider between header and body (only while expanded) ----
+    Rectangle {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: header.bottom
+        anchors.leftMargin: Tokens.padding.large
+        anchors.rightMargin: Tokens.padding.large
+        anchors.topMargin: Tokens.spacing.medium
+        height: 1
+        color: Qt.alpha(Colours.palette.m3outlineVariant, 0.6)
+        opacity: root.expanded ? 1 : 0
+
+        Behavior on opacity {
+            Anim {}
+        }
+    }
+
     // ---- Body (animated collapse) ----
     Item {
         id: bodyClip
@@ -113,7 +137,7 @@ StyledRect {
         anchors.top: header.bottom
         anchors.leftMargin: Tokens.padding.large
         anchors.rightMargin: Tokens.padding.large
-        anchors.topMargin: root.expanded ? Tokens.spacing.medium : 0
+        anchors.topMargin: root.expanded ? Tokens.spacing.medium * 2 + 1 : 0
         clip: true
         height: root.expanded ? bodyCol.implicitHeight : 0
 

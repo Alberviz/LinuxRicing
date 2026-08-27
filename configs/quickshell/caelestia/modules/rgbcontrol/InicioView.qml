@@ -37,17 +37,20 @@ StyledRect {
 
         // Effective resting colour right now.
         RowLayout {
+            id: preview
+
+            readonly property color effective: RgbConfig.source === "fixed" ? `#${RgbConfig.fixedColour}` : Colours.palette.m3primary
+            readonly property string effectiveHex: preview.effective.toString().replace(/^#/, "").slice(0, 6).toUpperCase()
+
             Layout.fillWidth: true
             Layout.topMargin: Tokens.spacing.small
             spacing: Tokens.spacing.medium
-
-            readonly property color effective: RgbConfig.source === "fixed" ? `#${RgbConfig.fixedColour}` : Colours.palette.m3primary
 
             StyledRect {
                 implicitWidth: 48
                 implicitHeight: 48
                 radius: Tokens.rounding.normal
-                color: parent.effective
+                color: preview.effective
                 border.width: 1
                 border.color: Qt.alpha(Colours.palette.m3outlineVariant, 0.8)
 
@@ -66,7 +69,7 @@ StyledRect {
                     color: Colours.palette.m3onSurface
                 }
                 StyledText {
-                    text: `#${(parent.parent.effective.toString().replace(/^#/, "").slice(0, 6)).toUpperCase()}`
+                    text: `#${preview.effectiveHex}`
                     font: Tokens.font.label.small
                     color: Colours.palette.m3onSurfaceVariant
                 }
