@@ -1105,12 +1105,22 @@ Variants {
                         color: (win.transparentWidgets ? Qt.alpha(Colours.palette.m3surfaceContainerHigh, 0.4) : Colours.palette.m3surfaceContainerHigh)
 
                         MaterialIcon {
+                            id: tasksRefreshIcon
                             anchors.centerIn: parent
                             text: "refresh"
                             fontStyle: Tokens.font.icon.small
                             color: deckRoot.isSyncing ? Colours.palette.m3primary : Colours.palette.m3onSurfaceVariant
-                            rotation: deckRoot.isSyncing ? 360 : 0
-                            Behavior on rotation { Anim { duration: 800; loops: Animation.Infinite } }
+
+                            // Spin only while an actual sync is in flight, then stop.
+                            RotationAnimator {
+                                target: tasksRefreshIcon
+                                from: 0
+                                to: 360
+                                duration: 900
+                                loops: Animation.Infinite
+                                running: deckRoot.isSyncing
+                                onRunningChanged: if (!running) tasksRefreshIcon.rotation = 0
+                            }
                         }
 
                         StateLayer {
