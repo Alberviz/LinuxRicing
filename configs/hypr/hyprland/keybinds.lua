@@ -60,8 +60,8 @@ create_bind(
 )
 
 -- Misc
-create_bind("SUPER + W", hl.dsp.exec_cmd("caelestia shell wallpapers open"))
-create_bind("SUPER + SHIFT + W", hl.dsp.exec_cmd("caelestia wallpaper -r"))
+create_bind(vars.kbWallpaper, hl.dsp.exec_cmd("caelestia shell wallpapers open"))
+create_bind(vars.kbWallpaperRandom, hl.dsp.exec_cmd("caelestia wallpaper -r"))
 create_bind(vars.kbSession, hl.dsp.global("caelestia:session"))
 create_bind(vars.kbShowSidebar, hl.dsp.global("caelestia:sidebar"))
 create_bind(vars.kbClearNotifs, hl.dsp.global("caelestia:clearNotifs"), locked)

@@ -147,4 +147,8 @@ return {
     kbClipboardDel             = "SUPER + ALT + V",
     kbClipboardPasteLatest     = "CTRL + SHIFT + ALT + V",
     kbEmoji                    = "SUPER + Period",
+
+    -- Wallpapers
+    kbWallpaper                = { "SUPER + W", "SUPER + w" },
+    kbWallpaperRandom          = { "SUPER + SHIFT + W", "SUPER + SHIFT + w" },
 }

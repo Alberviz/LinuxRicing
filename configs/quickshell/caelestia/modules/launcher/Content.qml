@@ -126,6 +126,13 @@ Item {
                 }
             }
 
+            function onLauncherInitialQueryChanged(): void {
+                if (root.screenState.launcherInitialQuery) {
+                    search.text = root.screenState.launcherInitialQuery;
+                    root.screenState.launcherInitialQuery = "";
+                }
+            }
+
             function onSessionChanged(): void {
                 if (!root.screenState.session)
                     search.forceActiveFocus();
