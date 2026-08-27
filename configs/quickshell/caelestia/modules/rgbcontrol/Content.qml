@@ -116,7 +116,7 @@ StyledRect {
             }
         }
 
-        // Tab content (placeholder until Phase 2)
+        // Tab content
         StackLayout {
             Layout.fillWidth: true
             currentIndex: root.tab
@@ -125,7 +125,7 @@ StyledRect {
                 property string label
 
                 Layout.fillWidth: true
-                implicitHeight: 180
+                implicitHeight: 160
                 radius: Tokens.rounding.large
                 color: Colours.palette.m3surfaceContainerHigh
 
@@ -137,14 +137,44 @@ StyledRect {
                 }
             }
 
-            Placeholder {
-                label: qsTr("Inicio")
+            InicioView {
+                Layout.fillWidth: true
             }
             Placeholder {
                 label: qsTr("Dispositivos")
             }
             Placeholder {
                 label: qsTr("Notificaciones")
+            }
+        }
+
+        // Footer
+        StyledRect {
+            Layout.fillWidth: true
+            implicitHeight: 44
+            radius: Tokens.rounding.full
+            color: Colours.palette.m3primary
+
+            StateLayer {
+                radius: Tokens.rounding.full
+                color: Colours.palette.m3onPrimary
+                onClicked: RgbConfig.apply()
+            }
+
+            RowLayout {
+                anchors.centerIn: parent
+                spacing: Tokens.spacing.small
+
+                MaterialIcon {
+                    text: "done"
+                    fontStyle: Tokens.font.icon.small
+                    color: Colours.palette.m3onPrimary
+                }
+                StyledText {
+                    text: qsTr("Aplicar ahora")
+                    font: Tokens.font.label.large
+                    color: Colours.palette.m3onPrimary
+                }
             }
         }
     }
