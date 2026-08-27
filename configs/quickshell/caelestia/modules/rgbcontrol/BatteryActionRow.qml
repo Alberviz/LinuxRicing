@@ -12,7 +12,8 @@ StyledRect {
 
     required property string ruleId
     required property int index
-    required property var action
+    required property var modelData
+    property var action: modelData
 
     Layout.fillWidth: true
     implicitHeight: col.implicitHeight + Tokens.padding.medium * 2
