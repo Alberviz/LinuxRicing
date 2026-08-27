@@ -208,19 +208,88 @@ def apply_charging_lighting(bat_level=100):
         except Exception:
             pass
 
-def handle_charging_lighting_transition(is_charging: bool, cache: dict, bat_level: int = 100):
-    was_charging = cache.get("k7_was_charging", False)
-    if is_charging and not was_charging:
-        # Just docked onto base -> Apply configured charging lighting!
-        apply_charging_lighting(bat_level)
-        cache["k7_was_charging"] = True
-    elif not is_charging and was_charging:
-        # Just undocked from base -> Restore unified wallpaper theme color!
-        cache["k7_was_charging"] = False
+def apply_low_battery_lighting(bat_level=100):
+    """Apply configured low battery lighting alert to MCHOSE base."""
+    config_file = os.path.expanduser("~/.config/caelestia/mchose-config.json")
+    effect = "red_breathing"
+    threshold = 20
+    if os.path.exists(config_file):
         try:
-            subprocess.Popen(["/usr/bin/python3", "/home/alberviz/.config/caelestia/sync-rgb.py"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            with open(config_file, "r") as f:
+                data = json.load(f)
+                effect = data.get("low_battery_effect", "red_breathing")
+                threshold = data.get("low_battery_threshold", 20)
         except Exception:
             pass
+
+    if bat_level > threshold:
+        return False
+
+    nodes = glob_hidraw_nodes(0x3837, 0x1001, iface=2) or glob_hidraw_nodes(0x3837, 0x1001)
+    if not nodes:
+        return False
+
+    if effect == "wave":
+        # Opción 1: Ola Arcoíris giratoria como aviso llamativo
+        payload = [0x2B, 0x01, 0x07, 0x00, 100, 0x00, 0x01, 0x01, 0x00, 255, 59, 0, 255, 59, 0, 0, 0, 0, 0, 0]
+    elif effect == "red_breathing":
+        # Opción 2: Respiración Roja Parpadeante
+        payload = [0x2B, 0x01, 0x02, 0x00, 100, 0x00, 0x01, 0x01, 0x00, 255, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0]
+    elif effect == "red_static":
+        # Opción 4: Rojo Fijo Constante
+        payload = [0x2B, 0x01, 0x02, 0x00, 100, 0x00, 0x03, 0x01, 0x00, 255, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0]
+    elif effect in ["none", "off"]:
+        # Opción 3: Desactivado / mantener color normal del tema
+        return False
+    else:
+        payload = [0x2B, 0x01, 0x02, 0x00, 100, 0x00, 0x01, 0x01, 0x00, 255, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0]
+
+    raw = bytearray([0x11] + [x ^ 0xFF for x in payload])
+    for n in nodes:
+        try:
+            fd = os.open(n, os.O_RDWR | os.O_NONBLOCK)
+            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw)), raw)
+            os.close(fd)
+        except Exception:
+            pass
+    return True
+
+def handle_charging_lighting_transition(is_charging: bool, cache: dict, bat_level: int = 100):
+    was_charging = cache.get("k7_was_charging", False)
+    if is_charging:
+        if not was_charging:
+            # Just docked onto base -> Apply configured charging lighting!
+            apply_charging_lighting(bat_level)
+            cache["k7_was_charging"] = True
+    else:
+        # Undocked
+        if was_charging:
+            cache["k7_was_charging"] = False
+            # If battery is low, apply low battery alert; otherwise restore theme
+            if not apply_low_battery_lighting(bat_level):
+                try:
+                    subprocess.Popen(["/usr/bin/python3", "/home/alberviz/.config/caelestia/sync-rgb.py"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except Exception:
+                    pass
+        else:
+            # Check periodic low battery state
+            was_low = cache.get("k7_was_low", False)
+            threshold = 20
+            try:
+                with open(os.path.expanduser("~/.config/caelestia/mchose-config.json")) as f:
+                    threshold = json.load(f).get("low_battery_threshold", 20)
+            except Exception:
+                pass
+            is_low = (bat_level <= threshold)
+            if is_low and not was_low:
+                apply_low_battery_lighting(bat_level)
+                cache["k7_was_low"] = True
+            elif not is_low and was_low:
+                cache["k7_was_low"] = False
+                try:
+                    subprocess.Popen(["/usr/bin/python3", "/home/alberviz/.config/caelestia/sync-rgb.py"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except Exception:
+                    pass
 
 def get_k7_ultra_battery():
     cache = load_cache()
