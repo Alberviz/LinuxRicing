@@ -75,9 +75,19 @@ Column {
         id: reboot
 
         icon: Config.session.icons.reboot
-        command: Config.session.commands.reboot
+        command: ["/home/alberviz/.local/bin/reboot-menu"]
 
         KeyNavigation.up: hibernate
+        KeyNavigation.down: rebootWindows
+    }
+
+    SessionButton {
+        id: rebootWindows
+
+        icon: "desktop_windows"
+        command: ["/home/alberviz/.local/bin/reboot-to-windows"]
+
+        KeyNavigation.up: reboot
     }
 
     component SessionButton: IconButton {
@@ -86,6 +96,7 @@ Column {
         required property list<string> command
 
         function exec(): void {
+            root.screenState.session = false;
             if (!SessionManager.exec(command))
                 Quickshell.execDetached(command);
         }

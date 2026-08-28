@@ -1,6 +1,6 @@
 ---
 tags: [rice, errores, referencia]
-actualizado: 2026-08-27
+actualizado: 2026-08-29
 ---
 
 # Base de Datos de Errores
@@ -168,4 +168,21 @@ Ambos agentes (Claude y Gemini) escriben aquí — añadir, no reescribir.
 - **Arreglo:** eliminada la llamada a `apply_akko_battery_lighting()` dentro de
   `check_and_notify()`. La iluminación del teclado Akko es de disparo único
   (*One-Shot*) y solo debe escribirse al cambiar de tema/wallpaper vía `sync-rgb.py`.
+
+---
+
+## 2026-08-29
+
+### Regresión: Desincronización y RAM en arco iris tras apagado forzoso / regleta
+- **Síntoma:** tras un corte brusco de corriente (apagar la regleta) o reinicio forzoso, al arrancar el equipo los módulos de RAM se quedaban en arco iris (modo hardware) y las luces no se sincronizaban correctamente con el fondo/tema.
+- **Causa:** durante la implementación de los perfiles individuales de iluminación por dispositivo (commit `ce740fb`), se añadió una segunda definición de `def sync_openrgb()` en la línea 432 de `rgb/sync-rgb.py`. En Python, la segunda definición sobrescribió silenciosamente a la primera (línea 235), eliminando:
+  1. El bucle de reintentos (`for _ in range(10): if client.devices: break; time.sleep(1); client.update()`) necesario porque el servidor OpenRGB SDK acepta conexiones de clientes antes de terminar el escaneo SMBus/AURA en el arranque en frío.
+  2. La comprobación de zonas de alerta de batería (`if "openrgb:_" in battery_alert_zones(): return`).
+  3. La exclusión completa de dispositivos DRAM y ASUS cuando `argb_zones` está activo (`if argb_zones and ("dram" in dev_name_l or "asus" in dev_name_l or "aura" in dev_name_l): continue`), provocando carreras con `argb-wave.py`.
+  Al iniciar en frío con `sleep 2`, `OpenRGBClient()` recibía `client.devices = []`, no reintentaba, registraba falsamente sincronización con éxito a 0 dispositivos y salía sin sacar la RAM del modo Rainbow hardware.
+- **Arreglo:**
+  - Consolidada una única función `sync_openrgb()` en `rgb/sync-rgb.py` y desplegada en `~/.config/caelestia/sync-rgb.py` que integra soporte de perfiles (`fixed`, `battery_color`, `argb_wave`), retención de alertas activas, bucle de reintentos con backoff hasta enumeración efectiva de hardware y forzado de modo `Direct`.
+  - Sincronizado `rgb/argb-wave.py` y `~/.config/caelestia/argb-wave.py` sin expiración de TTL para que la caché de paleta en `/tmp` mantenga la continuidad de color.
+  - Añadidos tests unitarios en `rgb/tests/test_sync_rgb_alerts.py` (`test_sync_openrgb_skips_when_alert_active` y `test_sync_openrgb_retries_and_sets_direct_mode`) para blindar contra futuras regresiones.
+
 

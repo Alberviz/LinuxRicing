@@ -232,83 +232,12 @@ def cache_live_palette():
         log(f"Error caching live palette: {e}")
 
 
-def sync_openrgb(r: int, g: int, b: int, argb_zones: bool = False):
-    """Set PC components (Motherboard, RAM, Fans) in OpenRGB via SDK Server, skipping Akko to avoid USB collisions.
-
-    When ``argb_zones`` is True the animated wave daemon (argb-wave.py) owns the
-    RAM and the ``Aura Addressable`` fan headers, so we only push the solid
-    accent to the non-addressable motherboard LEDs and leave the rest alone.
-    """
-    if "openrgb:_" in battery_alert_zones():
-        log("OpenRGB: reclamado por una alerta de batería, se omite el sync de tema")
-        return
-    try:
-        from openrgb import OpenRGBClient
-        from openrgb.utils import RGBColor
-
-        client = OpenRGBClient()
-        # The SDK server answers before it has finished probing the SMBus / AURA
-        # hardware, so right after boot client.devices can come back empty. Give
-        # it a few seconds to enumerate rather than silently syncing nothing.
-        for _ in range(10):
-            if client.devices:
-                break
-            time.sleep(1)
-            client.update()
-        if not client.devices:
-            raise RuntimeError("OpenRGB server has no devices yet")
-
-        col = RGBColor(r, g, b)
-        synced = []
-        for dev in client.devices:
-            name_l = dev.name.lower()
-            # Skip Akko/ROYUAN keyboards in OpenRGB - handled by dedicated sync_akko_keyboard
-            if "akko" in name_l or "royuan" in name_l:
-                continue
-
-            # When the animated wave daemon (argb-wave.py) is running it owns
-            # the whole ASUS board (mainboard + addressable headers) and the
-            # RAM via its own OpenRGB client. A second client writing here at
-            # the same time makes the LEDs race and strobe, so bail entirely.
-            if argb_zones and ("dram" in name_l or "asus" in name_l or "aura" in name_l):
-                continue
-
-            if dev.modes and dev.modes[dev.active_mode].name != "Direct":
-                try:
-                    direct_idx = next(
-                        i for i, m in enumerate(dev.modes) if m.name == "Direct"
-                    )
-                    dev.set_mode(direct_idx)
-                except StopIteration:
-                    log(f"Device {dev.name} has no Direct mode, skipping mode switch")
-                except Exception as em:
-                    log(f"Mode set error on {dev.name}: {em}")
-
-            for zone in dev.zones:
-                if argb_zones and "addressable" in zone.name.lower():
-                    continue
-                zone.set_color(col)
-            synced.append(dev.name)
-        log(f"OpenRGB (SDK): Synced RGB({r},{g},{b}) to {synced} (argb_zones={argb_zones})")
-        return
-    except Exception as e:
-        log(f"OpenRGB SDK error ({e}), attempting CLI fallback...")
-
-    # Fallback to CLI
-    try:
-        hex_c = f"{r:02x}{g:02x}{b:02x}"
-        cmd = ["openrgb", "--noautoconnect", "-c", hex_c]
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=4)
-        log("OpenRGB (CLI fallback) executed")
-    except Exception as e2:
-        log(f"OpenRGB CLI error: {e2}")
-
-
 def hex_to_rgb(hex_c: str) -> tuple[int, int, int]:
     h = str(hex_c).lstrip("#")
     if len(h) < 6:
         h = h.ljust(6, "0")
     return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
 
 
 def get_cached_battery(device_pref: str) -> tuple[int, str]:
@@ -430,10 +359,16 @@ def get_akko_battery_level_color(bat_level: int | None) -> tuple[int, int, int]:
 
 
 def sync_openrgb(r: int, g: int, b: int, argb_zones: bool = False, profile: dict | None = None):
+    """Set PC components (Motherboard, RAM, Fans) in OpenRGB via SDK Server, skipping Akko to avoid USB collisions.
+
+    When ``argb_zones`` is True the animated wave daemon (argb-wave.py) owns the
+    whole ASUS board and the RAM via its own OpenRGB client, so we skip DRAM and
+    ASUS/AURA devices to prevent LED race conditions and strobing.
     """
-    Sync colors to PC RGB devices via OpenRGB Python SDK.
-    When profile specifies 'fixed', 'battery_color', or 'argb_wave', uses those modes.
-    """
+    if "openrgb:_" in battery_alert_zones():
+        log("OpenRGB: reclamado por una alerta de batería, se omite el sync de tema")
+        return
+
     profile = profile or {}
     omode = profile.get("mode", "theme")
     if omode == "fixed":
@@ -449,11 +384,30 @@ def sync_openrgb(r: int, g: int, b: int, argb_zones: bool = False, profile: dict
         from openrgb.utils import RGBColor
 
         client = OpenRGBClient()
+        # The SDK server answers before it has finished probing the SMBus / AURA
+        # hardware, so right after boot client.devices can come back empty. Give
+        # it a few seconds to enumerate rather than silently syncing nothing.
+        for _ in range(10):
+            if client.devices:
+                break
+            time.sleep(1)
+            client.update()
+        if not client.devices:
+            raise RuntimeError("OpenRGB server has no devices yet")
+
         col = RGBColor(r, g, b)
         synced = []
         for dev in client.devices:
             dev_name_l = dev.name.lower()
+            # Skip Akko/ROYUAN keyboards in OpenRGB - handled by dedicated sync_akko_keyboard
             if "akko" in dev_name_l or "royuan" in dev_name_l:
+                continue
+
+            # When the animated wave daemon (argb-wave.py) is running it owns
+            # the whole ASUS board (mainboard + addressable headers) and the
+            # RAM via its own OpenRGB client. A second client writing here at
+            # the same time makes the LEDs race and strobe, so bail entirely.
+            if argb_zones and ("dram" in dev_name_l or "asus" in dev_name_l or "aura" in dev_name_l):
                 continue
 
             if dev.modes and dev.modes[dev.active_mode].name != "Direct":
@@ -485,6 +439,7 @@ def sync_openrgb(r: int, g: int, b: int, argb_zones: bool = False, profile: dict
         log("OpenRGB (CLI fallback) executed")
     except Exception as e2:
         log(f"OpenRGB CLI error: {e2}")
+
 
 
 def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4, throttle: bool = False, profile: dict | None = None):

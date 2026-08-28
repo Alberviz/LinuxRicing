@@ -33,7 +33,6 @@ STATE_FILE = Path.home() / ".local/state/caelestia/scheme.json"
 # Enter is pressed). If it's fresh we use it instead of STATE_FILE, so the
 # wave reacts live while scrolling through wallpapers, not just on confirm.
 LIVE_PALETTE_CACHE = Path("/tmp/caelestia-rgb-live-palette.json")
-LIVE_CACHE_TTL = 2.0  # seconds before falling back to the confirmed state file
 GRADIENT_KEYS = ["red", "peach", "yellow", "green", "sky", "sapphire", "lavender", "mauve"]
 FALLBACK_ANCHORS = [(255, 60, 60), (60, 255, 120), (60, 140, 255)]
 
@@ -61,18 +60,19 @@ def enhance(hex_color: str) -> tuple[int, int, int]:
 
 def get_anchors() -> list[tuple[int, int, int]]:
     primary_hex = None
-    try:
-        if time.time() - LIVE_PALETTE_CACHE.stat().st_mtime < LIVE_CACHE_TTL:
+    if LIVE_PALETTE_CACHE.exists():
+        try:
             colours = json.loads(LIVE_PALETTE_CACHE.read_text())
             primary_hex = colours.get("primary")
-    except Exception:
-        pass
+        except Exception:
+            pass
     if not primary_hex:
         try:
             colours = json.loads(STATE_FILE.read_text()).get("colours", {})
             primary_hex = colours.get("primary")
         except Exception:
             pass
+
 
     if not primary_hex:
         primary_hex = "abcaea"
