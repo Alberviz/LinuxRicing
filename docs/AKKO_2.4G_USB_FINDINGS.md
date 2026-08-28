@@ -152,6 +152,21 @@ Ejemplo real (frame 0, primera pasada):
                      └CK   └ LED0=(0,0,0)  LED1=(ff,0,0)=rojo  LED2=(0,0,0) ...
 ```
 
+### ⚠️ Limitación: per-key dinámico NO es viable por 2.4 GHz
+
+Probado el 2026-08-28 con un PoC de gauge de batería en la fila de números. Cada
+refresco del mapa (`07 0d` + 7 frames `0x0C`, y el driver lo manda 2 veces) **satura
+el enlace RF**: el dongle multiplexa el mapa y los input reports del teclado sobre la
+misma radio, así que **mientras se sube el mapa el teclado no responde** (ventana
+muerta de varios segundos con una animación; ~0.5–1 s incluso con una sola pasada).
+
+- **Efectos per-key animados / periódicos (batería que se actualiza, notificaciones):
+  descartados por 2.4 GHz.** El teclado se vuelve inusable durante cada update.
+- Per-key sí sirve para un estado **estático** que se escribe una vez.
+- Por **cable** no hay contención de radio → per-key dinámico sí sería viable ahí.
+- Para batería en modo inalámbrico, usar color sólido (`0x07`) + tira lateral (`0x08`)
+  como ya hace `rgb/sync-rgb-windows.py` (1–2 paquetes, apenas molesta al tecleo).
+
 ### Para Linux (per-key)
 
 1. Construir el array de 128×3 bytes con el color por tecla (mapa LED→índice: derivar

@@ -82,6 +82,11 @@ incompatibilidad permanente). Capturado el mapa per-key: `docs/pcap/akko-2.4g-pe
 
 Detalle completo con ejemplos reales en `docs/AKKO_2.4G_USB_FINDINGS.md` §"Per-key".
 
+**⚠️ Limitación probada:** per-key **dinámico no es viable por 2.4 GHz**. Cada refresco
+del mapa `0x0C` satura el enlace RF y el teclado deja de responder varios segundos
+(PoC de gauge de batería, 2026-08-28). Per-key = solo estado estático de una escritura;
+para efectos vivos (batería, notificaciones) usar `0x07`+`0x08` (tira lateral) o cable.
+
 ## Pendiente
 
 - Portar a Linux: color sólido (`07/08`) y per-key (`0x0C`) como Feature reports a
