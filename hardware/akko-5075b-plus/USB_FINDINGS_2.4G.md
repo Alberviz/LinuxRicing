@@ -125,17 +125,24 @@ Ambas son Feature reports de 64 bytes a la interfaz 2; la respuesta se lee con
 | Fase | Respuesta `0x83` | Respuesta `0xF7` |
 |---|---|---|
 | **A** · 2.4 GHz, sin cargar | `83 4a 00` → **74 %**, no carga | `00 4a 00 00` → **74 %**, no carga |
-| **B** · 2.4 GHz, cargando | `83 54 01` → **84 %**, **cargando** (sube 84→85 en vivo) | `00 42 00 01` → **byte[1] = `0x42` FIJO**, chg en byte[3] |
+| **B** · 2.4 GHz, cargando | `83 54 01` → **84 %**, **cargando** (sube 84→85 en vivo) | `00 42 00 01` → byte[1] pegado en `0x42` (66), chg en byte[3] |
 | **C** · USB-only, cargando | `83 00 01` → **byte[1] = `0x00`**, chg en byte[2] | (el dongle sigue devolviendo `00 42 00 01`) |
 
-### El bug de Linux — "la batería salta a 66 al enchufar"
+> El byte[1] de `0xF7` ya había derivado a `0x42` (66) **antes** de enchufar el cable
+> (74 → 72 → 66 en ~2 min con el teclado quieto), mientras `0x83` seguía dando 74.
+> `0xF7` byte[1] simplemente no es fiable.
 
-1. **`66` = `0x42`** = el valor que el firmware pone en `0xF7` byte[1] **mientras
-   carga**. No es la batería: es un centinela fijo (se queda en `0x42` todo el rato,
-   no sube como el valor real).
-2. Linux sondea **`0xF7`** y lee byte[1] como batería siempre → muestra 66 al enchufar.
+### El bug de Linux — "la batería salta a 66"
+
+1. **`0xF7` byte[1] no es una lectura fiable de batería: va a la deriva.** En el sniff,
+   con el teclado quieto, pasó de `0x4a` (74) → `0x48` (72) → `0x42` (66) en ~2 min,
+   mientras `0x83` se mantenía clavado en `0x4a` (74) todo ese rato. Al empezar a
+   cargar, `0x83` reveló el nivel real subiendo (84 → 85) y `0xF7` se quedó pegado
+   en `0x42` (66). El "66" que ve Linux = ese byte[1] de `0xF7`.
+2. Linux sondea **`0xF7`** y lee byte[1] como batería → muestra un valor que deriva y
+   se pega en 66.
 3. Encima el flag de carga de `0xF7` está en **byte[3]**, no en byte[2]. Si Linux mira
-   byte[2] (que sigue `00`), ni se entera de que está cargando → "66 %, descargando".
+   byte[2] (que sigue `00`), ni se entera de que está cargando.
 4. El "84 % subiendo" que da `rgb/sync-rgb-windows.py` **sí es correcto**: usa `0x83`
    (no `0xF7`) y lee `payload[1]`/`payload[2]`. `0x83` responde de verdad por el bus
    2.4 GHz (visto ~10 veces en el sniff: `83 54 01`, `83 55 01`).
