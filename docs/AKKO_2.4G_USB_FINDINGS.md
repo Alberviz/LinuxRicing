@@ -1,8 +1,9 @@
 # Akko 5075B Plus — Protocolo USB real del dongle 2.4 GHz (RESUELTO)
 
-> **Autor:** Agente de Windows (Claude) · **Fecha:** 2026-08-27
-> **Estado:** ✅ Cambio de color por 2.4 GHz **conseguido y verificado visualmente**
-> en Windows. Bytes exactos capturados con USBPcap.
+> **Autor:** Agente de Windows (Claude) · **Fecha:** 2026-08-27, ampliado 2026-08-28
+> **Estado:** ✅ Cambio de color sólido por 2.4 GHz **conseguido y verificado
+> visualmente**. ✅ **Per-key / iluminación personalizada capturada** (opcode `0x0C`,
+> ver §"Per-key"). Bytes exactos capturados con USBPcap.
 
 ---
 
@@ -103,6 +104,66 @@ sin parar**, mientras está abierto — también durante las pruebas que funcion
 
 ---
 
+## Per-key / iluminación personalizada (DIY) — opcode `0x0C`
+
+Capturado el 2026-08-28 con USBPcap funcionando de nuevo (ver runbook §4). El usuario
+pintó en Akko Cloud Driver, modo DIY, la fila de números en rojo y unas letras en otro
+color, y dio a aplicar. Captura: `docs/pcap/akko-2.4g-perkey.pcapng`.
+
+### Secuencia completa que manda el driver al pulsar "aplicar"
+
+Todo son `SET_REPORT` (Feature, `wValue=0x0300`, `wIndex=0x0002`, 64 bytes) a la
+interfaz 2, igual que el color sólido:
+
+| # | Paquete (primeros bytes) | Rol |
+|---|---|---|
+| 1 | `07 0d 04 04 00 00 c8 c8 53` | **Entrar en modo custom/DIY.** `0x07` sub `0x0d` (el color sólido es sub `0x01`). `c8 c8` = brillo (200) teclas + lateral. CK en byte[8] con la regla de siempre `0xFF-(sum[0..7]&0xFF)`. |
+| 2 | `88 00 00 00 00 00 00 77` | Housekeeping (apareció 1 vez). CK header en byte[7]. Rol exacto sin confirmar; replicarlo por si acaso. |
+| 3 | `fc 00 00 00 …` | Housekeeping (apareció 1 vez). Rol sin confirmar. |
+| 4 | **7 × frame `0x0C`** (idx 0..6) | **El mapa RGB.** Ver abajo. |
+| — | (se reenvían los 7 frames una segunda vez) | El driver manda el mapa **dos veces** seguidas. Con una sola pasada probablemente basta. |
+
+No hay paquete de "commit" final: el último frame aplica el mapa. Durante todo esto
+sigue el sondeo `0xF7` cada ~2 s.
+
+### Frame `0x0C` (mapa de teclas)
+
+```
+byte[0]     = 0x0C
+byte[1]     = 0x00
+byte[2..3]  = 0x0180 little-endian = 384 = longitud total del mapa en bytes (128 LED × 3)
+byte[4]     = índice de frame (0..6)
+byte[5..6]  = 0x00 0x00
+byte[7]     = CK = (0xFF - (sum(byte[0..6]) & 0xFF)) & 0xFF   ← SOLO la cabecera, NO el payload
+byte[8..63] = payload: hasta 56 bytes del array RGB plano
+```
+
+- El mapa es un **array plano de 128 entradas RGB** (`R,G,B` por LED, orden RGB
+  confirmado: la fila de números salió con `ff 00 00` = rojo), indexado por número de
+  LED del teclado.
+- Se trocea en **7 frames**: `offset = idx * 56`, `len = min(56, 384 - offset)`.
+  Frames 0..5 llevan 56 bytes, el frame 6 lleva los 48 restantes; el resto va a `0x00`.
+- El checksum del `0x0C` **es distinto del `0x07/0x08`**: va en byte[7] y cubre solo
+  los 7 bytes de cabecera (el payload no entra en el checksum).
+
+Ejemplo real (frame 0, primera pasada):
+```
+0c 00 80 01 00 00 00 72 | 00 00 00 ff 00 00 00 00 00 00 00 00 00 00 00 00 ...
+                     └CK   └ LED0=(0,0,0)  LED1=(ff,0,0)=rojo  LED2=(0,0,0) ...
+```
+
+### Para Linux (per-key)
+
+1. Construir el array de 128×3 bytes con el color por tecla (mapa LED→índice: derivar
+   del `.pcap` o del layout que ya use `rgb/akko-rgb`).
+2. Mandar `07 0d 04 04 00 00 BB BB CK` (Feature, if 2) para entrar en modo custom,
+   `BB` = brillo.
+3. (Opcional/seguro) replicar `88 …` y `fc …`.
+4. Mandar 7 Feature reports `0c 00 80 01 <idx> 00 00 <CK_header> <56 bytes>`, idx 0→6.
+5. Repetir el bloque de 7 una vez más como hace el driver (opcional).
+
+---
+
 ## Recomendaciones para Linux
 
 1. **Aplicar color por 2.4 GHz = aplicar color por cable.** Escribir
@@ -131,6 +192,7 @@ sin parar**, mientras está abierto — también durante las pruebas que funcion
 | `docs/pcap/akko-2.4g-2.4ghz-working.pcapng` | **Referencia.** Rojo/verde/azul/blanco al backlight (`0x07`) y tira lateral (`0x08`) por gRPC `sendMsg` crudo con la ruta correcta. Verificado a ojo. |
 | `docs/pcap/akko-2.4g-color-change.pcapng` | Cambio de color desde la GUI oficial de Akko Cloud Driver (misma escritura `0x07`). |
 | `docs/pcap/akko-2.4g-script-grpc.pcapng` | El fallo: `sync-rgb-windows.py` con la ruta obsoleta → solo sondeo `0xF7`, ningún `0x07`. |
+| `docs/pcap/akko-2.4g-perkey.pcapng` | **Per-key / DIY.** Fila de números en rojo + letras en otro color desde la GUI. Muestra `07 0d` (modo custom) + 7 frames `0x0C` × 2 pasadas. |
 
 Filtro útil en Wireshark: `usb.transfer_type == 0x02 && usb.data_len > 8`
 

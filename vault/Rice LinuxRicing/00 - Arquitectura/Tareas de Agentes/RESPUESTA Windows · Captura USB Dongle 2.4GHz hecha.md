@@ -60,15 +60,30 @@ Respuestas a las preguntas de la "Petición a Windows":
 - `docs/pcap/akko-2.4g-color-change.pcapng` — la GUI oficial.
 - `docs/pcap/akko-2.4g-script-grpc.pcapng` — el fallo con la ruta obsoleta.
 
+## Per-key / DIY — ✅ CAPTURADO (2026-08-28)
+
+USBPcap volvió a funcionar tras un **apagado completo** (era intermitente, no una
+incompatibilidad permanente). Capturado el mapa per-key: `docs/pcap/akko-2.4g-perkey.pcapng`.
+
+**Protocolo (opcode `0x0C`)** — todo Feature report a la interfaz 2, igual que el sólido:
+
+```
+07 0d 04 04 00 00 BB BB CK                      # entrar en modo custom/DIY (BB=brillo, CK en byte[8])
+0c 00 80 01 <idx> 00 00 <CKhdr> <56 bytes>      # 7 frames, idx 0..6
+```
+
+- El mapa es un **array plano de 128 LED × RGB** (384 bytes), troceado en 7 frames de
+  56 bytes: `offset = idx*56`. Orden RGB confirmado (fila de números → `ff 00 00`).
+- El checksum del `0x0C` va en **byte[7]** y cubre **solo la cabecera** (bytes 0..6),
+  NO el payload. (Distinto del `0x07/0x08`, que va en byte[8] y cubre 0..7.)
+- El driver manda además `88 …` y `fc …` una vez cada uno antes de los frames (rol sin
+  confirmar, replicarlos por si acaso), y **reenvía los 7 frames una segunda vez**.
+- No hay paquete de commit final.
+
+Detalle completo con ejemplos reales en `docs/AKKO_2.4G_USB_FINDINGS.md` §"Per-key".
+
 ## Pendiente
 
-- **LEDs per-key / per-zona** (encender solo una fila, etc.): protocolo distinto
-  (subida de mapa RGB en frames). **No capturado** — bloqueado por herramientas:
-  USBPcap 1.5.4.0 (última release, proyecto muerto desde 2020) no consigue abrir los
-  dispositivos USB hijo en Windows 11 build 26200 (`USBPcapCMD -A` y `--devices` fallan
-  con `Couldn't open device - 2`; solo funciona abrir el control device sin selección,
-  que no captura nada). Funcionó a principios de esta sesión por un estado previo del
-  driver; tras reinstalar/reiniciar dejó de ir. Caminos posibles: (a) máquina con
-  Windows más antiguo, (b) analizar el binario `iot_driver_v200.exe` directamente,
-  (c) esperar un USBPcap nuevo (improbable).
-- Confirmar en Linux que el paquete Feature a `:1.2` del PID `0x4011` cambia el color.
+- Portar a Linux: color sólido (`07/08`) y per-key (`0x0C`) como Feature reports a
+  `:1.2` del PID `0x4011`, y verificar a ojo que cambian las luces por 2.4 GHz.
+- Mapa LED→índice del `0x0C`: derivarlo del `.pcap` o reutilizar el layout de `rgb/akko-rgb`.

@@ -3,7 +3,7 @@
 > Para el **agente de Windows**. Si empiezas una conversación nueva y el objetivo es
 > capturar tráfico USB de un periférico, **lee esto entero antes de tocar nada**. Todo
 > lo de aquí ya se ha probado — no lo re-investigues.
-> Última actualización: 2026-08-27.
+> Última actualización: 2026-08-28.
 
 ---
 
@@ -60,9 +60,17 @@ es el payload del report).
 
 ---
 
-## 4. ⚠️ El fallo de USBPcap en esta build de Windows (esto se comió una sesión entera)
+## 4. ⚠️ El fallo de USBPcap en esta build de Windows (intermitente)
 
-**Síntoma:** `USBPcapCMD -d \\.\USBPcapN -o f -A` (o `--devices N`) falla con
+**Novedad 2026-08-28:** tras un apagado completo (no reinicio) y arranque limpio,
+`USBPcapCMD -d \\.\USBPcap3 -o f -A --inject-descriptors` **volvió a funcionar** a la
+primera y capturó sin problema el color sólido *y* el per-key (opcode `0x0C`). O sea:
+el fallo de abajo es **intermitente y ligado al estado del driver en memoria**, no una
+incompatibilidad permanente. Si falla: **apagado completo** (Shutdown, no Restart) y
+capturar como primera acción. `\\.\USBPcap3` = hub del dongle; device address cambió a
+**7** esa sesión (verificar siempre, no asumir 6).
+
+**Síntoma (cuando está roto):** `USBPcapCMD -d \\.\USBPcapN -o f -A` (o `--devices N`) falla con
 **`Couldn't open device - 2`** y deja el fichero a **0 bytes**. Solo abrir el control
 device sin `-A` ni `--devices` funciona, pero no captura nada
 (`Selected capture options result in empty capture`).
@@ -102,24 +110,29 @@ device sin `-A` ni `--devices` funciona, pero no captura nada
   parafernalia gRPC quitada. **Necesita `iot_driver_v200.exe` corriendo.**
 - Capturas de referencia en `docs/pcap/`.
 
+- **LEDs per-key / per-zona** — ✅ **capturado el 2026-08-28** (`docs/pcap/akko-2.4g-perkey.pcapng`).
+  Opcode `0x0C`: `07 0d` (modo custom) + 7 frames `0c 00 80 01 <idx> 00 00 <ck>` con
+  un array plano de 128 LED × RGB troceado en chunks de 56 bytes. Detalle completo en
+  `docs/AKKO_2.4G_USB_FINDINGS.md` §"Per-key". Falta portarlo a Linux y verificar.
+
 ### ❌ No resuelto
 
-- **LEDs per-key / per-zona** (encender una fila sola, etc.). Protocolo distinto:
-  subida de un mapa RGB (~126 teclas) en varios frames. **Bloqueado por el fallo de
-  USBPcap del §4.**
+- Confirmar en Linux que los paquetes Feature a `:1.2` (color sólido `0x07/0x08` y
+  per-key `0x0C`) cambian las luces por 2.4 GHz.
 
-### Receta para capturar el per-key (cuando USBPcap funcione)
+### Receta para re-capturar el per-key (si hace falta más detalle)
 
-1. Arrancar "Akko Cloud Driver", esperar a que el puerto 3814 responda.
+1. Arrancar "Akko Cloud Driver" (`%LOCALAPPDATA%\Programs\Akko Cloud Driver\...`),
+   esperar a que el puerto 3814 responda.
 2. Resolver el path MI_02 del dongle (§2) y su `usb.device_address` actual.
-3. **Self-test primero:** capturar 4 s con `-A`, disparar
-   `sync_akko_keyboard((0,180,255))`, parar. Si el `.pcap` > 24 bytes y contiene
-   `usb.idVendor==0x3151` → OK. Si 0 bytes → USBPcap roto, §4.
-4. Captura de 120 s. El usuario pinta en Akko Cloud Driver, modo **DIY/custom**, un
-   patrón distinguible (fila de números en rojo, unas letras en azul) y da a aplicar.
-5. Parar, filtrar al dongle, analizar. Buscar opcodes distintos de `0x07/0x08/0xF7`:
-   se espera un mode-set + N frames con un byte de índice/offset, cada uno con RGB de
-   un trozo de teclas.
+3. **Self-test primero:** capturar ~5 s con `-A --inject-descriptors` en `\\.\USBPcap3`,
+   disparar `sync_akko_keyboard((0,180,255))`, parar. Si el `.pcap` > 24 bytes y contiene
+   el `07 01 04 04 08 00 b4 ff` → OK. Si 24 bytes → USBPcap roto, §4 (apagado completo).
+4. Captura de ~150 s. El usuario pinta en Akko Cloud Driver, modo **DIY/custom**, un
+   patrón distinguible y da a aplicar.
+5. Parar, `tshark -r raw.pcap -Y "usb.device_address==N" -w f.pcapng`. Parser de
+   payloads: los bloques `USB Control (NN bytes):` empiezan por `Packet (` (no `Frame (`),
+   y los 7 primeros bytes (`09 00 03 02 0X 40 00`) son cola del setup.
 
 ---
 
