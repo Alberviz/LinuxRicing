@@ -19,7 +19,7 @@ requiere: Alberto presente para mirar los LEDs
 
 - Rama: `feat/battery-lighting-engine` (en `origin`). Haz `git fetch && git checkout feat/battery-lighting-engine`.
 - Diseño: `docs/superpowers/specs/2026-08-27-battery-lighting-engine-design.md`.
-- El script: `rgb/battery-lighting`. Efectos y protocolo: `docs/HARDWARE_PROTOCOLS.md` §1 (Akko) y §2 (MCHOSE base).
+- El script: `rgb/battery-lighting`. Efectos y protocolo: [`hardware/akko-5075b-plus/PROTOCOL.md`](file:///C:/Users/Alberviz/LinuxRicing/hardware/akko-5075b-plus/PROTOCOL.md) y [`hardware/mchose-k7-ultra/PROTOCOL.md`](file:///C:/Users/Alberviz/LinuxRicing/hardware/mchose-k7-ultra/PROTOCOL.md).
 
 ## 2. Instalar (sin activar el daemon todavía)
 
@@ -49,7 +49,7 @@ efecto real**. Entre pruebas, `~/.local/bin/battery-lighting --clear` para volve
 ### 2.1 Foco especial — mapa de coordenadas del lienzo del Akko
 
 El efecto **medidor** en las teclas usa `AKKO_KEY_ROWS` en `rgb/battery-lighting` (~línea
-286), que es un **mapa parcial y SIN validar** sacado de `docs/HARDWARE_PROTOCOLS.md §1.G`.
+286), que es un **mapa parcial y SIN validar** sacado de [`hardware/akko-5075b-plus/PROTOCOL.md`](file:///C:/Users/Alberviz/LinuxRicing/hardware/akko-5075b-plus/PROTOCOL.md) §C.
 Al probar `--apply akko-charging`, observa con cuidado:
 - ¿Se encienden filas completas de abajo arriba, o teclas sueltas / desordenadas / filas equivocadas?
 - ¿La fila de abajo (Ctrl/Alt/Espacio) es la primera en encenderse?

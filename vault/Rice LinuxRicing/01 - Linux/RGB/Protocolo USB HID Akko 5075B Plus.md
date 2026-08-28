@@ -1,23 +1,23 @@
 ---
 tags: [rice, rgb, usb, protocolo, hardware, akko, linux, troubleshooting]
-actualizado: 2026-08-27
+actualizado: 2026-08-29
 ---
 
 # ⌨️ Protocolo USB HID · Teclado Akko 5075B Plus (2.4 GHz & Cable)
 
-Documentación técnica y manual de diagnóstico para la ingeniería inversa del teclado **Akko 5075B Plus** (controlador ROYUAN B-series) en entornos Linux y Windows.
+Contexto histórico, manual de diagnóstico y notas de ingeniería inversa del teclado **Akko 5075B Plus** (controlador ROYUAN B-series) en entornos Linux y Windows.
+
+> [!NOTE]
+> **Especificación Canónica:** La especificación técnica completa y actualizada de opcodes, bytes y payloads se encuentra en [`hardware/akko-5075b-plus/PROTOCOL.md`](file:///C:/Users/Alberviz/LinuxRicing/hardware/akko-5075b-plus/PROTOCOL.md). Los hallazgos detallados de las capturas USB en 2.4 GHz están en [`hardware/akko-5075b-plus/USB_FINDINGS_2.4G.md`](file:///C:/Users/Alberviz/LinuxRicing/hardware/akko-5075b-plus/USB_FINDINGS_2.4G.md).
 
 ```mermaid
 graph TD
     Host[PC Linux / Windows] -->|Enlace USB Directo| CableMode[PID 0x4015: Cable USB]
     Host -->|Enlace Inalámbrico| DongleMode[PID 0x4011: Dongle 2.4 GHz]
     
-    CableMode -->|Feature Report 0x07/0x08| MCU_Direct[Microcontrolador Teclado: Cambio Inmediato]
-    
-    DongleMode -->|Feature Report 0x07/0x08| DongleFIFO[Buffer FIFO del Dongle 2.4G]
-    DongleFIFO -->|Falta Commit 0x88?| Stalled[❌ Paquete retenido en memoria: NO EMITE]
-    DongleFIFO -->|Opcode 0x88 Commit / Flush| RF_Air[📡 Transmisión por Radiofrecuencia]
-    RF_Air --> MCU_Direct
+    CableMode -->|Feature Report 0x07/0x08 Interfaz :1.2| MCU[Microcontrolador ROYUAN B-Series]
+    DongleMode -->|Feature Report 0x07/0x08 Interfaz :1.2| RF_Transceiver[Transceptor Dongle 2.4G]
+    RF_Transceiver -->|Emisión RF Inmediata| MCU
 ```
 
 ---
@@ -29,20 +29,15 @@ graph TD
 | **Cable USB Directo** | `0x3151` | **`0x4015`** | **La placa del teclado directamente.** |
 | **Inalámbrico 2.4 GHz** | `0x3151` | **`0x4011`** | **El Dongle transceptor de radio USB.** |
 
+Ambos modos utilizan el mismo protocolo de Feature Reports sobre la interfaz `:1.2`.
+
 ---
 
-## 🚨 2. Por Qué Fallan los Agentes (Errores Típicos y Soluciones)
+## 🚨 2. Errores Típicos y Diagnóstico
 
-### 🔴 Error 1: "El script se ejecuta con código 0, pero las luces no cambian en 2.4 GHz"
-* **Causa Raíz:** En modo 2.4 GHz (`PID 0x4011`), el microcontrolador del dongle retiene los comandos LED (`0x07` y `0x08`) en una cola interna. **No los emite por el aire** hasta que recibe un comando de sincronización/commit.
-* **Solución:** Enviar siempre el paquete **`Opcode 0x88` (`FEA_CMD_GET_SLEDPARAM`)** inmediatamente después de escribir la iluminación:
-  ```python
-  # Pipeline Commit para forzar la emisión RF
-  req_sync = bytearray(64)
-  req_sync[0] = 0x88
-  req_sync[7] = 0x77  # Checksum BIT7
-  fcntl.ioctl(fd, HIDIOCSFEATURE(65), bytearray([0x00]) + req_sync)
-  ```
+### 🔴 Error 1: El mito del "Commit 0x88 / RF Pipeline Flush" (Refutado)
+* **Historia / Error:** Durante las primeras pruebas se creía que el dongle 2.4 GHz requería un paquete adicional con `Opcode 0x88` (`FEA_CMD_GET_SLEDPARAM`) para vaciar un supuesto buffer RF interno.
+* **Realidad verificada por captura USB:** Las capturas USB con Wireshark/USBPcap demostraron que `0x88` es en realidad un comando de **lectura** de parámetros de la tira lateral, y que los comandos de iluminación estándar (`0x07` y `0x08`) se emiten de inmediato por radio sin necesidad de ningún flush. No se debe enviar `0x88` como comando de escritura.
 
 ---
 
@@ -75,76 +70,19 @@ graph TD
   1. En el firmware ROYUAN B-series, el campo `Flags` (Byte 4) con valor `0x07` corresponde al preset de paleta #7 (Arcoíris/Rainbow).
   2. El modo **Custom RGB de 24 bits** requiere **`Flags = 0x08`** (`AKKO_FLAGS_CUSTOM_RGB = 0x08`).
   3. Si el teclado estaba previamente en modo Lienzo por tecla (`UserPicture` / Modo 13), ignora los paquetes de modo 1 hasta recibir un reseteo de modo o los 7 chunks de 56 bytes (`Opcode 0x0C`).
-* **Solución:** Usar siempre `Flags = 0x08` y Modo `0x01` para color sólido:
-  ```python
-  led = bytearray(64)
-  led[0] = 0x07                 # Opcode Backlight
-  led[1] = 0x01                 # Mode 1 (Always On / Solid)
-  led[2] = 0x04                 # Velocidad
-  led[3] = 0x04                 # Brillo 100%
-  led[4] = 0x08                 # FLAGS = 0x08 (Custom RGB directo)
-  led[5], led[6], led[7] = r, g, b
-  led[8] = 0xFF - (sum(led[:8]) & 0xFF)  # Checksum BIT7 en byte 8
-  ```
+* **Solución:** Usar siempre `Flags = 0x08` y Modo `0x01` para color sólido. Ver detalles en [`hardware/akko-5075b-plus/PROTOCOL.md`](file:///C:/Users/Alberviz/LinuxRicing/hardware/akko-5075b-plus/PROTOCOL.md).
 
 ---
 
-## 🛠️ 3. Especificación Técnica de Paquetes
-
-### A. Retroiluminación Principal de Teclas (Opcode `0x07`)
-* `byte[0]`: `0x07`
-* `byte[1]`: Modo (`0x01` Fijo, `0x02` Respiración, `0x05` Ripple, `0x0D` UserPicture)
-* `byte[2]`: Velocidad (`0..4` invertido como `4 - speed`)
-* `byte[3]`: Brillo (`0..4`, `4` = 100%)
-* `byte[4]`: **`0x08` (Custom RGB)**
-* `byte[5..7]`: `R, G, B` (`0 - 255`)
-* `byte[8]`: Checksum BIT7 = `0xFF - (sum(byte[0..8]) & 0xFF)`
-
-### B. Barra Lateral SLED (Opcode `0x08`)
-* `byte[0]`: `0x08`
-* `byte[1]`: Modo (`0x01` Fijo, `0x02` Respiración, `0x05` Steady Stream / Flujo continuo)
-* `byte[2]`: Velocidad (`0..4`, `0` = ultracalmada para carga)
-* `byte[3]`: Brillo (`0..4`, `4` = 100%)
-* `byte[4]`: **`0x08` (Custom RGB)**
-* `byte[5..7]`: `R, G, B`
-* `byte[8]`: Checksum BIT7
-
-### C. Telemetría de Batería y Carga (Opcode `0x83`)
-* **Solicitud:** Buffer de 64 bytes con `byte[0] = 0x83`, `byte[7] = 0x7C`.
-* **Respuesta:**
-  * `byte[1]`: **Porcentaje de Batería** (`0 - 100%`).
-  * `byte[2]`: **Estado de Carga** (`0x01` = `⚡ Cargando por USB`, `0x00` = `Descargando en 2.4G`).
+### 🔴 Error 4: Per-key dinámico en 2.4 GHz satura la radio
+* **Hallazgo:** Intentar actualizar el mapa de LEDs por tecla (`Opcode 0x0C`, 7 paquetes) de forma dinámica (por ejemplo, animaciones continuas o gauge de batería en tiempo real) a través de la radio 2.4 GHz satura el canal y provoca congelaciones de ~0.5–1s en el teclado.
+* **Solución:** En 2.4 GHz usar efectos per-key solo como estado estático; para animaciones reactivas en vivo usar la tira lateral (`0x08`) o conectar por cable USB.
 
 ---
 
-## 🚀 4. Secuencia Completa de Referencia en Python (Linux hidraw)
+## 📚 3. Referencia Técnica
 
-```python
-import os, fcntl, time
-
-def set_akko_rgb(r, g, b, hidraw_node):
-    fd = os.open(hidraw_node, os.O_RDWR | os.O_NONBLOCK)
-    
-    # 1. Backlight
-    led = bytearray(64)
-    led[0] = 0x07; led[1] = 0x01; led[2] = 0x04; led[3] = 0x04; led[4] = 0x08
-    led[5], led[6], led[7] = r, g, b
-    led[8] = 0xFF - (sum(led[:8]) & 0xFF)
-    fcntl.ioctl(fd, (3 << 30) | (65 << 16) | (ord("H") << 8) | 0x06, bytearray([0x00]) + led)
-    time.sleep(0.03)
-
-    # 2. Side-Strip
-    sled = bytearray(64)
-    sled[0] = 0x08; sled[1] = 0x01; sled[2] = 0x04; sled[3] = 0x04; sled[4] = 0x08
-    sled[5], sled[6], sled[7] = r, g, b
-    sled[8] = 0xFF - (sum(sled[:8]) & 0xFF)
-    fcntl.ioctl(fd, (3 << 30) | (65 << 16) | (ord("H") << 8) | 0x06, bytearray([0x00]) + sled)
-    time.sleep(0.03)
-
-    # 3. Pipeline Commit (CRÍTICO PARA 2.4 GHz)
-    commit = bytearray(64); commit[0] = 0x88; commit[7] = 0x77
-    fcntl.ioctl(fd, (3 << 30) | (65 << 16) | (ord("H") << 8) | 0x06, bytearray([0x00]) + commit)
-    time.sleep(0.02)
-    
-    os.close(fd)
-```
+Para la estructura exacta de los paquetes, checksum BIT7, modos y mapa de coordenadas per-key, consultar:
+- [Protocolo Canónico Akko 5075B Plus](file:///C:/Users/Alberviz/LinuxRicing/hardware/akko-5075b-plus/PROTOCOL.md)
+- [Capturas y Análisis USB 2.4G](file:///C:/Users/Alberviz/LinuxRicing/hardware/akko-5075b-plus/USB_FINDINGS_2.4G.md)
+- [Frontend de Iluminación de Batería](file:///C:/Users/Alberviz/LinuxRicing/hardware/akko-5075b-plus/BATTERY_LIGHTING_FRONTEND.md)

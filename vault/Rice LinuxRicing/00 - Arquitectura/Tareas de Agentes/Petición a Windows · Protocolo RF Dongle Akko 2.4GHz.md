@@ -67,7 +67,7 @@ Necesitamos conocer **cuáles son los bytes USB crudos exactos** que el `Akko Cl
 3. Filtrar por el dispositivo USB: `usb.idVendor == 0x3151 && usb.idProduct == 0x4011`.
 4. Ejecutar el cambio de color con `python rgb/sync-rgb-windows.py`.
 5. Detener la captura y guardar el archivo en el repositorio como:
-   `docs/pcap/akko_2.4g_color_change.pcapng` (o documentar los paquetes en un markdown).
+   `hardware/akko-5075b-plus/captures/akko-2.4g-color-change.pcapng` (o documentar los paquetes en un markdown).
 6. **Extraer y documentar en Obsidian:**
    - ¿Qué Report ID / Setup Packet / Control Request envía para `setLightType`?
    - ¿Qué bytes preceden a los reportes `0x07` y `0x08` para que el dongle sepa que el destinatario es `dangle_type = 1` (el teclado por RF)?

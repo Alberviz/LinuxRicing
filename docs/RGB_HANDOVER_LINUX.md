@@ -3,7 +3,7 @@
 > **Fecha:** 26 de Agosto de 2026  
 > **Objetivo:** Sincronización RGB unificada de todo el setup en Linux (Hyprland / Matugen / Pywal / OpenRGB).
 
-> ⚠️ **Corregido posteriormente:** el byte `a[4]` y la posición/fórmula del checksum documentados más abajo eran incorrectos (nunca se habían verificado visualmente en hardware, solo vía el driver oficial de Windows). La especificación correcta, verificada contra el driver real de OpenRGB, está en `docs/HARDWARE_PROTOCOLS.md`. Se deja el resto de este documento como registro histórico de la sesión.
+> ⚠️ **Corregido posteriormente:** el byte `a[4]` y la posición/fórmula del checksum documentados más abajo eran incorrectos (nunca se habían verificado visualmente en hardware, solo vía el driver oficial de Windows). La especificación correcta, verificada contra el driver real de OpenRGB, está en `hardware/<dispositivo>/PROTOCOL.md`. Se deja el resto de este documento como registro histórico de la sesión.
 
 ---
 

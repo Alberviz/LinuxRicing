@@ -3,6 +3,21 @@
 #  🛸 ALBERVIZ LINUX RICING - MODULAR MULTI-DEVICE INSTALLER
 #  Compatible con Arch Linux, Calamares, EndeavourOS, Caelestia & Hyprland
 # ==============================================================================
+#
+#  Enlaces repo -> sistema (son COPIAS, no symlinks; reinstalar tras cada cambio):
+#    configs/hypr/*                  -> ~/.config/hypr/
+#    configs/quickshell/caelestia/*  -> ~/.config/quickshell/caelestia/
+#    configs/caelestia/cli.json      -> ~/.config/caelestia/cli.json   (hook de tema)
+#    configs/caelestia/shell.json    -> ~/.config/caelestia/shell.json (semilla)
+#    configs/caelestia/rgb-config.json -> ~/.config/caelestia/         (semilla)
+#    configs/spicetify/Themes/*      -> ~/.config/spicetify/Themes/
+#    widgets/Background.qml          -> ~/.config/quickshell/caelestia/modules/background/
+#    widgets/{gtasks,desktop-deck-helper} -> ~/.local/bin/
+#    rgb/{sync-rgb,argb-wave}.py     -> ~/.config/caelestia/
+#    rgb/{akko-rgb,battery-lighting,magichome-control,mchose-battery,
+#         mchose-lighting,rgb-notify-flash} -> ~/.local/bin/
+#    systemd/*.service              -> ~/.config/systemd/user/
+# ==============================================================================
 
 set -e
 
@@ -96,20 +111,25 @@ mkdir -p "$HOME/.config" "$HOME/.local/bin" "$HOME/.cache"
 # 1. Instalar Hyprland Configs
 if [ "$SELECTED_HYPR" = true ]; then
     echo -e "${PRIMARY}➔ Instalando configuraciones de Hyprland...${RESET}"
-    mkdir -p "$HOME/.config/hypr/config"
-    if [ -f "$BASE_DIR/configs/hypr/config/binds.lua" ]; then
-        cp -u "$BASE_DIR/configs/hypr/config/binds.lua" "$HOME/.config/hypr/config/binds.lua"
-        echo -e "  ${SUCCESS}✔ Binds actualizados (Super + W para fondos)${RESET}"
+    mkdir -p "$HOME/.config/hypr"
+    if [ -d "$BASE_DIR/configs/hypr" ]; then
+        # Árbol completo: hyprland.lua, config/, hyprland/, scheme/, utils/, xdph.conf
+        cp -ru "$BASE_DIR/configs/hypr/"* "$HOME/.config/hypr/"
+        echo -e "  ${SUCCESS}✔ Configs de Hyprland instaladas (binds Super+W, scheme, utils, xdph)${RESET}"
     fi
 fi
 
 # 2. Instalar Caelestia Quickshell
 if [ "$SELECTED_CAELESTIA" = true ]; then
     echo -e "${PRIMARY}➔ Desplegando Caelestia Quickshell Shell...${RESET}"
-    mkdir -p "$HOME/.config/quickshell/caelestia"
+    mkdir -p "$HOME/.config/quickshell/caelestia" "$HOME/.config/caelestia"
     if [ -d "$BASE_DIR/configs/quickshell/caelestia" ]; then
         cp -ru "$BASE_DIR/configs/quickshell/caelestia/"* "$HOME/.config/quickshell/caelestia/"
         echo -e "  ${SUCCESS}✔ Caelestia Shell y servicios MPRIS instalados${RESET}"
+    fi
+    # shell.json: semilla de configuración del shell (no pisar la del usuario)
+    if [ -f "$BASE_DIR/configs/caelestia/shell.json" ] && [ ! -f "$HOME/.config/caelestia/shell.json" ]; then
+        cp "$BASE_DIR/configs/caelestia/shell.json" "$HOME/.config/caelestia/shell.json"
     fi
 fi
 
@@ -156,35 +176,45 @@ fi
 if [ "$SELECTED_RGB" = true ]; then
     echo -e "${PRIMARY}➔ Instalando controladores de hardware RGB y daemon...${RESET}"
     mkdir -p "$HOME/.config/caelestia"
-    if [ -f "$BASE_DIR/rgb/sync-rgb.py" ]; then
-        cp -u "$BASE_DIR/rgb/sync-rgb.py" "$HOME/.config/caelestia/sync-rgb.py"
-        chmod +x "$HOME/.config/caelestia/sync-rgb.py"
+
+    # 6a. Scripts que corren desde ~/.config/caelestia (los invoca el hook de tema)
+    for f in sync-rgb.py argb-wave.py; do
+        if [ -f "$BASE_DIR/rgb/$f" ]; then
+            cp -u "$BASE_DIR/rgb/$f" "$HOME/.config/caelestia/$f"
+            chmod +x "$HOME/.config/caelestia/$f"
+        fi
+    done
+
+    # 6b. Semillas de configuración de Caelestia (no pisar las del usuario)
+    if [ -f "$BASE_DIR/configs/caelestia/cli.json" ]; then
+        cp -u "$BASE_DIR/configs/caelestia/cli.json" "$HOME/.config/caelestia/cli.json"
     fi
-    if [ -f "$BASE_DIR/rgb/argb-wave.py" ]; then
-        cp -u "$BASE_DIR/rgb/argb-wave.py" "$HOME/.config/caelestia/argb-wave.py"
-        chmod +x "$HOME/.config/caelestia/argb-wave.py"
-    fi
+    for seed in rgb-config.json; do
+        if [ -f "$BASE_DIR/configs/caelestia/$seed" ] && [ ! -f "$HOME/.config/caelestia/$seed" ]; then
+            cp "$BASE_DIR/configs/caelestia/$seed" "$HOME/.config/caelestia/$seed"
+        fi
+    done
+
+    # 6c. Binarios CLI en ~/.local/bin
+    for bin in akko-rgb battery-lighting magichome-control mchose-battery \
+               mchose-lighting rgb-notify-flash; do
+        if [ -f "$BASE_DIR/rgb/$bin" ]; then
+            cp -u "$BASE_DIR/rgb/$bin" "$HOME/.local/bin/$bin"
+            chmod +x "$HOME/.local/bin/$bin"
+        fi
+    done
+
+    # 6d. Unidades systemd de usuario
     if [ -d "$BASE_DIR/systemd" ]; then
         mkdir -p "$HOME/.config/systemd/user"
-        cp -u "$BASE_DIR/systemd/"*.service \
-            "$HOME/.config/systemd/user/" 2>/dev/null || true
+        cp -u "$BASE_DIR/systemd/"*.service "$HOME/.config/systemd/user/" 2>/dev/null || true
         systemctl --user daemon-reload || true
-        systemctl --user disable --now mchose-battery.timer mchose-battery.service 2>/dev/null || true
-        systemctl --user enable --now openrgb.service argb-wave.service \
-            battery-lighting.service 2>/dev/null || true
+        # openrgb + battery-lighting siempre; argb-wave solo si su script existe (rama feature/argb-wave)
+        UNITS="openrgb.service battery-lighting.service"
+        [ -f "$BASE_DIR/rgb/argb-wave.py" ] && UNITS="$UNITS argb-wave.service"
+        systemctl --user enable --now $UNITS 2>/dev/null || true
     fi
-    if [ -f "$BASE_DIR/rgb/mchose-battery" ]; then
-        cp -u "$BASE_DIR/rgb/mchose-battery" "$HOME/.local/bin/mchose-battery"
-        chmod +x "$HOME/.local/bin/mchose-battery"
-    fi
-    if [ -f "$BASE_DIR/rgb/battery-lighting" ]; then
-        cp -u "$BASE_DIR/rgb/battery-lighting" "$HOME/.local/bin/battery-lighting"
-        chmod +x "$HOME/.local/bin/battery-lighting"
-    fi
-    if [ -f "$BASE_DIR/rgb/magichome-control" ]; then
-        cp -u "$BASE_DIR/rgb/magichome-control" "$HOME/.local/bin/magichome-control"
-        chmod +x "$HOME/.local/bin/magichome-control"
-    fi
+
     echo -e "  ${SUCCESS}✔ Controladores RGB y batería instalados${RESET}"
 else
     echo -e "${WARNING}ℹ Componentes RGB omitidos para este dispositivo.${RESET}"

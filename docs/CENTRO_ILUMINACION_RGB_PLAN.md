@@ -5,7 +5,7 @@ periféricos de `Background.qml`) por **un panel superpuesto único** que contro
 iluminación de **todos** los periféricos con luz, con selector de color, "seguir tema /
 color fijo", interruptores por dispositivo y flash por notificación.
 
-Contexto y estado actual del RGB: `docs/HARDWARE_PROTOCOLS.md`, `docs/RGB_HANDOVER_LINUX.md`
+Contexto y estado actual del RGB: `hardware/` (por dispositivo), `docs/RGB_HANDOVER_LINUX.md`
 y la bóveda `vault/Rice LinuxRicing/`.
 
 ## Decisiones firmes
