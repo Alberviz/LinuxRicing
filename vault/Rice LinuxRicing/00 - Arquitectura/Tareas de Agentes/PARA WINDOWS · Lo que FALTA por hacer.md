@@ -43,7 +43,7 @@ estado: BLOQUEADO — Acción requerida en Windows
 4. Inicia captura
 5. Ejecuta `python rgb/sync-rgb-windows.py` (o cambia el color desde Akko Cloud Driver)
 6. Detén la captura
-7. Guárdala como `docs/pcap/akko-2.4g-color-change.pcapng`
+7. Guárdala como `hardware/akko-5075b-plus/captures/akko-2.4g-color-change.pcapng`
 8. Haz `git add`, `commit`, `push`
 
 **Lo que buscamos en la captura:**

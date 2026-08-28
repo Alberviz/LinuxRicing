@@ -21,7 +21,7 @@ cada `sendMsg` apuntando a un device inexistente y **lo descartaba sin error** �
 que todo "retornara éxito" sin cambiar las luces. Arreglado con `resolve_akko_dongle_path()`
 (resuelve el nodo MI_02 en caliente por `hid.enumerate`).
 
-## Protocolo confirmado (ver `docs/AKKO_2.4G_USB_FINDINGS.md`)
+## Protocolo confirmado (ver [`hardware/akko-5075b-plus/USB_FINDINGS_2.4G.md`](file:///C:/Users/Alberviz/LinuxRicing/hardware/akko-5075b-plus/USB_FINDINGS_2.4G.md))
 
 El dongle acepta **el mismo paquete que el modo cable**, como `SET_REPORT` (Feature,
 report ID 0) a la **interfaz 2**:
@@ -52,18 +52,18 @@ Respuestas a las preguntas de la "Petición a Windows":
    report en vez de Feature; (b) interfaz equivocada; (c) radio RF dormida — el driver
    oficial sondea `0xF7` cada 2 s sin parar; probad 2-3 `GET_FEATURE 0xF7` antes del
    `0x07` y un sondeo de fondo en el daemon.
-4. Comparar con `docs/pcap/akko-2.4g-2.4ghz-working.pcapng` vía `usbmon`.
+4. Comparar con `hardware/akko-5075b-plus/captures/akko-2.4g-2.4ghz-working.pcapng` vía `usbmon`.
 
 ## Capturas en el repo
 
-- `docs/pcap/akko-2.4g-2.4ghz-working.pcapng` — R/G/B/W funcionando (`0x07`+`0x08`).
-- `docs/pcap/akko-2.4g-color-change.pcapng` — la GUI oficial.
-- `docs/pcap/akko-2.4g-script-grpc.pcapng` — el fallo con la ruta obsoleta.
+- `hardware/akko-5075b-plus/captures/akko-2.4g-2.4ghz-working.pcapng` — R/G/B/W funcionando (`0x07`+`0x08`).
+- `hardware/akko-5075b-plus/captures/akko-2.4g-color-change.pcapng` — la GUI oficial.
+- `hardware/akko-5075b-plus/captures/akko-2.4g-script-grpc.pcapng` — el fallo con la ruta obsoleta.
 
 ## Per-key / DIY — ✅ CAPTURADO (2026-08-28)
 
 USBPcap volvió a funcionar tras un **apagado completo** (era intermitente, no una
-incompatibilidad permanente). Capturado el mapa per-key: `docs/pcap/akko-2.4g-perkey.pcapng`.
+incompatibilidad permanente). Capturado el mapa per-key: `hardware/akko-5075b-plus/captures/akko-2.4g-perkey.pcapng`.
 
 **Protocolo (opcode `0x0C`)** — todo Feature report a la interfaz 2, igual que el sólido:
 
@@ -80,7 +80,7 @@ incompatibilidad permanente). Capturado el mapa per-key: `docs/pcap/akko-2.4g-pe
   confirmar, replicarlos por si acaso), y **reenvía los 7 frames una segunda vez**.
 - No hay paquete de commit final.
 
-Detalle completo con ejemplos reales en `docs/AKKO_2.4G_USB_FINDINGS.md` §"Per-key".
+Detalle completo con ejemplos reales en [`hardware/akko-5075b-plus/USB_FINDINGS_2.4G.md`](file:///C:/Users/Alberviz/LinuxRicing/hardware/akko-5075b-plus/USB_FINDINGS_2.4G.md) §"Per-key".
 
 **⚠️ Limitación probada:** per-key **dinámico no es viable por 2.4 GHz**. Cada refresco
 del mapa `0x0C` satura el enlace RF y el teclado deja de responder varios segundos
