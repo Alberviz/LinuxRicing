@@ -13,7 +13,7 @@ StyledRect {
 
     signal close
 
-    implicitWidth: 460
+    implicitWidth: 480
     implicitHeight: layout.implicitHeight + Tokens.padding.large * 2
     radius: Tokens.rounding.extraLarge
     color: Colours.palette.m3surfaceContainer
@@ -70,15 +70,17 @@ StyledRect {
             spacing: Tokens.spacing.medium
 
             StyledRect {
-                Layout.preferredWidth: 38
-                Layout.preferredHeight: 38
+                Layout.preferredWidth: 40
+                Layout.preferredHeight: 40
                 radius: Tokens.rounding.medium
-                color: Colours.palette.m3primaryContainer
+                color: Qt.alpha(Colours.palette.m3primary, 0.2)
+                border.width: 1.5
+                border.color: Colours.palette.m3primary
 
                 MaterialIcon {
                     anchors.centerIn: parent
                     text: "restart_alt"
-                    fontStyle: Tokens.font.icon.medium
+                    fontStyle: Tokens.font.icon.builders.medium.scale(1.2).weight(Font.Bold).build()
                     color: Colours.palette.m3primary
                 }
             }
@@ -132,56 +134,61 @@ StyledRect {
             color: Colours.palette.m3outlineVariant
         }
 
-        // Options
+        // Option 1: Linux
         RebootCard {
             Layout.fillWidth: true
             icon: "computer"
             title: qsTr("Linux (CachyOS)")
-            description: qsTr("Arranque predeterminado del sistema")
+            description: qsTr("Arranque principal del sistema")
             shortcutKey: "1"
             iconColor: Colours.palette.m3primary
-            iconBgColor: Colours.palette.m3primaryContainer
+            iconBgColor: Qt.alpha(Colours.palette.m3primary, 0.2)
             onClicked: root.rebootLinux()
         }
 
+        // Option 2: Windows
         RebootCard {
             Layout.fillWidth: true
             icon: "desktop_windows"
             title: qsTr("Windows")
             description: qsTr("Arranque directo UEFI a Windows")
             shortcutKey: "2"
-            iconColor: Colours.palette.m3tertiary
-            iconBgColor: Colours.palette.m3tertiaryContainer
+            iconColor: "#00a4ef"
+            iconBgColor: Qt.alpha("#00a4ef", 0.2)
             onClicked: root.rebootWindows()
         }
 
+        // Option 3: BIOS
         RebootCard {
             Layout.fillWidth: true
             icon: "settings"
             title: qsTr("Configuración BIOS / UEFI")
             description: qsTr("Acceder a los ajustes del firmware")
             shortcutKey: "3"
-            iconColor: Colours.palette.m3secondary
-            iconBgColor: Colours.palette.m3secondaryContainer
+            iconColor: "#f59e0b"
+            iconBgColor: Qt.alpha("#f59e0b", 0.2)
             onClicked: root.rebootBios()
         }
 
         // Footer / Cancel button
         RowLayout {
             Layout.fillWidth: true
-            Layout.topMargin: 4
+            Layout.topMargin: 6
 
             Item {
                 Layout.fillWidth: true
             }
 
             StyledRect {
-                Layout.preferredHeight: 36
-                Layout.preferredWidth: 110
+                id: cancelBtn
+                implicitWidth: cancelRow.implicitWidth + 36
+                implicitHeight: 38
+                Layout.preferredWidth: implicitWidth
+                Layout.preferredHeight: implicitHeight
                 radius: Tokens.rounding.full
-                color: cancelLayer.containsMouse ? Colours.palette.m3surfaceContainerHighest : "transparent"
+                color: cancelLayer.containsMouse ? Colours.palette.m3surfaceContainerHighest : Colours.palette.m3surfaceContainerHigh
                 border.width: 1
-                border.color: Colours.palette.m3outlineVariant
+                border.color: cancelLayer.containsMouse ? Colours.palette.m3outline : Colours.palette.m3outlineVariant
 
                 StateLayer {
                     id: cancelLayer
@@ -190,8 +197,15 @@ StyledRect {
                 }
 
                 RowLayout {
+                    id: cancelRow
                     anchors.centerIn: parent
-                    spacing: 4
+                    spacing: 8
+
+                    MaterialIcon {
+                        text: "close"
+                        fontStyle: Tokens.font.icon.small
+                        color: Colours.palette.m3onSurfaceVariant
+                    }
 
                     StyledText {
                         text: qsTr("Cancelar")
@@ -199,10 +213,20 @@ StyledRect {
                         color: Colours.palette.m3onSurface
                     }
 
-                    StyledText {
-                        text: "(Esc)"
-                        font: Tokens.font.label.small
-                        color: Colours.palette.m3onSurfaceVariant
+                    StyledRect {
+                        implicitHeight: 20
+                        implicitWidth: 32
+                        radius: Tokens.rounding.extraSmall
+                        color: Colours.palette.m3surfaceContainerLowest
+                        border.width: 1
+                        border.color: Colours.palette.m3outlineVariant
+
+                        StyledText {
+                            anchors.centerIn: parent
+                            text: "Esc"
+                            font: Tokens.font.label.small
+                            color: Colours.palette.m3onSurfaceVariant
+                        }
                     }
                 }
             }

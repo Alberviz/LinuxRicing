@@ -14,18 +14,18 @@ StyledRect {
     required property string description
     required property string shortcutKey
     property color iconColor: Colours.palette.m3primary
-    property color iconBgColor: Colours.palette.m3primaryContainer
+    property color iconBgColor: Qt.alpha(Colours.palette.m3primary, 0.18)
 
     signal clicked
 
-    implicitWidth: 420
-    implicitHeight: 70
+    implicitWidth: 440
+    implicitHeight: 74
     radius: Tokens.rounding.large
     color: stateLayer.containsMouse || activeFocus ? Colours.palette.m3surfaceContainerHighest : Colours.palette.m3surfaceContainerHigh
-    border.width: 1
-    border.color: stateLayer.containsMouse || activeFocus ? Colours.palette.m3outline : Colours.palette.m3outlineVariant
+    border.width: stateLayer.containsMouse || activeFocus ? 1.5 : 1
+    border.color: stateLayer.containsMouse || activeFocus ? root.iconColor : Colours.palette.m3outlineVariant
 
-    scale: stateLayer.pressed ? 0.98 : (stateLayer.containsMouse || activeFocus) ? 1.01 : 1.0
+    scale: stateLayer.pressed ? 0.98 : (stateLayer.containsMouse || activeFocus) ? 1.015 : 1.0
 
     Behavior on scale {
         Anim {
@@ -59,17 +59,19 @@ StyledRect {
         anchors.rightMargin: Tokens.padding.medium
         spacing: Tokens.spacing.medium
 
-        // Icon badge
+        // Icon badge with distinct vibrant container and crisp border
         StyledRect {
-            Layout.preferredWidth: 44
-            Layout.preferredHeight: 44
+            Layout.preferredWidth: 46
+            Layout.preferredHeight: 46
             radius: Tokens.rounding.medium
             color: root.iconBgColor
+            border.width: 1.5
+            border.color: root.iconColor
 
             MaterialIcon {
                 anchors.centerIn: parent
                 text: root.icon
-                fontStyle: Tokens.font.icon.medium
+                fontStyle: Tokens.font.icon.builders.medium.scale(1.2).weight(Font.Bold).build()
                 color: root.iconColor
             }
         }
@@ -98,18 +100,18 @@ StyledRect {
 
         // Shortcut pill
         StyledRect {
-            Layout.preferredHeight: 28
+            Layout.preferredHeight: 30
             Layout.preferredWidth: 32
             radius: Tokens.rounding.small
             color: stateLayer.containsMouse || root.activeFocus ? Colours.palette.m3secondaryContainer : Colours.palette.m3surfaceContainerLowest
             border.width: 1
-            border.color: Colours.palette.m3outlineVariant
+            border.color: stateLayer.containsMouse || root.activeFocus ? Colours.palette.m3outline : Colours.palette.m3outlineVariant
 
             StyledText {
                 anchors.centerIn: parent
                 text: root.shortcutKey
                 font: Tokens.font.label.medium
-                color: stateLayer.containsMouse || root.activeFocus ? Colours.palette.m3onSecondaryContainer : Colours.palette.m3onSurfaceVariant
+                color: stateLayer.containsMouse || root.activeFocus ? Colours.palette.m3onSecondaryContainer : Colours.palette.m3onSurface
             }
         }
     }
