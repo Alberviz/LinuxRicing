@@ -75,7 +75,11 @@ Column {
         id: reboot
 
         icon: Config.session.icons.reboot
-        command: ["/home/alberviz/.local/bin/reboot-menu"]
+        command: []
+        onClicked: {
+            root.screenState.session = false;
+            ShellState.rebootMenu?.open();
+        }
 
         KeyNavigation.up: hibernate
         KeyNavigation.down: rebootWindows

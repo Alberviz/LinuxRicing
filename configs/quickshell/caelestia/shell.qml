@@ -9,6 +9,7 @@ import "modules/drawers"
 import "modules/background"
 import "modules/areapicker"
 import "modules/rgbcontrol"
+import "modules/rebootdialog"
 import "modules/lock"
 import QtQuick
 import Quickshell
@@ -32,6 +33,7 @@ ShellRoot {
     Drawers {}
     AreaPicker {}
     RgbControl {}
+    RebootDialog {}
     Lock {
         id: lock
     }

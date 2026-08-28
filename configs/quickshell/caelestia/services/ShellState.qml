@@ -12,6 +12,9 @@ Singleton {
     // Set by modules/rgbcontrol/RgbControl.qml; exposes open()/close()/toggle().
     property QtObject rgbControl
 
+    // Set by modules/rebootdialog/RebootDialog.qml; exposes open()/close()/toggle().
+    property QtObject rebootMenu
+
     function anySidebarOpen(): bool {
         return states.instances.some(s => s.sidebar);
     }
