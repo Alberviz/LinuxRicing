@@ -85,8 +85,14 @@ Ejemplos reales verificados a ojo (de `captures/akko-2.4g-2.4ghz-working.pcapng`
     `0x01` ⚡ cargando por cable · `0x02` 🔋 carga completa.
   - `byte[3]` = `batteryLp` (bandera de batería baja).
 
-En modo 2.4 GHz (`PID 0x4011`) reporta el nivel real de la celda; por cable
-(`PID 0x4015`) reporta alimentación directa.
+En modo 2.4 GHz (`PID 0x4011`) `0x83` reporta el nivel real de la celda y responde de
+verdad por el bus RF; por cable (`PID 0x4015`) mientras carga `byte[1]` puede volver
+`0` (regla: si `cargando == 1`, ignorar el %).
+
+> ⚠️ **No usar `0xF7` para la batería.** El poll `0xF7` del driver oficial es un
+> keepalive de RF; su `byte[1]` va a la deriva (74 → 66 con el teclado quieto) y su
+> flag de carga está en `byte[3]`, no `byte[2]`. Es la causa del bug del "66 %" en
+> Linux. Ver [`USB_FINDINGS_2.4G.md`](USB_FINDINGS_2.4G.md) §"Detección de batería".
 
 ## C. Per-key / lienzo (`0x07` modo `0x0D` + `0x0C`)
 
@@ -151,5 +157,6 @@ Si `iot_driver_v200.exe` está activo, retiene el HID. Se habla con él por HTTP
   y pisan el canal B; `2` no añade checksum). Pasar `dangledevtype = 1` (KEYBOARD).
 - `driver.DriverGrpc/readMsg` — devuelve el `VenderMsg` de respuesta.
 
-El driver hace un `SET_REPORT 0xF7` (query de batería wireless) cada ~2 s sin parar
-mientras está abierto; útil para mantener "caliente" el enlace RF.
+El driver hace un `SET_REPORT 0xF7` cada ~2 s sin parar mientras está abierto: es un
+**keepalive de RF** (mantiene "caliente" el enlace), no una lectura fiable de batería
+— para eso, `0x83` (ver §B).
