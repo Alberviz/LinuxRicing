@@ -287,7 +287,7 @@ Script que:
 
 ## 5.3 — Docs
 
-- `docs/HARDWARE_PROTOCOLS.md` / `README.md`: mencionar el panel y el esquema `rgb-config.json`.
+- `hardware/` / `README.md`: mencionar el panel y el esquema `rgb-config.json`.
 - `docs/CENTRO_ILUMINACION_RGB_PLAN.md`: marcar fases 4-5 como hechas.
 - Nota de la bóveda (`vault/Rice LinuxRicing/Centro de Iluminación RGB.md`): actualizar el
   Registro. (Pero coordina — `vault/` es de Gemini; añade, no reescribas.)

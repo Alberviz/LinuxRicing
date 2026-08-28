@@ -98,7 +98,7 @@ device sin `-A` ni `--devices` funciona, pero no captura nada
 
 ## 5. Qué está RESUELTO y qué no
 
-### ✅ Resuelto — NO re-investigar (ver `docs/AKKO_2.4G_USB_FINDINGS.md`)
+### ✅ Resuelto — NO re-investigar (ver `hardware/akko-5075b-plus/USB_FINDINGS_2.4G.md`)
 
 - **Color sólido por 2.4 GHz funciona.** Protocolo = protocolo del modo cable:
   `07|08 01 04 04 08 RR GG BB CK` + ceros (64 bytes), Feature report (`SET_REPORT`,
@@ -108,12 +108,12 @@ device sin `-A` ni `--devices` funciona, pero no captura nada
 - **No hacen falta** `setLightType`, `changeWirelessLoopStatus`, ni "flush `0x88`".
 - `rgb/sync-rgb-windows.py` arreglado: ruta dinámica (`resolve_akko_dongle_path()`),
   parafernalia gRPC quitada. **Necesita `iot_driver_v200.exe` corriendo.**
-- Capturas de referencia en `docs/pcap/`.
+- Capturas de referencia en `hardware/akko-5075b-plus/captures/`.
 
-- **LEDs per-key / per-zona** — ✅ **capturado el 2026-08-28** (`docs/pcap/akko-2.4g-perkey.pcapng`).
+- **LEDs per-key / per-zona** — ✅ **capturado el 2026-08-28** (`hardware/akko-5075b-plus/captures/akko-2.4g-perkey.pcapng`).
   Opcode `0x0C`: `07 0d` (modo custom) + 7 frames `0c 00 80 01 <idx> 00 00 <ck>` con
   un array plano de 128 LED × RGB troceado en chunks de 56 bytes. Detalle completo en
-  `docs/AKKO_2.4G_USB_FINDINGS.md` §"Per-key". Falta portarlo a Linux y verificar.
+  `hardware/akko-5075b-plus/USB_FINDINGS_2.4G.md` §"Per-key". Falta portarlo a Linux y verificar.
 
 ### ❌ No resuelto
 

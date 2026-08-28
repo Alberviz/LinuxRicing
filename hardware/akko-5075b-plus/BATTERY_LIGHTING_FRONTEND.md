@@ -8,7 +8,7 @@ retroiluminación de teclas + tira lateral.
 > **Estado: solo frontend.** No hay motor detrás. El Akko no expone su nivel de
 > batería por el enlace de 2.4 GHz (el driver propietario de Windows usa un
 > transporte RF que no está ingenierizado a la inversa — ver
-> `docs/HARDWARE_PROTOCOLS.md` §1.B). La pantalla guarda las preferencias del
+> `PROTOCOL.md` §B (telemetría de batería)). La pantalla guarda las preferencias del
 > usuario; cuando exista telemetría de batería, el backend leerá el mismo
 > fichero y accionará el hardware.
 

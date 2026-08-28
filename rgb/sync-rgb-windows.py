@@ -257,7 +257,7 @@ def sync_akko_keyboard(primary_color, brightness=4):
         sled[5], sled[6], sled[7] = r, g, b
         status_log = f"Normal ({bat_pct}% -> Sincronizado Sólido)"
 
-    # Transmisión. Verificado por captura USBPcap (docs/AKKO_2.4G_USB_FINDINGS.md):
+    # Transmisión. Verificado por captura USBPcap (hardware/akko-5075b-plus/USB_FINDINGS_2.4G.md):
     # el dongle 2.4G acepta el MISMO paquete que el modo cable, como Feature report
     # a la interfaz 2. NO hacen falta setLightType, changeWirelessLoopStatus ni el
     # "flush 0x88" — eran cargo-cult y no generaban tráfico USB útil. El único fallo

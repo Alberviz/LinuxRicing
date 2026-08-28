@@ -36,7 +36,7 @@ DATA (64 bytes):
 `0x07` y `0x08` tienen **estructura idéntica**. Se mandan uno detrás de otro
 (~250 ms de separación en la captura, pero back-to-back también funciona).
 
-### Ejemplos reales de `docs/pcap/akko-2.4g-2.4ghz-working.pcapng` (verificado a ojo)
+### Ejemplos reales de `captures/akko-2.4g-2.4ghz-working.pcapng` (verificado a ojo)
 
 | Color | Backlight (0x07) | Side-strip (0x08) |
 |---|---|---|
@@ -70,7 +70,7 @@ gRPC recibía cada `sendMsg` con un `device_path` inexistente y lo **descartaba 
 silencio, sin error** — por eso los 4+ intentos anteriores "retornaban éxito" pero las
 luces no cambiaban.
 
-`docs/pcap/akko-2.4g-script-grpc.pcapng` es una captura de ese fallo: solo se ve el
+`captures/akko-2.4g-script-grpc.pcapng` es una captura de ese fallo: solo se ve el
 sondeo `0xF7`, ningún `0x07`.
 
 ### Con la ruta resuelta dinámicamente → funciona
@@ -108,7 +108,7 @@ sin parar**, mientras está abierto — también durante las pruebas que funcion
 
 Capturado el 2026-08-28 con USBPcap funcionando de nuevo (ver runbook §4). El usuario
 pintó en Akko Cloud Driver, modo DIY, la fila de números en rojo y unas letras en otro
-color, y dio a aplicar. Captura: `docs/pcap/akko-2.4g-perkey.pcapng`.
+color, y dio a aplicar. Captura: `captures/akko-2.4g-perkey.pcapng`.
 
 ### Secuencia completa que manda el driver al pulsar "aplicar"
 
@@ -195,7 +195,7 @@ muerta de varios segundos con una animación; ~0.5–1 s incluso con una sola pa
    - **Radio dormida.** El driver oficial nunca deja de sondear `0xF7` cada 2 s.
      Probar: hacer 2-3 `GET_FEATURE`/`0xF7` justo antes del `0x07`, y en un daemon
      mantener un sondeo `0xF7` de fondo a 2 s para tener el enlace RF "caliente".
-4. Comparar trama a trama con `docs/pcap/akko-2.4g-2.4ghz-working.pcapng` usando
+4. Comparar trama a trama con `captures/akko-2.4g-2.4ghz-working.pcapng` usando
    `usbmon` en el lado Linux.
 
 ---
@@ -204,10 +204,10 @@ muerta de varios segundos con una animación; ~0.5–1 s incluso con una sola pa
 
 | Fichero | Contenido |
 |---|---|
-| `docs/pcap/akko-2.4g-2.4ghz-working.pcapng` | **Referencia.** Rojo/verde/azul/blanco al backlight (`0x07`) y tira lateral (`0x08`) por gRPC `sendMsg` crudo con la ruta correcta. Verificado a ojo. |
-| `docs/pcap/akko-2.4g-color-change.pcapng` | Cambio de color desde la GUI oficial de Akko Cloud Driver (misma escritura `0x07`). |
-| `docs/pcap/akko-2.4g-script-grpc.pcapng` | El fallo: `sync-rgb-windows.py` con la ruta obsoleta → solo sondeo `0xF7`, ningún `0x07`. |
-| `docs/pcap/akko-2.4g-perkey.pcapng` | **Per-key / DIY.** Fila de números en rojo + letras en otro color desde la GUI. Muestra `07 0d` (modo custom) + 7 frames `0x0C` × 2 pasadas. |
+| `captures/akko-2.4g-2.4ghz-working.pcapng` | **Referencia.** Rojo/verde/azul/blanco al backlight (`0x07`) y tira lateral (`0x08`) por gRPC `sendMsg` crudo con la ruta correcta. Verificado a ojo. |
+| `captures/akko-2.4g-color-change.pcapng` | Cambio de color desde la GUI oficial de Akko Cloud Driver (misma escritura `0x07`). |
+| `captures/akko-2.4g-script-grpc.pcapng` | El fallo: `sync-rgb-windows.py` con la ruta obsoleta → solo sondeo `0xF7`, ningún `0x07`. |
+| `captures/akko-2.4g-perkey.pcapng` | **Per-key / DIY.** Fila de números en rojo + letras en otro color desde la GUI. Muestra `07 0d` (modo custom) + 7 frames `0x0C` × 2 pasadas. |
 
 Filtro útil en Wireshark: `usb.transfer_type == 0x02 && usb.data_len > 8`
 
@@ -215,7 +215,7 @@ Filtro útil en Wireshark: `usb.transfer_type == 0x02 && usb.data_len > 8`
 
 ## Correcciones de documentación (del informe de Opus)
 
-- `docs/HARDWARE_PROTOCOLS.md`: flag de RGB personalizado = **`0x08`**
+- `PROTOCOL.md` / la doc histórica: flag de RGB personalizado = **`0x08`**
   (`AKKO_FLAGS_CUSTOM_RGB`). Confirmado. *(Corregido en `731ecf0`.)*
 - Toda mención a `0x88` como "pipeline commit" / "RF flush": **refutada por captura USB**.
 - Checksum: byte[8], `0xFF-(sum[0..7]&0xFF)`. Confirmado con 6 muestras reales.
