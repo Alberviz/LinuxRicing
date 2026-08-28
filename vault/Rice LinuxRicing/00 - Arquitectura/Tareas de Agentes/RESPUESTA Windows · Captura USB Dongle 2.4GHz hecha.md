@@ -87,8 +87,34 @@ del mapa `0x0C` satura el enlace RF y el teclado deja de responder varios segund
 (PoC de gauge de batería, 2026-08-28). Per-key = solo estado estático de una escritura;
 para efectos vivos (batería, notificaciones) usar `0x07`+`0x08` (tira lateral) o cable.
 
+## Batería / carga — ✅ DESCIFRADO (2026-08-29)
+
+Sniff en 3 fases (2.4 GHz sin cargar / 2.4 GHz + cable cargando / USB-only cargando).
+Captura: `hardware/akko-5075b-plus/captures/akko-2.4g-battery-sniff.pcapng`.
+
+**El bug del "66 %" en Linux:** `66 = 0x42` es un **centinela fijo** que el firmware
+pone en `0xF7` byte[1] **mientras carga** — no es la batería. Linux sondea `0xF7` y lee
+ese byte siempre. Además el flag "cargando" de `0xF7` está en **byte[3]**, no byte[2].
+
+| Query | Respuesta | batería | cargando |
+|---|---|---|---|
+| **`0x83`** (funciona por cable Y 2.4 GHz) | `83 <bat> <chg> 00 …` | byte[1] | **byte[2]** |
+| `0xF7` (keepalive RF del driver) | `<00\|01> <bat> 00 <chg> 01 01 01 <ck>` | byte[1] (basura si carga) | **byte[3]** |
+
+Medido: A → `83 4a 00` = 74 %, sin carga · B → `83 54 01` = 84 % subiendo, cargando ·
+C (cable) → `83 00 01` = byte[1] a **0** mientras carga.
+
+**Fix Linux:**
+1. Batería = **`0x83`**, no `0xF7`. `[1]`=%, `[2]`=cargando.
+2. `0xF7` solo como keepalive de RF de fondo (cada 2 s).
+3. Si `cargando==1`: **ignorar el %** (por cable el teclado reporta 0). Mantener último
+   valor conocido o mostrar solo el icono de carga.
+4. `rgb/sync-rgb-windows.py` ya lo hace bien (usa `0x83`, lee `payload[1]`/`payload[2]`).
+
+Detalle completo en [`hardware/akko-5075b-plus/USB_FINDINGS_2.4G.md`](file:///C:/Users/Alberviz/LinuxRicing/hardware/akko-5075b-plus/USB_FINDINGS_2.4G.md) §"Detección de batería".
+
 ## Pendiente
 
-- Portar a Linux: color sólido (`07/08`) y per-key (`0x0C`) como Feature reports a
-  `:1.2` del PID `0x4011`, y verificar a ojo que cambian las luces por 2.4 GHz.
+- Portar a Linux: color sólido (`07/08`), per-key (`0x0C`) y batería (`0x83`) como
+  Feature reports a `:1.2` del PID `0x4011`, y verificar a ojo.
 - Mapa LED→índice del `0x0C`: derivarlo del `.pcap` o reutilizar el layout de `rgb/akko-rgb`.

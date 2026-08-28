@@ -1,9 +1,9 @@
 # Akko 5075B Plus — Protocolo USB real del dongle 2.4 GHz (RESUELTO)
 
-> **Autor:** Agente de Windows (Claude) · **Fecha:** 2026-08-27, ampliado 2026-08-28
-> **Estado:** ✅ Cambio de color sólido por 2.4 GHz **conseguido y verificado
-> visualmente**. ✅ **Per-key / iluminación personalizada capturada** (opcode `0x0C`,
-> ver §"Per-key"). Bytes exactos capturados con USBPcap.
+> **Autor:** Agente de Windows (Claude) · **Fecha:** 2026-08-27, ampliado 2026-08-28/29
+> **Estado:** ✅ Color sólido por 2.4 GHz verificado. ✅ **Per-key** capturado (opcode
+> `0x0C`). ✅ **Batería/carga descifrada** — el bug del "66 %" en Linux era usar `0xF7`
+> en vez de `0x83` (§"Detección de batería"). Bytes exactos capturados con USBPcap.
 
 ---
 
@@ -98,9 +98,57 @@ nada más**, producen los `SET_REPORT` de arriba y el teclado cambia de color.
 
 ### El sondeo `0xF7`
 
-El driver oficial hace un `SET_REPORT 0xF7` (query de batería wireless) **cada ~2 s,
-sin parar**, mientras está abierto — también durante las pruebas que funcionaron. Ver
-§ recomendaciones para Linux.
+El driver oficial hace un `SET_REPORT 0xF7` **cada ~2 s, sin parar**, mientras está
+abierto — también durante las pruebas que funcionaron. Es un **keepalive de RF**, no
+una fuente fiable de batería (ver siguiente sección).
+
+---
+
+## Detección de batería y estado de carga (opcodes `0x83` y `0xF7`)
+
+Sniff del 2026-08-29 en 3 fases con el teclado: **(A)** 2.4 GHz sin cable,
+**(B)** 2.4 GHz + cable USB enchufado al PC (cargando), **(C)** modo USB-only cargando.
+Captura: `captures/akko-2.4g-battery-sniff.pcapng`.
+
+### Dos queries, **distinto formato de respuesta**
+
+Ambas son Feature reports de 64 bytes a la interfaz 2; la respuesta se lee con
+`GET_REPORT` (o `readMsg` por el bridge):
+
+| Query | Respuesta | batería | flag "cargando" |
+|---|---|---|---|
+| **`0x83`** (query de batería; funciona por cable **y** por 2.4 GHz) | `83 <bat%> <chg> 00 …` | **byte[1]** | **byte[2]** (0/1) |
+| **`0xF7`** (poll RF del driver) | `<00\|01> <bat%> 00 <chg> 01 01 01 <ck>` | **byte[1]** | **byte[3]** (0/1) |
+
+### Valores medidos
+
+| Fase | Respuesta `0x83` | Respuesta `0xF7` |
+|---|---|---|
+| **A** · 2.4 GHz, sin cargar | `83 4a 00` → **74 %**, no carga | `00 4a 00 00` → **74 %**, no carga |
+| **B** · 2.4 GHz, cargando | `83 54 01` → **84 %**, **cargando** (sube 84→85 en vivo) | `00 42 00 01` → **byte[1] = `0x42` FIJO**, chg en byte[3] |
+| **C** · USB-only, cargando | `83 00 01` → **byte[1] = `0x00`**, chg en byte[2] | (el dongle sigue devolviendo `00 42 00 01`) |
+
+### El bug de Linux — "la batería salta a 66 al enchufar"
+
+1. **`66` = `0x42`** = el valor que el firmware pone en `0xF7` byte[1] **mientras
+   carga**. No es la batería: es un centinela fijo (se queda en `0x42` todo el rato,
+   no sube como el valor real).
+2. Linux sondea **`0xF7`** y lee byte[1] como batería siempre → muestra 66 al enchufar.
+3. Encima el flag de carga de `0xF7` está en **byte[3]**, no en byte[2]. Si Linux mira
+   byte[2] (que sigue `00`), ni se entera de que está cargando → "66 %, descargando".
+4. El "84 % subiendo" que da `rgb/sync-rgb-windows.py` **sí es correcto**: usa `0x83`
+   (no `0xF7`) y lee `payload[1]`/`payload[2]`. `0x83` responde de verdad por el bus
+   2.4 GHz (visto ~10 veces en el sniff: `83 54 01`, `83 55 01`).
+
+### Fix para Linux
+
+1. **Usar `0x83` para la batería, no `0xF7`.** Funciona por 2.4 GHz igual que por
+   cable. Respuesta: `[0]=0x83`, `[1]`=batería %, `[2]`=cargando (0/1).
+2. `0xF7` es el keepalive de RF del driver oficial (cada 2 s mantiene el enlace
+   despierto) — mantenerlo de fondo para eso, pero **no leer batería de ahí**.
+3. Con **`0x83` por cable mientras carga, byte[1] = 0** (el teclado no reporta % con
+   el cable puesto). Regla general: **si `cargando == 1`, ignorar el %** — mantener el
+   último valor conocido o mostrar solo el icono de carga hasta desenchufar.
 
 ---
 
@@ -197,6 +245,9 @@ muerta de varios segundos con una animación; ~0.5–1 s incluso con una sola pa
      mantener un sondeo `0xF7` de fondo a 2 s para tener el enlace RF "caliente".
 4. Comparar trama a trama con `captures/akko-2.4g-2.4ghz-working.pcapng` usando
    `usbmon` en el lado Linux.
+5. **Batería:** leer con `0x83` (no `0xF7`). Ver §"Detección de batería y estado de
+   carga". `[1]`=%, `[2]`=cargando; si carga, ignorar el %. Mantener un sondeo `0xF7`
+   de fondo solo como keepalive de RF.
 
 ---
 
@@ -208,6 +259,7 @@ muerta de varios segundos con una animación; ~0.5–1 s incluso con una sola pa
 | `captures/akko-2.4g-color-change.pcapng` | Cambio de color desde la GUI oficial de Akko Cloud Driver (misma escritura `0x07`). |
 | `captures/akko-2.4g-script-grpc.pcapng` | El fallo: `sync-rgb-windows.py` con la ruta obsoleta → solo sondeo `0xF7`, ningún `0x07`. |
 | `captures/akko-2.4g-perkey.pcapng` | **Per-key / DIY.** Fila de números en rojo + letras en otro color desde la GUI. Muestra `07 0d` (modo custom) + 7 frames `0x0C` × 2 pasadas. |
+| `captures/akko-2.4g-battery-sniff.pcapng` | **Detección de batería/carga**, 3 fases (2.4 GHz sin cargar / 2.4 GHz cargando / USB-only cargando). Respuestas `0x83` y `0xF7`. Explica el bug del "66 %". |
 
 Filtro útil en Wireshark: `usb.transfer_type == 0x02 && usb.data_len > 8`
 
