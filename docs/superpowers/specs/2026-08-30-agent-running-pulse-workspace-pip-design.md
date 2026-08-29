@@ -217,3 +217,29 @@ sin sumar el offset del propio layout — igual que `ActiveIndicator` suma `mask
 Con el workspace activo alto (iconos de ventana) el halo se desplazaba uno o dos pips
 hacia arriba. `AgentBg` ahora recibe `layout` y usa `pip.y + layout.y`.
 (`OccupiedBg.qml` arrastra el mismo bug pero está desactivado por defecto — anotado.)
+
+---
+
+## 8. Futuro (fuera de v2)
+
+### Halo para notificaciones generales
+Extender el mecanismo de "halo persistente + auto-descarte al visitar el workspace" a
+**cualquier notificación**, no solo agentes. Cuando un toast expira sin que el usuario
+haga clic, se convierte en un halo en el workspace de origen hasta que lo visita.
+
+- **Reutiliza** `completedAgents` / `wsMap` / `markSeen` / descarte al enfocar (ya genérico).
+- **Gancho:** `Notifs.qml` `onNotification` + expiración del popup.
+- **Resolución de workspace:** por `appName` / `desktopEntry` → ventana en `hyprctl
+  clients`. Fiable si hay **una sola** ventana de esa app; si hay varias o la manda un
+  demonio sin ventana, cae al workspace activo o se ignora.
+- **Alcance acordado con Alberto:** solo notificaciones **urgentes/críticas**
+  (`urgency: critical`) o lista de apps permitida en config. **Color distinto** del de
+  agente (cian `m3tertiary` vs verde `m3primary`). El halo **auto-expira** a los ~10 min
+  aunque no se visite (a diferencia del de agente). **Sin** estado "en curso" — eso es
+  exclusivo de agentes.
+- Feature propia, rama aparte, después de v2 + sonidos.
+
+### Estilo de pulso `arc`
+Tercera variante de la animación "en curso": un trazo/arco neón girando alrededor del
+pip (tipo spinner). El `Loader`/switch por `runningStyle` ya está; falta la variante
+(`Shape` o `Canvas` rotando, ~40 líneas).
