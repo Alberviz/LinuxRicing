@@ -198,6 +198,7 @@ Item {
         ClippingRectangle {
             anchors.top: parent.top
             anchors.topMargin: wrapper.idx === 0 ? 0 : Tokens.spacing.medium
+            anchors.right: parent.right
 
             color: "transparent"
             radius: notif.radius
@@ -207,8 +208,9 @@ Item {
             Notification {
                 id: notif
 
+                anchors.right: parent.right
                 modelData: wrapper.modelData
-                implicitWidth: root.implicitWidth - root.padding - root.clampedPadding
+                defaultWidth: root.implicitWidth - root.padding - root.clampedPadding
             }
         }
     }

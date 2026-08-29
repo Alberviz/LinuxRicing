@@ -16,19 +16,42 @@ StyledRect {
     id: root
 
     required property NotifData modelData
+    property int defaultWidth: Tokens.sizes.notifs.width
+    readonly property int miniBadgeSize: 48
+    readonly property bool isAgent: modelData.isAgent
     readonly property bool hasImage: modelData.image.length > 0
     readonly property bool hasAppIcon: modelData.appIcon.length > 0
     readonly property bool minimized: modelData.minimized ?? false
     readonly property int bodyTextFormat: /[<*_`#\[\]]/.test(modelData.body) ? Text.MarkdownText : Text.PlainText
-    readonly property int nonAnimHeight: root.minimized ? (TokenConfig.sizes.notifs.image + inner.anchors.margins * 2) : (summary.implicitHeight + (root.expanded ? Tokens.spacing.extraSmall * 2 + appName.height + body.height + actions.height + actions.anchors.topMargin : bodyPreview.height) + inner.anchors.margins * 2)
+    readonly property int nonAnimHeight: root.minimized ? root.miniBadgeSize : (summary.implicitHeight + (root.expanded ? Tokens.spacing.extraSmall * 2 + appName.height + body.height + actions.height + actions.anchors.topMargin : bodyPreview.height) + inner.anchors.margins * 2)
     property bool expanded: Config.notifs.openExpanded
 
     color: root.minimized ? Colours.palette.m3primaryContainer : (root.modelData.urgency === NotificationUrgency.Critical ? Colours.palette.m3secondaryContainer : Colours.tPalette.m3surfaceContainer)
     radius: root.minimized ? Tokens.rounding.full : Tokens.rounding.large
-    border.width: root.minimized ? 1 : 0
+    border.width: root.minimized ? 2 : 0
     border.color: Colours.palette.m3primary
 
-    implicitHeight: inner.implicitHeight
+    implicitWidth: root.minimized ? root.miniBadgeSize : root.defaultWidth
+    implicitHeight: root.minimized ? root.miniBadgeSize : inner.implicitHeight
+
+    SequentialAnimation on scale {
+        running: root.minimized
+        loops: Animation.Infinite
+        NumberAnimation { to: 1.06; duration: 1000; easing.type: Easing.InOutSine }
+        NumberAnimation { to: 1.0; duration: 1000; easing.type: Easing.InOutSine }
+    }
+
+    Behavior on implicitWidth {
+        Anim {
+            easing: Tokens.anim.emphasizedDecel
+        }
+    }
+
+    Behavior on implicitHeight {
+        Anim {
+            easing: Tokens.anim.emphasizedDecel
+        }
+    }
 
     x: implicitWidth
     Component.onCompleted: {
@@ -48,8 +71,8 @@ StyledRect {
 
         anchors.fill: parent
         hoverEnabled: true
-        cursorShape: root.expanded && body.hoveredLink ? Qt.PointingHandCursor : pressed ? Qt.ClosedHandCursor : undefined
-        acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+        cursorShape: root.minimized ? Qt.PointingHandCursor : (root.expanded && body.hoveredLink ? Qt.PointingHandCursor : pressed ? Qt.ClosedHandCursor : undefined)
+        acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
         preventStealing: true
 
         onEntered: root.modelData.timer.stop()
@@ -58,26 +81,28 @@ StyledRect {
                 root.modelData.timer.start();
         }
 
-        drag.target: parent
+        drag.target: root.minimized ? null : parent
         drag.axis: Drag.XAxis
 
         onPressed: event => {
             root.modelData.timer.stop();
             startY = event.y;
-            if (event.button === Qt.MiddleButton)
+            if (event.button === Qt.MiddleButton || (root.minimized && event.button === Qt.RightButton))
                 root.modelData.close();
         }
         onReleased: event => {
             if (!containsMouse)
                 root.modelData.timer.start();
 
-            if (Math.abs(root.x) < root.implicitWidth * Config.notifs.clearThreshold)
-                root.x = 0;
-            else
-                root.modelData.popup = false;
+            if (!root.minimized) {
+                if (Math.abs(root.x) < root.implicitWidth * Config.notifs.clearThreshold)
+                    root.x = 0;
+                else
+                    root.modelData.popup = false;
+            }
         }
         onPositionChanged: event => {
-            if (pressed) {
+            if (pressed && !root.minimized) {
                 const diffY = event.y - startY;
                 if (Math.abs(diffY) > Config.notifs.expandThreshold)
                     root.expanded = diffY > 0;
@@ -103,12 +128,50 @@ StyledRect {
         }
 
         Item {
+            id: miniBadge
+
+            anchors.fill: parent
+            visible: root.minimized
+
+            MaterialIcon {
+                anchors.centerIn: parent
+                text: "smart_toy"
+                color: Colours.palette.m3onPrimaryContainer
+                fontStyle: Tokens.font.icon.large
+            }
+
+            StyledRect {
+                id: wsBadge
+
+                visible: root.modelData.wsNum.length > 0
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.topMargin: -2
+                anchors.rightMargin: -2
+                implicitWidth: 20
+                implicitHeight: 20
+                radius: Tokens.rounding.full
+                color: Colours.palette.m3primary
+                border.width: 1.5
+                border.color: Colours.palette.m3surface
+
+                StyledText {
+                    anchors.centerIn: parent
+                    text: root.modelData.wsNum
+                    color: Colours.palette.m3onPrimary
+                    font: Tokens.font.label.small
+                }
+            }
+        }
+
+        Item {
             id: inner
 
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
             anchors.margins: Tokens.padding.medium
+            visible: !root.minimized
 
             implicitHeight: root.nonAnimHeight
 
@@ -169,7 +232,7 @@ StyledRect {
                         id: icon
 
                         asynchronous: true
-                        active: root.hasAppIcon
+                        active: !root.isAgent && root.hasAppIcon && (Quickshell.iconPath(root.modelData.appIcon) ?? "").length > 0
 
                         anchors.centerIn: parent
 
@@ -186,12 +249,12 @@ StyledRect {
 
                     Loader {
                         asynchronous: true
-                        active: !root.hasAppIcon
+                        active: root.isAgent || !root.hasAppIcon || (Quickshell.iconPath(root.modelData.appIcon) ?? "").length === 0
                         anchors.centerIn: parent
                         anchors.verticalCenterOffset: 1
 
                         sourceComponent: MaterialIcon {
-                            text: Icons.getNotifIcon(root.modelData.summary, root.modelData.urgency)
+                            text: root.isAgent ? "smart_toy" : Icons.getNotifIcon(root.modelData.summary, root.modelData.urgency)
                             color: root.modelData.urgency === NotificationUrgency.Critical ? Colours.palette.m3onError : root.modelData.urgency === NotificationUrgency.Low ? Colours.palette.m3onSurface : Colours.palette.m3onSecondaryContainer
                             fontStyle: Tokens.font.icon.medium
                         }

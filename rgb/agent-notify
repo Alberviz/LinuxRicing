@@ -86,10 +86,12 @@ def send_desktop_notification(agent_data):
         "notify-send",
         "-a", "caelestia-agents",
         "-u", "normal",
-        "-i", "smart_toy",
+        "-i", "utilities-terminal",
     ]
     if address:
         cmd.extend(["-h", f"string:address:{address}"])
+    if ws:
+        cmd.extend(["-h", f"int:ws:{ws}"])
     
     cmd.extend([title, body])
 

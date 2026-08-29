@@ -41,6 +41,12 @@ QtObject {
     property bool minimized: false
 
     readonly property bool isAgent: (notif.appName === "caelestia-agents") || (notif.hints && (notif.hints.address !== undefined || notif.hints["address"] !== undefined)) || notif.resident
+    readonly property string wsNum: {
+        if (notif.hints && notif.hints.ws !== undefined)
+            return String(notif.hints.ws);
+        const m = (notif.body || "").match(/Workspace\s+(\d+)/i) || (notif.summary || "").match(/Workspace\s+(\d+)/i);
+        return m ? m[1] : "";
+    }
 
     readonly property bool hasFullscreen: {
         const monitor = Hypr.focusedMonitor;

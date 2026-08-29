@@ -68,6 +68,8 @@ Singleton {
             battery_color: qsTr("Color según nivel"),
             breathing_battery: qsTr("Respiración (color batería)"),
             breathing: qsTr("Respiración"),
+            wave: qsTr("Ola"),
+            wave_battery: qsTr("Ola (color batería)"),
             stream: qsTr("Flujo"),
             stream_battery: qsTr("Flujo color batería"),
             hardware_battery: qsTr("Batería del firmware"),
@@ -78,8 +80,12 @@ Singleton {
             none: qsTr("Ninguno")
         })
 
+    // El teclado Akko solo admite efectos de firmware de una sola escritura; el
+    // lienzo per-key (battery_meter) se retiró porque congela el teclado ~1 s por
+    // pasada sobre 2.4 GHz. 'stream' solo vale en la tira lateral (en las teclas
+    // el modo 5 es Ripple). Mantener en sync con rgb/battery-lighting EFFECTS.
     readonly property var _effects: ({
-            "akko_keyboard:keys": ["theme", "battery_meter", "breathing_battery", "stream", "red_breathing", "red_static", "none"],
+            "akko_keyboard:keys": ["theme", "breathing_battery", "breathing", "wave", "wave_battery", "red_breathing", "red_static", "none"],
             "akko_keyboard:sidestrip": ["stream_battery", "breathing", "solid_theme", "red_breathing", "red_static", "none"],
             "mchose_base": ["theme_breathing", "battery_color", "hardware_battery", "wave", "red_breathing", "red_static", "none"],
             "magichome": ["battery_color", "solid_theme", "red", "none"],
