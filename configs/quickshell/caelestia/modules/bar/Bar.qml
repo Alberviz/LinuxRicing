@@ -176,14 +176,6 @@ ColumnLayout {
                 }
             }
             DelegateChoice {
-                roleValue: "agents"
-                delegate: EntryWrapper {
-                    AgentPills {
-                        objectName: "taskbarAgentPills"
-                    }
-                }
-            }
-            DelegateChoice {
                 roleValue: "statusIcons"
                 delegate: EntryWrapper {
                     StatusIcons {
