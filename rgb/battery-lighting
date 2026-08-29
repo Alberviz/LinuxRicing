@@ -613,26 +613,31 @@ def get_akko_keyboard_battery():
                             st = "Cargando" if is_chg else "Descargando"
 
                             last_st = cache.get("akko_status")
+                            last_disp = cache.get("akko_battery")
                             last_ema = cache.get("akko_battery_ema")
 
-                            if last_st != st or last_ema is None:
+                            if last_st != st or last_disp is None or last_ema is None:
                                 ema = float(raw_bat)
+                                displayed = raw_bat
                             else:
-                                # Outlier rejection: if jump is > 15%, ignore noise spike
                                 if abs(raw_bat - float(last_ema)) <= 15:
-                                    alpha = 0.2
-                                    ema = (1.0 - alpha) * float(last_ema) + alpha * float(raw_bat)
+                                    ema = 0.8 * float(last_ema) + 0.2 * float(raw_bat)
                                 else:
                                     ema = float(last_ema)
+                                cand = int(round(ema))
+                                if is_chg:
+                                    displayed = max(int(last_disp), cand)
+                                else:
+                                    displayed = min(int(last_disp), cand)
 
-                            filtered_bat = max(1, min(100, int(round(ema))))
+                            displayed = max(1, min(100, displayed))
                             os.close(fd)
-                            cache["akko_battery"] = filtered_bat
+                            cache["akko_battery"] = displayed
                             cache["akko_battery_raw"] = raw_bat
                             cache["akko_battery_ema"] = round(ema, 2)
                             cache["akko_status"] = st
                             save_cache(cache)
-                            return filtered_bat, st
+                            return displayed, st
                 os.close(fd)
             except Exception:
                 pass
