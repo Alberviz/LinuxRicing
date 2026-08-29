@@ -71,9 +71,12 @@ VALID_TRIGGERS = {"charging", "low", "critical"}
 VALID_TARGETS = {"akko_keyboard", "mchose_base", "magichome", "openrgb"}
 VALID_ZONES = {"keys", "sidestrip", "both"}
 
-# battery_meter: experimental, el firmware 5075B no conmuta a modo lienzo (ver informe hw 2026-08)
+# El teclado Akko solo usa efectos de firmware de una sola escritura (0x07/0x08 con
+# byte[1] de modo). El lienzo per-key (0x0C) se descartó: por 2.4 GHz congela el
+# teclado ~1 s en cada pasada y el firmware del 5075B no conmuta a modo lienzo de
+# forma fiable (ver hardware/akko-5075b-plus/USB_FINDINGS_2.4G.md).
 EFFECTS = {
-    "akko_keyboard:keys": {"theme", "battery_meter", "breathing_battery", "stream",
+    "akko_keyboard:keys": {"theme", "breathing_battery", "breathing", "wave", "wave_battery",
                            "red_breathing", "red_static", "none"},
     "akko_keyboard:sidestrip": {"stream_battery", "breathing", "solid_theme",
                                 "red_breathing", "red_static", "none"},
