@@ -27,6 +27,14 @@ StyledClippingRect {
 
     property real blur: onSpecial ? 1 : 0
 
+    function wsAt(yInRoot: real): var {
+        const p = mapToItem(layout, layout.width / 2, yInRoot);
+        let c = layout.childAt(p.x, p.y);
+        while (c && !c.isWorkspace)
+            c = c.parent;
+        return (c && c.isWorkspace) ? c : null;
+    }
+
     implicitWidth: Tokens.sizes.bar.innerWidth
     implicitHeight: layout.implicitHeight + Tokens.padding.small
 
@@ -58,6 +66,13 @@ StyledClippingRect {
                 occupied: root.occupied
                 groupOffset: root.groupOffset
             }
+        }
+
+        AgentBg {
+            anchors.fill: parent
+            anchors.margins: Tokens.padding.extraSmall
+            workspaces: workspaces
+            groupOffset: root.groupOffset
         }
 
         ColumnLayout {

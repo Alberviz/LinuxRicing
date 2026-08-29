@@ -71,12 +71,13 @@ def send_desktop_notification(agent_data):
     dir_name = agent_data.get("dir", "")
     ws = agent_data.get("ws", 1)
     status = agent_data.get("status", "Completado")
+    task = agent_data.get("task", "")
     address = agent_data.get("address", "")
     duration = agent_data.get("duration", "")
 
     title = f"🤖 {name} ({dir_name})" if dir_name else f"🤖 {name}"
-    
-    body_parts = [f"Estado: {status}"]
+
+    body_parts = [task] if task and task != status else [f"Estado: {status}"]
     if duration:
         body_parts.append(f"Duración: {duration}")
     body_parts.append(f"Workspace {ws} • Clic para enfocar")
@@ -92,7 +93,7 @@ def send_desktop_notification(agent_data):
         cmd.extend(["-h", f"string:address:{address}"])
     if ws:
         cmd.extend(["-h", f"int:ws:{ws}"])
-    
+
     cmd.extend([title, body])
 
     try:
@@ -101,23 +102,31 @@ def send_desktop_notification(agent_data):
         pass
 
 
-def notify_agent(name="Agente", status="Completado", duration="", custom_address=None, custom_ws=None):
+def build_agent_data(name="Agente", status="Completado", task=None, duration="",
+                     address="", ws=1, terminal="Terminal"):
+    """Construye el diccionario de datos del agente según el contrato de datos."""
+    return {
+        "id": f"agent-{int(time.time() * 1000)}",
+        "name": name,
+        "task": task if task else status,
+        "status": status,
+        "address": address,
+        "ws": ws,
+        "dir": get_project_name(),
+        "duration": duration,
+        "terminal": terminal,
+    }
+
+
+def notify_agent(name="Agente", status="Completado", task=None, duration="",
+                 custom_address=None, custom_ws=None):
     """Registra y notifica la finalización de un agente."""
     win = get_hyprland_window()
     address = custom_address if custom_address else win["address"]
     ws = custom_ws if custom_ws else win["ws_id"]
-    dir_name = get_project_name()
 
-    agent_data = {
-        "id": f"agent-{int(time.time()*1000)}",
-        "name": name,
-        "status": status,
-        "address": address,
-        "ws": ws,
-        "dir": dir_name,
-        "duration": duration,
-        "terminal": win["class"]
-    }
+    agent_data = build_agent_data(name=name, status=status, task=task, duration=duration,
+                                  address=address, ws=ws, terminal=win["class"])
 
     # 1. Registrar en Quickshell (píldora interactiva en la barra)
     send_quickshell_ipc(agent_data)
@@ -125,58 +134,68 @@ def notify_agent(name="Agente", status="Completado", duration="", custom_address
     # 2. Notificación de escritorio
     send_desktop_notification(agent_data)
 
-    print(f"✓ Notificación enviada: {name} en Workspace {ws} ({dir_name})")
+    print(f"✓ Notificación enviada: {name} en Workspace {ws} ({agent_data['dir']})")
 
 
-def run_wrapped_command(cmd_args, name=None):
+def run_wrapped_command(cmd_args, name=None, task=None):
     """Ejecuta un comando capturando la ventana de inicio y notificando al terminar."""
     if not name:
         name = Path(cmd_args[0]).name.capitalize()
-    
+
     win = get_hyprland_window()
     start_time = time.time()
-    
+
     try:
         ret = subprocess.run(cmd_args)
         elapsed = time.time() - start_time
         mins, secs = divmod(int(elapsed), 60)
         dur_str = f"{mins}m {secs}s" if mins > 0 else f"{secs}s"
         status = "Completado" if ret.returncode == 0 else f"Error ({ret.returncode})"
-        notify_agent(name=name, status=status, duration=dur_str, custom_address=win["address"], custom_ws=win["ws_id"])
+        notify_agent(name=name, status=status, task=task, duration=dur_str,
+                     custom_address=win["address"], custom_ws=win["ws_id"])
         sys.exit(ret.returncode)
     except KeyboardInterrupt:
         sys.exit(130)
 
 
-def main():
+def build_parser():
+    """Construye el parser de argumentos de línea de comandos."""
     parser = argparse.ArgumentParser(description="Agent Notification & Focus Manager for Caelestia")
     parser.add_argument("--name", "-n", default="Agente", help="Nombre del agente")
     parser.add_argument("--status", "-s", default="Completado", help="Estado de la tarea")
+    parser.add_argument("--task", "-t", default=None, help="Descripción de la tarea")
     parser.add_argument("--duration", "-d", default="", help="Duración de la tarea")
     parser.add_argument("--address", "-a", default=None, help="Dirección de ventana Hyprland")
     parser.add_argument("--ws", "-w", default=None, type=int, help="ID de Workspace")
 
-    subparsers = parser.add_subparsers(dest="subcommand")
+    sub = parser.add_subparsers(dest="subcommand")
 
     # run subcommand
-    run_parser = subparsers.add_parser("run", help="Ejecutar un agente y notificar al finalizar")
-    run_parser.add_argument("--name", "-n", help="Nombre descriptivo del agente (ej. Antigravity, Claude)")
-    run_parser.add_argument("command", nargs=argparse.REMAINDER, help="Comando a ejecutar con sus argumentos")
+    rp = sub.add_parser("run", help="Ejecutar un agente y notificar al finalizar")
+    rp.add_argument("--name", "-n", help="Nombre descriptivo del agente (ej. Antigravity, Claude)")
+    rp.add_argument("--task", "-t", default=None, help="Descripción de la tarea")
+    rp.add_argument("command", nargs=argparse.REMAINDER, help="Comando a ejecutar con sus argumentos")
 
     # notify subcommand
-    notify_parser = subparsers.add_parser("notify", help="Enviar notificación directa de agente finalizado")
-    notify_parser.add_argument("--name", "-n", default="Agente", help="Nombre del agente")
-    notify_parser.add_argument("--status", "-s", default="Completado", help="Estado de la tarea")
-    notify_parser.add_argument("--duration", "-d", default="", help="Duración de la tarea")
-    notify_parser.add_argument("--address", "-a", default=None, help="Dirección de ventana Hyprland")
-    notify_parser.add_argument("--ws", "-w", default=None, type=int, help="ID de Workspace")
+    npx = sub.add_parser("notify", help="Enviar notificación directa de agente finalizado")
+    npx.add_argument("--name", "-n", default="Agente", help="Nombre del agente")
+    npx.add_argument("--status", "-s", default="Completado", help="Estado de la tarea")
+    npx.add_argument("--task", "-t", default=None, help="Descripción de la tarea")
+    npx.add_argument("--duration", "-d", default="", help="Duración de la tarea")
+    npx.add_argument("--address", "-a", default=None, help="Dirección de ventana Hyprland")
+    npx.add_argument("--ws", "-w", default=None, type=int, help="ID de Workspace")
 
     # test subcommand
-    subparsers.add_parser("test", help="Probar notificación y píldora de agente")
+    sub.add_parser("test", help="Probar notificación y píldora de agente")
 
     # clear subcommand
-    subparsers.add_parser("clear", help="Limpiar todas las píldoras de agentes")
+    sub.add_parser("clear", help="Limpiar todas las píldoras de agentes")
 
+    return parser
+
+
+def main():
+    parser = build_parser()
     args, unknown = parser.parse_known_args()
 
     if args.subcommand == "run":
@@ -186,12 +205,13 @@ def main():
         if not cmd and unknown:
             cmd = unknown
         if not cmd:
-            run_parser.print_help()
+            print("uso: agent-notify run [-n NOMBRE] [-t TAREA] -- <comando...>", file=sys.stderr)
             sys.exit(1)
-        run_wrapped_command(cmd, name=args.name)
+        run_wrapped_command(cmd, name=args.name, task=args.task)
 
     elif args.subcommand == "test":
-        notify_agent(name="Antigravity", status="Tarea completada con éxito", duration="1m 30s")
+        notify_agent(name="Antigravity", status="Completado",
+                     task="Prueba de notificacion de agente", duration="1m 30s")
 
     elif args.subcommand == "clear":
         try:
@@ -205,6 +225,7 @@ def main():
         notify_agent(
             name=args.name,
             status=args.status,
+            task=args.task,
             duration=args.duration,
             custom_address=args.address,
             custom_ws=args.ws

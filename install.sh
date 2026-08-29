@@ -14,7 +14,7 @@
 #    widgets/Background.qml          -> ~/.config/quickshell/caelestia/modules/background/
 #    widgets/{gtasks,desktop-deck-helper} -> ~/.local/bin/
 #    rgb/{sync-rgb,argb-wave}.py     -> ~/.config/caelestia/
-#    rgb/{akko-rgb,battery-lighting,magichome-control,mchose-battery,
+#    rgb/{agent-notify,akko-rgb,battery-lighting,magichome-control,mchose-battery,
 #         mchose-lighting,rgb-notify-flash} -> ~/.local/bin/
 #    systemd/*.service              -> ~/.config/systemd/user/
 # ==============================================================================
@@ -196,7 +196,7 @@ if [ "$SELECTED_RGB" = true ]; then
     done
 
     # 6c. Binarios CLI en ~/.local/bin
-    for bin in akko-rgb battery-lighting magichome-control mchose-battery \
+    for bin in agent-notify akko-rgb battery-lighting magichome-control mchose-battery \
                mchose-lighting rgb-notify-flash; do
         if [ -f "$BASE_DIR/rgb/$bin" ]; then
             cp -u "$BASE_DIR/rgb/$bin" "$HOME/.local/bin/$bin"

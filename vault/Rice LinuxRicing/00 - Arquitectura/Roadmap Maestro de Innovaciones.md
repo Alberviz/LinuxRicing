@@ -1,7 +1,7 @@
 ---
 tags: [rice, roadmap, innovaciones, futuro, ideas]
 estado: planificacion
-actualizado: 2026-08-27
+actualizado: 2026-08-29
 ---
 
 # 🔮 Roadmap Maestro de Innovaciones y Customizaciones
@@ -21,7 +21,8 @@ mindmap
       Tema Dinámico Discord / Vencord
       MangoHud Theme Sync
       Touchpad & Batería Portátil
-    ⚡ Productividad & Automatización
+    ⚡ Productividad & Agentes IA
+      Notificaciones de Agentes en Workspace (v1)
       Google Tasks Sync Bidireccional
       Daemon Modular rgbd
       Perfiles de Escena por Hora
@@ -65,7 +66,19 @@ mindmap
 
 ---
 
-## 💻 4. Adaptabilidad para Portátiles y Movilidad
+## ⚡ 4. Productividad, Agentes de IA y Automatización
+
+| Proyecto | Descripción | Dificultad | Impacto | Estado |
+|---|---|:---:|:---:|:---:|
+| **Notificaciones de Agentes en Workspace (v1)** | Integración de `agent-notify`, toasts enriquecidos, halos en pips de workspace, popouts informativos y auto-descarte inteligente. | 🟡 Media | 🌟🌟🌟🌟 | 🟢 Hecho (v1) |
+| **Indicador «En Curso» para Agentes (v2)** | Aro palpitante o respiración luminosa en el pip mientras el agente está trabajando en el terminal, antes de finalizar. | 🟡 Media | 🌟🌟🌟🌟 | 🔵 Planificado |
+| **Google Tasks Sync Bidireccional** | Sincronización en segundo plano con Google Tasks para mostrar tareas pendientes en el Deck de widgets. | 🟡 Media | 🌟🌟🌟 | 🔵 Planificado |
+| **Daemon Modular de Iluminación (`rgbd`)** | Unificar drivers HID/OpenRGB/Wi-Fi en un servicio daemon C++/Python modular y asíncrono. | 🔴 Alta | 🌟🌟🌟🌟🌟 | 🔵 Planificado |
+| **Perfiles de Escena por Hora / Contexto** | Cambiar paleta, widgets activos e iluminación según la hora del día o actividad del usuario. | 🟢 Baja | 🌟🌟🌟 | 🔵 Planificado |
+
+---
+
+## 💻 5. Adaptabilidad para Portátiles y Movilidad
 
 | Proyecto | Descripción | Dificultad | Impacto |
 |---|---|:---:|:---:|
@@ -74,7 +87,7 @@ mindmap
 
 ---
 
-## 🔬 5. Hardware pendiente de Ingeniería Inversa
+## 🔬 6. Hardware pendiente de Ingeniería Inversa
 
 1. **Iluminación del Cuerpo del Ratón MCHOSE K7 Ultra**:
    - Descifrar el comando para controlar el LED del cuerpo del ratón de forma independiente a la base.

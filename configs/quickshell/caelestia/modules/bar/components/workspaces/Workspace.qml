@@ -23,6 +23,8 @@ ColumnLayout {
     readonly property int ws: groupOffset + index + 1
     readonly property bool isOccupied: occupied[ws] ?? false
     readonly property bool hasWindows: isOccupied && Config.bar.workspaces.showWindows
+    readonly property bool hasAgent: Agents.agentsForWs(ws).length > 0
+    readonly property bool agentUnseen: Agents.hasUnseenForWs(ws)
 
     Layout.alignment: Qt.AlignHCenter
     Layout.preferredHeight: size
@@ -50,9 +52,29 @@ ColumnLayout {
             const activeLabel = Config.bar.workspaces.activeLabel || (root.isOccupied ? occupiedLabel : label);
             return root.activeWsId === root.ws ? activeLabel : root.isOccupied ? occupiedLabel : label;
         }
-        color: Config.bar.workspaces.occupiedBg || root.isOccupied || root.activeWsId === root.ws ? Colours.palette.m3onSurface : Colours.layer(Colours.palette.m3outlineVariant, 2)
+        color: root.hasAgent
+            ? Colours.palette.m3onPrimaryContainer
+            : (Config.bar.workspaces.occupiedBg || root.isOccupied || root.activeWsId === root.ws
+               ? Colours.palette.m3onSurface
+               : Colours.layer(Colours.palette.m3outlineVariant, 2))
         verticalAlignment: Qt.AlignVCenter
         font.family: Tokens.font.workspaces
+
+        Rectangle {
+            width: 4
+            height: 4
+            radius: 2
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.rightMargin: 1
+            anchors.topMargin: 1
+            color: Colours.palette.m3primary
+            visible: scale > 0
+            scale: root.agentUnseen ? 1 : 0
+            Behavior on scale {
+                Anim { easing: Tokens.anim.standardDecel }
+            }
+        }
     }
 
     Loader {
