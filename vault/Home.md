@@ -1,6 +1,6 @@
 ---
 tags: [moc, home, indice]
-actualizado: 2026-08-27
+actualizado: 2026-08-29
 ---
 
 # 🛸 LinuxRicing · Base de Conocimiento Maestro
@@ -8,6 +8,16 @@ actualizado: 2026-08-27
 Bienvenido a la bóveda de conocimiento y arquitectura de **Alberto** para el setup **LinuxRicing** (Arch Linux / CachyOS + Hyprland + Quickshell Caelestia + Material You).
 
 Esta bóveda vive dentro del repositorio en [`LinuxRicing/vault/`](file:///home/alberviz/LinuxRicing/vault/) y se sincroniza automáticamente con Git.
+
+---
+
+## 🎯 Empieza aquí cada día
+
+**[[🎯 Hoy|🎯 Hoy · ¿Qué hago?]]** — lista viva y priorizada de todo lo que le pides a
+los agentes «para el futuro» + los proyectos del Roadmap. Edita prioridad y estado
+desde la tabla; los agentes van añadiendo lo que les digas.
+
+![[Backlog.base#🎯 Hoy]]
 
 ---
 

@@ -1,0 +1,109 @@
+filters:
+  and:
+    - 'file.inFolder("Backlog")'
+    - 'file.ext == "md"'
+
+formulas:
+  prio: 'if(prioridad == 1, "🔴 1", if(prioridad == 2, "🟠 2", if(prioridad == 3, "🟡 3", if(prioridad == 4, "🔵 4", "⚪ 5"))))'
+  estado_icon: 'if(estado == "hecha", "✅", if(estado == "en-curso", "🔄", if(estado == "descartada", "✖️", "⏳")))'
+  dias: '(now() - file.ctime).days'
+
+properties:
+  formula.prio:
+    displayName: "Prioridad"
+  formula.estado_icon:
+    displayName: ""
+  formula.dias:
+    displayName: "Días"
+  area:
+    displayName: "Área"
+  origen:
+    displayName: "Origen"
+  esfuerzo:
+    displayName: "Esfuerzo"
+  estado:
+    displayName: "Estado"
+  creado:
+    displayName: "Creado"
+
+views:
+  - type: table
+    name: "🎯 Hoy"
+    filters:
+      or:
+        - 'estado == "pendiente"'
+        - 'estado == "en-curso"'
+    groupBy:
+      property: prioridad
+      direction: ASC
+    order:
+      - formula.estado_icon
+      - file.name
+      - area
+      - esfuerzo
+      - origen
+      - estado
+
+  - type: table
+    name: "📋 Todo"
+    filters:
+      not:
+        - 'estado == "descartada"'
+    order:
+      - formula.prio
+      - formula.estado_icon
+      - file.name
+      - area
+      - esfuerzo
+      - estado
+
+  - type: table
+    name: "🗂️ Por área"
+    filters:
+      not:
+        - 'estado == "descartada"'
+    groupBy:
+      property: area
+      direction: ASC
+    order:
+      - formula.prio
+      - formula.estado_icon
+      - file.name
+      - esfuerzo
+      - estado
+
+  - type: table
+    name: "🆕 Reciente"
+    limit: 15
+    order:
+      - file.ctime
+      - formula.estado_icon
+      - file.name
+      - area
+      - formula.prio
+      - estado
+
+  - type: table
+    name: "✅ Hechas"
+    filters:
+      and:
+        - 'estado == "hecha"'
+    order:
+      - file.name
+      - area
+      - origen
+      - creado
+
+  - type: cards
+    name: "🃏 Tablero"
+    filters:
+      not:
+        - 'estado == "descartada"'
+    groupBy:
+      property: estado
+      direction: ASC
+    order:
+      - file.name
+      - formula.prio
+      - area
+      - esfuerzo
