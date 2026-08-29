@@ -1,7 +1,11 @@
 # Modelo unificado de efectos por dispositivo — handoff
 
 **Rama:** `feat/akko-effects-model` (worktree `.worktrees/akko-effects`)
-**Estado:** en implementación
+**Estado:** teclado Akko completo (Python + UI + migración + tests, verificado
+por hardware). Pendiente: la ficha de la base MCHOSE (`DeviceCard.qml`) todavía
+usa los chips de modo antiguos — el backend (`sync_mchose_base`,
+`build_mchose_base_payload`) ya acepta el objeto de efecto, solo falta cambiar
+la UI a `EffectEditor` con `device: "mchose_base"`. Y mergear a `main`.
 **Objetivo:** una sola lista de efectos por dispositivo RGB, mostrada igual en la
 ficha del dispositivo (pestaña *Dispositivos*) y en las reglas de batería
 (pestaña *Notificaciones*). Empezamos por el teclado Akko; la base MCHOSE usa el
