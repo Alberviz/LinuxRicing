@@ -22,7 +22,7 @@ RGB por tecla **y** una tira LED lateral independiente ("side-strip" / SLED).
 | Capacidad | Estado | Detalle |
 |---|---|---|
 | Color sólido en teclas (`0x07`) | ✅ | Cable y 2.4 GHz. Ver [`PROTOCOL.md` §A](PROTOCOL.md). |
-| Color sólido en tira lateral (`0x08`) | ✅ | Idéntico a `0x07`. |
+| Color sólido en tira lateral (`0x08`) | ✅ | Idéntico a `0x07`. ⚠️ **El firmware apaga la tira lateral con batería baja + descargando** (las teclas se mantienen); al cargar la re-activa. Si la tira "no responde", mirar batería/carga antes que el protocolo. |
 | Telemetría de batería (`0x83`) | ✅ | Nivel + estado de carga. [`PROTOCOL.md` §B](PROTOCOL.md). |
 | Estado de la palanca Win/Mac, WinLock (`0x86`) | ✅ | [`PROTOCOL.md` §E](PROTOCOL.md). |
 | Per-key / lienzo (`0x07` modo `0x0D` + `0x0C`) | ❌ retirado | Por 2.4 GHz congela el teclado ~1 s por pasada y el 5075B no conmuta a modo lienzo de forma fiable. Fuera del stack Linux; solo documentado por si sirve por cable. Ver [`PROTOCOL.md` §C](PROTOCOL.md). |
