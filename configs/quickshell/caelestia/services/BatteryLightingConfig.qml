@@ -91,16 +91,57 @@ Singleton {
             "openrgb": ["battery_meter", "solid_theme", "red", "none"]
         })
 
-    // Returns [{ key, label }] for a target (+ zone if the target is the Akko).
+    // akko_keyboard y mchose_base usan el objeto de efecto (EffectEditor);
+    // magichome/openrgb siguen con esta lista de strings.
+    function usesEffectObject(target: string): bool {
+        return target === "akko_keyboard" || target === "mchose_base";
+    }
+
+    // [{ key, label }] para magichome/openrgb.
     function effectsFor(target: string, zone: string): var {
-        let k = target;
-        if (target === "akko_keyboard")
-            k = `akko_keyboard:${zone === "sidestrip" ? "sidestrip" : "keys"}`;
-        const keys = root._effects[k] ?? [];
+        const keys = root._effects[target] ?? [];
         return keys.map(e => ({
                     key: e,
                     label: root.effectLabels[e] ?? e
                 }));
+    }
+
+    readonly property var _migrateAliases: ({
+            "theme": { animation: "solid", source: "theme" },
+            "solid_theme": { animation: "solid", source: "theme" },
+            "battery_color": { animation: "solid", source: "battery" },
+            "breathing": { animation: "breathing", source: "theme" },
+            "breathing_battery": { animation: "breathing", source: "battery" },
+            "theme_breathing": { animation: "breathing", source: "theme" },
+            "wave": { animation: "wave", source: "theme" },
+            "wave_battery": { animation: "wave", source: "battery" },
+            "stream": { animation: "snake", source: "battery" },
+            "stream_battery": { animation: "snake", source: "battery" },
+            "hardware_battery": { animation: "hardware_battery", source: "battery" },
+            "battery_meter": { animation: "breathing", source: "battery" },
+            "red_static": { animation: "solid", source: "fixed", hex: "ff0000" },
+            "red_breathing": { animation: "breathing", source: "fixed", hex: "ff0000" },
+            "none": { animation: "off", source: "theme" }
+        })
+    function _migrateEffect(str: string): var {
+        const a = root._migrateAliases[str] ?? { animation: "solid", source: "theme" };
+        return {
+            animation: a.animation,
+            colour: { source: a.source, hex: a.hex ?? "d8bde7" },
+            speed: a.animation === "snake" ? 1 : 3,
+            direction: "right"
+        };
+    }
+
+    // Efecto por defecto al elegir un destino nuevo.
+    function defaultEffectFor(target: string, zone: string): var {
+        if (target === "akko_keyboard")
+            return { animation: (zone === "sidestrip" ? "snake" : "breathing"),
+                     colour: { source: "battery", hex: "d8bde7" }, speed: 3, direction: "right" };
+        if (target === "mchose_base")
+            return { animation: "breathing", colour: { source: "battery", hex: "d8bde7" },
+                     speed: 3, direction: "right" };
+        return (root._effects[target] ?? ["none"])[0];
     }
 
     function sourceLabel(key: string): string {
@@ -179,13 +220,14 @@ Singleton {
         root.save();
     }
 
-    function addAction(ruleId: string, target: string, zone: var, effect: string): void {
+    function addAction(ruleId: string, target: string, zone: var): void {
         _commit(root.rules.map(r => {
             if (r.id !== ruleId)
                 return r;
-            const a = { target, effect };
-            if (target === "akko_keyboard")
-                a.zone = zone || "keys";
+            const z = target === "akko_keyboard" ? (zone || "keys") : undefined;
+            const a = { target, effect: root.defaultEffectFor(target, z) };
+            if (z)
+                a.zone = z;
             return Object.assign({}, r, { actions: [...(r.actions ?? []), a] });
         }));
     }
@@ -202,10 +244,14 @@ Singleton {
                     delete next.zone;
                 else if (!next.zone)
                     next.zone = "keys";
-                // clamp effect to what's valid for the new target/zone
-                const valid = root.effectsFor(next.target, next.zone).map(e => e.key);
-                if (!valid.includes(next.effect))
-                    next.effect = valid[0];
+                // Si cambió el destino/zona, dar un efecto válido para el nuevo.
+                if ((patch.target && patch.target !== a.target) || (patch.zone && patch.zone !== a.zone)) {
+                    next.effect = root.defaultEffectFor(next.target, next.zone);
+                } else if (!root.usesEffectObject(next.target)) {
+                    const valid = root.effectsFor(next.target, next.zone).map(e => e.key);
+                    if (!valid.includes(next.effect))
+                        next.effect = valid[0];
+                }
                 return next;
             });
             return Object.assign({}, r, { actions });
@@ -276,7 +322,9 @@ Singleton {
                                 actions: Array.isArray(r.actions) ? r.actions.map(a => ({
                                             target: a.target,
                                             zone: a.zone ?? null,
-                                            effect: a.effect
+                                            effect: root.usesEffectObject(a.target) && typeof a.effect === "string"
+                                                ? root._migrateEffect(a.effect)
+                                                : a.effect
                                         })) : []
                             }));
                 }

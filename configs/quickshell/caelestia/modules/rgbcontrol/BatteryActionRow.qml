@@ -22,49 +22,9 @@ StyledRect {
     border.width: 1
     border.color: Qt.alpha(Colours.palette.m3outlineVariant, 0.4)
 
-    function previewMode(zone: var, effect: string): string {
-        if (zone === "sidestrip")
-            return "none";
-        switch (effect) {
-        case "theme":
-            return "theme";
-        case "wave":
-        case "wave_battery":
-            return "wave";
-        case "breathing_battery":
-        case "breathing":
-            return "breathing";
-        case "red_breathing":
-            return "red_breathing";
-        case "red_static":
-            return "red_static";
-        case "none":
-            return "none";
-        default:
-            return "breathing";
-        }
-    }
-
-    function previewSidestripMode(zone: var, effect: string): string {
-        if (zone === "keys")
-            return "none";
-        switch (effect) {
-        case "stream_battery":
-            return "stream_battery";
-        case "solid_theme":
-            return "solid";
-        case "breathing":
-            return "breathing";
-        case "red_breathing":
-            return "red_breathing";
-        case "red_static":
-            return "red_static";
-        case "none":
-            return "none";
-        default:
-            return "stream_battery";
-        }
-    }
+    readonly property bool _isObjectTarget: BatteryLightingConfig.usesEffectObject(root.action.target)
+    readonly property string _zone: root.action.zone ?? "keys"
+    readonly property var _offEffect: ({ animation: "off" })
 
     ColumnLayout {
         id: col
@@ -185,55 +145,71 @@ StyledRect {
             }
         }
 
-        // Section: Efecto
-        StyledText {
-            text: qsTr("Efecto")
-            font: Tokens.font.label.small
-            color: Colours.palette.m3onSurfaceVariant
+        // Section: Efecto — akko_keyboard / mchose_base usan el editor compartido
+        EffectEditor {
+            Layout.fillWidth: true
+            Layout.topMargin: Tokens.spacing.extraSmall
+            visible: root._isObjectTarget
+            device: root.action.target === "mchose_base" ? "mchose_base" : "akko_keyboard"
+            zone: root._zone
+            effect: DeviceEffects.normalize(root._isObjectTarget ? (root.action.effect ?? {}) : {})
+            onEdited: eff => BatteryLightingConfig.updateAction(root.ruleId, root.index, {
+                effect: eff
+            })
         }
 
-        Flow {
+        // magichome / openrgb: lista de strings
+        ColumnLayout {
             Layout.fillWidth: true
             spacing: Tokens.spacing.extraSmall
+            visible: !root._isObjectTarget
 
-            Repeater {
-                model: BatteryLightingConfig.effectsFor(root.action.target, root.action.zone)
+            StyledText {
+                text: qsTr("Efecto")
+                font: Tokens.font.label.small
+                color: Colours.palette.m3onSurfaceVariant
+            }
+            Flow {
+                Layout.fillWidth: true
+                spacing: Tokens.spacing.extraSmall
 
-                Chip {
-                    id: effectChip
+                Repeater {
+                    model: BatteryLightingConfig.effectsFor(root.action.target, root.action.zone)
 
-                    required property var modelData
-                    readonly property bool isDanger: modelData.key.startsWith("red")
+                    Chip {
+                        id: effectChip
 
-                    implicitWidth: effectLabel.implicitWidth + Tokens.padding.large * 2
-                    implicitHeight: 30
-                    label: modelData.label
-                    selected: root.action.effect === modelData.key
-                    activeColour: isDanger ? Colours.palette.m3errorContainer : Colours.palette.m3primary
-                    activeText: isDanger ? Colours.palette.m3onErrorContainer : Colours.palette.m3onPrimary
-                    onClicked: BatteryLightingConfig.updateAction(root.ruleId, root.index, {
-                        effect: modelData.key
-                    })
+                        required property var modelData
+                        readonly property bool isDanger: modelData.key.startsWith("red")
 
-                    StyledText {
-                        id: effectLabel
+                        implicitWidth: effectLabel.implicitWidth + Tokens.padding.large * 2
+                        implicitHeight: 30
+                        label: modelData.label
+                        selected: root.action.effect === modelData.key
+                        activeColour: isDanger ? Colours.palette.m3errorContainer : Colours.palette.m3primary
+                        activeText: isDanger ? Colours.palette.m3onErrorContainer : Colours.palette.m3onPrimary
+                        onClicked: BatteryLightingConfig.updateAction(root.ruleId, root.index, {
+                            effect: modelData.key
+                        })
 
-                        visible: false
-                        text: effectChip.modelData.label
-                        font: Tokens.font.label.small
+                        StyledText {
+                            id: effectLabel
+                            visible: false
+                            text: effectChip.modelData.label
+                            font: Tokens.font.label.small
+                        }
                     }
                 }
             }
         }
 
-        // Akko live preview
+        // Vista previa del teclado
         KeyboardPreview {
             Layout.fillWidth: true
             Layout.topMargin: Tokens.spacing.extraSmall
             visible: root.action.target === "akko_keyboard"
-            mode: root.previewMode(root.action.zone, root.action.effect)
-            sidestripMode: root.previewSidestripMode(root.action.zone, root.action.effect)
-            lowColour: Colours.palette.m3error
+            keysEffect: root._zone === "sidestrip" ? root._offEffect : DeviceEffects.normalize(root.action.effect ?? {})
+            sidestripEffect: root._zone === "keys" ? root._offEffect : DeviceEffects.normalize(root.action.effect ?? {})
         }
     }
 }

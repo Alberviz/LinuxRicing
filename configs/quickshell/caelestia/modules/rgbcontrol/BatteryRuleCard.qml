@@ -36,7 +36,9 @@ StyledRect {
             return qsTr("Sin acciones asignadas");
         return acts.map(a => {
             const tgt = BatteryLightingConfig.targetLabel(a.target);
-            const eff = BatteryLightingConfig.effectLabels[a.effect] ?? a.effect;
+            const eff = BatteryLightingConfig.usesEffectObject(a.target)
+                ? DeviceEffects.summary(a.effect)
+                : (BatteryLightingConfig.effectLabels[a.effect] ?? a.effect);
             return `${tgt} → ${eff}`;
         }).join(" · ");
     }
@@ -267,7 +269,7 @@ StyledRect {
 
                     StateLayer {
                         radius: Tokens.rounding.full
-                        onClicked: BatteryLightingConfig.addAction(root.rule.id, "mchose_base", null, "red_breathing")
+                        onClicked: BatteryLightingConfig.addAction(root.rule.id, "mchose_base", null)
                     }
 
                     RowLayout {
