@@ -37,51 +37,18 @@ ColumnLayout {
         deviceKey: "mchose_base"
 
         readonly property var profile: RgbConfig.deviceProfiles.mchose_base ?? ({})
-        readonly property string baseMode: profile.mode ?? "theme"
-        readonly property string baseFixed: profile.fixed_color ?? "d8bde7"
+        readonly property var ringEffect: DeviceEffects.normalize(profile.ring ?? profile.mode ?? "theme")
 
         SectionLabel {
-            text: qsTr("Modo del anillo LED")
+            text: qsTr("Anillo LED")
         }
 
-        ChipRow {
-            Chip {
-                implicitHeight: 32
-                label: qsTr("Tema global")
-                selected: mchoseCard.baseMode === "theme"
-                onClicked: RgbConfig.setDeviceMode("mchose_base", "theme")
-            }
-            Chip {
-                implicitHeight: 32
-                label: qsTr("Color fijo")
-                selected: mchoseCard.baseMode === "fixed"
-                onClicked: RgbConfig.setDeviceMode("mchose_base", "fixed")
-            }
-            Chip {
-                implicitHeight: 32
-                label: qsTr("Nivel de batería")
-                selected: mchoseCard.baseMode === "battery_color"
-                onClicked: RgbConfig.setDeviceMode("mchose_base", "battery_color")
-            }
-            Chip {
-                implicitHeight: 32
-                label: qsTr("Respiración (tema)")
-                selected: mchoseCard.baseMode === "theme_breathing"
-                onClicked: RgbConfig.setDeviceMode("mchose_base", "theme_breathing")
-            }
-            Chip {
-                implicitHeight: 32
-                label: qsTr("Ola de colores")
-                selected: mchoseCard.baseMode === "wave"
-                onClicked: RgbConfig.setDeviceMode("mchose_base", "wave")
-            }
-        }
-
-        ColourPicker {
+        EffectEditor {
             Layout.fillWidth: true
-            visible: mchoseCard.baseMode === "fixed"
-            selectedColour: mchoseCard.baseFixed
-            onPicked: hex => RgbConfig.setDeviceFixedColor("mchose_base", hex)
+            device: "mchose_base"
+            zone: ""
+            effect: mchoseCard.ringEffect
+            onEdited: eff => RgbConfig.setMchoseBaseEffect(eff)
         }
     }
 

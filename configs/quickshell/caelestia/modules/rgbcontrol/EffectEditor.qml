@@ -51,20 +51,12 @@ ColumnLayout {
 
             Chip {
                 required property var modelData
-                implicitWidth: chipLabel.implicitWidth + Tokens.padding.large * 2
                 implicitHeight: 30
                 label: DeviceEffects.animationLabel(modelData)
                 selected: root._eff.animation === modelData
                 onClicked: root._patch({
                     animation: modelData
                 })
-
-                StyledText {
-                    id: chipLabel
-                    visible: false
-                    text: DeviceEffects.animationLabel(parent.modelData)
-                    font: Tokens.font.label.small
-                }
             }
         }
     }
