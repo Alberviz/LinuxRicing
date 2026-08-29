@@ -613,22 +613,19 @@ def get_akko_keyboard_battery():
                             st = "Cargando" if is_chg else "Descargando"
 
                             last_st = cache.get("akko_status")
-                            last_b = cache.get("akko_battery")
                             last_ema = cache.get("akko_battery_ema")
 
-                            if last_st != st or last_b is None or last_ema is None:
+                            if last_st != st or last_ema is None:
                                 ema = float(raw_bat)
-                                filtered_bat = raw_bat
                             else:
-                                alpha = 0.3
-                                ema = (1.0 - alpha) * float(last_ema) + alpha * float(raw_bat)
-                                cand = int(round(ema))
-                                if is_chg:
-                                    filtered_bat = max(int(last_b), cand)
+                                # Outlier rejection: if jump is > 15%, ignore noise spike
+                                if abs(raw_bat - float(last_ema)) <= 15:
+                                    alpha = 0.2
+                                    ema = (1.0 - alpha) * float(last_ema) + alpha * float(raw_bat)
                                 else:
-                                    filtered_bat = min(int(last_b), cand)
+                                    ema = float(last_ema)
 
-                            filtered_bat = max(1, min(100, filtered_bat))
+                            filtered_bat = max(1, min(100, int(round(ema))))
                             os.close(fd)
                             cache["akko_battery"] = filtered_bat
                             cache["akko_battery_raw"] = raw_bat

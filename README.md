@@ -8,7 +8,7 @@ Dual-boot **Linux + Windows**.
 
 ---
 
-## La historia
+## Contexto
 
 Empecé cogiendo [Caelestia](https://github.com/caelestia-dots/caelestia) (shell de
 Quickshell, GPL-3.0) y lo fui personalizando: barra, dashboard, lock, un panel de
