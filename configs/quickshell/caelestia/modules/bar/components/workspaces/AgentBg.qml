@@ -77,18 +77,21 @@ Item {
                 anchors.fill: parent
                 scale: halo.running ? halo.pulseScale : 1.0
 
-                // Resplandor difuso
-                StyledRect {
+                // Resplandor difuso — SOLO el contorno (borde), nunca el relleno del pip.
+                Rectangle {
                     anchors.fill: parent
+                    anchors.margins: -1
                     radius: Tokens.rounding.full
-                    color: halo.ringColour
-                    opacity: halo.running ? 0.55 * halo.pulse : 0.28
+                    color: "transparent"
+                    border.width: 3
+                    border.color: halo.ringColour
+                    opacity: halo.running ? 0.5 * halo.pulse : 0.32
 
                     layer.enabled: true
                     layer.effect: MultiEffect {
                         blurEnabled: true
-                        blur: 0.7
-                        blurMax: 16
+                        blur: 0.85
+                        blurMax: 18
                     }
                 }
 
