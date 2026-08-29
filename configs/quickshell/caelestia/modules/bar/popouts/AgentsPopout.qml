@@ -3,9 +3,9 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
+import Caelestia.Config
 import qs.components
 import qs.services
-import qs.utils
 
 Column {
     id: root
@@ -16,6 +16,7 @@ Column {
     spacing: Tokens.spacing.small
 
     function ago(t: var): string {
+        if (!t || isNaN(new Date(t).getTime())) return qsTr("hace un momento");
         const m = Math.floor((Date.now() - new Date(t).getTime()) / 60000);
         if (m < 1)
             return qsTr("ahora mismo");
@@ -73,6 +74,7 @@ Column {
                 }
 
                 StyledText {
+                    Layout.maximumWidth: 280
                     text: {
                         const parts = [];
                         if (card.modelData.dir)
@@ -84,6 +86,7 @@ Column {
                     }
                     color: Colours.palette.m3onSurfaceVariant
                     font: Tokens.font.body.small
+                    elide: Text.ElideLeft
                 }
 
                 StyledRect {
