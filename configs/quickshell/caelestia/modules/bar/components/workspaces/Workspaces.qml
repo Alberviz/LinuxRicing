@@ -60,6 +60,13 @@ StyledClippingRect {
             }
         }
 
+        AgentBg {
+            anchors.fill: parent
+            anchors.margins: Tokens.padding.extraSmall
+            workspaces: workspaces
+            groupOffset: root.groupOffset
+        }
+
         ColumnLayout {
             id: layout
 
