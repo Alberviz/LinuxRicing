@@ -57,9 +57,8 @@ def test_window_fallback_without_hyprctl(an, monkeypatch):
 
 
 def test_run_wrapper_propagates_exit_code(an, monkeypatch):
-    monkeypatch.setattr(an, "get_hyprland_window", lambda: {
-        "address": "0x1", "ws_id": 2, "ws_name": "2", "class": "kitty", "title": "", "pid": 1})
-    monkeypatch.setattr(an, "notify_agent", lambda **k: None)
+    monkeypatch.setattr(an, "start_agent", lambda **k: None)
+    monkeypatch.setattr(an, "finish_agent", lambda **k: None)
 
     class R:  # fake CompletedProcess
         returncode = 7
@@ -67,6 +66,25 @@ def test_run_wrapper_propagates_exit_code(an, monkeypatch):
     with pytest.raises(SystemExit) as e:
         an.run_wrapped_command(["false"], name="Claude")
     assert e.value.code == 7
+
+
+def test_hook_prompt_starts_agent_from_stdin(an, monkeypatch):
+    calls = {}
+    monkeypatch.setattr(an, "start_agent", lambda **k: calls.update(k))
+    monkeypatch.setattr(an.sys.stdin, "isatty", lambda: False)
+    monkeypatch.setattr(an.sys.stdin, "read", lambda: '{"cwd":"/tmp/proj","prompt":"haz X"}')
+    an.cmd_hook("prompt")
+    assert calls["name"] == "Claude"
+    assert calls["task"] == "haz X"
+    assert calls["cwd"] == "/tmp/proj"
+
+
+def test_set_config_writes_key(an, monkeypatch, tmp_path):
+    cfg = tmp_path / "agents-config.json"
+    monkeypatch.setattr(an, "AGENTS_CONFIG", cfg)
+    an.set_config("runningStyle", "breathe")
+    import json
+    assert json.loads(cfg.read_text())["runningStyle"] == "breathe"
 
 
 def test_run_with_no_command_exits_nonzero(an, monkeypatch):

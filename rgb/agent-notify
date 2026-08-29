@@ -2,7 +2,17 @@
 """
 agent-notify: Notificador y gestor de foco contextual para agentes de IA en Hyprland / Caelestia.
 Captura el espacio de trabajo, dirección de ventana Hyprland, repositorio y estado de ejecución,
-registrando la píldora interactiva en Quickshell y enviando la notificación de escritorio enriquecida.
+registrando el estado del agente en Quickshell e IPC y enviando la notificación de escritorio enriquecida.
+
+Estados:
+  running   -> agente procesando un prompt / tarea (pulso en el pip del workspace)
+  completed -> tarea finalizada, pendiente de ver (halo sólido + badge de sin ver)
+
+Vías de disparo:
+  - Hooks de Claude Code:  `agent-notify hook prompt` / `agent-notify hook stop` (leen JSON por stdin)
+  - Explícito:             `agent-notify start ...` / `agent-notify finish ...`
+  - Envoltorio:            `agent-notify run -n Claude -- claude`
+  - Directo al terminar:   `agent-notify notify ...`  (lo usa la interceptación de Antigravity)
 """
 
 import sys
@@ -12,6 +22,10 @@ import subprocess
 import argparse
 import time
 from pathlib import Path
+
+
+STATE_DIR = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "agent-notify"
+AGENTS_CONFIG = Path.home() / ".config" / "caelestia" / "agents-config.json"
 
 
 def get_hyprland_window(target_pid=None, agent_name="Agente"):
@@ -127,10 +141,9 @@ def get_hyprland_window(target_pid=None, agent_name="Agente"):
     }
 
 
-def get_project_name(target_pid=None):
+def get_project_name(target_pid=None, cwd=None):
     """Obtiene el nombre del repositorio git o directorio del agente."""
-    cwd = None
-    if target_pid:
+    if not cwd and target_pid:
         try:
             cwd = os.readlink(f"/proc/{int(target_pid)}/cwd")
         except Exception:
@@ -146,12 +159,22 @@ def get_project_name(target_pid=None):
     return Path(cwd).name
 
 
-def send_quickshell_ipc(agent_data):
-    """Envía la información del agente a Caelestia Quickshell vía IPC."""
+def _norm_addr(addr):
+    if not addr:
+        return ""
+    s = str(addr).lower()
+    return s[2:] if s.startswith("0x") else s
+
+
+def _state_file(address):
+    return STATE_DIR / f"{_norm_addr(address) or 'unknown'}.json"
+
+
+def quickshell_ipc(method, agent_data):
+    """Envía una llamada IPC al servicio de agentes de Caelestia Quickshell."""
     try:
-        payload = json.dumps(agent_data)
         subprocess.run(
-            ["qs", "-c", "caelestia", "ipc", "call", "agents", "notify", payload],
+            ["qs", "-c", "caelestia", "ipc", "call", "agents", method, json.dumps(agent_data)],
             capture_output=True,
             text=True,
             timeout=2
@@ -182,6 +205,7 @@ def send_desktop_notification(agent_data):
         "notify-send",
         "-a", "caelestia-agents",
         "-u", "normal",
+        "-t", "6000",
         "-i", "utilities-terminal",
     ]
     if address:
@@ -198,7 +222,8 @@ def send_desktop_notification(agent_data):
 
 
 def build_agent_data(name="Agente", status="Completado", task=None, duration="",
-                     address="", ws=1, terminal="Terminal", target_pid=None):
+                     address="", ws=1, terminal="Terminal", target_pid=None, cwd=None,
+                     start_time=None):
     """Construye el diccionario de datos del agente según el contrato de datos."""
     return {
         "id": f"agent-{int(time.time() * 1000)}",
@@ -207,15 +232,72 @@ def build_agent_data(name="Agente", status="Completado", task=None, duration="",
         "status": status,
         "address": address,
         "ws": ws,
-        "dir": get_project_name(target_pid),
+        "dir": get_project_name(target_pid, cwd),
         "duration": duration,
         "terminal": terminal,
+        "startTime": start_time,
     }
+
+
+def start_agent(name="Claude", task=None, target_pid=None, cwd=None):
+    """Marca un agente como en ejecución (pulso en el pip)."""
+    win = get_hyprland_window(target_pid=target_pid, agent_name=name)
+    address = win["address"]
+    ws = win["ws_id"]
+    now = int(time.time() * 1000)
+
+    data = build_agent_data(name=name, status="running", task=task or "Trabajando…",
+                            address=address, ws=ws, terminal=win["class"],
+                            target_pid=target_pid, cwd=cwd, start_time=now)
+    data["status"] = "running"
+
+    try:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        _state_file(address).write_text(json.dumps({
+            "startTime": now, "task": data["task"], "name": name
+        }))
+    except Exception:
+        pass
+
+    quickshell_ipc("start", data)
+    print(f"✓ En curso: {name} en Workspace {ws} ({data['dir']})")
+
+
+def finish_agent(name="Claude", task=None, status="Completado", target_pid=None, cwd=None):
+    """Marca un agente como finalizado (halo sólido + badge + toast)."""
+    win = get_hyprland_window(target_pid=target_pid, agent_name=name)
+    address = win["address"]
+    ws = win["ws_id"]
+
+    start_info = {}
+    try:
+        f = _state_file(address)
+        if f.exists():
+            start_info = json.loads(f.read_text())
+            f.unlink()
+    except Exception:
+        pass
+
+    duration = ""
+    if start_info.get("startTime"):
+        elapsed = max(0, int(time.time() * 1000) - int(start_info["startTime"])) // 1000
+        mins, secs = divmod(elapsed, 60)
+        duration = f"{mins}m {secs}s" if mins > 0 else f"{secs}s"
+
+    task = task or start_info.get("task") or status
+
+    data = build_agent_data(name=name, status=status, task=task, duration=duration,
+                            address=address, ws=ws, terminal=win["class"],
+                            target_pid=target_pid, cwd=cwd)
+
+    quickshell_ipc("complete", data)
+    send_desktop_notification(data)
+    print(f"✓ Finalizado: {name} en Workspace {ws} ({data['dir']}{', ' + duration if duration else ''})")
 
 
 def notify_agent(name="Agente", status="Completado", task=None, duration="",
                  custom_address=None, custom_ws=None, target_pid=None):
-    """Registra y notifica la finalización de un agente."""
+    """Registra y notifica la finalización de un agente (compat: interceptación de Antigravity)."""
     win = get_hyprland_window(target_pid=target_pid, agent_name=name)
     address = custom_address if custom_address else win["address"]
     ws = custom_ws if custom_ws is not None else win["ws_id"]
@@ -223,34 +305,68 @@ def notify_agent(name="Agente", status="Completado", task=None, duration="",
     agent_data = build_agent_data(name=name, status=status, task=task, duration=duration,
                                   address=address, ws=ws, terminal=win["class"], target_pid=target_pid)
 
-    # 1. Registrar en Quickshell (píldora interactiva en la barra)
-    send_quickshell_ipc(agent_data)
-
-    # 2. Notificación de escritorio
+    quickshell_ipc("notify", agent_data)
     send_desktop_notification(agent_data)
 
     print(f"✓ Notificación enviada: {name} en Workspace {ws} ({agent_data['dir']})")
 
 
 def run_wrapped_command(cmd_args, name=None, task=None):
-    """Ejecuta un comando capturando la ventana de inicio y notificando al terminar."""
+    """Ejecuta un comando emitiendo `start` al arrancar y `complete` al terminar."""
     if not name:
         name = Path(cmd_args[0]).name.capitalize()
 
-    win = get_hyprland_window()
-    start_time = time.time()
+    start_agent(name=name, task=task or f"Ejecutando {Path(cmd_args[0]).name}")
 
     try:
         ret = subprocess.run(cmd_args)
-        elapsed = time.time() - start_time
-        mins, secs = divmod(int(elapsed), 60)
-        dur_str = f"{mins}m {secs}s" if mins > 0 else f"{secs}s"
         status = "Completado" if ret.returncode == 0 else f"Error ({ret.returncode})"
-        notify_agent(name=name, status=status, task=task, duration=dur_str,
-                     custom_address=win["address"], custom_ws=win["ws_id"])
+        finish_agent(name=name, task=task, status=status)
         sys.exit(ret.returncode)
     except KeyboardInterrupt:
+        finish_agent(name=name, task=task, status="Cancelado")
         sys.exit(130)
+
+
+def cmd_hook(event):
+    """Punto de entrada para los hooks de Claude Code (JSON por stdin)."""
+    raw = ""
+    try:
+        if not sys.stdin.isatty():
+            raw = sys.stdin.read()
+    except Exception:
+        pass
+    try:
+        hook = json.loads(raw) if raw.strip() else {}
+    except Exception:
+        hook = {}
+
+    cwd = hook.get("cwd") or None
+
+    if event == "prompt":
+        prompt = (hook.get("prompt") or "").strip().replace("\n", " ")
+        if len(prompt) > 80:
+            prompt = prompt[:79] + "…"
+        start_agent(name="Claude", task=prompt or "Procesando prompt", cwd=cwd)
+    elif event == "stop":
+        finish_agent(name="Claude", cwd=cwd)
+
+
+def set_config(key, value):
+    """Escribe una clave en ~/.config/caelestia/agents-config.json."""
+    cfg = {}
+    try:
+        cfg = json.loads(AGENTS_CONFIG.read_text())
+    except Exception:
+        pass
+    cfg[key] = value
+    try:
+        AGENTS_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+        AGENTS_CONFIG.write_text(json.dumps(cfg, indent=2) + "\n")
+        print(f"✓ {key} = {value}")
+    except Exception as e:
+        print(f"Error al escribir config: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 def build_parser():
@@ -266,27 +382,42 @@ def build_parser():
 
     sub = parser.add_subparsers(dest="subcommand")
 
-    # run subcommand
-    rp = sub.add_parser("run", help="Ejecutar un agente y notificar al finalizar")
+    rp = sub.add_parser("run", help="Ejecutar un agente y notificar inicio y fin")
     rp.add_argument("--name", "-n", help="Nombre descriptivo del agente (ej. Antigravity, Claude)")
     rp.add_argument("--task", "-t", default=None, help="Descripción de la tarea")
     rp.add_argument("command", nargs=argparse.REMAINDER, help="Comando a ejecutar con sus argumentos")
 
-    # notify subcommand
+    sp = sub.add_parser("start", help="Marcar un agente como en ejecución (pulso)")
+    sp.add_argument("--name", "-n", default="Claude")
+    sp.add_argument("--task", "-t", default=None)
+    sp.add_argument("--pid", "-p", default=None, type=int)
+
+    fp = sub.add_parser("finish", help="Marcar un agente como finalizado (halo + toast)")
+    fp.add_argument("--name", "-n", default="Claude")
+    fp.add_argument("--task", "-t", default=None)
+    fp.add_argument("--status", "-s", default="Completado")
+    fp.add_argument("--pid", "-p", default=None, type=int)
+
+    hp = sub.add_parser("hook", help="Punto de entrada para hooks de Claude Code (stdin JSON)")
+    hp.add_argument("event", choices=["prompt", "stop"])
+
     npx = sub.add_parser("notify", help="Enviar notificación directa de agente finalizado")
-    npx.add_argument("--name", "-n", default="Agente", help="Nombre del agente")
-    npx.add_argument("--status", "-s", default="Completado", help="Estado de la tarea")
-    npx.add_argument("--task", "-t", default=None, help="Descripción de la tarea")
-    npx.add_argument("--duration", "-d", default="", help="Duración de la tarea")
-    npx.add_argument("--address", "-a", default=None, help="Dirección de ventana Hyprland")
-    npx.add_argument("--ws", "-w", default=None, type=int, help="ID de Workspace")
-    npx.add_argument("--pid", "-p", default=None, type=int, help="PID del proceso del agente")
+    npx.add_argument("--name", "-n", default="Agente")
+    npx.add_argument("--status", "-s", default="Completado")
+    npx.add_argument("--task", "-t", default=None)
+    npx.add_argument("--duration", "-d", default="")
+    npx.add_argument("--address", "-a", default=None)
+    npx.add_argument("--ws", "-w", default=None, type=int)
+    npx.add_argument("--pid", "-p", default=None, type=int)
 
-    # test subcommand
-    sub.add_parser("test", help="Probar notificación y píldora de agente")
+    stp = sub.add_parser("style", help="Estilo de la animación 'en curso'")
+    stp.add_argument("value", choices=["blink", "breathe", "arc"])
 
-    # clear subcommand
-    sub.add_parser("clear", help="Limpiar todas las píldoras de agentes")
+    mkp = sub.add_parser("marker", help="Estilo del marcador de 'sin ver'")
+    mkp.add_argument("value", choices=["badge", "wedge"])
+
+    sub.add_parser("test", help="Probar notificación de agente")
+    sub.add_parser("clear", help="Limpiar todos los estados de agentes")
 
     return parser
 
@@ -306,19 +437,38 @@ def main():
             sys.exit(1)
         run_wrapped_command(cmd, name=args.name, task=args.task)
 
+    elif args.subcommand == "start":
+        start_agent(name=args.name, task=args.task, target_pid=args.pid)
+
+    elif args.subcommand == "finish":
+        finish_agent(name=args.name, task=args.task, status=args.status, target_pid=args.pid)
+
+    elif args.subcommand == "hook":
+        cmd_hook(args.event)
+
+    elif args.subcommand == "style":
+        set_config("runningStyle", args.value)
+
+    elif args.subcommand == "marker":
+        set_config("unseenMarker", args.value)
+
     elif args.subcommand == "test":
-        notify_agent(name="Antigravity", status="Completado",
-                     task="Prueba de notificacion de agente", duration="1m 30s")
+        start_agent(name="Antigravity", task="Prueba de agente en curso")
+        time.sleep(2)
+        finish_agent(name="Antigravity", task="Prueba de notificación de agente")
 
     elif args.subcommand == "clear":
         try:
             subprocess.run(["qs", "-c", "caelestia", "ipc", "call", "agents", "clearAll"], check=True)
-            print("✓ Píldoras de agentes limpiadas.")
+            print("✓ Estados de agentes limpiados.")
         except Exception as e:
             print(f"Error al limpiar: {e}")
 
+    elif args.subcommand == "notify":
+        notify_agent(name=args.name, status=args.status, task=args.task, duration=args.duration,
+                     custom_address=args.address, custom_ws=args.ws, target_pid=args.pid)
+
     else:
-        # Default o subcomando 'notify'
         notify_agent(
             name=args.name,
             status=args.status,

@@ -70,8 +70,8 @@ StyledClippingRect {
 
         AgentBg {
             anchors.fill: parent
-            anchors.margins: Tokens.padding.extraSmall
             workspaces: workspaces
+            layout: layout
             groupOffset: root.groupOffset
         }
 

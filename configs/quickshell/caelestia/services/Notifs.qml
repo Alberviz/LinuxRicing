@@ -115,18 +115,18 @@ Singleton {
 
             const app = (notif.appName || "").toLowerCase();
             const sum = (notif.summary || "").toLowerCase();
-            const isNativeAgent = (app === "antigravity" || app === "agy" || app === "claude" || app === "claude code" ||
-                                   sum.includes("antigravity") || sum.includes("claude code") || sum.includes("claude")) &&
+            // Claude Code se gestiona por hooks (agent-notify hook prompt/stop).
+            // Aquí solo interceptamos Antigravity, que no tiene hooks.
+            const isNativeAgent = (app === "antigravity" || app === "agy" || sum.includes("antigravity")) &&
                                   app !== "caelestia-agents";
 
             if (isNativeAgent) {
                 notif.dismiss();
 
-                const name = (app.includes("claude") || sum.includes("claude")) ? "Claude" : "Antigravity";
                 const taskText = notif.body || notif.summary || "Tarea completada";
                 const pid = notif.hints?.["sender-pid"] ?? notif.hints?.pid ?? "";
 
-                root.triggerAgentNotify(name, taskText, String(pid));
+                root.triggerAgentNotify("Antigravity", taskText, String(pid));
                 return;
             }
 

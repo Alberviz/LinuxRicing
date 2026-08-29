@@ -75,7 +75,7 @@ ColumnLayout {
         } else if (id === "workspaces") {
             const wsw = ch.item; // Workspaces (StyledClippingRect)
             const wsItem = wsw && wsw.wsAt ? wsw.wsAt(mapToItem(wsw, 0, y).y) : null;
-            if (wsItem && Agents.agentsForWs(wsItem.ws).length > 0) {
+            if (wsItem && (Agents.agentsForWs(wsItem.ws).length > 0 || Agents.hasRunningForWs(wsItem.ws))) {
                 popouts.agentsWs = wsItem.ws;
                 popouts.currentName = "agents";
                 popouts.currentCenter = Qt.binding(() => wsItem.mapToItem(root, 0, wsItem.height / 2).y);
