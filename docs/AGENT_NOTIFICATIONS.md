@@ -196,7 +196,34 @@ notificación nativa de kitty.
 
 ---
 
-## 8. Documentación y Especificaciones Relacionadas
+## 8. Sonidos de notificación
+
+`services/Agents.qml` reproduce un sonido corto *fire-and-forget* (`pw-play`) en tres
+momentos, enganchado en `start()` y `_addCompleted()` — cubre tanto la vía del CLI
+`agent-notify` como la interceptación de notificaciones nativas de Antigravity:
+
+| Evento | Propiedad | Sonido por defecto (tema freedesktop) |
+| --- | --- | --- |
+| Agente inicia tarea | `soundStart` | `audio-volume-change.oga` |
+| Agente completa | `soundComplete` | `complete.oga` |
+| Agente termina con `Error (N)` o `Cancelado` | `soundError` | `dialog-error.oga` |
+
+A diferencia del halo ámbar (aplazado), el sonido **sí** distingue el estado de error:
+`_addCompleted()` comprueba `status` contra `/error|cancel|fall/i`.
+
+### Configuración
+
+Claves en `~/.config/caelestia/agents-config.json`, recargadas en caliente:
+
+- `soundEnabled` (bool) — interruptor global. Atajo: `agent-notify sound {on|off}`.
+- `soundVolume` (0.0–1.0, por defecto `0.6`).
+- `soundStart`, `soundComplete`, `soundError` — rutas absolutas a cualquier `.oga`/`.wav`/`.ogg`.
+
+El sonido se **omite** si el modo No Molestar (`Notifs.dnd`) está activo, igual que los toasts.
+
+---
+
+## 9. Documentación y Especificaciones Relacionadas
 
 - **Especificación de Diseño:** [`docs/superpowers/specs/2026-08-29-agent-notifications-workspace-pip-design.md`](file:///home/alberviz/LinuxRicing/docs/superpowers/specs/2026-08-29-agent-notifications-workspace-pip-design.md)
 - **Plan de Implementación:** [`docs/superpowers/plans/2026-08-29-agent-notifications-workspace-pip.md`](file:///home/alberviz/LinuxRicing/docs/superpowers/plans/2026-08-29-agent-notifications-workspace-pip.md)

@@ -416,6 +416,9 @@ def build_parser():
     mkp = sub.add_parser("marker", help="Estilo del marcador de 'sin ver'")
     mkp.add_argument("value", choices=["badge", "wedge"])
 
+    sndp = sub.add_parser("sound", help="Activar/desactivar los sonidos de notificación")
+    sndp.add_argument("value", choices=["on", "off"])
+
     sub.add_parser("test", help="Probar notificación de agente")
     sub.add_parser("clear", help="Limpiar todos los estados de agentes")
 
@@ -451,6 +454,9 @@ def main():
 
     elif args.subcommand == "marker":
         set_config("unseenMarker", args.value)
+
+    elif args.subcommand == "sound":
+        set_config("soundEnabled", args.value == "on")
 
     elif args.subcommand == "test":
         start_agent(name="Antigravity", task="Prueba de agente en curso")
