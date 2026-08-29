@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 
-def get_hyprland_window(target_pid=None):
+def get_hyprland_window(target_pid=None, agent_name="Agente"):
     """Obtiene la información de la ventana en Hyprland que aloja al agente."""
     try:
         clients_out = subprocess.run(["hyprctl", "clients", "-j"], capture_output=True, text=True)
@@ -50,7 +50,59 @@ def get_hyprland_window(target_pid=None):
                     except Exception:
                         break
 
-        # 2. Fallback: activewindow
+            # 2. Buscar procesos activos del agente si fue llamado externamente (ej. por Quickshell)
+            name_lower = (agent_name or "").lower()
+            terms = ["agy", "antigravity"] if any(k in name_lower for k in ["anti", "agy", "gemini"]) else ["claude"] if "claude" in name_lower else []
+            matches = []
+            for term in terms:
+                try:
+                    pids = subprocess.check_output(["pgrep", "-f", term], text=True).split()
+                    for p_str in pids:
+                        pid = int(p_str)
+                        curr = pid
+                        while curr > 1:
+                            if curr in client_pids:
+                                c = client_pids[curr]
+                                try:
+                                    mtime = os.stat(f"/proc/{pid}").st_mtime
+                                except Exception:
+                                    mtime = 0
+                                matches.append((mtime, pid, c))
+                                break
+                            try:
+                                with open(f"/proc/{curr}/stat") as f:
+                                    curr = int(f.read().split()[3])
+                            except Exception:
+                                break
+                except Exception:
+                    pass
+
+            if matches:
+                matches.sort(key=lambda x: x[0], reverse=True)
+                chosen = matches[0][2]
+                return {
+                    "address": chosen.get("address", ""),
+                    "ws_id": chosen.get("workspace", {}).get("id", 1),
+                    "ws_name": chosen.get("workspace", {}).get("name", "1"),
+                    "class": chosen.get("class", "Terminal"),
+                    "title": chosen.get("title", ""),
+                    "pid": chosen.get("pid", matches[0][1])
+                }
+
+            # 3. Buscar en títulos de ventanas de clientes en hyprctl
+            for c in clients:
+                title = (c.get("title") or "").lower()
+                if terms and any(term in title for term in terms):
+                    return {
+                        "address": c.get("address", ""),
+                        "ws_id": c.get("workspace", {}).get("id", 1),
+                        "ws_name": c.get("workspace", {}).get("name", "1"),
+                        "class": c.get("class", "Terminal"),
+                        "title": c.get("title", ""),
+                        "pid": c.get("pid", 0)
+                    }
+
+        # 4. Fallback: activewindow
         res = subprocess.run(["hyprctl", "activewindow", "-j"], capture_output=True, text=True)
         if res.returncode == 0 and res.stdout.strip():
             data = json.loads(res.stdout)
@@ -164,7 +216,7 @@ def build_agent_data(name="Agente", status="Completado", task=None, duration="",
 def notify_agent(name="Agente", status="Completado", task=None, duration="",
                  custom_address=None, custom_ws=None, target_pid=None):
     """Registra y notifica la finalización de un agente."""
-    win = get_hyprland_window(target_pid=target_pid)
+    win = get_hyprland_window(target_pid=target_pid, agent_name=name)
     address = custom_address if custom_address else win["address"]
     ws = custom_ws if custom_ws is not None else win["ws_id"]
 

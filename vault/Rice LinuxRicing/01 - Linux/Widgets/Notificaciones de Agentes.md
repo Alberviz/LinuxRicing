@@ -123,7 +123,9 @@ En lugar de forzar elementos permanentes en el cajón de notificaciones efímera
 
 ## 🔮 6. Límites de la Versión 1 y Trabajo Futuro (v2)
 
-- **Estado "En Curso" (*Running*):** En v1 solo se notifica al terminar. En v2 se prevé un aro palpitante o respiración luminosa mientras el agente ejecuta el comando.
+- **Estado "En Curso" (*Running Pulse*):** En v1 solo se notifica al terminar. Para la **Fase 2 (v2)** se ha diseñado el indicador de **respiración/pulso luminoso** en el pip mientras el agente está procesando un prompt o ejecutando herramientas.
+  - Especificación de diseño v2: [`docs/superpowers/specs/2026-08-30-agent-running-pulse-workspace-pip-design.md`](file:///home/alberviz/LinuxRicing/docs/superpowers/specs/2026-08-30-agent-running-pulse-workspace-pip-design.md).
+  - Tarea planificada: [[Gemini y Claude · Indicador en curso (Running Pulse) de Agentes]].
 - **Persistencia entre Reinicios:** En v1 la lista vive en memoria en QML; reiniciar el shell borra las notificaciones activas.
 - **Workspaces Fuera de Rango:** Si el agente termina en un workspace mayor a los mostrados en la barra (ej. WS 8 cuando se muestran 1–5), el halo solo será visible al paginar la barra hacia ese grupo.
 
@@ -131,8 +133,9 @@ En lugar de forzar elementos permanentes en el cajón de notificaciones efímera
 
 ## 📚 Enlaces y Referencias Canónicas
 
-- **Especificación Original de Diseño:** [`docs/superpowers/specs/2026-08-29-agent-notifications-workspace-pip-design.md`](file:///home/alberviz/LinuxRicing/docs/superpowers/specs/2026-08-29-agent-notifications-workspace-pip-design.md)
-- **Plan de Tareas:** [`docs/superpowers/plans/2026-08-29-agent-notifications-workspace-pip.md`](file:///home/alberviz/LinuxRicing/docs/superpowers/plans/2026-08-29-agent-notifications-workspace-pip.md)
+- **Especificación de Diseño (v1):** [`docs/superpowers/specs/2026-08-29-agent-notifications-workspace-pip-design.md`](file:///home/alberviz/LinuxRicing/docs/superpowers/specs/2026-08-29-agent-notifications-workspace-pip-design.md)
+- **Especificación de Diseño (v2 - Running Pulse):** [`docs/superpowers/specs/2026-08-30-agent-running-pulse-workspace-pip-design.md`](file:///home/alberviz/LinuxRicing/docs/superpowers/specs/2026-08-30-agent-running-pulse-workspace-pip-design.md)
+- **Plan de Tareas v1:** [`docs/superpowers/plans/2026-08-29-agent-notifications-workspace-pip.md`](file:///home/alberviz/LinuxRicing/docs/superpowers/plans/2026-08-29-agent-notifications-workspace-pip.md)
 - **Manual Operativo:** [`docs/AGENT_NOTIFICATIONS.md`](file:///home/alberviz/LinuxRicing/docs/AGENT_NOTIFICATIONS.md)
 - **Checklist de QA:** [[QA · Notificaciones de Agentes]]
 - **Base de Datos de Errores:** [[Base de Datos de Errores]]
