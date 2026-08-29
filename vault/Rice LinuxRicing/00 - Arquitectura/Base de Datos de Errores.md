@@ -235,3 +235,35 @@ Ambos agentes (Claude y Gemini) escriben aquí — añadir, no reescribir.
     con el valor crudo del slider; los modos estáticos van a `byte[3] = 0`
     (idéntico a lo que manda `rgb-notify-flash`, que sí funcionaba — esa fue la
     pista que dio Alberto).
+
+### El widget mostraba "Cargando · 2.4GHz" con el teclado Akko conectado por cable
+- **Síntoma:** con el dongle 2.4 GHz y el cable USB enchufados a la vez y la
+  palanca del teclado en modo cable, el chip de estado del teclado en el widget
+  de periféricos ponía "Cargando · 2.4G" en lugar de "Cable USB". El sistema no
+  distinguía cuál de los dos transportes estaba activo.
+- **Causa:** cadena de tres eslabones en `rgb/mchose-battery` y `rgb/battery-lighting`:
+  1. La rama cableada de `get_akko_keyboard_battery()` (PID `0x4015`) devolvía el
+     estado `"Cargando"` **sin marcador de transporte** cuando `resp83[3] == 1`
+     (solo el caso "no carga" devolvía `"Conectado (USB)"`).
+  2. `write_battery_cache()` normaliza el `status` a `"Cargando"`/`"Descargando"`
+     y guarda el transporte solo en el campo aparte `akko_mode`. La ruta de caché
+     fresco de `fresh_cache_reading()` devolvía el `status` pelado e ignoraba
+     `akko_mode`.
+  3. `mchose-battery --json` deriva el `mode` buscando la subcadena `"usb"` en el
+     `status`. Sin ella → caía a `"2.4G Inalámbrico"`. Y el flag `charging` usaba
+     `"cargando (usb)" in status`, que también matchea `"des-cargando (usb)"`.
+- **Arreglo** (commit `17a133c`):
+  - La rama cableada marca siempre el transporte: `"Cargando (USB)"`,
+    `"Cargada (USB)"` (`resp83[3] == 2`, batería llena) o `"Conectado (USB)"`. El
+    fallback sin respuesta `0x83` ya no afirma `"Cargando"`.
+  - `fresh_cache_reading()` reinyecta el marcador `"(USB)"`/`"(Bluetooth)"` en el
+    `status` a partir del campo `{prefix}_mode` del caché.
+  - El `charging` del teclado en `--json` se calcula por la primera palabra del
+    `status`, no por subcadena.
+  - Gemelo `widgets/mchose-battery` sincronizado; ambos binarios desplegados y
+    `battery-lighting.service` reiniciado.
+- **Pendiente:** si la palanca está en 2.4 GHz pero el cable va al PC solo para
+  cargar, el PID `0x4015` enumera igual y el widget dirá "Cable USB" (transporte
+  de datos correcto, pero no es el radio activo). Distinguir la posición física
+  de la palanca requeriría un sniff nuevo. Ver
+  `hardware/akko-5075b-plus/USB_FINDINGS_2.4G.md`.
