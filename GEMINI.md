@@ -36,7 +36,7 @@ relato.
   1. Sincronizar los archivos editados a `~/.config/quickshell/caelestia/` (y verificar que los pares de archivos gemelos queden idénticos).
   2. **Reiniciar el shell de Quickshell inmediatamente** para aplicar y verificar los cambios en vivo ejecutando:
      ```bash
-     pkill -9 -f "qs -c caelestia" 2>/dev/null; sleep 0.8; caelestia shell -d
+     caelestia shell -k 2>/dev/null || pkill -f "qs -c caelestia" 2>/dev/null || true; sleep 1; caelestia shell -d
      ```
   3. Comprobar que la salida confirme `INFO: Configuration Loaded` sin errores de sintaxis o propiedades QML.
 
