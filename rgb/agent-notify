@@ -27,6 +27,57 @@ from pathlib import Path
 STATE_DIR = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "agent-notify"
 AGENTS_CONFIG = Path.home() / ".config" / "caelestia" / "agents-config.json"
 
+# Paletas de sonido: se prefieren las desplegadas por install.sh; si no, las del repo.
+_SOUNDS_INSTALLED = Path.home() / ".config" / "caelestia" / "sounds"
+_SOUNDS_REPO = Path(__file__).resolve().parent / "sounds"
+SOUNDS_DIR = _SOUNDS_INSTALLED if _SOUNDS_INSTALLED.is_dir() else _SOUNDS_REPO
+SOUND_EVENTS = ("start", "complete", "error")
+
+
+def _sound_palettes():
+    """Nombres de paletas disponibles (subcarpetas de SOUNDS_DIR)."""
+    try:
+        return sorted(p.name for p in SOUNDS_DIR.iterdir() if p.is_dir())
+    except Exception:
+        return []
+
+
+def set_sound_palette(name):
+    """Apunta soundStart/Complete/Error a la paleta indicada y activa el sonido."""
+    palettes = _sound_palettes()
+    if name not in palettes:
+        print(f"Paleta desconocida: {name}", file=sys.stderr)
+        print(f"Disponibles: {', '.join(palettes) or '(ninguna)'}", file=sys.stderr)
+        sys.exit(1)
+    base = SOUNDS_DIR / name
+    for ev in SOUND_EVENTS:
+        set_config(f"sound{ev.capitalize()}", str(base / f"{ev}.ogg"))
+    set_config("soundEnabled", True)
+    print(f"✓ Paleta de sonido: {name}")
+
+
+def preview_sound_palette(name=None):
+    """Reproduce los 3 sonidos de una paleta (o de la config actual si name es None)."""
+    if name:
+        palettes = _sound_palettes()
+        if name not in palettes:
+            print(f"Paleta desconocida: {name}. Disponibles: {', '.join(palettes)}", file=sys.stderr)
+            sys.exit(1)
+        files = [(ev, SOUNDS_DIR / name / f"{ev}.ogg") for ev in SOUND_EVENTS]
+    else:
+        cfg = {}
+        try:
+            cfg = json.loads(AGENTS_CONFIG.read_text())
+        except Exception:
+            pass
+        files = [(ev, Path(cfg.get(f"sound{ev.capitalize()}", ""))) for ev in SOUND_EVENTS]
+    for ev, f in files:
+        label = "(no configurado)" if not f or not Path(f).exists() else str(f)
+        print(f"  ▸ {ev}: {label}")
+        if f and Path(f).exists():
+            subprocess.run(["pw-play", "--volume=0.6", str(f)], capture_output=True)
+            time.sleep(0.4)
+
 
 def get_hyprland_window(target_pid=None, agent_name="Agente"):
     """Obtiene la información de la ventana en Hyprland que aloja al agente."""
@@ -419,6 +470,12 @@ def build_parser():
     sndp = sub.add_parser("sound", help="Activar/desactivar los sonidos de notificación")
     sndp.add_argument("value", choices=["on", "off"])
 
+    ssp = sub.add_parser("sound-set", help="Elegir la paleta de sonidos")
+    ssp.add_argument("palette", nargs="?", help="Nombre de la paleta (sin arg: lista las disponibles)")
+
+    spp = sub.add_parser("sound-preview", help="Escuchar los 3 sonidos de una paleta")
+    spp.add_argument("palette", nargs="?", help="Paleta a previsualizar (sin arg: la configurada)")
+
     sub.add_parser("test", help="Probar notificación de agente")
     sub.add_parser("clear", help="Limpiar todos los estados de agentes")
 
@@ -457,6 +514,15 @@ def main():
 
     elif args.subcommand == "sound":
         set_config("soundEnabled", args.value == "on")
+
+    elif args.subcommand == "sound-set":
+        if not args.palette:
+            print("Paletas disponibles:", ", ".join(_sound_palettes()) or "(ninguna)")
+        else:
+            set_sound_palette(args.palette)
+
+    elif args.subcommand == "sound-preview":
+        preview_sound_palette(args.palette)
 
     elif args.subcommand == "test":
         start_agent(name="Antigravity", task="Prueba de agente en curso")

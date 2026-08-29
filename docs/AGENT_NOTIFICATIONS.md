@@ -202,7 +202,7 @@ notificación nativa de kitty.
 momentos, enganchado en `start()` y `_addCompleted()` — cubre tanto la vía del CLI
 `agent-notify` como la interceptación de notificaciones nativas de Antigravity:
 
-| Evento | Propiedad | Sonido por defecto (tema freedesktop) |
+| Evento | Propiedad | Sonido (paleta `system`) |
 | --- | --- | --- |
 | Agente inicia tarea | `soundStart` | `audio-volume-change.oga` |
 | Agente completa | `soundComplete` | `complete.oga` |
@@ -211,13 +211,28 @@ momentos, enganchado en `start()` y `_addCompleted()` — cubre tanto la vía de
 A diferencia del halo ámbar (aplazado), el sonido **sí** distingue el estado de error:
 `_addCompleted()` comprueba `status` contra `/error|cancel|fall/i`.
 
+### Paletas
+
+`rgb/sounds/<paleta>/{start,complete,error}.ogg` — `install.sh` las despliega a
+`~/.config/caelestia/sounds/`. Incluidas: `system` (freedesktop), `kenney-soft`,
+`kenney-glass`, `kenney-arcade` (Kenney Interface Sounds, CC0). Ver
+[`rgb/sounds/README.md`](file:///home/alberviz/LinuxRicing/rgb/sounds/README.md).
+
+```bash
+agent-notify sound-set                  # lista paletas
+agent-notify sound-preview kenney-soft   # audición: start → complete → error
+agent-notify sound-set kenney-soft       # activar
+agent-notify sound {on|off}              # interruptor global
+```
+
 ### Configuración
 
 Claves en `~/.config/caelestia/agents-config.json`, recargadas en caliente:
 
-- `soundEnabled` (bool) — interruptor global. Atajo: `agent-notify sound {on|off}`.
+- `soundEnabled` (bool) — interruptor global.
 - `soundVolume` (0.0–1.0, por defecto `0.6`).
-- `soundStart`, `soundComplete`, `soundError` — rutas absolutas a cualquier `.oga`/`.wav`/`.ogg`.
+- `soundStart`, `soundComplete`, `soundError` — rutas absolutas (las escribe `sound-set`,
+  o apúntalas a mano a cualquier `.oga`/`.wav`/`.ogg`).
 
 El sonido se **omite** si el modo No Molestar (`Notifs.dnd`) está activo, igual que los toasts.
 

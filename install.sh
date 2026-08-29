@@ -14,6 +14,7 @@
 #    widgets/Background.qml          -> ~/.config/quickshell/caelestia/modules/background/
 #    widgets/{gtasks,desktop-deck-helper} -> ~/.local/bin/
 #    rgb/{sync-rgb,argb-wave}.py     -> ~/.config/caelestia/
+#    rgb/sounds/*                    -> ~/.config/caelestia/sounds/  (paletas de notificación)
 #    rgb/{agent-notify,akko-rgb,battery-lighting,magichome-control,mchose-battery,
 #         mchose-lighting,rgb-notify-flash} -> ~/.local/bin/
 #    systemd/*.service              -> ~/.config/systemd/user/
@@ -194,6 +195,12 @@ if [ "$SELECTED_RGB" = true ]; then
             cp "$BASE_DIR/configs/caelestia/$seed" "$HOME/.config/caelestia/$seed"
         fi
     done
+
+    # 6b-bis. Paletas de sonido para las notificaciones de agentes
+    if [ -d "$BASE_DIR/rgb/sounds" ]; then
+        mkdir -p "$HOME/.config/caelestia/sounds"
+        cp -ru "$BASE_DIR/rgb/sounds/"* "$HOME/.config/caelestia/sounds/"
+    fi
 
     # 6c. Binarios CLI en ~/.local/bin
     for bin in agent-notify akko-rgb battery-lighting magichome-control mchose-battery \
