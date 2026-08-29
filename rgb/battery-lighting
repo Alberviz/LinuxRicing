@@ -543,8 +543,12 @@ def get_akko_keyboard_battery():
                         fcntl.ioctl(fd, HIDIOCGFEATURE(65), resp83)
                         if resp83[1] == 0x83 and 0 < resp83[2] <= 100:
                             raw_bat = resp83[2]
-                            st_code = resp83[3]
-                            is_chg = (st_code == 1)
+                            # Bugfix: resp83[3] (charging flag) gets STUCK at 1 in firmware
+                            # even after the USB cable is removed. Ground truth: in 2.4G mode
+                            # the keyboard can only charge if the wired PID (0x4015) is also
+                            # enumerated on the USB bus. If not present, force charging=False.
+                            wired_present = bool(glob_hidraw_nodes(0x3151, 0x4015))
+                            is_chg = wired_present and (resp83[3] == 1)
                             st = "Cargando" if is_chg else "Descargando"
 
                             last_st = cache.get("akko_status")
