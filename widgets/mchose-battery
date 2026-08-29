@@ -297,13 +297,17 @@ def get_akko_keyboard_battery():
                 resp = bytearray(65)
                 fcntl.ioctl(fd, HIDIOCGFEATURE(len(resp)), resp)
                 os.close(fd)
-                if len(resp) >= 4 and resp[1] == 0x83:
-                    bat = resp[2]
-                    st_code = resp[3]
-                    is_chg = (st_code == 1)
+                if len(resp) >= 5:
+                    if resp[1] == 0x83:
+                        bat = resp[2]
+                        st_code = resp[3]
+                        is_chg = (st_code == 1)
+                    else:
+                        bat = resp[2]
+                        is_chg = (resp[4] == 1 or resp[3] == 1)
                     st = "Cargando" if is_chg else "Descargando"
-                    if is_chg and bat == 0:
-                        bat = last_bat
+                    if is_chg and (bat == 0 or bat == 0x42):
+                        bat = last_bat if (last_bat and last_bat != 0x42) else (bat if 0 < bat <= 100 else 100)
                     if 0 < bat <= 100:
                         cache["akko_battery"] = bat
                         cache["akko_status"] = st
@@ -311,7 +315,7 @@ def get_akko_keyboard_battery():
                         return bat, st
             except Exception:
                 pass
-        return last_bat, "2.4G Inalámbrico"
+        return last_bat, "Descargando"
 
     return None, "Desconectado"
 
