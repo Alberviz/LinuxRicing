@@ -38,6 +38,9 @@ QtObject {
     property bool resident
     property bool hasActionIcons
     property list<var> actions
+    property bool minimized: false
+
+    readonly property bool isAgent: (notif.appName === "caelestia-agents") || (notif.hints && (notif.hints.address !== undefined || notif.hints["address"] !== undefined)) || notif.resident
 
     readonly property bool hasFullscreen: {
         const monitor = Hypr.focusedMonitor;
@@ -53,6 +56,10 @@ QtObject {
         running: true
         interval: notif.expireTimeout > 0 ? notif.expireTimeout : notif.hasFullscreen ? GlobalConfig.notifs.fullscreenExpireTimeout : GlobalConfig.notifs.defaultExpireTimeout
         onTriggered: {
+            if (notif.isAgent) {
+                notif.minimized = true;
+                return;
+            }
             // Always expire if the active workspace has a fullscreen window
             if (GlobalConfig.notifs.expire || notif.hasFullscreen)
                 notif.popup = false;
