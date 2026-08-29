@@ -148,6 +148,12 @@ def run_wrapped_command(cmd_args, name=None):
 
 def main():
     parser = argparse.ArgumentParser(description="Agent Notification & Focus Manager for Caelestia")
+    parser.add_argument("--name", "-n", default="Agente", help="Nombre del agente")
+    parser.add_argument("--status", "-s", default="Completado", help="Estado de la tarea")
+    parser.add_argument("--duration", "-d", default="", help="Duración de la tarea")
+    parser.add_argument("--address", "-a", default=None, help="Dirección de ventana Hyprland")
+    parser.add_argument("--ws", "-w", default=None, type=int, help="ID de Workspace")
+
     subparsers = parser.add_subparsers(dest="subcommand")
 
     # run subcommand
@@ -169,26 +175,18 @@ def main():
     # clear subcommand
     subparsers.add_parser("clear", help="Limpiar todas las píldoras de agentes")
 
-    args = parser.parse_args()
+    args, unknown = parser.parse_known_args()
 
     if args.subcommand == "run":
-        if not args.command:
-            run_parser.print_help()
-            sys.exit(1)
-        # Quitar separador '--' si existe
         cmd = args.command
         if cmd and cmd[0] == "--":
             cmd = cmd[1:]
+        if not cmd and unknown:
+            cmd = unknown
+        if not cmd:
+            run_parser.print_help()
+            sys.exit(1)
         run_wrapped_command(cmd, name=args.name)
-
-    elif args.subcommand == "notify":
-        notify_agent(
-            name=args.name,
-            status=args.status,
-            duration=args.duration,
-            custom_address=args.address,
-            custom_ws=args.ws
-        )
 
     elif args.subcommand == "test":
         notify_agent(name="Antigravity", status="Tarea completada con éxito", duration="1m 30s")
@@ -201,8 +199,14 @@ def main():
             print(f"Error al limpiar: {e}")
 
     else:
-        # Default: notificar estado actual
-        notify_agent(name="Agente", status="Completado")
+        # Default o subcomando 'notify'
+        notify_agent(
+            name=args.name,
+            status=args.status,
+            duration=args.duration,
+            custom_address=args.address,
+            custom_ws=args.ws
+        )
 
 
 if __name__ == "__main__":
