@@ -80,6 +80,14 @@ def test_akko_sidestrip_downgrades_unknown_anim(bl):
     assert body[0] == 0x08 and body[1] == 1
 
 
+def test_akko_snake_mode_differs_by_zone(bl):
+    # snake = modo 7 en teclas (0x07), modo 5 (flujo) en la tira (0x08)
+    keys = bl.build_akko_packets("keys", {"animation": "snake"}, 50, (1, 2, 3))[0][1:]
+    side = bl.build_akko_packets("sidestrip", {"animation": "snake"}, 50, (1, 2, 3))[0][1:]
+    assert keys[1] == 7
+    assert side[1] == 5
+
+
 def test_apply_magichome_none_does_not_call_subprocess(bl, monkeypatch):
     called = []
     monkeypatch.setattr(bl.subprocess, "run", lambda *a, **k: called.append(a))

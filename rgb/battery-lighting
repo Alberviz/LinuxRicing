@@ -718,6 +718,8 @@ AKKO_ANIM_BYTE = {
     "dazzing": 16, "meteor": 18, "train": 23, "fireworks": 24,
 }
 AKKO_SIDESTRIP_ANIMS = {"off", "solid", "breathing", "neon", "wave", "snake"}
+# La tira lateral (0x08) numera "snake" como modo 5 (flujo), no 7 como las teclas.
+AKKO_SIDESTRIP_ANIM_BYTE = {"snake": 5}
 AKKO_DIRECTIONAL = {"wave"}          # animaciones que obedecen la dirección
 _DIR_IDX = {"right": 0, "left": 1, "down": 2, "up": 3}
 _ANIM_IGNORES_COLOUR = {"neon"}     # arcoíris del firmware, ignora byte[5..7]
@@ -828,7 +830,12 @@ def _akko_flag_byte(effect):
 
 def _akko_packet(opcode, effect, level, theme_rgb):
     anim = effect["animation"]
-    mode = 0 if anim == "off" else AKKO_ANIM_BYTE.get(anim)
+    if anim == "off":
+        mode = 0
+    elif opcode == 0x08 and anim in AKKO_SIDESTRIP_ANIM_BYTE:
+        mode = AKKO_SIDESTRIP_ANIM_BYTE[anim]
+    else:
+        mode = AKKO_ANIM_BYTE.get(anim)
     if mode is None:
         return None
     r, g, b = _akko_colour_rgb(effect, level, theme_rgb)

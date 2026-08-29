@@ -298,6 +298,9 @@ _AKKO_ANIM_BYTE = {
     "dazzing": 16, "meteor": 18, "train": 23, "fireworks": 24,
 }
 _AKKO_SIDESTRIP_ANIMS = {"off", "solid", "breathing", "neon", "wave", "snake"}
+# La tira lateral (0x08) numera algunos modos distinto que las teclas (0x07):
+# "snake" es el modo 5 en la tira (flujo) pero el 7 en las teclas.
+_AKKO_SIDESTRIP_ANIM_BYTE = {"snake": 5}
 _AKKO_DIRECTIONAL = {"wave"}
 _AKKO_DIR_IDX = {"right": 0, "left": 1, "down": 2, "up": 3}
 _AKKO_EFFECT_ALIASES = {
@@ -349,7 +352,10 @@ def _akko_effect_buf(opcode: int, eff: dict, theme_rgb, bat_rgb, bright: int = 4
     anim = eff["animation"]
     if opcode == 0x08 and anim not in _AKKO_SIDESTRIP_ANIMS:
         anim = "solid"
-    mode = _AKKO_ANIM_BYTE.get(anim, 1)
+    if opcode == 0x08 and anim in _AKKO_SIDESTRIP_ANIM_BYTE:
+        mode = _AKKO_SIDESTRIP_ANIM_BYTE[anim]
+    else:
+        mode = _AKKO_ANIM_BYTE.get(anim, 1)
     src = eff["colour"]["source"]
     if src == "fixed":
         h = eff["colour"]["hex"] or "d8bde7"
