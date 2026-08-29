@@ -12,9 +12,26 @@
 ## Coordinación multi-agente
 
 Alberto usa Claude y Gemini a la vez en este repo, misma identidad git. Reparto habitual:
-**Gemini = `vault/`**; **Claude = `rgb/`, `configs/quickshell/`, `widgets/`, `docs/`, `install.sh`,
-`systemd/`**. `git fetch` a menudo; commitear pronto (un `git add -A` del otro agente puede
-barrer tu working tree a medias).
+**Gemini = `vault/`**; **Claude = `rgb/`, `configs/quickshell/`, `widgets/`, `docs/`,
+`hardware/`, `install.sh`, `systemd/`**. `git fetch` a menudo; commitear pronto (un
+`git add -A` del otro agente puede barrer tu working tree a medias).
+
+## Conocimiento de hardware
+
+`hardware/<dispositivo>/` es la **fuente canónica** de los protocolos de ingeniería
+inversa (IDs USB, opcodes, payloads, checksums): un `README.md` (identidad + estado +
+historia) y un `PROTOCOL.md` (spec) por dispositivo, más `captures/` con los `.pcapng`.
+`docs/` ya **no** lleva specs de dispositivo — solo runbooks, traspasos y planes. El
+vault enlaza a `hardware/` en vez de duplicar opcodes.
+
+## Captura USB / ingeniería inversa de hardware en Windows
+
+Si trabajas en la máquina Windows y el objetivo es capturar tráfico USB (protocolo del
+dongle Akko, base MCHOSE, etc.), **lee primero `docs/WINDOWS_USB_CAPTURE_RUNBOOK.md`**.
+Contiene el entorno verificado, el comando de captura que funciona, el fallo conocido de
+USBPcap en esta build de Windows (que ya costó una sesión entera), y qué está resuelto
+(`hardware/akko-5075b-plus/USB_FINDINGS_2.4G.md`) y qué no (per-key dinámico). Las
+capturas `.pcapng` van en `hardware/<dispositivo>/captures/`.
 
 ## Copias que deben ir idénticas
 

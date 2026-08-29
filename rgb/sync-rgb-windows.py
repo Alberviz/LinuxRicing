@@ -133,6 +133,20 @@ def encode_sendmsg(device_path: str, msg: bytes, checksum_type: int = 0, dangle_
         buf.extend(encode_varint(dangle_type))
     return bytes(buf)
 
+def resolve_akko_dongle_path():
+    """Instance ID (8&xxxxxxxx) del nodo MI_02 del dongle 2.4G. Cambia entre
+    máquinas y reconexiones, así que NUNCA hardcodear: resolver en caliente."""
+    try:
+        import hid
+        for d in hid.enumerate(0x3151, 0x4011):
+            p = d['path'].decode('utf-8', 'ignore') if isinstance(d['path'], bytes) else str(d['path'])
+            if d.get('interface_number') == 2 or 'mi_02' in p.lower():
+                return p
+    except Exception:
+        pass
+    return None
+
+
 def encode_readmsg(device_path: str) -> bytes:
     buf = bytearray()
     dp_bytes = device_path.encode('utf-8')
@@ -197,8 +211,8 @@ def sync_akko_keyboard(primary_color, brightness=4):
             break
 
     # 1b. Fall back to gRPC bridge / 2.4GHz dongle (PID 0x4011) if wired query failed
-    if target_dev_path is None:
-        grpc_dev_path = r"\\?\HID#VID_3151&PID_4011&MI_02#8&11c3dae0&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}"
+    grpc_dev_path = resolve_akko_dongle_path()
+    if target_dev_path is None and grpc_dev_path:
         try:
             req_bat = bytearray(8); req_bat[0] = 0x83
             grpc_call("sendMsg", encode_sendmsg(grpc_dev_path, bytes(req_bat), checksum_type=0, dangle_type=1))
@@ -212,7 +226,9 @@ def sync_akko_keyboard(primary_color, brightness=4):
         except Exception:
             pass
 
-    # 2. Main Backlight (Teclas) -> Siempre color primario sólido de Material You (Flags 0x07 = NORMAL / Sin Dazzle)
+    # 2. Backlight (teclas): opcode 0x07, color sólido custom. Layout confirmado por
+    #    captura USB: 07 01 04 <brillo> 08 R G B <checksum>. checksum_type=1 => el
+    #    bridge pone el checksum 0xFF-(sum[0..7]&0xFF) en byte[8].
     led = bytearray(64)
     led[0] = 0x07; led[1] = 0x01; led[2] = 0x04; led[3] = brightness; led[4] = AKKO_FLAGS_CUSTOM_RGB
     led[5], led[6], led[7] = r, g, b
@@ -241,40 +257,21 @@ def sync_akko_keyboard(primary_color, brightness=4):
         sled[5], sled[6], sled[7] = r, g, b
         status_log = f"Normal ({bat_pct}% -> Sincronizado Sólido)"
 
-    # Direct HID or gRPC transmission
-    dev_path = target_dev_path or r"\\?\HID#VID_3151&PID_4011&MI_02#8&11c3dae0&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}"
+    # Transmisión. Verificado por captura USBPcap (hardware/akko-5075b-plus/USB_FINDINGS_2.4G.md):
+    # el dongle 2.4G acepta el MISMO paquete que el modo cable, como Feature report
+    # a la interfaz 2. NO hacen falta setLightType, changeWirelessLoopStatus ni el
+    # "flush 0x88" — eran cargo-cult y no generaban tráfico USB útil. El único fallo
+    # real era el device_path obsoleto hardcodeado; ahora se resuelve en caliente.
+    dev_path = target_dev_path or grpc_dev_path
+    if not dev_path:
+        print("[Akko Warning] no se encontró el nodo MI_02 del teclado (ni cable ni dongle)")
+        return
     try:
-        # 1. setLightType (light_type=2, dangle_type=1)
-        pb_lt = bytearray()
-        dp_b = dev_path.encode('utf-8')
-        pb_lt.append(0x0A); pb_lt.extend(encode_varint(len(dp_b))); pb_lt.extend(dp_b)
-        pb_lt.append(0x10); pb_lt.append(0x02) # LightType OTHER
-        pb_lt.append(0x20); pb_lt.append(0x01) # DangleType KEYBOARD
-        grpc_call("setLightType", bytes(pb_lt))
-        time.sleep(0.01)
-
-        # 2. Backlight packet (Opcode 0x07) FIRST
+        wire = "cable" if target_pid == 0x4015 else "gRPC 2.4G"
         grpc_call("sendMsg", encode_sendmsg(dev_path, bytes(led), checksum_type=1, dangle_type=1))
-        time.sleep(0.02)
-
-        # 3. Lock wireless loop
-        grpc_call("changeWirelessLoopStatus", bytearray([0x08, 0x01]))
-        time.sleep(0.05)
-
-        # 4. SLED packet (Opcode 0x08)
+        time.sleep(0.15)
         grpc_call("sendMsg", encode_sendmsg(dev_path, bytes(sled), checksum_type=1, dangle_type=1))
-        time.sleep(0.02)
-
-        # 5. Flush pipeline commit (Opcode 0x88)
-        req_sync = bytearray(64); req_sync[0] = 0x88
-        grpc_call("sendMsg", encode_sendmsg(dev_path, bytes(req_sync), checksum_type=0, dangle_type=1))
-        time.sleep(0.02)
-
-        # 6. Unlock wireless loop
-        grpc_call("changeWirelessLoopStatus", bytearray([0x08, 0x00]))
-        time.sleep(0.01)
-
-        print(f"[Akko Keyboard (gRPC 2.4G)] Synced ({status_log}) | Backlight: {primary_color}")
+        print(f"[Akko Keyboard ({wire})] Synced ({status_log}) | Backlight: {primary_color}")
         return
     except Exception as e:
         print(f"[Akko Warning] {e}")

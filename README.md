@@ -1,148 +1,167 @@
-# 🌌 Linux Ricing & Hardware Ecosystem
+# 🌌 LinuxRicing
 
-Repositorio maestro y centralizado de personalización, widgets de escritorio, controladores de hardware propietarios y sincronización RGB dinámica para el entorno **Caelestia / Hyprland / Quickshell** con soporte Dual-Boot (Linux & Windows).
+Mi rice de **Hyprland + Quickshell (Caelestia)** con Material You dinámico, en el que
+**todos los periféricos reaccionan a la paleta del wallpaper** — y la ingeniería
+inversa de cada dispositivo está documentada en abierto para quien la quiera usar.
 
----
-
-## 🔀 Ramas del Repositorio
-
-| Rama | Comportamiento del RGB | Cuándo usarla |
-|---|---|---|
-| **`main`** | Solo color **sólido / estático**, aplicado en un único disparo (`sync-rgb.py`) al cambiar wallpaper/tema. | Uso diario por defecto. Evita saturar el bus SMBus/I2C de las RAM (ver `docs/HARDWARE_PROTOCOLS.md`, sección de precauciones). |
-| **`feature/argb-wave`** | Todo lo de `main` **más** `rgb/argb-wave.py`: un daemon (`systemd/argb-wave.service`) que anima con una ola de color continua las zonas direccionables (RAM + ventiladores ARGB) a ~12.5 FPS. | Cuando quieras el efecto de ola en vez de color fijo en RAM/ventiladores. El teclado, la base MCHOSE y la tira Magic Home siguen siempre en estático. |
-
-Para cambiar a la variante animada: `git checkout feature/argb-wave`, y activar el servicio con `systemctl --user enable --now argb-wave.service`.
+Dual-boot **Linux + Windows**.
 
 ---
 
-## 🪟🐧 Qué es de Linux y qué es de Windows
+## La historia
 
-Este repositorio vive en ambos sistemas del dual-boot. Cada script de sincronización RGB es **específico de un sistema operativo** — no son intercambiables porque usan APIs de HID distintas (`ioctl`/`hidraw` en Linux vs `hidapi`/gRPC en Windows):
+Empecé cogiendo [Caelestia](https://github.com/caelestia-dots/caelestia) (shell de
+Quickshell, GPL-3.0) y lo fui personalizando: barra, dashboard, lock, un panel de
+control de iluminación propio, widgets de escritorio, integración con Google Tasks,
+Spotify tematizado…
 
-| Archivo | Sistema | Notas |
-|---|---|---|
-| `rgb/sync-rgb.py` | **Solo Linux** | Lee el tema de Caelestia/Hyprland. Usa `/dev/hidraw*` vía `fcntl.ioctl`. |
-| `rgb/argb-wave.py` | **Solo Linux** (rama `feature/argb-wave`) | Daemon systemd, depende del servidor OpenRGB de Linux. |
-| `rgb/sync-rgb-windows.py` | **Solo Windows** | Extrae el color del wallpaper de Windows directamente. Usa `hidapi` + fallback gRPC al driver de Akko. |
-| `docs/RGB_HANDOVER_WINDOWS.md`, `docs/promptWindows` | **Contexto de sesión en Windows** | Documentos de traspaso para retomar el trabajo en una sesión de Windows (Gemini/Antigravity). |
-| `docs/RGB_HANDOVER_LINUX.md` | **Contexto de sesión en Linux** | Documento de traspaso equivalente al volver a Linux tras una sesión en Windows. |
-| `docs/HARDWARE_PROTOCOLS.md` | **Ambos** | Especificación de protocolos de hardware, válida independientemente del SO (los opcodes y payloads HID son los mismos). |
-| `widgets/`, `systemd/`, `configs/` | **Solo Linux** | Específicos de Quickshell/Caelestia/systemd de usuario. |
+El problema: cuando cambio el fondo de pantalla, [Matugen](https://github.com/InioX/matugen)
+genera una paleta Material You nueva y el escritorio entero se recolorea — pero el
+teclado, el ratón y las luces se quedaban como estaban. Para que **el hardware
+siguiera al tema** hubo que descifrar el protocolo USB de cada cacharro: el teclado
+Akko (dos zonas de RGB + batería), la base del ratón MCHOSE, los auriculares, la
+placa y las RAM por OpenRGB, y una tira LED Wi-Fi.
 
-⚠️ **Regla al corregir un bug de hardware:** si el fix es en el protocolo/payload (como los opcodes del teclado Akko), hay que aplicarlo en **ambos** `sync-rgb.py` y `sync-rgb-windows.py` — son implementaciones paralelas del mismo protocolo, no una comparte código con la otra.
+Todo ese trabajo de ingeniería inversa está en **[`hardware/`](hardware/)**,
+organizado por dispositivo: qué es, sus identificadores USB, el protocolo
+decodificado, qué se ha conseguido y qué no.
 
 ---
 
-## 📁 Estructura del Repositorio (rama `main`)
+## Inicio rápido
 
-```text
-LinuxRicing/
-├── README.md                      # Esta guía maestra
-├── docs/                          # Documentación técnica y contextos
-│   ├── CONTEXTO_WIDGETS_BACKGROUND.md # Contexto de widgets de escritorio (Background.qml)
-│   ├── HARDWARE_PROTOCOLS.md      # Especificación técnica de protocolos USB HID y red (Linux + Windows)
-│   ├── RGB_HANDOVER_LINUX.md      # Contexto de sesión en Linux
-│   ├── RGB_HANDOVER_WINDOWS.md    # Contexto de sesión en Windows (ingeniería inversa)
-│   └── promptWindows              # Prompt de traspaso para sesiones en Windows
-│
-├── rgb/                           # Sincronización e Iluminación RGB
-│   ├── sync-rgb.py                # [Linux] Sincronizador estático (One-Shot / Caelestia Hook)
-│   └── sync-rgb-windows.py        # [Windows] Sincronizador unificado
-│
-├── widgets/                       # [Linux] Widgets de escritorio y utilidades CLI
-│   ├── Background.qml             # Componente de widgets Caelestia / Quickshell
-│   ├── gtasks                     # Integración CLI / JSON con Google Tasks
-│   ├── mchose-battery             # Telemetría de batería para periféricos (V9 Pro, K7 Ultra)
-│   └── magichome-control          # Control CLI de tira LED Magic Home Wi-Fi
-│
-├── systemd/                       # [Linux] Unidades Systemd de usuario
-│   ├── openrgb.service            # Servidor SDK de OpenRGB en segundo plano
-│   ├── mchose-battery.service     # Servicio de polling de batería
-│   └── mchose-battery.timer       # Timer programado para telemetría
-│
-└── configs/                       # [Linux] Archivos de configuración de Caelestia
-    ├── cli.json                   # Hooks de post-cambio de tema y wallpaper
-    └── shell.json                 # Configuración principal de Caelestia Shell
+```bash
+git clone https://github.com/Alberviz/LinuxRicing.git
+cd LinuxRicing
+./install.sh
 ```
 
-> La rama `feature/argb-wave` añade `rgb/argb-wave.py` y `systemd/argb-wave.service` a esta misma estructura.
+`install.sh` es modular: detecta si es portátil o sobremesa y ofrece un menú
+(Hyprland, Caelestia, widgets, Google Tasks, Spicetify, control RGB, opciones de
+portátil). Hace backup de lo que reemplaza y recarga Caelestia al terminar.
+
+> Las rutas activas del sistema son **copias**, no symlinks: tras cambiar algo en el
+> repo hay que reinstalar o copiar el archivo a su ruta (ver
+> [enlaces repo ↔ sistema](#enlaces-repo--sistema)).
 
 ---
 
-## 🎨 Arquitectura del Sistema
+## Qué hay dentro
+
+| Carpeta | Qué es |
+|---|---|
+| [`configs/`](configs/) | Dotfiles: Hyprland, el fork de Quickshell·Caelestia, Spicetify. |
+| [`widgets/`](widgets/) | Widgets de escritorio (`Background.qml`) y CLIs: `gtasks`, `mchose-battery`, `magichome-control`. |
+| [`rgb/`](rgb/) | Drivers y sincronización RGB: `sync-rgb.py`, `akko-rgb`, `mchose-lighting`, el daemon `battery-lighting`, tests. |
+| [`hardware/`](hardware/) | **Base de conocimiento de ingeniería inversa, por dispositivo.** |
+| [`systemd/`](systemd/) | Unidades systemd de usuario (`openrgb`, `battery-lighting`, `argb-wave`). |
+| [`docs/`](docs/) | Runbooks, traspasos de sesión, planes. (Los protocolos ya **no** viven aquí — están en `hardware/`.) |
+| [`vault/`](vault/) | Bóveda de Obsidian: la narrativa, el diario y la investigación. Enlaza a `hardware/`. |
+
+---
+
+## Conocimiento de hardware
+
+Fuente canónica: **[`hardware/README.md`](hardware/README.md)**.
+
+| Dispositivo | Iluminación | Batería | Notas |
+|---|---|---|---|
+| **Teclado Akko 5075B Plus** (`3151:4015` / `3151:4011`) | ✅ teclas + tira lateral | ✅ opcode `0x83` | Per-key funciona pero solo estático: animarlo por 2.4 GHz satura la radio. |
+| **Ratón MCHOSE K7 Ultra + Base 8K** (`3837:1001` / `3837:4150`) | ✅ anillo LED de la base | ✅ cmd `0x06` | Payload ofuscado con `XOR 0xFF`. Sin RGB per-LED (quemado en ROM). |
+| **Auriculares MCHOSE V9 Pro** (`291D:385D`) | ❌ sin RGB | ✅ 2.4 GHz (`55 65`); 🚧 BT | Batería por Bluetooth: sniff hecho, pendiente de documentar. |
+| **Placa ASUS TUF B560M + RAM A-DATA** | ✅ vía OpenRGB (modo Direct) | — | Bus I2C lento → `main` es one-shot; `feature/argb-wave` anima a ~12.5 FPS. |
+| **Tira LED Magic Home** (Wi-Fi `:5577`) | ✅ color sólido | — | Por red (`flux_led`), no USB. |
+
+---
+
+## Arquitectura
 
 ```mermaid
 graph TD
-    subgraph Caelestia_Hyprland["🎨 Caelestia / Hyprland"]
-        WP["Cambio de Wallpaper / Tema"] -->|"postHook"| SYNC["rgb/sync-rgb.py"]
-        WP -->|"Live State"| SCHEME["~/.local/state/caelestia/scheme.json"]
+    WP["Cambio de Wallpaper / Tema"] -->|"postHook"| SYNC["rgb/sync-rgb.py"]
+    WP -->|"Live State"| SCHEME["~/.local/state/caelestia/scheme.json"]
+    SCHEME --> CAEL["Quickshell · Caelestia UI"]
+
+    subgraph RGB["Sincronización RGB (estático, color Material You)"]
+        SYNC -->|"ioctl · Feature 0x07/0x08"| AKKO["Teclado Akko<br>(teclas + tira lateral)"]
+        SYNC -->|"OpenRGB SDK · Direct"| RAMFANS["RAM A-DATA + ventiladores ARGB"]
+        SYNC -->|"ioctl · cmd 0x2B (XOR 0xFF)"| MCHOSE["Base MCHOSE<br>(anillo LED)"]
+        SYNC -->|"TCP 5577"| MAGIC["Tira LED Magic Home"]
     end
 
-    subgraph RGB_Sync["🌈 Sincronización RGB (estático, opcode 0x07 = Custom RGB)"]
-        SYNC -->|"ioctl (Opcode 0x07)"| AKKO["Teclado Akko 5075B Plus<br>(Teclas + Barra Lateral)"]
-        SYNC -->|"OpenRGB SDK (Direct Mode)"| RAMFANS["RAM A-DATA Spectrix +<br>Ventiladores Torre Asus ARGB"]
-        SYNC -->|"ioctl (Comando 0x2B XOR 0xFF)"| MCHOSE["Base MCHOSE K7 Ultra<br>(Anillo LED)"]
-        SYNC -->|"Wi-Fi TCP 5577"| MAGIC["Tira LED Magic Home"]
+    subgraph BATT["Reacción a batería"]
+        BL["rgb/battery-lighting (daemon)"] -->|"0x83 / 0x06 / 55 65"| AKKO
+        BL --> MCHOSE
     end
 
-    subgraph Desktop_Widgets["📱 Widgets de Escritorio (Quickshell)"]
-        BG["Background.qml"] --> GTASKS["Google Tasks (gtasks)"]
-        BG --> BATT["Periféricos (mchose-battery)"]
-        BG --> LED_WIDGET["Iluminación Ambiente (magichome-control)"]
-        BG --> CAVA["Reproductor Circular + CAVA"]
+    subgraph WID["Widgets de escritorio"]
+        BG["widgets/Background.qml"] --> GTASKS["Google Tasks"]
+        BG --> BATTW["Periféricos (mchose-battery)"]
+        BG --> LEDW["Iluminación ambiente"]
     end
 ```
-
-> En `feature/argb-wave`, el bloque `RAMFANS` deja de recibir color estático de `sync-rgb.py` y pasa a ser animado en continuo por el daemon `rgb/argb-wave.py` (`argb-wave.service`), leyendo la paleta en vivo cada frame.
 
 ---
 
-## 🚀 Comandos Rápidos
+## Ramas
 
-### 1. Sincronización RGB Manual
+| Rama | RGB de RAM y ventiladores | Cuándo |
+|---|---|---|
+| **`main`** | Color sólido, un disparo al cambiar de tema. | Uso diario. Evita saturar el bus I2C de las RAM (ver [`hardware/asus-tuf-b560m/`](hardware/asus-tuf-b560m/)). |
+| **`feature/argb-wave`** | `main` + daemon `rgb/argb-wave.py` con ola de color continua a ~12.5 FPS. | Cuando quieras la ola en vez de color fijo. |
+
 ```bash
-# Ejecutar sincronización manual con el tema activo
-python3 ~/.config/caelestia/sync-rgb.py
-
-# O desde el repositorio
-python3 ~/LinuxRicing/rgb/sync-rgb.py
-```
-
-### 2. Gestión de Servicios Systemd
-```bash
-# Ver estado del servidor OpenRGB
-systemctl --user status openrgb.service
-```
-
-En `feature/argb-wave` además:
-```bash
-# Activar / reiniciar la animación de la ola
+git checkout feature/argb-wave
 systemctl --user enable --now argb-wave.service
-systemctl --user restart argb-wave.service
-
-# Ver logs de la ola en tiempo real
-journalctl --user -u argb-wave.service -f
-```
-
-### 3. Gestión del Shell de Caelestia
-```bash
-# Reiniciar el entorno Quickshell / Caelestia
-caelestia shell -k ; sleep 0.5 ; caelestia shell -d
-
-# Ver logs de widgets y shell
-caelestia shell -l
 ```
 
 ---
 
-## 📌 Enlaces entre el Repositorio y el Sistema
+## Linux vs Windows
 
-Para que el sistema ejecute siempre la versión en vivo, las rutas activas en el sistema operativo (Linux) están ubicadas en:
-- **Scripts RGB:** `~/.config/caelestia/sync-rgb.py` (+ `argb-wave.py` si se despliega `feature/argb-wave`)
-- **Widgets QML:** `/etc/xdg/quickshell/caelestia/modules/background/Background.qml`
-- **Binarios CLI:** `~/.local/bin/` (`gtasks`, `mchose-battery`, `magichome-control`)
-- **Systemd:** `~/.config/systemd/user/` (`openrgb.service`, `mchose-battery.service/.timer`, + `argb-wave.service` en esa rama)
+El repo vive en los dos sistemas del dual-boot. Cada sincronizador RGB es específico
+de su SO — usan APIs de HID distintas y **no comparten código**:
 
-Estas rutas son **copias independientes**, no symlinks: tras fusionar un cambio hay que volver a copiar el archivo a su ruta activa (p. ej. `cp rgb/sync-rgb.py ~/.config/caelestia/sync-rgb.py`) para que el hook de Caelestia lo use.
+| Archivo | Sistema | Notas |
+|---|---|---|
+| `rgb/sync-rgb.py` | Linux | `/dev/hidraw*` vía `fcntl.ioctl`. Lee el tema de Caelestia. |
+| `rgb/argb-wave.py` | Linux (rama `feature/argb-wave`) | Daemon, servidor OpenRGB. |
+| `rgb/sync-rgb-windows.py` | Windows | `hidapi` + fallback gRPC al driver de Akko. Color del wallpaper de Windows. |
+| `rgb/mchose-battery` / `rgb/mchose-battery-windows.py` | Linux / Windows | Telemetría de batería, implementaciones paralelas. |
+| `hardware/` | Ambos | Los opcodes y payloads HID son los mismos en los dos SO. |
+| `configs/`, `widgets/`, `systemd/` | Solo Linux | Quickshell / Caelestia / systemd de usuario. |
 
-El script de Windows (`rgb/sync-rgb-windows.py`) no tiene equivalente de despliegue documentado aquí: se ejecuta desde la ruta del repositorio en `C:\Users\Alberviz\LinuxRicing\`.
+⚠️ **Al corregir un bug de protocolo** (p. ej. un opcode del Akko) hay que aplicarlo
+en `sync-rgb.py` **y** en `sync-rgb-windows.py`.
+
+---
+
+## Enlaces repo ↔ sistema
+
+Las rutas activas en Linux son copias independientes:
+
+- **Scripts RGB:** `~/.config/caelestia/sync-rgb.py`, perfiles `~/.config/caelestia/*.json`
+- **Binarios CLI:** `~/.local/bin/` (`gtasks`, `mchose-battery`, `magichome-control`, `battery-lighting`)
+- **Shell:** `~/.config/quickshell/caelestia/`
+- **Widgets:** `~/.config/quickshell/caelestia/modules/background/Background.qml`
+- **Systemd:** `~/.config/systemd/user/` (`openrgb.service`, `battery-lighting.service`, + `argb-wave.service` en su rama)
+
+Tras fusionar un cambio hay que volver a copiar el archivo a su ruta activa (o correr
+`install.sh`) para que el hook de Caelestia use la versión nueva.
+
+---
+
+## Créditos y licencia
+
+- [Caelestia](https://github.com/caelestia-dots/caelestia) — el shell de Quickshell del
+  que parte todo esto (GPL-3.0; licencia y atribución conservadas en
+  `configs/quickshell/caelestia/LICENSE`).
+- [OpenRGB](https://openrgb.org/), [Matugen](https://github.com/InioX/matugen),
+  [flux_led](https://github.com/Danielhiversen/flux_led).
+- Proyectos de la comunidad que sirvieron de referencia para la RE: `akko-bpf-battery`
+  y el subsistema HID-BPF del kernel (6.12+). Contexto en
+  `vault/Rice LinuxRicing/00 - Arquitectura/Estado del Arte e Ingeniería Inversa en la Comunidad.md`.
+
+El código propio de este repo (scripts de `rgb/`, widgets, documentación de
+`hardware/`) es de uso libre. Los componentes derivados de Caelestia mantienen su
+licencia GPL-3.0.

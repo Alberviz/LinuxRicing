@@ -2,7 +2,7 @@
 
 Este documento contiene **todo el contexto, protocolos descubiertos, comandos de ingeniería inversa e instrucciones paso a paso** para continuar la sesión en **Windows Dual-Boot**.
 
-> ⚠️ **Corregido posteriormente:** la validación "probado y funcionando" de este documento se hizo vía el puente gRPC al driver oficial de Akko Cloud Driver, no enviando los bytes en crudo descritos aquí - por eso el protocolo de bajo nivel (checksum, byte de flags) nunca quedó realmente verificado y resultó tener dos errores. La especificación correcta, verificada contra el driver real de OpenRGB, está en `docs/HARDWARE_PROTOCOLS.md`. Se deja el resto de este documento como registro histórico de la sesión.
+> ⚠️ **Corregido posteriormente:** la validación "probado y funcionando" de este documento se hizo vía el puente gRPC al driver oficial de Akko Cloud Driver, no enviando los bytes en crudo descritos aquí - por eso el protocolo de bajo nivel (checksum, byte de flags) nunca quedó realmente verificado y resultó tener dos errores. La especificación correcta, verificada contra el driver real de OpenRGB, está en `hardware/<dispositivo>/PROTOCOL.md`. Se deja el resto de este documento como registro histórico de la sesión.
 
 ---
 

@@ -12,9 +12,17 @@
 ## Coordinación multi-agente
 
 Alberto usa Claude y Gemini a la vez en este repo, misma identidad git. Reparto habitual:
-**Gemini = `vault/`**; **Claude = `rgb/`, `configs/quickshell/`, `widgets/`, `docs/`, `install.sh`,
-`systemd/`**. `git fetch` a menudo; commitear pronto (un `git add -A` del otro agente puede
-barrer tu working tree a medias).
+**Gemini = `vault/`**; **Claude = `rgb/`, `configs/quickshell/`, `widgets/`, `docs/`,
+`hardware/`, `install.sh`, `systemd/`**. `git fetch` a menudo; commitear pronto (un
+`git add -A` del otro agente puede barrer tu working tree a medias).
+
+## Conocimiento de hardware
+
+`hardware/<dispositivo>/` es la **fuente canónica** de los protocolos de ingeniería
+inversa (IDs USB, opcodes, payloads, checksums). `docs/` ya **no** lleva specs de
+dispositivo. El vault guarda la narrativa/diario y **enlaza** a `hardware/` en vez de
+duplicar opcodes. Si actualizas un protocolo, hazlo en `hardware/` y deja el vault como
+relato.
 
 ## Copias que deben ir idénticas
 
