@@ -147,7 +147,7 @@ Ambas son Feature reports de 64 bytes a la interfaz 2; la respuesta se lee con
    (no `0xF7`) y lee `payload[1]`/`payload[2]`. `0x83` responde de verdad por el bus
    2.4 GHz (visto ~10 veces en el sniff: `83 54 01`, `83 55 01`).
 
-### Fix para Linux
+### Fix para Linux (implementado en `rgb/battery-lighting` y `rgb/mchose-battery`)
 
 1. **Usar `0x83` para la batería, no `0xF7`.** Funciona por 2.4 GHz igual que por
    cable. Respuesta: `[0]=0x83`, `[1]`=batería %, `[2]`=cargando (0/1).
@@ -156,6 +156,14 @@ Ambas son Feature reports de 64 bytes a la interfaz 2; la respuesta se lee con
 3. Con **`0x83` por cable mientras carga, byte[1] = 0** (el teclado no reporta % con
    el cable puesto). Regla general: **si `cargando == 1`, ignorar el %** — mantener el
    último valor conocido o mostrar solo el icono de carga hasta desenchufar.
+4. **NUEVO (2026-08-29): `resp83[3]` (charging flag) queda PEGADO en `1` incluso después
+   de desconectar el cable USB** cuando el teclado está en modo 2.4G. El firmware no
+   emite una actualización espontánea al quitar el cable. La solución implementada:
+   - En modo 2.4G (PID `0x4011`), charging solo es `True` si **además** aparece el PID
+     `0x4015` (wired) en los nodos hidraw. Si `0x4015` no está presente → `charging=False`
+     aunque `resp83[3] == 1`.
+   - Ejemplo de respuesta 0x83 con flag pegado: `00 83 5d 01 00 00 00 00 7c 00`
+     (bat=93%, charging=1 pero sin cable). Verificado con lsusb: solo `3151:4011`.
 
 ---
 
