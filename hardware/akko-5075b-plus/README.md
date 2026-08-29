@@ -24,6 +24,8 @@ RGB por tecla **y** una tira LED lateral independiente ("side-strip" / SLED).
 | Color sólido en teclas (`0x07`) | ✅ | Cable y 2.4 GHz. Ver [`PROTOCOL.md` §A](PROTOCOL.md). |
 | Color sólido en tira lateral (`0x08`) | ✅ | Idéntico a `0x07`. ⚠️ **El firmware apaga la tira lateral con batería baja + descargando** (las teclas se mantienen); al cargar la re-activa. Si la tira "no responde", mirar batería/carga antes que el protocolo. |
 | Telemetría de batería (`0x83`) | ✅ | Nivel + estado de carga. [`PROTOCOL.md` §B](PROTOCOL.md). |
+| Transporte activo (2.4G vs cable) | ✅ | Por enumeración del PID `0x4015` (= posición de la palanca). [`USB_FINDINGS_2.4G.md`](USB_FINDINGS_2.4G.md). |
+| Estado de carga en 2.4G | ⚠️ best-effort | Flag `resp83[3]` (se queda pegado tras desenchufar) validado por tendencia del EMA del nivel; ~8-15 min de latencia en el peor caso. |
 | Estado de la palanca Win/Mac, WinLock (`0x86`) | ✅ | [`PROTOCOL.md` §E](PROTOCOL.md). |
 | Per-key / lienzo (`0x07` modo `0x0D` + `0x0C`) | ❌ retirado | Por 2.4 GHz congela el teclado ~1 s por pasada y el 5075B no conmuta a modo lienzo de forma fiable. Fuera del stack Linux; solo documentado por si sirve por cable. Ver [`PROTOCOL.md` §C](PROTOCOL.md). |
 | Keepalive RF / señales periódicas | ❌ prohibido | No se manda nada al teclado salvo cuando el usuario pide un cambio; una señal repetida cada pocos segundos lo congela. [`PROTOCOL.md` §A](PROTOCOL.md). |

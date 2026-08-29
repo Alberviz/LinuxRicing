@@ -39,7 +39,7 @@ LOG_FILE = f"{HOME}/.cache/battery_lighting.log"
 MAGICHOME_CONTROL = f"{HOME}/.local/bin/magichome-control"
 
 DEFAULTS = {
-    "poll": {"idle_seconds": 60, "charging_seconds": 25},
+    "poll": {"idle_seconds": 15, "charging_seconds": 25},
     "critical_threshold": 10,
     "rules": [
         {"id": "akko-charging", "source": "akko_keyboard", "trigger": "charging", "threshold": None,
@@ -493,9 +493,13 @@ def get_akko_keyboard_battery():
                     return bat, st
             except Exception:
                 pass
-        # PID 0x4015 enumerado pero sin respuesta 0x83 por el nodo cableado:
-        # el transporte activo es USB; no afirmamos "Cargando" sin confirmarlo.
-        return last_bat, "Conectado (USB)"
+        # PID 0x4015 enumerado pero sin respuesta 0x83 por el nodo cableado.
+        # Si además está el dongle, el cerebro del teclado habla por radio
+        # (palanca en 2.4G, cable solo para cargar): dejamos que la rama 2.4G
+        # decida el modo y el estado de carga. Si no hay dongle, el transporte
+        # activo es USB pero no afirmamos "Cargando" sin confirmarlo.
+        if not (glob_hidraw_nodes(0x3151, 0x4011, iface=2) or glob_hidraw_nodes(0x3151, 0x4011)):
+            return last_bat, "Conectado (USB)"
 
     # 2. Check if connected via Bluetooth / UPower (Real BLE Battery GATT Telemetry)
     try:
@@ -550,40 +554,49 @@ def get_akko_keyboard_battery():
                         fcntl.ioctl(fd, HIDIOCGFEATURE(65), resp83)
                         if resp83[1] == 0x83 and 0 < resp83[2] <= 100:
                             raw_bat = resp83[2]
-                            # WORKAROUND (⚠️ incompleto) — ver hardware/akko-5075b-plus/USB_FINDINGS_2.4G.md
-                            # Bug: resp83[3] (charging flag) queda PEGADO en 1 en firmware incluso
-                            # después de desconectar el cable. La solución limpia requiere un sniff
-                            # adicional buscando un opcode que reporte VBUS, o implementar detección
-                            # por tendencia de nivel (sliding window).
-                            #
-                            # Parche actual: en modo 2.4G solo consideramos "cargando" si el PID
-                            # 0x4015 (wired) también está enumerado en el bus. FALLA si el cable va a
-                            # un cargador de pared (sin host USB) — en ese caso no hay PID 0x4015
-                            # aunque esté cargando de verdad.
-                            # TODO: reemplazar con sliding window sobre historial de nivel.
-                            wired_present = bool(glob_hidraw_nodes(0x3151, 0x4015))
-                            is_chg = wired_present and (resp83[3] == 1)
-                            st = "Cargando" if is_chg else "Descargando"
+                            chg_flag = (resp83[3] == 1)
 
-                            last_st = cache.get("akko_status")
-                            last_disp = cache.get("akko_battery")
+                            # Nivel: el 0x83 por RF es ruidoso (±5-15 %), siempre
+                            # vía EMA. Salto > 25 → se deriva ±4 hacia él en vez de
+                            # ignorarlo (para seguir cambios reales grandes).
                             last_ema = cache.get("akko_battery_ema")
-
-                            if last_st != st or last_disp is None or last_ema is None:
+                            if last_ema is None:
                                 ema = float(raw_bat)
-                                displayed = raw_bat
                             else:
-                                if abs(raw_bat - float(last_ema)) <= 15:
-                                    ema = 0.8 * float(last_ema) + 0.2 * float(raw_bat)
-                                else:
-                                    ema = float(last_ema)
-                                cand = int(round(ema))
-                                if is_chg:
-                                    displayed = max(int(last_disp), cand)
-                                else:
-                                    displayed = min(int(last_disp), cand)
+                                le = float(last_ema)
+                                d = raw_bat - le
+                                ema = (0.8 * le + 0.2 * raw_bat) if abs(d) <= 25 \
+                                      else le + (4.0 if d > 0 else -4.0)
 
-                            displayed = max(1, min(100, displayed))
+                            # Carga en 2.4 GHz: resp83[3] es la señal primaria pero
+                            # se queda PEGADO en 1 tras desenchufar sin transición
+                            # (hardware/akko-5075b-plus/USB_FINDINGS_2.4G.md). Se
+                            # ancla el EMA al ver la transición 0->1 y se sigue
+                            # "cargando" mientras el EMA no caiga > 6 puntos bajo el
+                            # ancla: cargar mantiene o sube; el flag pegado va con
+                            # un EMA que baja. No depende del PID 0x4015 → cubre
+                            # también el cargador de pared.
+                            prev_flag = bool(cache.get("akko_chg_flag", False))
+                            anchor = cache.get("akko_chg_anchor")
+                            if chg_flag and not prev_flag:
+                                anchor = round(ema, 2)
+                            if not chg_flag:
+                                anchor = None
+                            if not chg_flag:
+                                is_chg = False
+                            elif anchor is None:
+                                is_chg = True
+                            else:
+                                is_chg = ema >= anchor - 6
+                            cache["akko_chg_flag"] = chg_flag
+                            if anchor is None:
+                                cache.pop("akko_chg_anchor", None)
+                            else:
+                                cache["akko_chg_anchor"] = anchor
+                            cache.pop("akko_ema_hist", None)
+
+                            st = "Cargando" if is_chg else "Descargando"
+                            displayed = max(1, min(100, int(round(ema))))
                             os.close(fd)
                             cache["akko_battery"] = displayed
                             cache["akko_battery_raw"] = raw_bat

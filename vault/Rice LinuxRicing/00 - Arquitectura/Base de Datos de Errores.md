@@ -262,8 +262,36 @@ Ambos agentes (Claude y Gemini) escriben aquí — añadir, no reescribir.
     `status`, no por subcadena.
   - Gemelo `widgets/mchose-battery` sincronizado; ambos binarios desplegados y
     `battery-lighting.service` reiniciado.
-- **Pendiente:** si la palanca está en 2.4 GHz pero el cable va al PC solo para
-  cargar, el PID `0x4015` enumera igual y el widget dirá "Cable USB" (transporte
-  de datos correcto, pero no es el radio activo). Distinguir la posición física
-  de la palanca requeriría un sniff nuevo. Ver
+
+### El teclado Akko en 2.4G cargando salía como "Cable USB" / "Descargando"
+- **Síntoma:** con la palanca en 2.4G y el cable USB al PC para cargar, el widget
+  mostraba mal el transporte y/o el estado de carga (unas veces "Cable USB",
+  otras "Descargando" estándolo cargando).
+- **Causa:**
+  1. La rama cableada devolvía siempre "(USB)" en cuanto el PID `0x4015` estaba
+     enumerado, sin comprobar que el nodo contestara a `0x83`.
+  2. El parche anterior de la rama 2.4G (`is_chg = wired_present and resp83[3]==1`)
+     forzaba `charging=False` si `0x4015` no estaba en el bus — y con la palanca
+     en 2.4G **`0x4015` no enumera** (verificado en Linux: `lsusb` solo muestra
+     `3151:4011`), así que mataba el caso legítimo de carga por 2.4G.
+  3. Al reintentar con detección por nivel, se vio que `resp83[2]` (nivel) por RF
+     **salta ±10 %** cuando el daemon y otra sonda leen el dongle a la vez: el
+     `0xFC` (`GET_CACHED_RESPONSE`) de un lector recoge el frame del otro.
+- **Arreglo** (commit pendiente):
+  - **Discriminador de transporte:** presencia del PID `0x4015` en el bus hidraw.
+    Enumerado → "Cable USB"; solo `0x4011` → "2.4G Inalámbrico". La enumeración de
+    `0x4015` sigue la posición física de la palanca. Si `0x4015` enumera pero no
+    contesta `0x83` y hay dongle, se trata como 2.4G.
+  - **Carga en 2.4G:** flag `resp83[3]` como señal primaria, validado por la
+    **tendencia de un EMA del nivel** sobre ~8-16 min (buffer `akko_ema_hist` en
+    caché). Si el flag dice "cargando" pero el EMA baja ≥4 puntos → flag pegado
+    tras desenchufar → `Descargando`. No depende de `0x4015`, así que cubre
+    también el cargador de pared. El nivel nunca se muestra crudo, solo el EMA.
+  - Retirado el parche `wired_present` y las claves `akko_chg_anchor`/`akko_chg_flag`.
+- **Limitaciones:** ~8-15 min de latencia para detectar el desenchufe con flag
+  pegado; si se desenchufa al ~100 % el nivel baja tan lento que puede seguir
+  diciendo "Cargando" un buen rato. Detalle en
   `hardware/akko-5075b-plus/USB_FINDINGS_2.4G.md`.
+- **De paso:** el `mchose-battery.timer` de systemd llama a `mchose-battery
+  --notify`, flag que ya no existe → el servicio falla cada 60 s. Debería
+  retirarse (además, un segundo lector empeora el ruido del `0x83`).

@@ -30,7 +30,7 @@ Singleton {
     property int criticalThreshold: 10
     // carried through untouched on save (not exposed in the UI)
     property var poll: ({
-            idle_seconds: 60,
+            idle_seconds: 15,
             charging_seconds: 3
         })
     property bool loaded: false
@@ -161,7 +161,7 @@ Singleton {
     function toJson(): string {
         const out = {
             poll: {
-                idle_seconds: root.poll.idle_seconds ?? 60,
+                idle_seconds: root.poll.idle_seconds ?? 15,
                 charging_seconds: root.poll.charging_seconds ?? 3
             },
             critical_threshold: root.criticalThreshold,

@@ -4,6 +4,9 @@
 > **Estado:** ✅ Color sólido por 2.4 GHz verificado. ✅ **Per-key** capturado (opcode
 > `0x0C`). ✅ **Batería/carga descifrada** — el bug del "66 %" en Linux era usar `0xF7`
 > en vez de `0x83` (§"Detección de batería"). Bytes exactos capturados con USBPcap.
+> ✅ **Transporte 2.4G vs cable** — discriminado por enumeración del PID `0x4015`
+> (§"La enumeración del PID `0x4015`"). ✅ **Carga en 2.4G** — flag `resp83[3]`
+> validado por tendencia del EMA del nivel (§"detección por tendencia del EMA").
 
 ---
 
@@ -147,25 +150,84 @@ Ambas son Feature reports de 64 bytes a la interfaz 2; la respuesta se lee con
    (no `0xF7`) y lee `payload[1]`/`payload[2]`. `0x83` responde de verdad por el bus
    2.4 GHz (visto ~10 veces en el sniff: `83 54 01`, `83 55 01`).
 
-### Fix para Linux (implementado en `rgb/battery-lighting` y `rgb/mchose-battery`)
+### La enumeración del PID `0x4015` = posición física de la palanca (Linux)
 
-1. **Usar `0x83` para la batería, no `0xF7`.** Funciona por 2.4 GHz igual que por
-   cable. Respuesta: `[0]=0x83`, `[1]`=batería %, `[2]`=cargando (0/1).
-2. `0xF7` es el keepalive de RF del driver oficial (cada 2 s mantiene el enlace
-   despierto) — mantenerlo de fondo para eso, pero **no leer batería de ahí**.
-3. Con **`0x83` por cable mientras carga, byte[1] = 0** (el teclado no reporta % con
-   el cable puesto). Regla general: **si `cargando == 1`, ignorar el %** — mantener el
-   último valor conocido o mostrar solo el icono de carga hasta desenchufar.
-4. **NUEVO (2026-08-29): `resp83[3]` (charging flag) queda PEGADO en `1` incluso después
-   de desconectar el cable USB** cuando el teclado está en modo 2.4G. El firmware no
-   emite una actualización espontánea al quitar el cable. La solución implementada:
-   - En modo 2.4G (PID `0x4011`), charging solo es `True` si **además** aparece el PID
-     `0x4015` (wired) en los nodos hidraw. Si `0x4015` no está presente → `charging=False`
-     aunque `resp83[3] == 1`.
-   - Ejemplo de respuesta 0x83 con flag pegado: `00 83 5d 01 00 00 00 00 7c 00`
-     (bat=93%, charging=1 pero sin cable). Verificado con lsusb: solo `3151:4011`.
+Descubierto el 2026-08-29. En Linux, el PID wired `0x4015` **solo enumera cuando
+la palanca del teclado está en posición cable**. Con la palanca en 2.4G, aunque
+el cable USB esté enchufado al PC, el teclado **no expone la interfaz HID
+cableada** — `lsusb` solo muestra `3151:4011` (el dongle). Verificado en vivo:
+palanca en 2.4G + cable al PC → solo `3151:4011`.
 
----
+Por tanto la presencia de `0x4015` es un discriminador fiable del transporte
+activo:
+
+| `0x4015` en bus | `0x4011` en bus | Transporte activo |
+|---|---|---|
+| ✅ | (indiferente) | **Cable USB** (palanca en cable) |
+| ❌ | ✅ | **2.4 GHz** (palanca en 2.4G; el cable, si está, es solo para cargar) |
+
+> Nota: la tabla previa de este documento afirmaba que "2.4G + cable al PC" sí
+> enumeraba `0x4015`. En Linux **no** es así. Puede que en Windows el driver
+> fuerce la enumeración, o que la observación original mezclara estados.
+
+Defensa extra: si `0x4015` enumera pero **no contesta a `0x83`** por su nodo (se
+ha visto devolver todo ceros con la palanca en 2.4G) y además está el dongle, el
+código trata el transporte como 2.4G.
+
+### El bug de firmware: `resp83[3]` queda PEGADO en `1`
+
+Cuando el teclado está en modo 2.4G con el cable enchufado y después se
+desenchufa, **`resp83[3]` permanece en `1` indefinidamente**. El firmware no
+emite ninguna actualización espontánea al quitar el cable — el flag de carga
+solo se actualiza cuando hay una transición activa (enchufar de nuevo, o
+reiniciar la sesión HID).
+
+Evidencia directa:
+- lsusb mostraba solo `3151:4011` (sin cable)
+- resp83: `00 83 5d 01 00 00 00 00 7c 00` → bat=93%, chg=1 → **incorrecto**
+- La batería bajaba (97→93→90%) mientras el firmware decía "cargando"
+
+### El nivel `0x83` por RF es ruidoso
+
+El 2026-08-29, con la palanca en 2.4G, `resp83[2]` (nivel) saltaba entre lecturas
+consecutivas: ±10 % con dos lectores a la vez (daemon + sonda: 74–94), y aun con
+un solo lector se vieron mesetas dispares (81 estable 1 min → 63 estable →
+53–58). El ciclo `0x83`→`0xF7`→`0xFC` termina en `0xFC` =
+`FEA_CMD_GET_CACHED_RESPONSE`; con lectores interleavados el `0xFC` de uno recoge
+el frame del otro o un búfer rancio, y el propio firmware parece devolver el
+nivel a saltos por RF. **Nunca mostrar `resp83[2]` crudo** — siempre por un EMA.
+
+### Solución aplicada (2026-08-29)
+
+**Archivo:** `rgb/battery-lighting` y `rgb/mchose-battery`, rama del dongle 2.4G.
+Reemplaza el parche anterior `wired_present and resp83[3]==1`, que rompía el caso
+legítimo "palanca en 2.4G + cable al PC cargando" (forzaba `charging=False`
+porque con la palanca en 2.4G el PID `0x4015` no enumera).
+
+- **Transporte:** enumeración de `0x4015` (ver sección anterior).
+- **Carga:** `is_chg = (resp83[3] == 1)`, directo. Es la única señal utilizable;
+  el nivel por RF es demasiado ruidoso para derivar la carga por tendencia (se
+  intentó y el ruido disparaba falsos "Descargando"). Se acepta que `resp83[3]`
+  puede quedarse pegado en 1 un rato tras desenchufar en 2.4G — mal menor y caso
+  poco frecuente.
+- **Nivel:** EMA `0.8·prev + 0.2·raw`; si el salto es > 25 puntos, en vez de
+  ignorarlo se deriva el EMA ±4 hacia él, para seguir cambios reales grandes y
+  sostenidos sin congelarse en un glitch.
+
+| Escenario | `resp83[3]` | Resultado |
+|---|---|---|
+| 2.4G + cable (PC o cargador de pared), cargando | 1 | `Cargando` ✅ |
+| 2.4G, cable recién quitado, flag pegado | 1 | `Cargando` ❌ (hasta que el firmware refresque el flag: reenchufar, cambio de palanca, o reinicio HID) |
+| 2.4G sin cable, flag ya a 0 | 0 | `Descargando` ✅ |
+
+**Mejora pendiente (baja prioridad):** el `mchose-battery.timer` de systemd
+lanza `mchose-battery --notify` cada 60 s, flag que ya no existe (la lógica de
+notificación vive en el daemon) → el servicio falla en bucle. Retirar ese
+timer/servicio; de paso, un lector menos sobre el dongle.
+
+**Si el flag pegado molesta:** la vía limpia sería un sniff en Windows buscando
+un opcode que reporte VBUS (presencia de corriente) en vez del estado de carga,
+o un evento del driver al conectar/desconectar el cable. No es prioritario.
 
 ## Per-key / iluminación personalizada (DIY) — opcode `0x0C`
 
