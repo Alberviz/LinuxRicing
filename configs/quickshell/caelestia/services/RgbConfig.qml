@@ -208,6 +208,11 @@ Singleton {
                     for (const k in c.device_profiles) {
                         merged[k] = Object.assign({}, merged[k] || {}, c.device_profiles[k]);
                     }
+                    // El lienzo per-key del Akko (battery_meter_keys/rows) se retiró:
+                    // por 2.4 GHz congela el teclado. Remapear a respiración de batería.
+                    const akko = merged.akko_keyboard;
+                    if (akko && (akko.keys_mode === "battery_meter_keys" || akko.keys_mode === "battery_meter_rows"))
+                        merged.akko_keyboard = Object.assign({}, akko, { keys_mode: "breathing_battery" });
                     root.deviceProfiles = merged;
                 }
                 if (c.devices_extra && c.devices_extra.openrgb && c.devices_extra.openrgb.argb_zones !== undefined)

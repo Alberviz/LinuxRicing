@@ -12,8 +12,8 @@ import qs.services
 Item {
     id: root
 
-    // theme | fill | breathing | stream | red_breathing | red_static | none
-    property string mode: "fill"
+    // theme | wave | breathing | stream | red_breathing | red_static | none
+    property string mode: "breathing"
     property string sidestripMode: "stream_battery"
 
     readonly property bool modeIsRed: mode === "red_breathing" || mode === "red_static"
@@ -33,7 +33,7 @@ Item {
         loops: Animation.Infinite
         from: 0
         to: 1
-        duration: (root.mode === "breathing" || root.mode === "red_breathing") ? 2600 : (root.mode === "stream" ? 2200 : 4200)
+        duration: (root.mode === "breathing" || root.mode === "red_breathing") ? 2600 : ((root.mode === "stream" || root.mode === "wave") ? 2200 : 4200)
     }
 
     // Battery-level colour: red <=15 %, then a hue ramp up to green at 100 %.
@@ -60,6 +60,12 @@ Item {
             const head = root.phase * (root.cols + 4) - 2;
             const d = Math.abs(c - head);
             return d < 3 ? (1 - d / 3) * 0.9 + 0.1 : 0.14;
+        }
+        if (root.mode === "wave") {
+            // banda que baja de arriba abajo (fila 0 = arriba)
+            const head = root.phase * (root.rows + 4) - 2;
+            const d = Math.abs(r - head);
+            return d < 2 ? (1 - d / 2) * 0.85 + 0.15 : 0.14;
         }
         // fill: a level rising from the bottom row to the top
         const fromBottom = (root.rows - 1 - r + 0.5) / root.rows;

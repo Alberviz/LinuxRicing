@@ -58,15 +58,9 @@ DeviceCard {
         }
         Chip {
             implicitHeight: 32
-            label: qsTr("Letra a letra")
-            selected: card.keysMode === "battery_meter_keys"
-            onClicked: RgbConfig.setAkkoKeysMode("battery_meter_keys")
-        }
-        Chip {
-            implicitHeight: 32
-            label: qsTr("Fila a fila")
-            selected: card.keysMode === "battery_meter_rows"
-            onClicked: RgbConfig.setAkkoKeysMode("battery_meter_rows")
+            label: qsTr("Ola")
+            selected: card.keysMode === "wave"
+            onClicked: RgbConfig.setAkkoKeysMode("wave")
         }
         Chip {
             implicitHeight: 32
@@ -93,6 +87,15 @@ DeviceCard {
         visible: card.keysMode === "fixed"
         selectedColour: card.keysFixed
         onPicked: hex => RgbConfig.setAkkoKeysFixedColor(hex)
+    }
+
+    StyledText {
+        Layout.fillWidth: true
+        Layout.topMargin: Tokens.spacing.extraSmall
+        text: qsTr("Solo efectos del firmware: por 2.4 GHz un efecto por tecla congela el teclado. La animación la hace el propio teclado.")
+        font: Tokens.font.label.small
+        color: Colours.palette.m3outline
+        wrapMode: Text.WordWrap
     }
 
     // ---- TIRA LATERAL (SIDE-STRIP) ----

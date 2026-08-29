@@ -28,12 +28,12 @@ StyledRect {
         switch (effect) {
         case "theme":
             return "theme";
-        case "battery_meter":
-            return "fill";
+        case "wave":
+        case "wave_battery":
+            return "wave";
         case "breathing_battery":
+        case "breathing":
             return "breathing";
-        case "stream":
-            return "stream";
         case "red_breathing":
             return "red_breathing";
         case "red_static":
@@ -41,7 +41,7 @@ StyledRect {
         case "none":
             return "none";
         default:
-            return "fill";
+            return "breathing";
         }
     }
 
