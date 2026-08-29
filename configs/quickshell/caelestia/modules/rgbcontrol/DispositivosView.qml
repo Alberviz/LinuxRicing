@@ -55,54 +55,35 @@ ColumnLayout {
     // ---- Teclado Akko ----
     AkkoCard {}
 
-    // ---- OpenRGB ----
+    // ---- OpenRGB (torre) ----
     DeviceCard {
-        id: openrgbCard
         icon: "developer_board"
         name: qsTr("Placa · RAM · ventiladores")
-        subtitle: qsTr("OpenRGB")
+        subtitle: qsTr("OpenRGB · 2 zonas direccionables")
         deviceKey: "openrgb"
 
-        readonly property var profile: RgbConfig.deviceProfiles.openrgb ?? ({})
-        readonly property string openrgbMode: profile.mode ?? "theme"
-        readonly property string openrgbFixed: profile.fixed_color ?? "d8bde7"
-
         SectionLabel {
-            text: qsTr("Modo de iluminación")
+            text: qsTr("Zonas direccionables (ventiladores)")
         }
 
-        ChipRow {
-            Chip {
-                implicitHeight: 32
-                label: qsTr("Tema global")
-                selected: openrgbCard.openrgbMode === "theme"
-                onClicked: RgbConfig.setDeviceMode("openrgb", "theme")
-            }
-            Chip {
-                implicitHeight: 32
-                label: qsTr("Color fijo")
-                selected: openrgbCard.openrgbMode === "fixed"
-                onClicked: RgbConfig.setDeviceMode("openrgb", "fixed")
-            }
-            Chip {
-                implicitHeight: 32
-                label: qsTr("ARGB ola animada")
-                selected: openrgbCard.openrgbMode === "argb_wave"
-                onClicked: RgbConfig.setDeviceMode("openrgb", "argb_wave")
-            }
-            Chip {
-                implicitHeight: 32
-                label: qsTr("Nivel de batería")
-                selected: openrgbCard.openrgbMode === "battery_color"
-                onClicked: RgbConfig.setDeviceMode("openrgb", "battery_color")
-            }
-        }
-
-        ColourPicker {
+        RowLayout {
             Layout.fillWidth: true
-            visible: openrgbCard.openrgbMode === "fixed"
-            selectedColour: openrgbCard.openrgbFixed
-            onPicked: hex => RgbConfig.setDeviceFixedColor("openrgb", hex)
+            spacing: Tokens.spacing.extraSmall
+
+            Chip {
+                Layout.fillWidth: true
+                implicitHeight: 32
+                label: qsTr("RGB · color estático")
+                selected: !RgbConfig.openrgbArgbZones
+                onClicked: RgbConfig.setOpenrgbArgbZones(false)
+            }
+            Chip {
+                Layout.fillWidth: true
+                implicitHeight: 32
+                label: qsTr("ARGB · ola animada")
+                selected: RgbConfig.openrgbArgbZones
+                onClicked: RgbConfig.setOpenrgbArgbZones(true)
+            }
         }
 
         StyledText {

@@ -816,10 +816,19 @@ def _akko_colour_rgb(effect, level, theme_rgb):
     return tuple(theme_rgb)
 
 
-def _akko_speed_byte(ui_speed, opcode):
-    ui_speed = max(1, min(5, int(ui_speed)))
-    # teclas (0x07): el firmware invierte; tira (0x08): directa. 1 = lento, 5 = rápido.
-    return (5 - ui_speed) if opcode == 0x07 else (ui_speed - 1)
+# animación -> byte[2] por defecto (valores verificados en hardware)
+_AKKO_SPEED_DEFAULT = {"solid": 0x04, "off": 0x04, "breathing": 0x02, "neon": 0x02,
+                       "wave": 0x02, "snake": 0x00}
+
+
+def _akko_speed_byte(anim, ui_speed, opcode):
+    base = _AKKO_SPEED_DEFAULT.get(anim, 0x02)
+    if anim in ("solid", "off"):
+        return base
+    ui = max(1, min(5, int(ui_speed)))
+    delta = (3 - ui) if opcode == 0x07 else (ui - 3)
+    lo = 0 if anim == "snake" else 1
+    return max(lo, min(4, base + delta))
 
 
 def _akko_flag_byte(effect):
@@ -842,7 +851,7 @@ def _akko_packet(opcode, effect, level, theme_rgb):
     buf = bytearray(64)
     buf[0] = opcode
     buf[1] = mode
-    buf[2] = _akko_speed_byte(effect["speed"], opcode)
+    buf[2] = _akko_speed_byte(effect["animation"], effect["speed"], opcode)
     buf[3] = 0x04                    # brillo
     buf[4] = _akko_flag_byte(effect)
     buf[5], buf[6], buf[7] = r, g, b

@@ -348,6 +348,23 @@ def _akko_norm_effect(eff):
     return out
 
 
+# animación -> byte[2] (velocidad) por defecto — valores verificados en hardware
+# (color sólido y notify-flash usan 0x04; respiración/ola 0x02; el "flujo" snake 0x00).
+_AKKO_SPEED_DEFAULT = {"solid": 0x04, "off": 0x04, "breathing": 0x02, "neon": 0x02,
+                       "wave": 0x02, "snake": 0x00}
+
+
+def _akko_speed_byte(anim: str, ui_speed: int, opcode: int) -> int:
+    base = _AKKO_SPEED_DEFAULT.get(anim, 0x02)
+    if anim in ("solid", "off"):
+        return base
+    ui = max(1, min(5, int(ui_speed)))
+    # el slider mueve la velocidad ±2 alrededor del valor probado (ui 3 = por defecto)
+    delta = (3 - ui) if opcode == 0x07 else (ui - 3)   # teclas invertido, tira directo
+    lo = 0 if anim == "snake" else 1
+    return max(lo, min(4, base + delta))
+
+
 def _akko_effect_buf(opcode: int, eff: dict, theme_rgb, bat_rgb, bright: int = 4) -> bytearray:
     anim = eff["animation"]
     if opcode == 0x08 and anim not in _AKKO_SIDESTRIP_ANIMS:
@@ -364,8 +381,7 @@ def _akko_effect_buf(opcode: int, eff: dict, theme_rgb, bat_rgb, bright: int = 4
         rgb = bat_rgb
     else:
         rgb = theme_rgb
-    sp = max(1, min(5, eff["speed"]))
-    speed_byte = (5 - sp) if opcode == 0x07 else (sp - 1)
+    speed_byte = _akko_speed_byte(anim, eff["speed"], opcode)
     flag = 0x08
     if anim in _AKKO_DIRECTIONAL:
         flag = 0x08 | (_AKKO_DIR_IDX.get(eff["direction"], 0) << 4)
@@ -620,7 +636,9 @@ def sync_mchose_base(r: int, g: int, b: int, profile: dict | None = None):
             eff = _akko_norm_effect(m)
     bmode = eff["animation"]
     mode_byte = _MCHOSE_ANIM_BYTE.get(bmode, 0x06)
-    speed_byte = max(0, min(4, eff["speed"] - 1))
+    # byte[3] del payload 0x2B = velocidad; los modos estáticos van a 0 (valor
+    # verificado con rgb-notify-flash), respiración a 1, ola a 3.
+    speed_byte = {"breathing": 1, "wave": 3}.get(bmode, 0)
     src = eff["colour"]["source"]
     if src == "fixed":
         br, bg, bb = hex_to_rgb(eff["colour"]["hex"] or "d8bde7")
