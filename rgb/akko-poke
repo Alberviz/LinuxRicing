@@ -1,0 +1,224 @@
+#!/usr/bin/env python3
+"""akko-poke — consola interactiva para trastear el protocolo RGB del Akko 5075B.
+
+Manda paquetes 0x07 (teclas) / 0x08 (tira) al vuelo y te dice exactamente qué
+bytes salieron, para hacer ingeniería inversa a mano. NO manda keepalives ni
+nada periódico: sólo escribe cuando tú se lo pides.
+
+  akko-poke                       abre el prompt
+
+  akko> k 4                       teclas, modo 4 (Wave), con los valores por defecto
+  akko> k 4 0x18                  teclas modo 4, byte[4] (flag) = 0x18
+  akko> k 1 0x08 4 255 0 255      modo 1, flag, velocidad, R G B
+  akko> s 5 0x08 0               tira lateral, modo 5 (Snake), flag, velocidad 0
+  akko> raw 07 04 02 04 08 00 c8 ff    paquete crudo (checksum auto en byte[8]
+                                       si mandas <=8 bytes; si mandas 9+, tal cual)
+  akko> color ff8800             color por defecto para los próximos comandos
+  akko> speed 2                  velocidad por defecto (byte[2])
+  akko> bright 4                 brillo por defecto (byte[3])
+  akko> flag 0x08                flag por defecto (byte[4])
+  akko> sweep 4 0x08 0x10        barre byte[4] de 0x08 a 0x10, 6 s cada uno
+  akko> modes                    lista de modos conocidos
+  akko> restore                  re-sincroniza al color del tema
+  akko> off                      apaga las dos zonas
+  akko> q                        salir (deja el último estado; usa restore antes si quieres)
+
+Los números aceptan 0x.. (hex) o decimal.
+"""
+import fcntl
+import glob
+import os
+import subprocess
+import sys
+import time
+
+SYNC_RGB = os.path.expanduser("~/.config/caelestia/sync-rgb.py")
+
+KEYS_MODES = {
+    0: "Off", 1: "AlwaysOn (solido)", 2: "Breath", 3: "Neon (arcoiris)",
+    4: "Wave", 5: "Ripple (reactivo)", 6: "Raindrop", 7: "Snake",
+    8: "PressAction (reactivo)", 9: "Converage", 10: "SineWave (radial)",
+    11: "Kaleidoscope (radial bidir)", 12: "LineWave", 14: "Laser",
+    15: "CircleWave", 16: "Dazzing", 17: "RainDown (NO va en 5075B)",
+    18: "Meteor", 23: "Train", 24: "FireWorks",
+}
+SIDE_MODES = {0: "Off", 1: "AlwaysOn", 2: "Breath", 3: "Neon", 4: "Wave",
+              5: "Snake / flujo"}
+
+state = {"color": (255, 0, 255), "speed": 4, "bright": 4, "flag": 0x08}
+
+
+def HIDIOCSFEATURE(size):
+    return (3 << 30) | (size << 16) | (ord("H") << 8) | 0x06
+
+
+def num(tok):
+    return int(tok, 0)
+
+
+def find_node():
+    usb, wl = [], []
+    for h in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
+        ue = f"{h}/device/uevent"
+        if not os.path.exists(ue):
+            continue
+        try:
+            c = open(ue).read()
+        except Exception:
+            continue
+        if "3151" not in c or ":1.2" not in os.path.realpath(f"{h}/device"):
+            continue
+        n = "/dev/" + os.path.basename(h)
+        (usb if "4015" in c else wl if "4011" in c else []).append(n)
+    nodes = usb or wl
+    if not nodes:
+        return None, None
+    return nodes[0], ("cable USB" if usb else "2.4GHz dongle")
+
+
+def write_raw(node, buf64):
+    raw = bytearray([0x00]) + bytes(buf64)
+    fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
+    try:
+        for _ in range(2):
+            fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw)), raw)
+            time.sleep(0.03)
+    finally:
+        os.close(fd)
+
+
+def build(opcode, mode, flag, speed, bright, rgb):
+    buf = bytearray(64)
+    buf[0] = opcode
+    buf[1] = mode
+    buf[2] = speed
+    buf[3] = bright
+    buf[4] = flag
+    buf[5], buf[6], buf[7] = rgb
+    buf[8] = 0xFF - (sum(buf[:8]) & 0xFF)
+    return buf
+
+
+def show(buf):
+    print("   -> " + " ".join(f"{b:02x}" for b in buf[:12]))
+
+
+def cmd_zone(node, opcode, args):
+    if not args:
+        print("   uso: k <modo> [flag] [vel] [r g b]")
+        return
+    mode = num(args[0])
+    flag = num(args[1]) if len(args) > 1 else state["flag"]
+    speed = num(args[2]) if len(args) > 2 else state["speed"]
+    if len(args) >= 6:
+        rgb = (num(args[3]), num(args[4]), num(args[5]))
+    else:
+        rgb = state["color"]
+    buf = build(opcode, mode, flag, speed, state["bright"], rgb)
+    write_raw(node, buf)
+    table = KEYS_MODES if opcode == 0x07 else SIDE_MODES
+    print(f"   {'TECLAS' if opcode==0x07 else 'TIRA'} modo {mode} "
+          f"({table.get(mode, '?')})  flag=0x{flag:02x} vel={speed} rgb={rgb}")
+    show(buf)
+
+
+def cmd_raw(node, args):
+    try:
+        vals = [num(a) for a in args]
+    except ValueError:
+        print("   bytes inválidos")
+        return
+    buf = bytearray(64)
+    for i, v in enumerate(vals[:64]):
+        buf[i] = v & 0xFF
+    if len(vals) <= 8:
+        buf[8] = 0xFF - (sum(buf[:8]) & 0xFF)
+        print("   (checksum auto en byte[8])")
+    write_raw(node, buf)
+    show(buf)
+
+
+def cmd_sweep(node, args):
+    if len(args) < 3:
+        print("   uso: sweep <modo> <flag_ini> <flag_fin>  (barre byte[4])")
+        return
+    mode, lo, hi = num(args[0]), num(args[1]), num(args[2])
+    for f in range(lo, hi + 1):
+        buf = build(0x07, mode, f, state["speed"], state["bright"], state["color"])
+        write_raw(node, buf)
+        print(f"   byte[4]=0x{f:02x}")
+        show(buf)
+        time.sleep(6)
+    print("   fin del barrido")
+
+
+def cmd_off(node):
+    for op in (0x07, 0x08):
+        buf = build(op, 0, 0x08, 0, 0, (0, 0, 0))
+        write_raw(node, buf)
+    print("   teclas + tira apagadas")
+
+
+def cmd_restore():
+    subprocess.run(["/usr/bin/python3", SYNC_RGB, "--only", "akko_keyboard"], timeout=20)
+    print("   re-sincronizado al tema")
+
+
+def main():
+    node, link = find_node()
+    if not node:
+        print("No encuentro el teclado Akko (interfaz :1.2). ¿Conectado?")
+        return 1
+    print(f"akko-poke  nodo={node}  enlace={link}")
+    print("Escribe 'modes' para la lista, 'q' para salir, o mira la cabecera del script.")
+    while True:
+        try:
+            line = input("akko> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        if not line:
+            continue
+        parts = line.split()
+        c, args = parts[0].lower(), parts[1:]
+        try:
+            if c in ("q", "quit", "exit"):
+                break
+            elif c == "k":
+                cmd_zone(node, 0x07, args)
+            elif c == "s":
+                cmd_zone(node, 0x08, args)
+            elif c == "raw":
+                cmd_raw(node, args)
+            elif c == "sweep":
+                cmd_sweep(node, args)
+            elif c == "color" and args:
+                h = args[0].lstrip("#")
+                state["color"] = (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+                print(f"   color por defecto = {state['color']}")
+            elif c == "speed" and args:
+                state["speed"] = num(args[0]); print(f"   speed={state['speed']}")
+            elif c == "bright" and args:
+                state["bright"] = num(args[0]); print(f"   bright={state['bright']}")
+            elif c == "flag" and args:
+                state["flag"] = num(args[0]); print(f"   flag=0x{state['flag']:02x}")
+            elif c == "modes":
+                print("  TECLAS (0x07):")
+                for k, v in KEYS_MODES.items():
+                    print(f"    {k:2d}  {v}")
+                print("  TIRA (0x08):")
+                for k, v in SIDE_MODES.items():
+                    print(f"    {k:2d}  {v}")
+            elif c == "off":
+                cmd_off(node)
+            elif c == "restore":
+                cmd_restore()
+            else:
+                print("   ? comandos: k s raw sweep color speed bright flag modes off restore q")
+        except Exception as e:
+            print(f"   error: {e}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
