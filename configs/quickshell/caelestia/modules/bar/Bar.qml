@@ -174,16 +174,8 @@ ColumnLayout {
             DelegateChoice {
                 roleValue: "statusIcons"
                 delegate: EntryWrapper {
-                    ColumnLayout {
-                        spacing: Tokens.spacing.extraSmall
-
-                        AgentPills {
-                            Layout.alignment: Qt.AlignHCenter
-                        }
-
-                        StatusIcons {
-                            objectName: "taskbarStatusIcons"
-                        }
+                    StatusIcons {
+                        objectName: "taskbarStatusIcons"
                     }
                 }
             }

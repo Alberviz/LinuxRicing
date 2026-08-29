@@ -33,12 +33,26 @@ StyledRect {
 
     implicitWidth: root.minimized ? root.miniBadgeSize : root.defaultWidth
     implicitHeight: root.minimized ? root.miniBadgeSize : inner.implicitHeight
+    width: implicitWidth
+    height: implicitHeight
 
     SequentialAnimation on scale {
         running: root.minimized
         loops: Animation.Infinite
         NumberAnimation { to: 1.06; duration: 1000; easing.type: Easing.InOutSine }
         NumberAnimation { to: 1.0; duration: 1000; easing.type: Easing.InOutSine }
+    }
+
+    Behavior on width {
+        Anim {
+            easing: Tokens.anim.emphasizedDecel
+        }
+    }
+
+    Behavior on height {
+        Anim {
+            easing: Tokens.anim.emphasizedDecel
+        }
     }
 
     Behavior on implicitWidth {

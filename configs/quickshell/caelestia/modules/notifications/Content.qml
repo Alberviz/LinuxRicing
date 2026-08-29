@@ -202,8 +202,22 @@ Item {
 
             color: "transparent"
             radius: notif.radius
+            width: notif.width
+            height: notif.height
             implicitWidth: notif.implicitWidth
             implicitHeight: notif.implicitHeight
+
+            Behavior on width {
+                Anim {
+                    easing: Tokens.anim.emphasizedDecel
+                }
+            }
+
+            Behavior on height {
+                Anim {
+                    easing: Tokens.anim.emphasizedDecel
+                }
+            }
 
             Notification {
                 id: notif
