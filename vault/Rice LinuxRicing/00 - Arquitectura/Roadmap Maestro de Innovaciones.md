@@ -95,3 +95,52 @@ mindmap
    - Actualmente es un valor estático; descifrar el Feature Report de batería real por USB/2.4G.
 3. **Escenas de 1 Clic**:
    - Botones rápidos para perfiles: *"Gaming"*, *"Trabajo"*, *"Cine"*, *"Descanso"*, *"Apagado Total"*.
+
+---
+
+## 🔊 7. Sistema de Sonido del Ecosistema (*Sound Design*)
+
+> **Estado:** 🟡 En curso parcial — la primera pieza (sonidos de las notificaciones de
+> agentes de IA) se está implementando en la rama `feat/agent-notify-sounds`. El resto
+> queda como visión a medio plazo.
+
+La idea es dotar a **todo el setup** de una **paleta sonora coherente y discreta**: un
+lenguaje de feedback auditivo con la misma identidad que la paleta Material You lo es
+para lo visual. Sonidos cortos, suaves y no intrusivos (estilo *UI de sistema
+operativo moderno*), con **volumen global configurable** y respeto absoluto al modo **No
+Molestar** y a pantalla completa.
+
+### Principios de diseño
+
+- **Discreción:** duraciones < 400 ms, sin picos agudos, mezcla a bajo volumen.
+- **Semántica consistente:** un mismo evento (éxito, error, aviso, aparición) suena
+  igual venga de donde venga (agente, batería, dispositivo, OSD).
+- **Fuente única de assets:** carpeta versionada `rgb/sounds/` con ficheros CC0
+  (p. ej. *Kenney Interface Sounds*) más *fallback* a los sonidos del sistema
+  (`/usr/share/sounds/freedesktop/`). `install.sh` los despliega a
+  `~/.config/caelestia/sounds/`.
+- **Reproducción:** `pw-play` (PipeWire), disparo *fire-and-forget*, nunca bloqueante.
+- **Configuración:** claves en `~/.config/caelestia/agents-config.json` (y, a futuro,
+  un panel en `rgbcontrol`): activar/desactivar por categoría y ruta de cada sonido.
+
+### Eventos candidatos
+
+| Categoría | Evento | Sonido |
+| --- | --- | --- |
+| **Agentes de IA** | Agente inicia tarea | Tick sutil ascendente |
+| | Agente completa tarea | Campana suave de éxito |
+| | Agente termina con error / cancelado | Tono descendente corto |
+| **Hardware / Dispositivos** | Teclado/ratón conecta (2.4 GHz / BT) | *Blip* de enganche |
+| | Dispositivo se desconecta o pierde señal | *Blip* de desconexión |
+| | Batería baja (umbral crítico) | Aviso de dos notas |
+| | Carga completada al 100 % | Confirmación tenue |
+| **OSD / Sistema** | Cambio de perfil o "Escena de 1 Clic" | Transición corta |
+| | Toast de notificación entrante (opcional, por app) | Pop genérico |
+| | Captura de pantalla / grabación | Obturador / start-stop |
+
+### Integración con la iluminación
+
+Emparejar cada sonido con su **flash RGB** correspondiente (ver §1 *Flashes de
+Notificación Inteligentes* y *Espejo de Barra OSD*): el destello de color y el sonido
+se disparan juntos desde el mismo punto, de modo que el feedback audiovisual quede
+sincronizado.
