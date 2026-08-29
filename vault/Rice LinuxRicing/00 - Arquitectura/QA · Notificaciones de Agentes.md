@@ -18,7 +18,7 @@ relacionado: "[[Base de Datos de Errores]]", "[[Notificaciones de Agentes]]", "[
 - **Implementación base:** Rama `feat/agent-notifications` (QML + Python CLI + Popouts).
 - **Componentes:** `rgb/agent-notify`, `services/Agents.qml`, `AgentBg.qml`, `Workspace.qml`, `AgentsPopout.qml`, `Bar.qml::checkPopout`.
 - **Despliegue CLI:** `~/.local/bin/agent-notify` (vía `install.sh`).
-- **Tests unitarios automáticos:** 6 tests pytest en `rgb/tests/test_agent_notify.py` (`PASS`).
+- **Tests unitarios automáticos:** 7 tests pytest en `rgb/tests/test_agent_notify.py` (ejecutar con `pytest rgb/tests/test_agent_notify.py`).
 
 ---
 
@@ -33,7 +33,7 @@ Lanza un comando envuelto en el workspace actual para verificar la medición de 
 agent-notify run -n Claude -t "Sleep de prueba" -- sleep 3
 ```
 
-- [ ] Tras 3 segundos, aparece el toast enriquecido arriba a la derecha: **🤖 Claude · LinuxRicing** / *«Sleep de prueba · 3s · Workspace N · Clic para enfocar»*.
+- [ ] Tras 3 segundos, aparece el toast enriquecido arriba a la derecha con el glifo **🤖 Claude · LinuxRicing**, app `caelestia-agents` (icono `utilities-terminal`), y cuerpo *«Sleep de prueba · 3s · Workspace N · Clic para enfocar»*.
 - [ ] Como el comando se ejecutó en la ventana activa actual, al mantener o retomar el foco en el terminal, la notificación se auto-descarta de inmediato.
 - [ ] El código de salida del comando envuelto se propaga correctamente al shell.
 
@@ -46,7 +46,7 @@ Simula la finalización de un agente en otro espacio de trabajo con una direcci�
 agent-notify notify -n Gemini -t "Sincronización del Vault" -w 4 -a 0xbeef
 ```
 
-- [ ] **Toast de escritorio:** Aparece arriba a la derecha con los datos del agente (Gemini · Sincronización del Vault · Workspace 4).
+- [ ] **Toast de escritorio:** Aparece arriba a la derecha con el glifo 🤖 e identidad de app `caelestia-agents` (icono `utilities-terminal`), mostrando los datos del agente (**🤖 Gemini · LinuxRicing** / *«Sincronización del Vault · Workspace 4 • Clic para enfocar»*).
 - [ ] **Pip de Workspace en Barra:** El número «4» en la barra de workspaces enciende un halo luminoso de acento (`AgentBg`) con glow.
 - [ ] **Puntito de «Sin Ver»:** En la esquina superior derecha del número «4» aparece un punto circular de color primario (`m3primary`).
 - [ ] **Color de texto:** El dígito «4» vira a `m3onPrimaryContainer` para mantener contraste sobre el halo.

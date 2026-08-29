@@ -17,15 +17,14 @@ graph TD
     CLI -->|1. qs ipc call agents notify| Service[services/Agents.qml Singleton]
     CLI -->|2. notify-send| Toast[Toast Nativo Caelestia - Esquina Superior Derecha]
     
-    Service -->|wsMap & hasUnseen| Bar[modules/bar/Bar.qml]
-    Bar -->|Halo luminoso| AgentBg[AgentBg.qml en Workspaces]
-    Bar -->|Punto sin ver| Dot[Workspace.qml Indicator]
+    Service -->|wsMap: Halo luminoso| AgentBg[AgentBg.qml en Workspaces]
+    Service -->|hasUnseenForWs: Punto sin ver| Dot[Workspace.qml Indicator]
     
-    Bar -->|Hover en Pip| Popout[AgentsPopout.qml: Tarjeta de Detalle]
-    Popout -->|markSeen| Service
+    Bar[modules/bar/Bar.qml::checkPopout] -->|Hover en Pip: abre| Popout[AgentsPopout.qml: Tarjeta de Detalle]
+    Bar -->|Hover en Pip: invoca markSeen| Service
     
     Toast -->|Clic| Focus[Hyprland Focus Window & Auto-Dismiss]
-    Bar -->|Clic en Pip| Focus
+    Dot -->|Clic en Pip| Focus
 ```
 
 ---

@@ -95,4 +95,3 @@ mindmap
    - Actualmente es un valor estático; descifrar el Feature Report de batería real por USB/2.4G.
 3. **Escenas de 1 Clic**:
    - Botones rápidos para perfiles: *"Gaming"*, *"Trabajo"*, *"Cine"*, *"Descanso"*, *"Apagado Total"*.
-

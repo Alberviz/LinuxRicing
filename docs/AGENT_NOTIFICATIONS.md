@@ -102,7 +102,7 @@ agent-notify clear
 ```
 
 ### Componentes de la Interfaz:
-- **Toast nativo de escritorio:** Se ubica en la esquina superior derecha con el icono de robot `smart_toy`, proyecto, tarea y tiempo. Expira automáticamente tras ~5 segundos.
+- **Toast nativo de escritorio:** Se ubica en la esquina superior derecha con el glifo 🤖 en el título, icono de sistema `-i utilities-terminal`, identidad de app `caelestia-agents`, proyecto, tarea, duración y workspace. Expira automáticamente tras ~5 segundos.
 - **Pip del Workspace (Barra):**
   - **Halo de acento (`AgentBg.qml`):** Capa con resplandor suave en `m3primary` y desenfoque (*glow*) renderizada dentro del recorte de la barra.
   - **Puntito de novedad:** Rectángulo redondeado de 4 px en la esquina superior del indicador numérico.

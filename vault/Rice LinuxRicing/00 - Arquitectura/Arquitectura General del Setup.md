@@ -81,4 +81,3 @@ El rice integra un flujo continuo para agentes de desarrollo autónomo (Claude, 
 > Consulta el [[00 - Grafo de Arquitectura y Dependencias|🗺️ Grafo de Arquitectura y Dependencias]] y el lienzo visual interactivo `Mapa del Sistema.canvas` para ver el flujo exacto de llamadas entre componentes UI, daemons y drivers de hardware.
 
 > Para la arquitectura equivalente en Windows, consultar [[Rice LinuxRicing/Windows - Arquitectura y Sincronización del Ecosistema|🪟 Windows · Arquitectura y Sincronización del Ecosistema]].
-

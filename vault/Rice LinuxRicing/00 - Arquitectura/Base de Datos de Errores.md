@@ -204,6 +204,3 @@ Ambos agentes (Claude y Gemini) escriben aquí — añadir, no reescribir.
 - **Síntoma:** al encoger la notificación de agente a un circulito de 48 px, el fondo oscuro (`PanelBg`) seguía ocupando ~360 px y los `ClippingRectangle` cortaban la burbuja y los números.
 - **Causa:** en Caelestia los paneles del cajón comparten un `BlobGroup` (metabola SDF), cada delegado va envuelto en `ClippingRectangle`, y `sidebar` está anclada a `notifications.bottom` — meter un elemento persistente y pequeño ahí choca con las cuatro cosas a la vez. Revertido en `e6569fc`.
 - **Arreglo:** rediseño completo (rama `feat/agent-notifications`). El estado persistente vive en el **pip del workspace** en la barra (halo estilo `OccupiedBg` + puntito de "sin ver"), el detalle en un popout de barra (`AgentsPopout.qml`), y el clic lo resuelve Caelestia de forma nativa. Nada nuevo se inyecta en el cajón de notificaciones, respetando el ciclo de vida efímero de los toasts. Spec: `docs/superpowers/specs/2026-08-29-agent-notifications-workspace-pip-design.md`.
-
-
-
