@@ -16,56 +16,16 @@ StyledRect {
     id: root
 
     required property NotifData modelData
-    property int defaultWidth: Tokens.sizes.notifs.width
-    readonly property int miniBadgeSize: 48
-    readonly property bool isAgent: modelData.isAgent
     readonly property bool hasImage: modelData.image.length > 0
     readonly property bool hasAppIcon: modelData.appIcon.length > 0
-    readonly property bool minimized: modelData.minimized ?? false
     readonly property int bodyTextFormat: /[<*_`#\[\]]/.test(modelData.body) ? Text.MarkdownText : Text.PlainText
-    readonly property int nonAnimHeight: root.minimized ? root.miniBadgeSize : (summary.implicitHeight + (root.expanded ? Tokens.spacing.extraSmall * 2 + appName.height + body.height + actions.height + actions.anchors.topMargin : bodyPreview.height) + inner.anchors.margins * 2)
+    readonly property int nonAnimHeight: summary.implicitHeight + (root.expanded ? Tokens.spacing.extraSmall * 2 + appName.height + body.height + actions.height + actions.anchors.topMargin : bodyPreview.height) + inner.anchors.margins * 2
     property bool expanded: Config.notifs.openExpanded
 
-    color: root.minimized ? Colours.palette.m3primaryContainer : (root.modelData.urgency === NotificationUrgency.Critical ? Colours.palette.m3secondaryContainer : Colours.tPalette.m3surfaceContainer)
-    radius: root.minimized ? Tokens.rounding.full : Tokens.rounding.large
-    border.width: root.minimized ? 2 : 0
-    border.color: Colours.palette.m3primary
+    color: root.modelData.urgency === NotificationUrgency.Critical ? Colours.palette.m3secondaryContainer : Colours.tPalette.m3surfaceContainer
+    radius: Tokens.rounding.large
 
-    implicitWidth: root.minimized ? root.miniBadgeSize : root.defaultWidth
-    implicitHeight: root.minimized ? root.miniBadgeSize : inner.implicitHeight
-    width: implicitWidth
-    height: implicitHeight
-
-    SequentialAnimation on scale {
-        running: root.minimized
-        loops: Animation.Infinite
-        NumberAnimation { to: 1.06; duration: 1000; easing.type: Easing.InOutSine }
-        NumberAnimation { to: 1.0; duration: 1000; easing.type: Easing.InOutSine }
-    }
-
-    Behavior on width {
-        Anim {
-            easing: Tokens.anim.emphasizedDecel
-        }
-    }
-
-    Behavior on height {
-        Anim {
-            easing: Tokens.anim.emphasizedDecel
-        }
-    }
-
-    Behavior on implicitWidth {
-        Anim {
-            easing: Tokens.anim.emphasizedDecel
-        }
-    }
-
-    Behavior on implicitHeight {
-        Anim {
-            easing: Tokens.anim.emphasizedDecel
-        }
-    }
+    implicitHeight: inner.implicitHeight
 
     x: implicitWidth
     Component.onCompleted: {
@@ -85,8 +45,8 @@ StyledRect {
 
         anchors.fill: parent
         hoverEnabled: true
-        cursorShape: root.minimized ? Qt.PointingHandCursor : (root.expanded && body.hoveredLink ? Qt.PointingHandCursor : pressed ? Qt.ClosedHandCursor : undefined)
-        acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
+        cursorShape: root.expanded && body.hoveredLink ? Qt.PointingHandCursor : pressed ? Qt.ClosedHandCursor : undefined
+        acceptedButtons: Qt.LeftButton | Qt.MiddleButton
         preventStealing: true
 
         onEntered: root.modelData.timer.stop()
@@ -95,28 +55,26 @@ StyledRect {
                 root.modelData.timer.start();
         }
 
-        drag.target: root.minimized ? null : parent
+        drag.target: parent
         drag.axis: Drag.XAxis
 
         onPressed: event => {
             root.modelData.timer.stop();
             startY = event.y;
-            if (event.button === Qt.MiddleButton || (root.minimized && event.button === Qt.RightButton))
+            if (event.button === Qt.MiddleButton)
                 root.modelData.close();
         }
         onReleased: event => {
             if (!containsMouse)
                 root.modelData.timer.start();
 
-            if (!root.minimized) {
-                if (Math.abs(root.x) < root.implicitWidth * Config.notifs.clearThreshold)
-                    root.x = 0;
-                else
-                    root.modelData.popup = false;
-            }
+            if (Math.abs(root.x) < root.implicitWidth * Config.notifs.clearThreshold)
+                root.x = 0;
+            else
+                root.modelData.popup = false;
         }
         onPositionChanged: event => {
-            if (pressed && !root.minimized) {
+            if (pressed) {
                 const diffY = event.y - startY;
                 if (Math.abs(diffY) > Config.notifs.expandThreshold)
                     root.expanded = diffY > 0;
@@ -142,50 +100,12 @@ StyledRect {
         }
 
         Item {
-            id: miniBadge
-
-            anchors.fill: parent
-            visible: root.minimized
-
-            MaterialIcon {
-                anchors.centerIn: parent
-                text: "smart_toy"
-                color: Colours.palette.m3onPrimaryContainer
-                fontStyle: Tokens.font.icon.large
-            }
-
-            StyledRect {
-                id: wsBadge
-
-                visible: root.modelData.wsNum.length > 0
-                anchors.top: parent.top
-                anchors.right: parent.right
-                anchors.topMargin: -2
-                anchors.rightMargin: -2
-                implicitWidth: 20
-                implicitHeight: 20
-                radius: Tokens.rounding.full
-                color: Colours.palette.m3primary
-                border.width: 1.5
-                border.color: Colours.palette.m3surface
-
-                StyledText {
-                    anchors.centerIn: parent
-                    text: root.modelData.wsNum
-                    color: Colours.palette.m3onPrimary
-                    font: Tokens.font.label.small
-                }
-            }
-        }
-
-        Item {
             id: inner
 
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
             anchors.margins: Tokens.padding.medium
-            visible: !root.minimized
 
             implicitHeight: root.nonAnimHeight
 
@@ -246,7 +166,7 @@ StyledRect {
                         id: icon
 
                         asynchronous: true
-                        active: !root.isAgent && root.hasAppIcon && (Quickshell.iconPath(root.modelData.appIcon) ?? "").length > 0
+                        active: root.hasAppIcon
 
                         anchors.centerIn: parent
 
@@ -263,12 +183,12 @@ StyledRect {
 
                     Loader {
                         asynchronous: true
-                        active: root.isAgent || !root.hasAppIcon || (Quickshell.iconPath(root.modelData.appIcon) ?? "").length === 0
+                        active: !root.hasAppIcon
                         anchors.centerIn: parent
                         anchors.verticalCenterOffset: 1
 
                         sourceComponent: MaterialIcon {
-                            text: root.isAgent ? "smart_toy" : Icons.getNotifIcon(root.modelData.summary, root.modelData.urgency)
+                            text: Icons.getNotifIcon(root.modelData.summary, root.modelData.urgency)
                             color: root.modelData.urgency === NotificationUrgency.Critical ? Colours.palette.m3onError : root.modelData.urgency === NotificationUrgency.Low ? Colours.palette.m3onSurface : Colours.palette.m3onSecondaryContainer
                             fontStyle: Tokens.font.icon.medium
                         }
@@ -325,7 +245,7 @@ StyledRect {
                 color: Colours.palette.m3onSurfaceVariant
                 font: Tokens.font.label.medium
 
-                opacity: !root.minimized && root.expanded ? 1 : 0
+                opacity: root.expanded ? 1 : 0
 
                 Behavior on opacity {
                     Anim {
@@ -353,37 +273,24 @@ StyledRect {
                 animate: true
                 text: summaryMetrics.elidedText
                 maximumLineCount: 1
-                color: root.minimized ? Colours.palette.m3onPrimaryContainer : Colours.palette.m3onSurface
                 height: implicitHeight
 
-                states: [
-                    State {
-                        name: "minimized"
-                        when: root.minimized
+                states: State {
+                    name: "expanded"
+                    when: root.expanded
 
-                        AnchorChanges {
-                            target: summary
-                            anchors.top: undefined
-                            anchors.verticalCenter: image.verticalCenter
-                        }
-                    },
-                    State {
-                        name: "expanded"
-                        when: root.expanded && !root.minimized
-
-                        PropertyChanges {
-                            summary.maximumLineCount: undefined
-                            summary.anchors.topMargin: root.Tokens.spacing.extraSmall
-                            bodyPreview.anchors.topMargin: root.Tokens.spacing.extraSmall
-                            body.anchors.topMargin: root.Tokens.spacing.extraSmall
-                        }
-
-                        AnchorChanges {
-                            target: summary
-                            anchors.top: appName.bottom
-                        }
+                    PropertyChanges {
+                        summary.maximumLineCount: undefined
+                        summary.anchors.topMargin: root.Tokens.spacing.extraSmall
+                        bodyPreview.anchors.topMargin: root.Tokens.spacing.extraSmall
+                        body.anchors.topMargin: root.Tokens.spacing.extraSmall
                     }
-                ]
+
+                    AnchorChanges {
+                        target: summary
+                        anchors.top: appName.bottom
+                    }
+                }
 
                 transitions: Transition {
                     PropertyAction {
@@ -407,7 +314,7 @@ StyledRect {
                 text: root.modelData.summary
                 font: summary.font
                 elide: Text.ElideRight
-                elideWidth: expandBtn.x - (root.minimized ? 0 : (time.width + timeSep.width)) - summary.x - root.Tokens.spacing.small * 3
+                elideWidth: expandBtn.x - time.width - timeSep.width - summary.x - root.Tokens.spacing.small * 3
             }
 
             StyledText {
@@ -416,7 +323,6 @@ StyledRect {
                 anchors.top: parent.top
                 anchors.left: summary.right
                 anchors.leftMargin: Tokens.spacing.small
-                opacity: !root.minimized ? 1 : 0
 
                 text: "•"
                 color: Colours.palette.m3onSurfaceVariant
@@ -424,7 +330,7 @@ StyledRect {
 
                 states: State {
                     name: "expanded"
-                    when: root.expanded && !root.minimized
+                    when: root.expanded
 
                     AnchorChanges {
                         target: timeSep
@@ -443,7 +349,6 @@ StyledRect {
                 anchors.top: parent.top
                 anchors.left: timeSep.right
                 anchors.leftMargin: Tokens.spacing.small
-                opacity: !root.minimized ? 1 : 0
 
                 animate: true
                 horizontalAlignment: Text.AlignLeft
@@ -456,8 +361,7 @@ StyledRect {
                 id: expandBtn
 
                 anchors.right: parent.right
-                anchors.top: root.minimized ? undefined : parent.top
-                anchors.verticalCenter: root.minimized ? image.verticalCenter : undefined
+                anchors.top: parent.top
                 anchors.topMargin: -Tokens.padding.extraSmall
 
                 implicitWidth: expandIcon.implicitHeight
@@ -465,26 +369,18 @@ StyledRect {
 
                 StateLayer {
                     radius: Tokens.rounding.full
-                    color: root.minimized ? Colours.palette.m3onPrimaryContainer : (root.modelData.urgency === NotificationUrgency.Critical ? Colours.palette.m3onSecondaryContainer : Colours.palette.m3onSurface)
-                    onClicked: {
-                        if (root.minimized) {
-                            root.modelData.minimized = false;
-                            root.expanded = true;
-                        } else {
-                            root.expanded = !root.expanded;
-                        }
-                    }
+                    color: root.modelData.urgency === NotificationUrgency.Critical ? Colours.palette.m3onSecondaryContainer : Colours.palette.m3onSurface
+                    onClicked: root.expanded = !root.expanded
                 }
 
                 MaterialIcon {
                     id: expandIcon
 
                     anchors.centerIn: parent
-                    anchors.verticalCenterOffset: !root.minimized && root.expanded ? -1 : 1
-                    text: root.minimized ? "open_in_full" : "expand_more"
-                    color: root.minimized ? Colours.palette.m3onPrimaryContainer : Colours.palette.m3onSurfaceVariant
+                    anchors.verticalCenterOffset: root.expanded ? -1 : 1
+                    text: "expand_more"
                     fontStyle: Tokens.font.icon.medium
-                    rotation: root.minimized ? 0 : (root.expanded ? 180 : 0)
+                    rotation: root.expanded ? 180 : 0
 
                     Behavior on anchors.verticalCenterOffset {
                         Anim {}
@@ -510,7 +406,7 @@ StyledRect {
                 color: Colours.palette.m3onSurfaceVariant
                 font: Tokens.font.body.small
 
-                opacity: !root.minimized && !root.expanded ? 1 : 0
+                opacity: root.expanded ? 0 : 1
 
                 Behavior on opacity {
                     Anim {
@@ -552,7 +448,7 @@ StyledRect {
                     root.modelData.popup = false;
                 }
 
-                opacity: !root.minimized && root.expanded ? 1 : 0
+                opacity: root.expanded ? 1 : 0
 
                 Behavior on opacity {
                     Anim {
@@ -570,7 +466,7 @@ StyledRect {
                 anchors.topMargin: Tokens.spacing.small
 
                 spacing: Tokens.spacing.extraSmall
-                opacity: !root.minimized && root.expanded ? 1 : 0
+                opacity: root.expanded ? 1 : 0
 
                 Behavior on opacity {
                     Anim {

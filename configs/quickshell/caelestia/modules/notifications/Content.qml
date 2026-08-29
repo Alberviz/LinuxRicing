@@ -153,22 +153,8 @@ Item {
                 idx = index;
         }
 
-        width: parent ? parent.width : implicitWidth
         implicitWidth: notif.implicitWidth
         implicitHeight: notif.implicitHeight + (idx === 0 ? 0 : Tokens.spacing.medium)
-        height: implicitHeight
-
-        Behavior on height {
-            Anim {
-                easing: Tokens.anim.emphasizedDecel
-            }
-        }
-
-        Behavior on implicitHeight {
-            Anim {
-                easing: Tokens.anim.emphasizedDecel
-            }
-        }
 
         ListView.onRemove: removeAnim.start()
 
@@ -212,33 +198,17 @@ Item {
         ClippingRectangle {
             anchors.top: parent.top
             anchors.topMargin: wrapper.idx === 0 ? 0 : Tokens.spacing.medium
-            anchors.right: parent.right
 
             color: "transparent"
             radius: notif.radius
-            width: notif.width
-            height: notif.height
             implicitWidth: notif.implicitWidth
             implicitHeight: notif.implicitHeight
-
-            Behavior on width {
-                Anim {
-                    easing: Tokens.anim.emphasizedDecel
-                }
-            }
-
-            Behavior on height {
-                Anim {
-                    easing: Tokens.anim.emphasizedDecel
-                }
-            }
 
             Notification {
                 id: notif
 
-                anchors.right: parent.right
                 modelData: wrapper.modelData
-                defaultWidth: root.implicitWidth - root.padding - root.clampedPadding
+                implicitWidth: root.implicitWidth - root.padding - root.clampedPadding
             }
         }
     }
