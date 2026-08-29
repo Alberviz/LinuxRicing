@@ -7,48 +7,11 @@ def test_battery_level_color_full_is_greenish(bl):
     assert g > r and g > b
 
 
-def test_meter_rows_scales(bl):
-    assert bl.meter_rows(0, 5) == 0
-    assert bl.meter_rows(1, 5) == 1
-    assert bl.meter_rows(50, 5) == 3          # round(2.5)
-    assert bl.meter_rows(100, 5) == 5
-
-
-def test_akko_canvas_chunks_shape(bl):
-    chunks = bl.akko_canvas_chunks([(1, 2, 3)] * 130)
-    assert len(chunks) == 7
-    assert all(len(c) == 64 for c in chunks)
-    assert chunks[0][0] == 0x0C
-    assert chunks[0][4] == 0        # chunk_index del primer chunk
-    assert chunks[6][4] == 6
-
-
-def test_akko_meter_keys_all_off_at_zero(bl):
-    keys = bl.akko_meter_keys(0)
-    assert len(keys) == 130
-    assert set(keys) == {(0, 0, 0)}
-
-
-def test_akko_meter_keys_full_lights_bottom_rows(bl):
-    keys = bl.akko_meter_keys(100)
-    # al menos las teclas mapeadas de la fila inferior están encendidas
-    lit = [keys[i] for i in bl.AKKO_KEY_ROWS[-1]]
-    assert all(px != (0, 0, 0) for px in lit)
-
-
-def test_akko_meter_keys_progressive_scaling(bl):
-    keys_0 = bl.akko_meter_keys_progressive(0)
-    assert set(keys_0) == {(0, 0, 0)}
-
-    keys_50 = bl.akko_meter_keys_progressive(50)
-    lit_50 = [k for k in keys_50 if k != (0, 0, 0)]
-    assert len(lit_50) > 0
-    assert len(lit_50) < len(bl.AKKO_PROGRESSIVE_KEYS)
-
-    keys_100 = bl.akko_meter_keys_progressive(100)
-    lit_100 = [k for k in keys_100 if k != (0, 0, 0)]
-    assert len(lit_100) == len(bl.AKKO_PROGRESSIVE_KEYS)
-    assert len(lit_100) > len(lit_50)
+def test_battery_step_buckets_by_ten(bl):
+    assert bl._battery_step(None) is None
+    assert bl._battery_step(0) == 0
+    assert bl._battery_step(55) == 5
+    assert bl._battery_step(100) == 10
 
 
 def test_mchose_payload_red_breathing_encodes_red(bl):
@@ -80,24 +43,33 @@ def test_akko_keys_theme_uses_theme_rgb(bl):
     assert (body[5], body[6], body[7]) == (12, 34, 56)
 
 
-def test_apply_akko_meter_no_nodes_is_noop(bl, monkeypatch):
-    monkeypatch.setattr(bl, "_akko_nodes", lambda: [])
+def test_akko_keys_wave_uses_firmware_mode_4(bl):
+    pkts = bl.build_akko_packets("keys", "wave", 90, (12, 34, 56))
+    assert len(pkts) == 1
+    body = pkts[0][1:]
+    assert body[0] == 0x07           # opcode teclas
+    assert body[1] == 0x04           # modo Wave del firmware (1 escritura)
+    assert (body[5], body[6], body[7]) == (12, 34, 56)
+
+
+def test_akko_keys_wave_battery_low_is_red(bl):
+    body = bl.build_akko_packets("keys", "wave_battery", 10, (1, 2, 3))[0][1:]
+    assert body[1] == 0x04
+    assert (body[5], body[6], body[7]) == (255, 0, 0)
+
+
+def test_akko_stream_not_built_on_keys(bl):
+    # 'stream' en las teclas era Ripple (inútil): ya no se genera paquete.
+    assert bl.build_akko_packets("keys", "stream", 50, (1, 2, 3)) == []
+
+
+def test_akko_rf_wake_sends_two_f7_keepalives(bl, monkeypatch):
     sent = []
-    monkeypatch.setattr(bl, "_write_feature", lambda n, raw: sent.append(raw))
-    bl.apply_akko_meter(50)
-    assert sent == []                 # sin nodos no intenta escribir
-
-
-def test_apply_akko_meter_dedupes_same_level(bl, monkeypatch):
-    monkeypatch.setattr(bl, "_akko_nodes", lambda: ["/dev/null-fake"])
-    calls = []
-    monkeypatch.setattr(bl, "_write_feature", lambda n, raw: calls.append(bytes(raw)))
-    bl.apply_akko_meter(48)
-    first = len(calls)
-    assert first >= 8                 # 1 activación + 7 chunks
-    assert calls[0][1 + 4] == 0x08    # flag color custom RGB
-    bl.apply_akko_meter(49)           # mismo nivel redondeado a fila -> no reenvía
-    assert len(calls) == first
+    monkeypatch.setattr(bl.fcntl, "ioctl", lambda fd, req, buf: sent.append(bytes(buf)))
+    monkeypatch.setattr(bl.time, "sleep", lambda *_a: None)
+    bl._akko_rf_wake(7)
+    assert len(sent) == 2
+    assert all(b[1] == 0xF7 for b in sent)
 
 
 def test_apply_magichome_none_does_not_call_subprocess(bl, monkeypatch):
