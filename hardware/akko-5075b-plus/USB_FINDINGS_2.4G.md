@@ -187,47 +187,56 @@ Evidencia directa:
 - resp83: `00 83 5d 01 00 00 00 00 7c 00` → bat=93%, chg=1 → **incorrecto**
 - La batería bajaba (97→93→90%) mientras el firmware decía "cargando"
 
-### El nivel `0x83` por RF es ruidoso
+### El `0x83` por RF devuelve frames RANCIOS
 
-El 2026-08-29, con la palanca en 2.4G, `resp83[2]` (nivel) saltaba entre lecturas
-consecutivas: ±10 % con dos lectores a la vez (daemon + sonda: 74–94), y aun con
-un solo lector se vieron mesetas dispares (81 estable 1 min → 63 estable →
-53–58). El ciclo `0x83`→`0xF7`→`0xFC` termina en `0xFC` =
-`FEA_CMD_GET_CACHED_RESPONSE`; con lectores interleavados el `0xFC` de uno recoge
-el frame del otro o un búfer rancio, y el propio firmware parece devolver el
-nivel a saltos por RF. **Nunca mostrar `resp83[2]` crudo** — siempre por un EMA.
+El 2026-08-29, con la palanca en 2.4G, `resp83` (nivel **y** flag de carga) no es
+consistente entre lecturas: `resp83[2]` saltaba 53–97 entre polls consecutivos, y
+`resp83[3]` (flag de carga) llegaba a `1` en el daemon mientras una sonda
+independiente lo leía `0` cinco veces seguidas — cada lector recibe un frame
+distinto. El ciclo `0x83`→`0xF7`→`0xFC` termina en `0xFC` =
+`FEA_CMD_GET_CACHED_RESPONSE`; el dongle sirve del búfer un frame que puede ser
+viejo (de cuando la batería estaba a otro nivel, o cuando aún cargaba). No hay
+forma fiable de forzar un frame fresco desde Linux. **Ni el nivel ni el flag de
+`0x83` se pueden usar crudos.**
 
 ### Solución aplicada (2026-08-29)
 
 **Archivo:** `rgb/battery-lighting` y `rgb/mchose-battery`, rama del dongle 2.4G.
-Reemplaza el parche anterior `wired_present and resp83[3]==1`, que rompía el caso
-legítimo "palanca en 2.4G + cable al PC cargando" (forzaba `charging=False`
-porque con la palanca en 2.4G el PID `0x4015` no enumera).
+Reemplaza el parche `wired_present and resp83[3]==1`, que rompía el caso legítimo
+"palanca en 2.4G + cable cargando" (con la palanca en 2.4G el PID `0x4015` no
+enumera → forzaba `charging=False`).
 
 - **Transporte:** enumeración de `0x4015` (ver sección anterior).
-- **Carga:** `is_chg = (resp83[3] == 1)`, directo. Es la única señal utilizable;
-  el nivel por RF es demasiado ruidoso para derivar la carga por tendencia (se
-  intentó y el ruido disparaba falsos "Descargando"). Se acepta que `resp83[3]`
-  puede quedarse pegado en 1 un rato tras desenchufar en 2.4G — mal menor y caso
-  poco frecuente.
-- **Nivel:** EMA `0.8·prev + 0.2·raw`; si el salto es > 25 puntos, en vez de
-  ignorarlo se deriva el EMA ±4 hacia él, para seguir cambios reales grandes y
-  sostenidos sin congelarse en un glitch.
+- **Nivel:** EMA `0.8·prev + 0.2·raw`; si el salto es > 25 puntos se deriva el EMA
+  ±4 hacia él (para seguir cambios reales grandes sin congelarse en un glitch).
+- **Carga:** `is_chg` = las TRES condiciones a la vez:
+  1. `resp83[3] == 1` en la lectura actual, y
+  2. ≥ 2 de las últimas 6 lecturas también fueron `1` (`akko_chg_hist`) —
+     descarta frames rancios sueltos con `chg=1`, y
+  3. el EMA no ha caído > 6 puntos bajo el **ancla**: el ancla se fija en la
+     transición `0→1` y **trepa** con el EMA mientras carga, así que al
+     desenchufar basta con que el nivel baje ~6 puntos desde el pico para
+     detectar el fin de carga aunque el flag se quede pegado en `1`.
 
-| Escenario | `resp83[3]` | Resultado |
-|---|---|---|
-| 2.4G + cable (PC o cargador de pared), cargando | 1 | `Cargando` ✅ |
-| 2.4G, cable recién quitado, flag pegado | 1 | `Cargando` ❌ (hasta que el firmware refresque el flag: reenchufar, cambio de palanca, o reinicio HID) |
-| 2.4G sin cable, flag ya a 0 | 0 | `Descargando` ✅ |
+| Escenario | Resultado |
+|---|---|
+| 2.4G + cable (PC o cargador de pared), cargando | `Cargando` ✅ |
+| 2.4G, cable quitado, flag ya a `0` | `Descargando` ✅ en el siguiente poll (≤ 3 s en cadencia de carga) |
+| 2.4G, cable quitado, flag PEGADO en `1` | `Cargando` unos minutos, hasta que el EMA baje > 6 bajo el pico → `Descargando` |
+| Frame rancio suelto con `chg=1` mientras descarga | ignorado (regla 2) |
+
+**Bug relacionado corregido en el daemon:** `tick()` llamaba a `write_alerts(new)`
+*después* de liberar zonas con `apply_zone(zk, None)`. Como `apply_zone(None)`
+delega el "volver a estático" en `sync-rgb.py`, y éste se salta las zonas que
+`battery_alerts.json` todavía reclame, la tira lateral se quedaba **clavada en el
+wave de carga** tras dejar de cargar. Ahora `write_alerts(new)` va antes de la
+liberación.
 
 **Mejora pendiente (baja prioridad):** el `mchose-battery.timer` de systemd
-lanza `mchose-battery --notify` cada 60 s, flag que ya no existe (la lógica de
-notificación vive en el daemon) → el servicio falla en bucle. Retirar ese
-timer/servicio; de paso, un lector menos sobre el dongle.
-
-**Si el flag pegado molesta:** la vía limpia sería un sniff en Windows buscando
-un opcode que reporte VBUS (presencia de corriente) en vez del estado de carga,
-o un evento del driver al conectar/desconectar el cable. No es prioritario.
+lanza `mchose-battery --notify` (flag que ya no existe) cada 60 s → el servicio
+falla en bucle. Retirar ese timer/servicio; de paso, un lector menos sobre el
+dongle. **Vía limpia para el flag pegado:** sniff en Windows buscando un opcode
+que reporte VBUS, o un evento del driver al conectar/desconectar el cable.
 
 ## Per-key / iluminación personalizada (DIY) — opcode `0x0C`
 

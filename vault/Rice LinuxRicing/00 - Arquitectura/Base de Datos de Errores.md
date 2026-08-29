@@ -295,3 +295,30 @@ Ambos agentes (Claude y Gemini) escriben aquí — añadir, no reescribir.
 - **De paso:** el `mchose-battery.timer` de systemd llama a `mchose-battery
   --notify`, flag que ya no existe → el servicio falla cada 60 s. Debería
   retirarse (además, un segundo lector empeora el ruido del `0x83`).
+
+### La tira lateral del Akko se quedaba clavada en el wave de carga
+- **Síntoma:** con la palanca en 2.4G, el LED lateral (y a veces las teclas) se
+  quedaba fijo en el efecto `wave` de "cargando" un buen rato aunque ya no
+  estuviera cargando. El widget mostraba el estado bien; solo el RGB no cambiaba.
+- **Causa:** tres cosas sumadas:
+  1. **`tick()` escribía `battery_alerts.json` después de liberar zonas.** Al
+     dejar de cargar, `tick()` llamaba a `apply_zone(zk, None)` para volver la
+     zona a estático, pero eso delega en `sync-rgb.py`, que **se salta las zonas
+     que `battery_alerts.json` todavía reclame**. Como `write_alerts(new)` se
+     ejecutaba al final del `tick()`, sync-rgb veía el claim viejo (`charging`) y
+     abortaba sin resetear → el firmware seguía corriendo el wave solo.
+  2. **`resp83` por RF devuelve frames rancios:** el flag `resp83[3]` llegaba a
+     `1` en el daemon mientras una sonda lo leía `0`. El daemon se quedaba
+     "cargando" por frames viejos del búfer del dongle.
+  3. El daemon sondeaba cada 60 s en reposo → hasta 1 min de lag al enchufar.
+- **Arreglo** (commit pendiente):
+  1. `write_alerts(new)` **antes** del bucle de liberación de zonas en `tick()`.
+  2. `is_chg` en 2.4G exige las tres: flag actual `1`, ≥2 de las últimas 6
+     lecturas `1` (`akko_chg_hist`, contra frames rancios), y EMA no caído >6 bajo
+     un ancla que trepa con la carga (detecta fin de carga aunque el flag se
+     quede pegado, ~pocos minutos).
+  3. `poll.idle_seconds` 60 → 15 (daemon, `BatteryLightingConfig.qml`, config del
+     usuario). Enchufar reacciona en ≤15 s; desenchufar en ≤3 s (cadencia de
+     carga).
+- **Limitación:** si el flag se queda pegado en `1` tras desenchufar, el wave
+  tarda unos minutos en apagarse (hasta que el EMA baje ~6 bajo el pico).

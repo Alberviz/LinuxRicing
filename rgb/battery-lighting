@@ -556,9 +556,10 @@ def get_akko_keyboard_battery():
                             raw_bat = resp83[2]
                             chg_flag = (resp83[3] == 1)
 
-                            # Nivel: el 0x83 por RF es ruidoso (±5-15 %), siempre
-                            # vía EMA. Salto > 25 → se deriva ±4 hacia él en vez de
-                            # ignorarlo (para seguir cambios reales grandes).
+                            # OJO: el 0x83 por RF a veces devuelve frames RANCIOS
+                            # del búfer del dongle (nivel y flag de carga viejos).
+                            # Nivel: siempre vía EMA; salto > 25 → deriva ±4 hacia
+                            # él en vez de ignorarlo (seguir cambios reales grandes).
                             last_ema = cache.get("akko_battery_ema")
                             if last_ema is None:
                                 ema = float(raw_bat)
@@ -568,32 +569,33 @@ def get_akko_keyboard_battery():
                                 ema = (0.8 * le + 0.2 * raw_bat) if abs(d) <= 25 \
                                       else le + (4.0 if d > 0 else -4.0)
 
-                            # Carga en 2.4 GHz: resp83[3] es la señal primaria pero
-                            # se queda PEGADO en 1 tras desenchufar sin transición
-                            # (hardware/akko-5075b-plus/USB_FINDINGS_2.4G.md). Se
-                            # ancla el EMA al ver la transición 0->1 y se sigue
-                            # "cargando" mientras el EMA no caiga > 6 puntos bajo el
-                            # ancla: cargar mantiene o sube; el flag pegado va con
-                            # un EMA que baja. No depende del PID 0x4015 → cubre
-                            # también el cargador de pared.
+                            # Carga en 2.4 GHz. resp83[3] es la señal, con dos
+                            # fallos (hardware/akko-5075b-plus/USB_FINDINGS_2.4G.md):
+                            #  (a) frames rancios sueltos con chg=1 → se exige que
+                            #      el flag actual sea 1 Y que ≥2 de las últimas 6
+                            #      lecturas también lo fueran.
+                            #  (b) el flag se queda PEGADO en 1 tras desenchufar
+                            #      sin transición → se ancla el EMA en la transición
+                            #      0->1 y se exige que no haya caído >6 bajo el ancla.
+                            # No depende del PID 0x4015 → cubre el cargador de pared.
+                            hist = ((cache.get("akko_chg_hist") or [])
+                                    + [1 if chg_flag else 0])[-6:]
                             prev_flag = bool(cache.get("akko_chg_flag", False))
                             anchor = cache.get("akko_chg_anchor")
                             if chg_flag and not prev_flag:
                                 anchor = round(ema, 2)
+                            elif chg_flag and anchor is not None:
+                                anchor = max(float(anchor), round(ema, 2))  # trepa con la carga
                             if not chg_flag:
                                 anchor = None
-                            if not chg_flag:
-                                is_chg = False
-                            elif anchor is None:
-                                is_chg = True
-                            else:
-                                is_chg = ema >= anchor - 6
+                            is_chg = (chg_flag and sum(hist) >= 2
+                                      and (anchor is None or ema >= anchor - 6))
+                            cache["akko_chg_hist"] = hist
                             cache["akko_chg_flag"] = chg_flag
                             if anchor is None:
                                 cache.pop("akko_chg_anchor", None)
                             else:
                                 cache["akko_chg_anchor"] = anchor
-                            cache.pop("akko_ema_hist", None)
 
                             st = "Cargando" if is_chg else "Descargando"
                             displayed = max(1, min(100, int(round(ema))))
@@ -1232,6 +1234,14 @@ def tick(config=None, telemetry=None):
             steps[zk] = step
         else:
             steps.pop(zk, None)
+    # Publicar el claim de alertas ANTES de liberar zonas. apply_zone(None)
+    # delega el "volver a estático" en sync-rgb.py, que se salta las zonas que
+    # este fichero todavía reclame en battery_alerts.json. Si se escribiera
+    # después, sync-rgb vería el claim viejo y no resetearía la zona → se queda
+    # clavada en el efecto anterior (p.ej. la tira lateral con el wave de carga
+    # después de dejar de cargar).
+    write_alerts(new)
+
     for zk in old:
         if zk not in new:
             apply_zone(zk, None, theme)
@@ -1240,7 +1250,6 @@ def tick(config=None, telemetry=None):
     st["charging_colour_step"] = steps
     _save_state(st)
 
-    write_alerts(new)
     _notify(config, telemetry)
     _check_battery_mode_refreshes(telemetry, set(new.keys()))
     return new
