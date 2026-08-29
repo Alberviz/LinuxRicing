@@ -236,6 +236,11 @@ Claves en `~/.config/caelestia/agents-config.json`, recargadas en caliente:
 
 El sonido se **omite** si el modo No Molestar (`Notifs.dnd`) está activo, igual que los toasts.
 
+> **Pendiente:** llevar esta configuración (paleta, volumen, y «sobre qué eventos se
+> aplica») a un apartado **«Sonidos»** dentro de `modules/rgbcontrol/NotificacionesView.qml`,
+> junto a los ajustes de flash. Detalle del diseño en el *Roadmap Maestro de
+> Innovaciones* §7 del vault.
+
 ---
 
 ## 9. Documentación y Especificaciones Relacionadas

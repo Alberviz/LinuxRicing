@@ -101,8 +101,11 @@ mindmap
 ## 🔊 7. Sistema de Sonido del Ecosistema (*Sound Design*)
 
 > **Estado:** 🟡 En curso parcial — la primera pieza (sonidos de las notificaciones de
-> agentes de IA) se está implementando en la rama `feat/agent-notify-sounds`. El resto
-> queda como visión a medio plazo.
+> agentes de IA) ya está implementada en la rama `feat/agent-notify-sounds`: sonido al
+> iniciar / completar / fallar, 4 paletas (`system`, `kenney-soft`, `kenney-glass`,
+> `kenney-arcade`; Kenney es CC0), selección por CLI (`agent-notify sound-set`) y
+> respeto a No Molestar. Paleta activa por defecto: **`kenney-glass`**. El resto de
+> categorías (hardware, OSD) y el panel de ajustes quedan como visión a medio plazo.
 
 La idea es dotar a **todo el setup** de una **paleta sonora coherente y discreta**: un
 lenguaje de feedback auditivo con la misma identidad que la paleta Material You lo es
@@ -144,3 +147,26 @@ Emparejar cada sonido con su **flash RGB** correspondiente (ver §1 *Flashes de
 Notificación Inteligentes* y *Espejo de Barra OSD*): el destello de color y el sonido
 se disparan juntos desde el mismo punto, de modo que el feedback audiovisual quede
 sincronizado.
+
+### Panel de ajustes de Sonidos (pendiente)
+
+Añadir un apartado **«Sonidos»** al panel de ajustes de notificaciones ya existente
+(`configs/quickshell/caelestia/modules/rgbcontrol/NotificacionesView.qml`, la misma
+vista que hoy tiene *Flash al recibir notificación*, *Color del flash* y *Dispositivos
+que flashean*). Contenido previsto, con el mismo estilo de `Card` + `CheckRow` +
+`StyledSwitch`:
+
+- **Interruptor global** de sonido y **slider de volumen** (`soundEnabled`,
+  `soundVolume`).
+- **Selector de paleta** (`system` / `kenney-soft` / `kenney-glass` / `kenney-arcade`
+  / personalizada) con un botón de **previsualización** por paleta que reproduzca
+  `start → complete → error` (equivalente a `agent-notify sound-preview`).
+- **«Sobre qué se aplica»** — casillas por categoría de evento, igual que *Dispositivos
+  que flashean*: al principio *Agentes de IA* (inicio / completado / error por
+  separado); a futuro *Conexión de dispositivos*, *Batería*, *OSD de volumen/brillo*,
+  *Captura de pantalla*.
+- Persistencia vía `RgbConfig` (o el `agents-config.json` que ya usa el servicio
+  `Agents.qml`), unificando ambas si conviene.
+
+Esto convierte la selección de sonido —hoy solo por CLI— en algo visual, que es como
+Alberto prefiere ajustar este tipo de cosas.
