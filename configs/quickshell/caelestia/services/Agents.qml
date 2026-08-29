@@ -18,6 +18,13 @@ Singleton {
     property string runningStyle: "blink"   // blink | breathe | arc
     property string unseenMarker: "badge"   // badge | wedge
 
+    // Sonidos de notificación (config: ~/.config/caelestia/agents-config.json)
+    property bool soundEnabled: true
+    property real soundVolume: 0.6
+    property string soundStart: "/usr/share/sounds/freedesktop/stereo/audio-volume-change.oga"
+    property string soundComplete: "/usr/share/sounds/freedesktop/stereo/complete.oga"
+    property string soundError: "/usr/share/sounds/freedesktop/stereo/dialog-error.oga"
+
     signal agentAdded(var agent)
     signal agentRemoved(string id)
 
@@ -116,6 +123,8 @@ Singleton {
             ...root.runningAgents.filter(a => na === "" || root._normAddr(a.address) !== na),
             entry
         ];
+
+        root._playSound(root.soundStart);
     }
 
     // El agente terminó: pasa de runningAgents a completedAgents.
@@ -157,7 +166,32 @@ Singleton {
             ...root.completedAgents.filter(a => a.id !== entry.id && (na === "" || root._normAddr(a.address) !== na)),
             entry
         ];
+
+        const isError = /error|cancel|fall/i.test(String(entry.status));
+        root._playSound(isError ? root.soundError : root.soundComplete);
+
         root.agentAdded(entry);
+    }
+
+    // Reproduce un sonido de notificación (fire-and-forget, no bloqueante).
+    // Se salta si los sonidos están desactivados o si el modo No Molestar está activo.
+    function _playSound(path: string): void {
+        if (!root.soundEnabled || !path || path.length === 0)
+            return;
+        if (Notifs.dnd)
+            return;
+        soundProcComp.createObject(root, {
+            command: ["pw-play", `--volume=${root.soundVolume}`, path],
+            running: true
+        });
+    }
+
+    Component {
+        id: soundProcComp
+
+        Process {
+            onExited: destroy()
+        }
     }
 
     function markSeen(wsOrId): void {
@@ -237,6 +271,16 @@ Singleton {
                     root.runningStyle = cfg.runningStyle;
                 if (cfg.unseenMarker)
                     root.unseenMarker = cfg.unseenMarker;
+                if (cfg.soundEnabled !== undefined)
+                    root.soundEnabled = cfg.soundEnabled;
+                if (cfg.soundVolume !== undefined)
+                    root.soundVolume = cfg.soundVolume;
+                if (cfg.soundStart)
+                    root.soundStart = cfg.soundStart;
+                if (cfg.soundComplete)
+                    root.soundComplete = cfg.soundComplete;
+                if (cfg.soundError)
+                    root.soundError = cfg.soundError;
             } catch (e) {
                 // valores por defecto
             }
