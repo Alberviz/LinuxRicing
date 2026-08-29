@@ -481,14 +481,21 @@ def get_akko_keyboard_battery():
                 os.close(fd)
                 if len(resp) >= 4 and resp[1] == 0x83:
                     st_code = resp[3]
-                    st = "Cargando" if st_code == 1 else "Conectado (USB)"
-                    bat = resp[2] if (0 < resp[2] <= 100) else 100
+                    if st_code == 1:
+                        st = "Cargando (USB)"
+                    elif st_code == 2:
+                        st = "Cargada (USB)"
+                    else:
+                        st = "Conectado (USB)"
+                    bat = resp[2] if (0 < resp[2] <= 100) else last_bat
                     cache["akko_battery"] = bat
                     save_cache(cache)
                     return bat, st
             except Exception:
                 pass
-        return 100, "Cargando (USB)"
+        # PID 0x4015 enumerado pero sin respuesta 0x83 por el nodo cableado:
+        # el transporte activo es USB; no afirmamos "Cargando" sin confirmarlo.
+        return last_bat, "Conectado (USB)"
 
     # 2. Check if connected via Bluetooth / UPower (Real BLE Battery GATT Telemetry)
     try:
@@ -543,10 +550,17 @@ def get_akko_keyboard_battery():
                         fcntl.ioctl(fd, HIDIOCGFEATURE(65), resp83)
                         if resp83[1] == 0x83 and 0 < resp83[2] <= 100:
                             raw_bat = resp83[2]
-                            # Bugfix: resp83[3] (charging flag) gets STUCK at 1 in firmware
-                            # even after the USB cable is removed. Ground truth: in 2.4G mode
-                            # the keyboard can only charge if the wired PID (0x4015) is also
-                            # enumerated on the USB bus. If not present, force charging=False.
+                            # WORKAROUND (⚠️ incompleto) — ver hardware/akko-5075b-plus/USB_FINDINGS_2.4G.md
+                            # Bug: resp83[3] (charging flag) queda PEGADO en 1 en firmware incluso
+                            # después de desconectar el cable. La solución limpia requiere un sniff
+                            # adicional buscando un opcode que reporte VBUS, o implementar detección
+                            # por tendencia de nivel (sliding window).
+                            #
+                            # Parche actual: en modo 2.4G solo consideramos "cargando" si el PID
+                            # 0x4015 (wired) también está enumerado en el bus. FALLA si el cable va a
+                            # un cargador de pared (sin host USB) — en ese caso no hay PID 0x4015
+                            # aunque esté cargando de verdad.
+                            # TODO: reemplazar con sliding window sobre historial de nivel.
                             wired_present = bool(glob_hidraw_nodes(0x3151, 0x4015))
                             is_chg = wired_present and (resp83[3] == 1)
                             st = "Cargando" if is_chg else "Descargando"
