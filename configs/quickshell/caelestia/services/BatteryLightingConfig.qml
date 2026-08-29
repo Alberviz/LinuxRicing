@@ -73,7 +73,6 @@ Singleton {
             stream: qsTr("Flujo"),
             stream_battery: qsTr("Flujo color batería"),
             hardware_battery: qsTr("Batería del firmware"),
-            wave: qsTr("Ola"),
             red: qsTr("Rojo"),
             red_breathing: qsTr("Rojo respiración"),
             red_static: qsTr("Rojo fijo"),
