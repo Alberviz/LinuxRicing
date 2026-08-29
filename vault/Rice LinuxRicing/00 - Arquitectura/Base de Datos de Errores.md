@@ -195,7 +195,7 @@ Ambos agentes (Claude y Gemini) escriben aquí — añadir, no reescribir.
 - **Arreglo:**
   - Retirado del stack de Linux todo efecto que no sea un modo de firmware de una sola escritura: fuera `battery_meter` / "Letra a letra" / "Fila a fila" y todo el andamiaje de lienzo (`akko_canvas_chunks`, `AKKO_KEY_ROWS`, `apply_akko_meter`) en `rgb/battery-lighting` y `rgb/sync-rgb.py`, y de la UI (`AkkoCard.qml`, `BatteryLightingConfig.qml`).
   - Añadido el efecto de firmware `wave` / `wave_battery` (opcode `0x07` modo `0x04`); `stream` retirado de las teclas, `stream_battery` conservado en la tira.
-  - Añadido `_akko_rf_wake(fd)`: 2× keepalive `0xF7` antes de la escritura de color, solo sobre el dongle (`PID 0x4011`), en los cuatro scripts.
+  - ~~Añadido `_akko_rf_wake(fd)`: 2× keepalive `0xF7` antes de la escritura~~ — **revertido**. Alberto: minimizar al máximo las señales al teclado, nada periódico ni "para que no se duerma" (congela el teclado igual que el lienzo). Las escrituras de color en frío llegan sin wake; si alguna se pierde se busca otra vía. Ver entrada más abajo (la tira lateral y la batería baja).
   - `battery-lighting` reaplica los efectos de color de batería mientras carga cuando el nivel cruza un escalón de 10 % (1 paquete de firmware, sin congelar).
   - Flash de notificación limitado a 2 pulsos en el Akko por 2.4 GHz.
   - Documentado en `hardware/akko-5075b-plus/{PROTOCOL,README,BATTERY_LIGHTING_FRONTEND}.md`; tests en `rgb/tests/test_effects.py`.
@@ -204,3 +204,34 @@ Ambos agentes (Claude y Gemini) escriben aquí — añadir, no reescribir.
 - **Síntoma:** al encoger la notificación de agente a un circulito de 48 px, el fondo oscuro (`PanelBg`) seguía ocupando ~360 px y los `ClippingRectangle` cortaban la burbuja y los números.
 - **Causa:** en Caelestia los paneles del cajón comparten un `BlobGroup` (metabola SDF), cada delegado va envuelto en `ClippingRectangle`, y `sidebar` está anclada a `notifications.bottom` — meter un elemento persistente y pequeño ahí choca con las cuatro cosas a la vez. Revertido en `e6569fc`.
 - **Arreglo:** rediseño completo (rama `feat/agent-notifications`). El estado persistente vive en el **pip del workspace** en la barra (halo estilo `OccupiedBg` + puntito de "sin ver"), el detalle en un popout de barra (`AgentsPopout.qml`), y el clic lo resuelve Caelestia de forma nativa. Nada nuevo se inyecta en el cajón de notificaciones, respetando el ciclo de vida efímero de los toasts. Spec: `docs/superpowers/specs/2026-08-29-agent-notifications-workspace-pip-design.md`.
+
+### La tira lateral del Akko "no funcionaba" — era ahorro de batería del firmware
+- **Síntoma:** durante el desarrollo del modelo unificado de efectos, la tira
+  lateral (SLED, opcode `0x08`) del teclado dejó de responder a mitad de sesión:
+  cualquier modo que se le mandara (sólido, respiración, flujo…) no hacía nada,
+  se quedaba apagada. Las **teclas** (`0x07`) seguían funcionando con normalidad.
+  Horas persiguiendo un byte mal en la construcción del paquete `0x08`.
+- **Causa:** **no había ningún byte mal.** El firmware del Akko 5075B **apaga la
+  tira lateral cuando la batería está baja y descargando**, para ahorrar — las
+  teclas se mantienen, la tira se corta. Al principio de la sesión (batería
+  ~49 %, 2.4 GHz) el barrido de modos de la tira funcionó perfecto; más tarde
+  (~35 %, descargando) la tira ya no encendía; al enchufar el cable a cargar
+  (27 %) volvió sola. Verificado mandando `08 01 04 04 08 00 00 ff` (azul sólido)
+  por `akko-poke` mientras cargaba → la tira se puso azul sin problema.
+- **Arreglo:** ninguno en código — es comportamiento del hardware. Lección: antes
+  de sospechar del protocolo de una zona LED secundaria, comprobar el **nivel de
+  batería y si está cargando**. Documentado en
+  `hardware/akko-5075b-plus/README.md` / `PROTOCOL.md`.
+- **De paso** (esto sí eran bugs del refactor, ya arreglados):
+  - `snake` es el modo de firmware **5** en la tira (`0x08`, flujo) pero el **7**
+    en las teclas (`0x07`). El mapa unificado usaba 7 para las dos → la tira
+    recibía un modo inexistente. Añadido override por zona.
+  - El slider de velocidad mapeaba velocidad 1 → `byte[2] = 0`, y `byte[2] = 0`
+    deja inertes la respiración y el sólido (el código viejo usaba siempre
+    `byte[2] = 0x04` para sólido, `0x02` para respiración). Ahora el `byte[2]`
+    por defecto depende de la animación y el slider solo lo mueve ±2, sin llegar
+    a 0 salvo en `snake`.
+  - La base MCHOSE: `byte[3]` del payload `0x2B` (velocidad) también se rompía
+    con el valor crudo del slider; los modos estáticos van a `byte[3] = 0`
+    (idéntico a lo que manda `rgb-notify-flash`, que sí funcionaba — esa fue la
+    pista que dio Alberto).
