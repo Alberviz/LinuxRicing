@@ -215,6 +215,38 @@ if [ "$SELECTED_RGB" = true ]; then
         systemctl --user enable --now $UNITS 2>/dev/null || true
     fi
 
+    # 6e. Semilla del estilo del marcador de agentes (no pisar la del usuario)
+    if [ ! -f "$HOME/.config/caelestia/agents-config.json" ]; then
+        printf '{\n  "runningStyle": "blink",\n  "unseenMarker": "badge"\n}\n' \
+            > "$HOME/.config/caelestia/agents-config.json"
+    fi
+
+    # 6f. Hooks de Claude Code para las notificaciones de agentes.
+    #     Fusiona configs/claude/agent-hooks.json en ~/.claude/settings.json de forma
+    #     idempotente (solo añade UserPromptSubmit/Stop si no están ya). Sin jq -> aviso.
+    HOOKS_SRC="$BASE_DIR/configs/claude/agent-hooks.json"
+    CLAUDE_SETTINGS="$HOME/.claude/settings.json"
+    if [ -f "$HOOKS_SRC" ]; then
+        if command -v jq >/dev/null 2>&1; then
+            mkdir -p "$HOME/.claude"
+            [ -f "$CLAUDE_SETTINGS" ] || echo '{}' > "$CLAUDE_SETTINGS"
+            if jq -e '.hooks.Stop[]?.hooks[]?.command | select(test("agent-notify"))' \
+                 "$CLAUDE_SETTINGS" >/dev/null 2>&1; then
+                echo -e "  ${SUCCESS}✔ Hooks de agent-notify ya presentes en ~/.claude/settings.json${RESET}"
+            else
+                cp "$CLAUDE_SETTINGS" "$CLAUDE_SETTINGS.bak.$(date +%s)"
+                tmp_settings="$(mktemp)"
+                jq -s '.[0] * .[1]' "$CLAUDE_SETTINGS" "$HOOKS_SRC" > "$tmp_settings" \
+                    && mv "$tmp_settings" "$CLAUDE_SETTINGS" \
+                    && echo -e "  ${SUCCESS}✔ Hooks de agent-notify añadidos a ~/.claude/settings.json${RESET}" \
+                    || echo -e "  ${WARNING}ℹ No se pudieron fusionar los hooks; hazlo a mano desde $HOOKS_SRC${RESET}"
+            fi
+        else
+            echo -e "  ${WARNING}ℹ 'jq' no encontrado. Para el pulso 'en curso' de Claude Code, fusiona"
+            echo -e "     $HOOKS_SRC en ~/.claude/settings.json (claves UserPromptSubmit y Stop).${RESET}"
+        fi
+    fi
+
     echo -e "  ${SUCCESS}✔ Controladores RGB y batería instalados${RESET}"
 else
     echo -e "${WARNING}ℹ Componentes RGB omitidos para este dispositivo.${RESET}"

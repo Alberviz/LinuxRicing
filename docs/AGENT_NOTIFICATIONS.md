@@ -165,7 +165,38 @@ Resumen operativo:
 
 ---
 
-## 7. Documentación y Especificaciones Relacionadas
+## 7. Instalación y reproducibilidad
+
+Qué se necesita en la máquina y cómo lo deja `install.sh`:
+
+| Pieza | Origen en el repo | Destino | Lo hace `install.sh` |
+| :--- | :--- | :--- | :--- |
+| CLI `agent-notify` | `rgb/agent-notify` | `~/.local/bin/agent-notify` | Sí (paso 6c) |
+| QML del bar / servicio | `configs/quickshell/caelestia/…` | `~/.config/quickshell/caelestia/…` | Sí (sincronización de configs) |
+| Estilo del marcador | — | `~/.config/caelestia/agents-config.json` | Sí, semilla `{ runningStyle: "blink", unseenMarker: "badge" }` si no existe (paso 6e) |
+| Hooks de Claude Code | `configs/claude/agent-hooks.json` | `~/.claude/settings.json` (claves `hooks.UserPromptSubmit` y `hooks.Stop`) | Sí si hay `jq`: fusión idempotente con `.bak` (paso 6f); si no, imprime la instrucción |
+
+### Fusión manual de los hooks (sin `jq` o a mano)
+
+```bash
+jq -s '.[0] * .[1]' ~/.claude/settings.json configs/claude/agent-hooks.json \
+  > ~/.claude/settings.json.new && mv ~/.claude/settings.json.new ~/.claude/settings.json
+```
+
+Los hooks se cargan **al arrancar cada sesión de Claude Code**: una sesión ya abierta
+antes de instalarlos no dispara el pulso hasta relanzar `claude`.
+
+- `UserPromptSubmit` → `agent-notify hook prompt` (marca `running`, lee `cwd`/`prompt` del JSON por stdin).
+- `Stop` → `agent-notify hook stop` (marca `completed` + toast).
+
+Ambos comandos van con `>/dev/null 2>&1 || true` para no ensuciar el contexto ni bloquear el prompt.
+
+**Antigravity** no usa hooks: lo intercepta `services/Notifs.qml` a partir de su
+notificación nativa de kitty.
+
+---
+
+## 8. Documentación y Especificaciones Relacionadas
 
 - **Especificación de Diseño:** [`docs/superpowers/specs/2026-08-29-agent-notifications-workspace-pip-design.md`](file:///home/alberviz/LinuxRicing/docs/superpowers/specs/2026-08-29-agent-notifications-workspace-pip-design.md)
 - **Plan de Implementación:** [`docs/superpowers/plans/2026-08-29-agent-notifications-workspace-pip.md`](file:///home/alberviz/LinuxRicing/docs/superpowers/plans/2026-08-29-agent-notifications-workspace-pip.md)

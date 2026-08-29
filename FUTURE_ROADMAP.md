@@ -56,6 +56,28 @@ Transform the desktop configuration from static dotfiles into a flexible, extens
   - Desktop canvas lyrics synchronized line-by-line with the active Spotify / media playback using LRCLIB or Spotify Web API.
   - Active line highlighting styled dynamically with Material You `m3primary` color.
 
+### Agent Notification System — planned enhancements
+
+The workspace-pip agent notifications (running pulse + neon halo + unseen badge)
+have a few deferred pieces:
+
+- **Off-screen workspace indicator**: the bar only paints ~5 workspace pips at a
+  time (`Config.bar.workspaces.shown`). If an agent finishes on a workspace
+  outside the visible group, its halo is hidden until you scroll the bar to that
+  group. Add a small cue at the **bottom of the workspace container** (an arrow,
+  a glow, or a mini badge) meaning "there is an unseen agent notification on a
+  workspace you can't see right now" — click/scroll to reveal it.
+- **General-notification halo**: extend the persistent-halo mechanism to any
+  *critical* desktop notification, not just agents (cyan halo vs the green agent
+  one, auto-expires after ~10 min). See
+  `docs/superpowers/specs/2026-08-30-agent-running-pulse-workspace-pip-design.md` §8.
+- **`arc` running-pulse style**: a rotating neon spinner around the pip, as a
+  third option next to `blink` and `breathe`.
+- **Per-session running count**: while agents run, the pip shows one pulse
+  regardless of how many sessions are on that workspace. Optionally surface the
+  count on the pip (today it only appears in the hover popout and, once finished,
+  in the badge).
+
 ---
 
 ## 🌈 3. Ambient Lighting & Screen-Mirroring (Ambilight Mode)
