@@ -5,6 +5,7 @@ import QtQuick.Layouts
 import Quickshell
 import Caelestia.Config
 import qs.components
+import qs.components.containers
 import qs.components.effects
 import qs.services
 import qs.modules.drawers
@@ -26,6 +27,7 @@ MouseArea {
     property int thisSideY: Menu.Top
     property real marginX
     property real marginY
+    property real maxHeight: 340
 
     property list<MenuItem> items
     property MenuItem active: items[0] ?? null
@@ -70,7 +72,11 @@ MouseArea {
             let off = root.attachSideX === Menu.Left ? 0 : item.width;
             if (root.thisSideX === Menu.Right)
                 off -= width;
-            return item.mapToItem(root.parent, off, 0).x + root.marginX;
+            const targetX = item.mapToItem(root.parent, off, 0).x + root.marginX;
+            if (root.parent && root.parent.width > 0) {
+                return Math.max(Tokens.padding.small, Math.min(root.parent.width - width - Tokens.padding.small, targetX));
+            }
+            return targetX;
         }
         y: {
             watcher.transform; // mapToItem is not reactive so this forces updates
@@ -78,14 +84,18 @@ MouseArea {
             let off = root.attachSideY === Menu.Top ? 0 : item.height;
             if (root.thisSideY === Menu.Bottom)
                 off -= height;
-            return item.mapToItem(root.parent, 0, off).y + root.marginY;
+            const targetY = item.mapToItem(root.parent, 0, off).y + root.marginY;
+            if (root.parent && root.parent.height > 0) {
+                return Math.max(Tokens.padding.small, Math.min(root.parent.height - height - Tokens.padding.small, targetY));
+            }
+            return targetY;
         }
 
         radius: Tokens.rounding.large
         level: 2
 
-        implicitWidth: Math.max(200, column.implicitWidth + column.anchors.margins * 2)
-        implicitHeight: column.implicitHeight + column.anchors.margins * 2
+        implicitWidth: Math.max(200, column.implicitWidth + Tokens.padding.extraSmall * 2)
+        implicitHeight: Math.min(root.maxHeight, column.implicitHeight + Tokens.padding.extraSmall * 2)
 
         transform: Scale {
             yScale: root.expanded ? 1 : 0.1
@@ -99,20 +109,36 @@ MouseArea {
         MouseArea {
             anchors.fill: parent
             hoverEnabled: true
-            onWheel: e => e.accepted = true
         }
 
         StyledRect {
             anchors.fill: parent
             radius: parent.radius
             color: Colours.palette.m3surfaceContainerLow
+            clip: true
 
-            ColumnLayout {
-                id: column
+            StyledFlickable {
+                id: flickable
 
                 anchors.fill: parent
-                anchors.margins: Tokens.padding.extraSmall
-                spacing: 0
+                contentHeight: column.implicitHeight + Tokens.padding.extraSmall * 2
+                contentWidth: width
+                clip: true
+                flickableDirection: Flickable.VerticalFlick
+
+                WheelHandler {
+                    target: flickable
+                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                }
+
+                ColumnLayout {
+                    id: column
+
+                    anchors.top: parent.top
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.margins: Tokens.padding.extraSmall
+                    spacing: 0
 
                 Repeater {
                     id: repeater
@@ -195,4 +221,5 @@ MouseArea {
             }
         }
     }
+}
 }

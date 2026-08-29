@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Layouts
+import Quickshell
 import qs.components
 import qs.components.controls
 import qs.services
@@ -42,23 +43,82 @@ ColumnLayout {
         font: Tokens.font.label.small
         color: Colours.palette.m3onSurfaceVariant
     }
-    Flow {
+
+    StyledRect {
+        id: animDropdownBtn
+
         Layout.fillWidth: true
-        spacing: Tokens.spacing.extraSmall
+        implicitHeight: 38
+        radius: Tokens.rounding.medium
+        color: Qt.alpha(Colours.palette.m3surfaceContainerHighest, 0.7)
 
-        Repeater {
-            model: root._anims
+        StateLayer {
+            radius: parent.radius
+            onClicked: animMenu.expanded = !animMenu.expanded
+        }
 
-            Chip {
-                required property var modelData
-                implicitHeight: 30
-                label: DeviceEffects.animationLabel(modelData)
-                selected: root._eff.animation === modelData
-                onClicked: root._patch({
-                    animation: modelData
-                })
+        RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: Tokens.padding.large
+            anchors.rightMargin: Tokens.padding.large
+            spacing: Tokens.spacing.small
+
+            MaterialIcon {
+                text: "auto_awesome"
+                fontStyle: Tokens.font.icon.small
+                color: Colours.palette.m3primary
+            }
+
+            StyledText {
+                Layout.fillWidth: true
+                text: DeviceEffects.animationLabel(root._eff.animation)
+                font: Tokens.font.label.medium
+                color: Colours.palette.m3onSurface
+                elide: Text.ElideRight
+            }
+
+            MaterialIcon {
+                text: "expand_more"
+                fontStyle: Tokens.font.icon.medium
+                color: Colours.palette.m3onSurfaceVariant
+                rotation: animMenu.expanded ? 180 : 0
+
+                Behavior on rotation {
+                    Anim {}
+                }
             }
         }
+
+        Menu {
+            id: animMenu
+
+            attachTo: animDropdownBtn
+            items: animVariants.instances
+            active: items.find(m => (m as AnimMenuItem).animKey === root._eff.animation) ?? null
+            onItemSelected: item => {
+                root._patch({
+                    animation: (item as AnimMenuItem).animKey
+                });
+            }
+
+            Variants {
+                id: animVariants
+
+                model: root._anims
+
+                AnimMenuItem {
+                    required property string modelData
+
+                    animKey: modelData
+                    text: DeviceEffects.animationLabel(modelData)
+                    icon: modelData === root._eff.animation ? "check" : ""
+                }
+            }
+        }
+    }
+
+    component AnimMenuItem: MenuItem {
+        property string animKey
     }
 
     // ---- Color ----
