@@ -81,11 +81,21 @@ StyledRect {
             }
         }
         onClicked: event => {
-            if (!GlobalConfig.notifs.actionOnClick || event.button !== Qt.LeftButton)
+            if (event.button !== Qt.LeftButton)
+                return;
+
+            const addr = root.modelData.hints?.address ?? "";
+            if (addr && String(addr).length > 0) {
+                Agents.focus(String(addr));
+                root.modelData.close();
+                return;
+            }
+
+            if (!GlobalConfig.notifs.actionOnClick)
                 return;
 
             const actions = root.modelData.actions;
-            if (actions.length === 1)
+            if (actions.length > 0)
                 actions[0].invoke();
         }
 

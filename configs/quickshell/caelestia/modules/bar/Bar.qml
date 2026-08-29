@@ -164,10 +164,26 @@ ColumnLayout {
                 }
             }
             DelegateChoice {
+                roleValue: "agents"
+                delegate: EntryWrapper {
+                    AgentPills {
+                        objectName: "taskbarAgentPills"
+                    }
+                }
+            }
+            DelegateChoice {
                 roleValue: "statusIcons"
                 delegate: EntryWrapper {
-                    StatusIcons {
-                        objectName: "taskbarStatusIcons"
+                    ColumnLayout {
+                        spacing: Tokens.spacing.extraSmall
+
+                        AgentPills {
+                            Layout.alignment: Qt.AlignHCenter
+                        }
+
+                        StatusIcons {
+                            objectName: "taskbarStatusIcons"
+                        }
                     }
                 }
             }
