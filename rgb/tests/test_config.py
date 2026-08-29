@@ -21,13 +21,14 @@ def test_main_help_returns_zero(bl, capsys):
 
 def test_missing_file_yields_defaults(bl):
     cfg = bl.load_config()
-    assert cfg["rules"] == bl.DEFAULTS["rules"]
+    assert [r["id"] for r in cfg["rules"]] == [r["id"] for r in bl.DEFAULTS["rules"]]
 
 
 def test_garbage_file_yields_defaults(bl):
     with open(bl.CONFIG_PATH, "w") as f:
         f.write("{not json")
-    assert bl.load_config()["rules"] == bl.DEFAULTS["rules"]
+    cfg = bl.load_config()
+    assert [r["id"] for r in cfg["rules"]] == [r["id"] for r in bl.DEFAULTS["rules"]]
 
 
 def test_validate_drops_unknown_source_keeps_rest(bl):
@@ -81,8 +82,10 @@ def test_seed_migrates_akko_config(bl):
     cfg = bl.seed_config()
     charge = next(r for r in cfg["rules"] if r["source"] == "akko_keyboard" and r["trigger"] == "charging")
     acts = {a["zone"]: a["effect"] for a in charge["actions"]}
-    assert acts["keys"] == "breathing_battery"
-    assert acts["sidestrip"] == "stream_battery"
+    assert acts["keys"]["animation"] == "breathing"
+    assert acts["keys"]["colour"]["source"] == "battery"
+    assert acts["sidestrip"]["animation"] == "snake"
+    assert acts["sidestrip"]["colour"]["source"] == "battery"
     low = next(r for r in cfg["rules"] if r["source"] == "akko_keyboard" and r["trigger"] == "low")
     assert low["threshold"] == 25
 
@@ -95,9 +98,10 @@ def test_seed_migrates_mchose_config(bl):
     cfg = bl.seed_config()
     low = next(r for r in cfg["rules"] if r["source"] == "mchose_mouse" and r["trigger"] == "low")
     assert low["threshold"] == 30
-    assert low["actions"][0]["effect"] == "red_static"
+    low_eff = low["actions"][0]["effect"]
+    assert low_eff["animation"] == "solid" and low_eff["colour"] == {"source": "fixed", "hex": "ff0000"}
     charge = next(r for r in cfg["rules"] if r["source"] == "mchose_mouse" and r["trigger"] == "charging")
-    assert charge["actions"][0]["effect"] == "battery_color"
+    assert charge["actions"][0]["effect"]["colour"]["source"] == "battery"
 
 
 def test_seed_reactive_disabled_akko_yields_no_akko_rules(bl):

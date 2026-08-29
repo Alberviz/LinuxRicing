@@ -58,9 +58,34 @@ def test_akko_keys_wave_battery_low_is_red(bl):
     assert (body[5], body[6], body[7]) == (255, 0, 0)
 
 
-def test_akko_stream_not_built_on_keys(bl):
-    # 'stream' en las teclas era Ripple (inútil): ya no se genera paquete.
-    assert bl.build_akko_packets("keys", "stream", 50, (1, 2, 3)) == []
+def test_akko_stream_alias_is_snake(bl):
+    # 'stream' antiguo -> animación snake (modo 7), color de batería.
+    body = bl.build_akko_packets("keys", "stream", 50, (1, 2, 3))[0][1:]
+    assert body[0] == 0x07 and body[1] == 7
+
+
+def test_akko_effect_object_wave_direction_down(bl):
+    eff = {"animation": "wave", "colour": {"source": "fixed", "hex": "00c8ff"},
+           "speed": 1, "direction": "down"}
+    body = bl.build_akko_packets("keys", eff, 50, (9, 9, 9))[0][1:]
+    assert body[1] == 4                       # Wave
+    assert body[4] == 0x08 | (2 << 4)         # dirección down
+    assert (body[5], body[6], body[7]) == (0, 0xC8, 0xFF)
+    assert body[2] == 4                       # speed 1 en teclas -> byte[2]=4 (lento)
+
+
+def test_akko_sidestrip_downgrades_unknown_anim(bl):
+    # Ripple no existe en la tira -> cae a 'solid'
+    body = bl.build_akko_packets("sidestrip", {"animation": "ripple"}, 50, (1, 2, 3))[0][1:]
+    assert body[0] == 0x08 and body[1] == 1
+
+
+def test_akko_snake_mode_differs_by_zone(bl):
+    # snake = modo 7 en teclas (0x07), modo 5 (flujo) en la tira (0x08)
+    keys = bl.build_akko_packets("keys", {"animation": "snake"}, 50, (1, 2, 3))[0][1:]
+    side = bl.build_akko_packets("sidestrip", {"animation": "snake"}, 50, (1, 2, 3))[0][1:]
+    assert keys[1] == 7
+    assert side[1] == 5
 
 
 def test_apply_magichome_none_does_not_call_subprocess(bl, monkeypatch):

@@ -15,6 +15,9 @@ StyledRect {
     signal clicked
 
     implicitHeight: 30
+    // Ancho por defecto a partir de la etiqueta (los usos en Layout con
+    // Layout.fillWidth o con implicitWidth explícito lo sobreescriben).
+    implicitWidth: chipText.implicitWidth + Tokens.padding.large * 2
     radius: Tokens.rounding.full
     color: selected ? activeColour : Qt.alpha(Colours.palette.m3surfaceContainerHighest, 0.7)
 
@@ -28,6 +31,7 @@ StyledRect {
     }
 
     StyledText {
+        id: chipText
         anchors.centerIn: parent
         text: root.label
         font: Tokens.font.label.small

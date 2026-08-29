@@ -71,27 +71,20 @@ VALID_TRIGGERS = {"charging", "low", "critical"}
 VALID_TARGETS = {"akko_keyboard", "mchose_base", "magichome", "openrgb"}
 VALID_ZONES = {"keys", "sidestrip", "both"}
 
-# El teclado Akko solo usa efectos de firmware de una sola escritura (0x07/0x08 con
-# byte[1] de modo). El lienzo per-key (0x0C) se descartó: por 2.4 GHz congela el
-# teclado ~1 s en cada pasada y el firmware del 5075B no conmuta a modo lienzo de
-# forma fiable (ver hardware/akko-5075b-plus/USB_FINDINGS_2.4G.md).
+# akko_keyboard y mchose_base usan el modelo de efecto {animation,colour,speed,
+# direction} (ver DEVICE_EFFECTS más abajo). magichome/openrgb siguen con strings
+# simples (una tira / la torre no tienen animaciones de firmware direccionables).
 EFFECTS = {
-    "akko_keyboard:keys": {"theme", "breathing_battery", "breathing", "wave", "wave_battery",
-                           "red_breathing", "red_static", "none"},
-    "akko_keyboard:sidestrip": {"stream_battery", "breathing", "solid_theme",
-                                "red_breathing", "red_static", "none"},
-    "mchose_base": {"theme_breathing", "battery_color", "hardware_battery", "wave",
-                    "red_breathing", "red_static", "none"},
     "magichome": {"battery_color", "solid_theme", "red", "none"},
     "openrgb": {"battery_meter", "solid_theme", "red", "none"},
 }
 
 
-def _effect_keys_for(target, zone):
-    if target == "akko_keyboard":
-        zones = ("keys", "sidestrip") if zone in (None, "both") else (zone,)
-        return [f"akko_keyboard:{z}" for z in zones]
-    return [target]
+def _akko_allowed_anims(zone):
+    dev = DEVICE_EFFECTS["akko_keyboard"]
+    if zone == "sidestrip":
+        return set(dev["animations"]["sidestrip"])
+    return set(dev["animations"]["keys"])   # 'keys' o 'both'
 
 
 def validate_config(raw):
@@ -138,10 +131,23 @@ def validate_config(raw):
             elif zone not in VALID_ZONES:
                 zone = "both"
             eff = act.get("effect")
-            allowed = set().union(*(EFFECTS[k] for k in _effect_keys_for(tgt, zone)))
-            if eff not in allowed:
-                errors.append(f"regla #{i} acción #{j}: effect {eff!r} no válido para {tgt}/{zone}")
-                continue
+            if tgt == "akko_keyboard":
+                eff = normalize_effect(eff)
+                if eff["animation"] not in _akko_allowed_anims(zone):
+                    errors.append(f"regla #{i} acción #{j}: animación {eff['animation']!r} "
+                                  f"no válida para akko/{zone}")
+                    continue
+            elif tgt == "mchose_base":
+                eff = normalize_effect(eff)
+                if eff["animation"] not in DEVICE_EFFECTS["mchose_base"]["animations"]:
+                    errors.append(f"regla #{i} acción #{j}: animación {eff['animation']!r} "
+                                  f"no válida para mchose_base")
+                    continue
+            else:
+                allowed = EFFECTS.get(tgt, set())
+                if eff not in allowed:
+                    errors.append(f"regla #{i} acción #{j}: effect {eff!r} no válido para {tgt}")
+                    continue
             a = {"target": tgt, "effect": eff}
             if zone is not None:
                 a["zone"] = zone
@@ -665,76 +671,189 @@ def _akko_checksum8(buf):
     return 0xFF - (sum(buf[:8]) & 0xFF)
 
 
+# animación -> byte[2] del payload 0x2B del anillo de la base MCHOSE
+_MCHOSE_ANIM_BYTE = {"solid": 0x06, "breathing": 0x02, "wave": 0x07,
+                     "hardware_battery": 0x01}
+
+
 def build_mchose_base_payload(effect, level, theme_rgb):
     """21 bytes listos para ioctl (Report ID 0x11 + XOR 0xFF en byte[1..20]).
 
     Portado de apply_charging_lighting / apply_low_battery_lighting de
-    rgb/mchose-battery. Devuelve None para `none`/`off`.
+    rgb/mchose-battery. `effect` = string antiguo o dict {animation,colour,...}.
+    Devuelve None para `off`.
     """
-    if effect in ("none", "off"):
+    if effect == "none":
         return None
-    th_r, th_g, th_b = theme_rgb
-    bat_r, bat_g, bat_b = battery_level_color(level)
-    if effect == "theme_breathing":
-        payload = [0x2B, 0x01, 0x02, 0x00, 100, 0x00, 0x01, 0x01, 0x00,
-                   th_r, th_g, th_b, th_r, th_g, th_b, 0, 0, 0, 0, 0]
-    elif effect == "battery_color":
-        payload = [0x2B, 0x01, 0x02, 0x00, 100, 0x00, 0x01, 0x01, 0x00,
-                   bat_r, bat_g, bat_b, bat_r, bat_g, bat_b, 0, 0, 0, 0, 0]
-    elif effect == "hardware_battery":
-        payload = [0x2B, 0x01, 0x01, 0x00, 100, 0x00, 0x01, 0x01, 0x00,
-                   bat_r, bat_g, bat_b, bat_r, bat_g, bat_b, 0, 0, 0, 0, 0]
-    elif effect == "wave":
-        payload = [0x2B, 0x01, 0x07, 0x00, 100, 0x00, 0x01, 0x01, 0x00,
-                   255, 59, 0, 255, 59, 0, 0, 0, 0, 0, 0]
-    elif effect == "red_breathing":
-        payload = [0x2B, 0x01, 0x02, 0x00, 100, 0x00, 0x01, 0x01, 0x00,
-                   255, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0]
-    elif effect == "red_static":
-        payload = [0x2B, 0x01, 0x06, 0x00, 100, 0x00, 0x01, 0x01, 0x00,
-                   255, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0]
-    else:
-        return None
-    return bytes(bytearray([0x11] + [x ^ 0xFF for x in payload]))
-
-
-# efecto -> (modo byte[1], velocidad byte[2], origen de color)
-_AKKO_EFFECTS = {
-    "theme":             (0x01, 0x04, "theme"),
-    "solid_theme":       (0x01, 0x04, "theme"),
-    "red_static":        (0x01, 0x04, "red"),
-    "red_breathing":     (0x02, 0x02, "red"),
-    "breathing":         (0x02, 0x02, "theme"),
-    "breathing_battery": (0x02, 0x02, "battery"),
-    "wave":              (0x04, 0x02, "theme"),
-    "wave_battery":      (0x04, 0x02, "battery"),
-    # stream (modo 0x05): solo válido en la tira lateral (0x08); en las teclas
-    # (0x07) el modo 5 es Ripple (reactivo) y no se ve nada sin pulsar.
-    "stream_battery":    (0x05, 0x00, "battery"),
-}
-
-_AKKO_ZONE_OPCODES = {"keys": (0x07,), "sidestrip": (0x08,), "both": (0x07, 0x08)}
-
-AKKO_FLAGS_CUSTOM_RGB = 0x08
-
-
-def _akko_packet(opcode, effect, level, theme_rgb):
-    spec = _AKKO_EFFECTS.get(effect)
-    if spec is None:
-        return None
-    mode, speed, ckind = spec
-    if ckind == "red":
-        r, g, b = 255, 0, 0
-    elif ckind == "battery":
+    effect = normalize_effect(effect)
+    anim = effect["animation"]
+    mb = _MCHOSE_ANIM_BYTE.get(anim)
+    if mb is None:
+        return None                       # off / animación no soportada por el anillo
+    src = effect["colour"]["source"]
+    if src == "fixed":
+        h = effect["colour"].get("hex") or "d8bde7"
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    elif src == "battery":
         r, g, b = battery_level_color(level)
     else:
         r, g, b = theme_rgb
+    if anim == "wave":
+        r, g, b = 255, 59, 0              # el wave del firmware ignora el color
+    payload = [0x2B, 0x01, mb, 0x00, 100, 0x00, 0x01, 0x01, 0x00,
+               r, g, b, r, g, b, 0, 0, 0, 0, 0]
+    return bytes(bytearray([0x11] + [x ^ 0xFF for x in payload]))
+
+
+# ============================================================================
+# Modelo unificado de efecto por dispositivo (ver docs/AKKO_EFFECTS_MODEL_HANDOFF.md)
+# Un "efecto" es un dict {animation, colour:{source,hex}, speed, direction}.
+# Los strings antiguos se expanden vía EFFECT_ALIASES para migrar sin romper.
+# ============================================================================
+
+AKKO_ANIM_BYTE = {
+    "off": 0, "solid": 1, "breathing": 2, "neon": 3, "wave": 4, "ripple": 5,
+    "raindrop": 6, "snake": 7, "press_action": 8, "converge": 9, "sine_wave": 10,
+    "kaleidoscope": 11, "line_wave": 12, "laser": 14, "circle_wave": 15,
+    "dazzing": 16, "meteor": 18, "train": 23, "fireworks": 24,
+}
+AKKO_SIDESTRIP_ANIMS = {"off", "solid", "breathing", "neon", "wave", "snake"}
+# La tira lateral (0x08) numera "snake" como modo 5 (flujo), no 7 como las teclas.
+AKKO_SIDESTRIP_ANIM_BYTE = {"snake": 5}
+AKKO_DIRECTIONAL = {"wave"}          # animaciones que obedecen la dirección
+_DIR_IDX = {"right": 0, "left": 1, "down": 2, "up": 3}
+_ANIM_IGNORES_COLOUR = {"neon"}     # arcoíris del firmware, ignora byte[5..7]
+
+DEVICE_EFFECTS = {
+    "akko_keyboard": {
+        "zones": ["keys", "sidestrip"],
+        "animations": {"keys": list(AKKO_ANIM_BYTE),
+                       "sidestrip": [a for a in AKKO_ANIM_BYTE if a in AKKO_SIDESTRIP_ANIMS]},
+        "colour_sources": ["theme", "fixed", "battery"],
+        "has_speed": True,
+        "directional": ["wave"],
+    },
+    "mchose_base": {
+        "zones": [],
+        "animations": ["off", "solid", "breathing", "wave", "hardware_battery"],
+        "colour_sources": ["theme", "fixed", "battery"],
+        "has_speed": False,
+        "directional": [],
+    },
+}
+
+# string antiguo -> efecto nuevo (para migrar rgb-config.json y battery-lighting.json)
+EFFECT_ALIASES = {
+    "theme":             {"animation": "solid", "colour": {"source": "theme"}},
+    "solid_theme":       {"animation": "solid", "colour": {"source": "theme"}},
+    "battery_color":     {"animation": "solid", "colour": {"source": "battery"}},
+    "breathing":         {"animation": "breathing", "colour": {"source": "theme"}},
+    "breathing_battery": {"animation": "breathing", "colour": {"source": "battery"}},
+    "theme_breathing":   {"animation": "breathing", "colour": {"source": "theme"}},
+    "wave":              {"animation": "wave", "colour": {"source": "theme"}},
+    "wave_battery":      {"animation": "wave", "colour": {"source": "battery"}},
+    "stream":            {"animation": "snake", "colour": {"source": "battery"}},
+    "stream_battery":    {"animation": "snake", "colour": {"source": "battery"}},
+    "reactive_press":    {"animation": "press_action", "colour": {"source": "theme"}},
+    "press_action":      {"animation": "press_action", "colour": {"source": "theme"}},
+    "hardware_battery":  {"animation": "hardware_battery", "colour": {"source": "battery"}},
+    "red_static":        {"animation": "solid", "colour": {"source": "fixed", "hex": "ff0000"}},
+    "red_breathing":     {"animation": "breathing", "colour": {"source": "fixed", "hex": "ff0000"}},
+    "red":               {"animation": "solid", "colour": {"source": "fixed", "hex": "ff0000"}},
+    "none":              {"animation": "off", "colour": {"source": "theme"}},
+    "off":               {"animation": "off", "colour": {"source": "theme"}},
+}
+
+DEFAULT_EFFECT = {"animation": "solid", "colour": {"source": "theme", "hex": "d8bde7"},
+                  "speed": 3, "direction": "right"}
+
+_AKKO_ZONE_OPCODES = {"keys": (0x07,), "sidestrip": (0x08,), "both": (0x07, 0x08)}
+AKKO_FLAGS_CUSTOM_RGB = 0x08
+
+
+def normalize_effect(eff):
+    """Acepta un string antiguo o un dict; devuelve un dict de efecto completo."""
+    if isinstance(eff, str):
+        eff = EFFECT_ALIASES.get(eff, {"animation": "off"})
+    if not isinstance(eff, dict):
+        return dict(DEFAULT_EFFECT)
+    out = dict(DEFAULT_EFFECT)
+    for k in ("animation", "speed", "direction"):
+        if k in eff:
+            out[k] = eff[k]
+    c = eff.get("colour") or {}
+    out["colour"] = {"source": c.get("source", "theme"),
+                     "hex": (c.get("hex") or "d8bde7").lstrip("#").lower()}
+    if out["colour"]["source"] not in ("theme", "fixed", "battery"):
+        out["colour"]["source"] = "theme"
+    try:
+        out["speed"] = max(1, min(5, int(out["speed"])))
+    except (TypeError, ValueError):
+        out["speed"] = 3
+    if out["direction"] not in _DIR_IDX:
+        out["direction"] = "right"
+    if out["animation"] not in AKKO_ANIM_BYTE and out["animation"] != "hardware_battery":
+        out["animation"] = "off"
+    return out
+
+
+def _effect_uses_battery_colour(eff):
+    """True si el efecto (string antiguo o dict) toma el color del nivel de batería."""
+    if eff is None:
+        return False
+    if isinstance(eff, str):
+        eff = EFFECT_ALIASES.get(eff, {})
+    return isinstance(eff, dict) and (eff.get("colour") or {}).get("source") == "battery"
+
+
+def _akko_colour_rgb(effect, level, theme_rgb):
+    src = effect["colour"]["source"]
+    if src == "fixed":
+        h = (effect["colour"].get("hex") or "d8bde7")
+        return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+    if src == "battery":
+        return battery_level_color(level)
+    return tuple(theme_rgb)
+
+
+# animación -> byte[2] por defecto (valores verificados en hardware)
+_AKKO_SPEED_DEFAULT = {"solid": 0x04, "off": 0x04, "breathing": 0x02, "neon": 0x02,
+                       "wave": 0x02, "snake": 0x00}
+
+
+def _akko_speed_byte(anim, ui_speed, opcode):
+    base = _AKKO_SPEED_DEFAULT.get(anim, 0x02)
+    if anim in ("solid", "off"):
+        return base
+    ui = max(1, min(5, int(ui_speed)))
+    delta = (3 - ui) if opcode == 0x07 else (ui - 3)
+    lo = 0 if anim == "snake" else 1
+    return max(lo, min(4, base + delta))
+
+
+def _akko_flag_byte(effect):
+    if effect["animation"] in AKKO_DIRECTIONAL:
+        return AKKO_FLAGS_CUSTOM_RGB | (_DIR_IDX.get(effect["direction"], 0) << 4)
+    return AKKO_FLAGS_CUSTOM_RGB
+
+
+def _akko_packet(opcode, effect, level, theme_rgb):
+    anim = effect["animation"]
+    if anim == "off":
+        mode = 0
+    elif opcode == 0x08 and anim in AKKO_SIDESTRIP_ANIM_BYTE:
+        mode = AKKO_SIDESTRIP_ANIM_BYTE[anim]
+    else:
+        mode = AKKO_ANIM_BYTE.get(anim)
+    if mode is None:
+        return None
+    r, g, b = _akko_colour_rgb(effect, level, theme_rgb)
     buf = bytearray(64)
     buf[0] = opcode
     buf[1] = mode
-    buf[2] = speed
+    buf[2] = _akko_speed_byte(effect["animation"], effect["speed"], opcode)
     buf[3] = 0x04                    # brillo
-    buf[4] = AKKO_FLAGS_CUSTOM_RGB   # flags custom RGB
+    buf[4] = _akko_flag_byte(effect)
     buf[5], buf[6], buf[7] = r, g, b
     buf[8] = _akko_checksum8(buf)
     return bytes(bytearray([0x00]) + buf)
@@ -742,17 +861,18 @@ def _akko_packet(opcode, effect, level, theme_rgb):
 
 def build_akko_packets(zone, effect, level, theme_rgb):
     """Lista de buffers de 65 bytes (0x00 + 64) para el teclado Akko.
-
-    Portado de sync_akko_keyboard de rgb/sync-rgb.py. Cubre los modos de
-    firmware de una sola escritura:
-    theme|solid_theme|breathing|breathing_battery|wave|wave_battery|
-    stream_battery|red_breathing|red_static|none.
+    `effect` puede ser un string antiguo o un dict {animation,colour,speed,direction}.
+    El string "none" significa "no tocar" (lista vacía); {animation:"off"} apaga.
     """
     if effect == "none":
         return []
+    effect = normalize_effect(effect)
     out = []
     for op in _AKKO_ZONE_OPCODES.get(zone, (0x07,)):
-        pkt = _akko_packet(op, effect, level, theme_rgb)
+        eff = effect
+        if op == 0x08 and effect["animation"] not in AKKO_SIDESTRIP_ANIMS:
+            eff = dict(effect, animation="solid")   # la tira no tiene esa animación
+        pkt = _akko_packet(op, eff, level, theme_rgb)
         if pkt is not None:
             out.append(pkt)
     return out
@@ -1008,24 +1128,30 @@ def _check_battery_mode_refreshes(telemetry, active_alert_zones):
     cur_levels = {}
     dirty_devices = set()
 
-    # Akko
+    def _prof_eff(prof, *ks):
+        for k in ks:
+            if k in prof:
+                return prof[k]
+        return None
+
+    # Akko (perfil nuevo {keys,sidestrip} o antiguo {keys_mode,sidestrip_mode})
     akko_prof = profiles.get("akko_keyboard", {})
-    akko_km = akko_prof.get("keys_mode", "theme")
-    akko_sm = akko_prof.get("sidestrip_mode", "stream_battery")
+    akko_effs = [_prof_eff(akko_prof, "keys", "keys_mode"),
+                 _prof_eff(akko_prof, "sidestrip", "sidestrip_mode")]
     akko_lvl = telemetry.get("akko_keyboard", {}).get("level")
     cur_levels["akko"] = akko_lvl
     if akko_lvl is not None and akko_lvl != last_levels.get("akko"):
-        if any(m in (akko_km, akko_sm) for m in ("battery_color", "breathing_battery", "wave_battery", "stream_battery")):
+        if any(_effect_uses_battery_colour(e) for e in akko_effs):
             if not ("akko_keyboard:keys" in active_alert_zones and "akko_keyboard:sidestrip" in active_alert_zones):
                 dirty_devices.add("akko_keyboard")
 
-    # Mchose base
+    # Mchose base (perfil nuevo {ring} o antiguo {mode})
     base_prof = profiles.get("mchose_base", {})
-    base_m = base_prof.get("mode", "theme")
+    base_eff = _prof_eff(base_prof, "ring", "mode")
     mouse_lvl = telemetry.get("mchose_mouse", {}).get("level")
     cur_levels["mouse"] = mouse_lvl
     if mouse_lvl is not None and mouse_lvl != last_levels.get("mouse"):
-        if base_m in ("battery_color", "hardware_battery"):
+        if _effect_uses_battery_colour(base_eff):
             if "mchose_base:_" not in active_alert_zones:
                 dirty_devices.add("mchose_base")
 
@@ -1037,11 +1163,10 @@ def _check_battery_mode_refreshes(telemetry, active_alert_zones):
                        timeout=8, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-# Efectos cuyo color se deriva del nivel de batería: mientras el dispositivo
-# carga hay que repintarlos cuando el nivel cruza un escalón para que el
-# gradiente rojo->verde avance. Cada repintado es 1 paquete de modo de firmware
-# (no congela el teclado; el lienzo per-key que sí lo hacía ya se retiró).
-_BATTERY_COLOUR_EFFECTS = {"breathing_battery", "stream_battery", "wave_battery", "battery_color"}
+# Mientras un dispositivo carga, un efecto cuyo color sale del nivel de batería
+# hay que repintarlo cuando el nivel cruza un escalón para que el gradiente
+# rojo->verde avance. Cada repintado es 1 paquete de firmware (no congela el
+# teclado; el lienzo per-key que sí lo hacía ya se retiró).
 
 
 def _battery_step(level):
@@ -1066,7 +1191,7 @@ def tick(config=None, telemetry=None):
         changed = (not prev or prev.get("effect") != payload["effect"]
                    or prev.get("trigger") != payload["trigger"])
         batt_charge = (payload.get("trigger") == "charging"
-                       and payload.get("effect") in _BATTERY_COLOUR_EFFECTS)
+                       and _effect_uses_battery_colour(payload.get("effect")))
         step = _battery_step(payload.get("level")) if batt_charge else None
         if batt_charge and steps.get(zk) != step:
             changed = True

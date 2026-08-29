@@ -37,105 +37,53 @@ ColumnLayout {
         deviceKey: "mchose_base"
 
         readonly property var profile: RgbConfig.deviceProfiles.mchose_base ?? ({})
-        readonly property string baseMode: profile.mode ?? "theme"
-        readonly property string baseFixed: profile.fixed_color ?? "d8bde7"
+        readonly property var ringEffect: DeviceEffects.normalize(profile.ring ?? profile.mode ?? "theme")
 
         SectionLabel {
-            text: qsTr("Modo del anillo LED")
+            text: qsTr("Anillo LED")
         }
 
-        ChipRow {
-            Chip {
-                implicitHeight: 32
-                label: qsTr("Tema global")
-                selected: mchoseCard.baseMode === "theme"
-                onClicked: RgbConfig.setDeviceMode("mchose_base", "theme")
-            }
-            Chip {
-                implicitHeight: 32
-                label: qsTr("Color fijo")
-                selected: mchoseCard.baseMode === "fixed"
-                onClicked: RgbConfig.setDeviceMode("mchose_base", "fixed")
-            }
-            Chip {
-                implicitHeight: 32
-                label: qsTr("Nivel de batería")
-                selected: mchoseCard.baseMode === "battery_color"
-                onClicked: RgbConfig.setDeviceMode("mchose_base", "battery_color")
-            }
-            Chip {
-                implicitHeight: 32
-                label: qsTr("Respiración (tema)")
-                selected: mchoseCard.baseMode === "theme_breathing"
-                onClicked: RgbConfig.setDeviceMode("mchose_base", "theme_breathing")
-            }
-            Chip {
-                implicitHeight: 32
-                label: qsTr("Ola de colores")
-                selected: mchoseCard.baseMode === "wave"
-                onClicked: RgbConfig.setDeviceMode("mchose_base", "wave")
-            }
-        }
-
-        ColourPicker {
+        EffectEditor {
             Layout.fillWidth: true
-            visible: mchoseCard.baseMode === "fixed"
-            selectedColour: mchoseCard.baseFixed
-            onPicked: hex => RgbConfig.setDeviceFixedColor("mchose_base", hex)
+            device: "mchose_base"
+            zone: ""
+            effect: mchoseCard.ringEffect
+            onEdited: eff => RgbConfig.setMchoseBaseEffect(eff)
         }
     }
 
     // ---- Teclado Akko ----
     AkkoCard {}
 
-    // ---- OpenRGB ----
+    // ---- OpenRGB (torre) ----
     DeviceCard {
-        id: openrgbCard
         icon: "developer_board"
         name: qsTr("Placa · RAM · ventiladores")
-        subtitle: qsTr("OpenRGB")
+        subtitle: qsTr("OpenRGB · 2 zonas direccionables")
         deviceKey: "openrgb"
 
-        readonly property var profile: RgbConfig.deviceProfiles.openrgb ?? ({})
-        readonly property string openrgbMode: profile.mode ?? "theme"
-        readonly property string openrgbFixed: profile.fixed_color ?? "d8bde7"
-
         SectionLabel {
-            text: qsTr("Modo de iluminación")
+            text: qsTr("Zonas direccionables (ventiladores)")
         }
 
-        ChipRow {
-            Chip {
-                implicitHeight: 32
-                label: qsTr("Tema global")
-                selected: openrgbCard.openrgbMode === "theme"
-                onClicked: RgbConfig.setDeviceMode("openrgb", "theme")
-            }
-            Chip {
-                implicitHeight: 32
-                label: qsTr("Color fijo")
-                selected: openrgbCard.openrgbMode === "fixed"
-                onClicked: RgbConfig.setDeviceMode("openrgb", "fixed")
-            }
-            Chip {
-                implicitHeight: 32
-                label: qsTr("ARGB ola animada")
-                selected: openrgbCard.openrgbMode === "argb_wave"
-                onClicked: RgbConfig.setDeviceMode("openrgb", "argb_wave")
-            }
-            Chip {
-                implicitHeight: 32
-                label: qsTr("Nivel de batería")
-                selected: openrgbCard.openrgbMode === "battery_color"
-                onClicked: RgbConfig.setDeviceMode("openrgb", "battery_color")
-            }
-        }
-
-        ColourPicker {
+        RowLayout {
             Layout.fillWidth: true
-            visible: openrgbCard.openrgbMode === "fixed"
-            selectedColour: openrgbCard.openrgbFixed
-            onPicked: hex => RgbConfig.setDeviceFixedColor("openrgb", hex)
+            spacing: Tokens.spacing.extraSmall
+
+            Chip {
+                Layout.fillWidth: true
+                implicitHeight: 32
+                label: qsTr("RGB · color estático")
+                selected: !RgbConfig.openrgbArgbZones
+                onClicked: RgbConfig.setOpenrgbArgbZones(false)
+            }
+            Chip {
+                Layout.fillWidth: true
+                implicitHeight: 32
+                label: qsTr("ARGB · ola animada")
+                selected: RgbConfig.openrgbArgbZones
+                onClicked: RgbConfig.setOpenrgbArgbZones(true)
+            }
         }
 
         StyledText {

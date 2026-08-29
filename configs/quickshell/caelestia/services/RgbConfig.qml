@@ -22,16 +22,15 @@ Singleton {
             spicetify: true
         })
     property bool openrgbArgbZones: false
+    // akko_keyboard y mchose_base usan el objeto de efecto de DeviceEffects
+    // (animation/colour/speed/direction); openrgb y magichome siguen con mode/fixed_color.
     property var deviceProfiles: ({
             akko_keyboard: {
-                keys_mode: "theme",
-                keys_fixed_color: "d8bde7",
-                sidestrip_mode: "stream_battery",
-                sidestrip_fixed_color: "d8bde7"
+                keys: ({ animation: "solid", colour: ({ source: "theme", hex: "d8bde7" }), speed: 3, direction: "right" }),
+                sidestrip: ({ animation: "snake", colour: ({ source: "battery", hex: "d8bde7" }), speed: 1, direction: "right" })
             },
             mchose_base: {
-                mode: "theme",
-                fixed_color: "d8bde7"
+                ring: ({ animation: "solid", colour: ({ source: "theme", hex: "d8bde7" }), speed: 3, direction: "right" })
             },
             openrgb: {
                 mode: "theme",
@@ -101,30 +100,52 @@ Singleton {
         change();
     }
 
-    function setAkkoKeysMode(m: string): void {
+    // Traduce un modo antiguo (string) + color fijo suelto a un objeto de efecto.
+    readonly property var _legacyAliases: ({
+            "theme": { animation: "solid", source: "theme" },
+            "battery_color": { animation: "solid", source: "battery" },
+            "breathing": { animation: "breathing", source: "theme" },
+            "breathing_battery": { animation: "breathing", source: "battery" },
+            "theme_breathing": { animation: "breathing", source: "theme" },
+            "wave": { animation: "wave", source: "theme" },
+            "wave_battery": { animation: "wave", source: "battery" },
+            "stream": { animation: "snake", source: "battery" },
+            "stream_battery": { animation: "snake", source: "battery" },
+            "reactive_press": { animation: "press_action", source: "theme" },
+            "hardware_battery": { animation: "hardware_battery", source: "battery" },
+            "off": { animation: "off", source: "theme" }
+        })
+    function _legacyEffect(mode: string, fixedHex: var): var {
+        if (mode === "fixed")
+            return {
+                animation: "solid",
+                colour: { source: "fixed", hex: (fixedHex ?? "d8bde7").replace(/^#/, "").toLowerCase() },
+                speed: 3,
+                direction: "right"
+            };
+        const a = root._legacyAliases[mode] ?? { animation: "solid", source: "theme" };
+        return {
+            animation: a.animation,
+            colour: { source: a.source, hex: "d8bde7" },
+            speed: a.animation === "snake" ? 1 : 3,
+            direction: "right"
+        };
+    }
+
+    // Guarda el objeto de efecto de una zona del teclado ("keys" | "sidestrip").
+    function setAkkoEffect(zone: string, effect: var): void {
         const p = Object.assign({}, root.deviceProfiles);
-        p.akko_keyboard = Object.assign({}, p.akko_keyboard, { keys_mode: m });
+        const patch = {};
+        patch[zone] = effect;
+        p.akko_keyboard = Object.assign({}, p.akko_keyboard, patch);
         root.deviceProfiles = p;
         change();
     }
 
-    function setAkkoKeysFixedColor(hex: string): void {
+    // Guarda el objeto de efecto del anillo de la base MCHOSE.
+    function setMchoseBaseEffect(effect: var): void {
         const p = Object.assign({}, root.deviceProfiles);
-        p.akko_keyboard = Object.assign({}, p.akko_keyboard, { keys_fixed_color: hex.replace(/^#/, "").toLowerCase() });
-        root.deviceProfiles = p;
-        change();
-    }
-
-    function setAkkoSidestripMode(m: string): void {
-        const p = Object.assign({}, root.deviceProfiles);
-        p.akko_keyboard = Object.assign({}, p.akko_keyboard, { sidestrip_mode: m });
-        root.deviceProfiles = p;
-        change();
-    }
-
-    function setAkkoSidestripFixedColor(hex: string): void {
-        const p = Object.assign({}, root.deviceProfiles);
-        p.akko_keyboard = Object.assign({}, p.akko_keyboard, { sidestrip_fixed_color: hex.replace(/^#/, "").toLowerCase() });
+        p.mchose_base = Object.assign({}, p.mchose_base, { ring: effect });
         root.deviceProfiles = p;
         change();
     }
@@ -208,11 +229,24 @@ Singleton {
                     for (const k in c.device_profiles) {
                         merged[k] = Object.assign({}, merged[k] || {}, c.device_profiles[k]);
                     }
-                    // El lienzo per-key del Akko (battery_meter_keys/rows) se retiró:
-                    // por 2.4 GHz congela el teclado. Remapear a respiración de batería.
-                    const akko = merged.akko_keyboard;
-                    if (akko && (akko.keys_mode === "battery_meter_keys" || akko.keys_mode === "battery_meter_rows"))
-                        merged.akko_keyboard = Object.assign({}, akko, { keys_mode: "breathing_battery" });
+                    // Migrar el perfil antiguo del teclado ({keys_mode, keys_fixed_color,
+                    // sidestrip_mode, ...}) al objeto de efecto nuevo {keys, sidestrip}.
+                    const ak = merged.akko_keyboard || {};
+                    if (ak.keys === undefined && (ak.keys_mode !== undefined || ak.sidestrip_mode !== undefined)) {
+                        const legacy = m => {
+                            if (m === "battery_meter_keys" || m === "battery_meter_rows")
+                                m = "breathing_battery";
+                            return m;
+                        };
+                        merged.akko_keyboard = {
+                            keys: root._legacyEffect(legacy(ak.keys_mode ?? "theme"), ak.keys_fixed_color),
+                            sidestrip: root._legacyEffect(legacy(ak.sidestrip_mode ?? "stream_battery"), ak.sidestrip_fixed_color)
+                        };
+                    }
+                    // Base MCHOSE: {mode, fixed_color} -> {ring: <efecto>}
+                    const mb = merged.mchose_base || {};
+                    if (mb.ring === undefined && mb.mode !== undefined)
+                        merged.mchose_base = { ring: root._legacyEffect(mb.mode, mb.fixed_color) };
                     root.deviceProfiles = merged;
                 }
                 if (c.devices_extra && c.devices_extra.openrgb && c.devices_extra.openrgb.argb_zones !== undefined)
