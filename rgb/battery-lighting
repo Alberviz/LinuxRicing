@@ -758,15 +758,11 @@ def build_akko_packets(zone, effect, level, theme_rgb):
     return out
 
 
-# --- Akko: nodos hidraw + keepalive RF -------------------------------------
-def _akko_nodes(with_wireless_flag=False):
+# --- Akko: nodos hidraw ---------------------------------------------------
+def _akko_nodes():
     """Nodos hidraw del teclado Akko: cable (3151:4015) preferido, si no el
-    dongle 2.4G (3151:4011), siempre en la interfaz :1.2. El enlace inalámbrico
-    pierde paquetes y congela el backlight en blanco, así que se usa el cable
-    cuando existe. Portado de sync_akko_keyboard de rgb/sync-rgb.py.
-
-    Con `with_wireless_flag=True` devuelve `(nodes, is_wireless)`, donde
-    `is_wireless` es True si los nodos son el dongle 2.4G (necesita wake RF).
+    dongle 2.4G (3151:4011), siempre en la interfaz :1.2. Portado de
+    sync_akko_keyboard de rgb/sync-rgb.py.
     """
     usb_nodes, wl_nodes = [], []
     for h in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
@@ -787,30 +783,7 @@ def _akko_nodes(with_wireless_flag=False):
             usb_nodes.append(node)
         elif "4011" in content:
             wl_nodes.append(node)
-    nodes = usb_nodes or wl_nodes
-    if with_wireless_flag:
-        return nodes, (not usb_nodes and bool(wl_nodes))
-    return nodes
-
-
-def _akko_rf_wake(fd):
-    """Despierta el transceptor RF del dongle 2.4G antes de escribir color.
-
-    Manda 2 keepalives 0xF7 (Feature report, sin checksum — es lo que hace el
-    driver oficial cada ~2 s) y espera. Por 2.4 GHz una escritura 0x07/0x08
-    sobre un enlace "frío" se pierde y el backlight se queda congelado en
-    blanco; por cable es innecesario y no se llama.
-    Ver hardware/akko-5075b-plus/USB_FINDINGS_2.4G.md §"Recomendaciones".
-    """
-    wake = bytearray(65)   # [0]=report id 0x00, [1]=0xF7
-    wake[1] = 0xF7
-    for _ in range(2):
-        try:
-            fcntl.ioctl(fd, HIDIOCSFEATURE(len(wake)), wake)
-        except Exception:
-            return
-        time.sleep(0.02)
-    time.sleep(0.03)
+    return usb_nodes or wl_nodes
 
 
 def _load_state():
@@ -894,20 +867,10 @@ def apply_zone(zonekey, action, theme_rgb):
                 _write_feature(n, raw)
     elif target == "akko_keyboard":
         packets = [bytearray(p) for p in build_akko_packets(zone, eff, level, theme_rgb)]
-        if not packets:
-            return
-        nodes, wireless = _akko_nodes(with_wireless_flag=True)
-        for n in nodes:
-            try:
-                fd = os.open(n, os.O_RDWR | os.O_NONBLOCK)
-                if wireless:
-                    _akko_rf_wake(fd)
-                for pkt in packets:
-                    fcntl.ioctl(fd, HIDIOCSFEATURE(len(pkt)), pkt)
-                    time.sleep(0.02)
-                os.close(fd)
-            except Exception as e:
-                log(f"akko apply_zone {n}: {e}")
+        for n in _akko_nodes():
+            for pkt in packets:
+                _write_feature(n, pkt)
+                time.sleep(0.02)
     elif target == "magichome":
         apply_magichome(eff, level, theme_rgb)
     elif target == "openrgb":

@@ -149,7 +149,7 @@ def _akko_checksum8(buf: bytearray) -> int:
 
 def _akko_nodes_wl() -> tuple[list[str], bool]:
     """(nodos hidraw del Akko, is_wireless). Cable (3151:4015) preferido; si no,
-    el dongle 2.4G (3151:4011). is_wireless True => hace falta wake RF."""
+    el dongle 2.4G (3151:4011). is_wireless limita los pulsos del flash por RF."""
     usb, wl = [], []
     for h in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
         uevent = f"{h}/device/uevent"
@@ -165,20 +165,6 @@ def _akko_nodes_wl() -> tuple[list[str], bool]:
         node = "/dev/" + os.path.basename(h)
         (usb if "4015" in content else wl if "4011" in content else []).append(node)
     return (usb or wl), bool(wl and not usb)
-
-
-def _akko_rf_wake(fd: int) -> None:
-    """2x keepalive 0xF7 para despertar el enlace RF del dongle antes de escribir
-    (si no, la escritura se pierde y el backlight se queda blanco)."""
-    wake = bytearray(65)
-    wake[1] = 0xF7
-    for _ in range(2):
-        try:
-            fcntl.ioctl(fd, HIDIOCSFEATURE(len(wake)), wake)
-        except Exception:
-            return
-        time.sleep(0.02)
-    time.sleep(0.03)
 
 
 def mchose_base_static(r: int, g: int, b: int) -> None:
@@ -199,12 +185,8 @@ def mchose_base_static(r: int, g: int, b: int) -> None:
 
 
 def akko_static(r: int, g: int, b: int, brightness: int = 4) -> None:
-    """Akko 5075B backlight (0x07) + side strip (0x08) — same as sync_akko_keyboard().
-
-    Por el dongle 2.4G se antepone un wake RF; una escritura sobre el enlace
-    frío se pierde y deja el backlight congelado en blanco.
-    """
-    nodes, wireless = _akko_nodes_wl()
+    """Akko 5075B backlight (0x07) + side strip (0x08) — same as sync_akko_keyboard()."""
+    nodes, _wireless = _akko_nodes_wl()
     if not nodes:
         return
     AKKO_FLAGS_CUSTOM_RGB = 0x08
@@ -224,8 +206,6 @@ def akko_static(r: int, g: int, b: int, brightness: int = 4) -> None:
     for node in nodes:
         try:
             fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
-            if wireless:
-                _akko_rf_wake(fd)
             for raw in frames:
                 fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw)), raw)
                 time.sleep(0.02)
@@ -251,9 +231,8 @@ def magichome_color(r: int, g: int, b: int) -> None:
 def pulse(devices: list[str], rgb: tuple[int, int, int], pulses: int) -> None:
     r, g, b = rgb
     akko_on = "akko_keyboard" in devices
-    # Sobre el dongle 2.4G cada escritura lleva un wake RF; limitar el teclado a
-    # 2 pulsos evita saturar la radio en ráfagas largas (el resto de
-    # dispositivos siguen todos los pulsos configurados).
+    # Por 2.4 GHz, limitar el teclado a 2 pulsos evita saturar la radio en
+    # ráfagas largas (el resto de dispositivos siguen todos los pulsos).
     akko_max = 2 if (akko_on and _akko_nodes_wl()[1]) else pulses
     for i in range(pulses):
         do_akko = akko_on and i < akko_max

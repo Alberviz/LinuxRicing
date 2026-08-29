@@ -277,25 +277,6 @@ def _akko_checksum8(buf: bytearray) -> int:
     return 0xFF - (sum(buf[:8]) & 0xFF)
 
 
-def _akko_rf_wake(fd: int) -> None:
-    """2x keepalive 0xF7 antes de escribir color por el dongle 2.4G.
-
-    Una escritura 0x07/0x08 sobre un enlace RF frío se pierde y el backlight se
-    queda congelado en blanco; el driver oficial sondea 0xF7 cada ~2 s para
-    mantener el enlace vivo. Por cable es innecesario y no se llama.
-    Ver hardware/akko-5075b-plus/PROTOCOL.md §A.
-    """
-    wake = bytearray(65)
-    wake[1] = 0xF7
-    for _ in range(2):
-        try:
-            fcntl.ioctl(fd, HIDIOCSFEATURE(len(wake)), wake)
-        except Exception:
-            return
-        time.sleep(0.02)
-    time.sleep(0.03)
-
-
 def get_akko_battery_level_color(bat_level: int | None) -> tuple[int, int, int]:
     """Calculate progressive color from Red (<=15%) -> Amber -> Yellow -> Lime -> Emerald Green (100%)."""
     if bat_level is None:
@@ -421,7 +402,6 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4, throttle: bo
         elif "4011" in content:
             wl_nodes.append(node)
     nodes = usb_nodes or wl_nodes
-    wireless = bool(wl_nodes and not usb_nodes)
 
     if not nodes:
         log("Akko Keyboard: No HID node found")
@@ -517,8 +497,6 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4, throttle: bo
         for node in nodes:
             try:
                 fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
-                if wireless:
-                    _akko_rf_wake(fd)
                 if not skip_sidestrip:
                     fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_sled)), raw_sled)
                     time.sleep(0.03)

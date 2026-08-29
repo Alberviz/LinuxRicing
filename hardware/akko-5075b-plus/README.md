@@ -26,7 +26,7 @@ RGB por tecla **y** una tira LED lateral independiente ("side-strip" / SLED).
 | Telemetría de batería (`0x83`) | ✅ | Nivel + estado de carga. [`PROTOCOL.md` §B](PROTOCOL.md). |
 | Estado de la palanca Win/Mac, WinLock (`0x86`) | ✅ | [`PROTOCOL.md` §E](PROTOCOL.md). |
 | Per-key / lienzo (`0x07` modo `0x0D` + `0x0C`) | ❌ retirado | Por 2.4 GHz congela el teclado ~1 s por pasada y el 5075B no conmuta a modo lienzo de forma fiable. Fuera del stack Linux; solo documentado por si sirve por cable. Ver [`PROTOCOL.md` §C](PROTOCOL.md). |
-| Wake RF antes de escribir color (2.4 GHz) | ✅ | 2× `0xF7` antes de `0x07`/`0x08` en el dongle, si no la escritura se pierde y el backlight se congela en blanco. [`PROTOCOL.md` §A](PROTOCOL.md). |
+| Keepalive RF / señales periódicas | ❌ prohibido | No se manda nada al teclado salvo cuando el usuario pide un cambio; una señal repetida cada pocos segundos lo congela. [`PROTOCOL.md` §A](PROTOCOL.md). |
 | Reglas de iluminación reactivas a batería | ✅ | Daemon `rgb/battery-lighting` + perfil `~/.config/caelestia/battery-lighting.json`. Frontend: [`BATTERY_LIGHTING_FRONTEND.md`](BATTERY_LIGHTING_FRONTEND.md). |
 
 ## Cómo se usa en el rice

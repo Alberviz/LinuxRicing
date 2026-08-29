@@ -13,23 +13,6 @@ def HIDIOCSFEATURE(size):
     return (3 << 30) | (size << 16) | (ord('H') << 8) | 0x06
 
 
-def akko_rf_wake(fd):
-    """2x keepalive 0xF7 antes de escribir color por el dongle 2.4G.
-
-    Una escritura 0x07/0x08 sobre un enlace RF "frío" se pierde y el backlight
-    se queda congelado en blanco; el driver oficial sondea 0xF7 cada ~2 s justo
-    para eso. Por cable es innecesario y no se llama.
-    """
-    wake = bytearray(65)
-    wake[1] = 0xF7
-    for _ in range(2):
-        try:
-            fcntl.ioctl(fd, HIDIOCSFEATURE(len(wake)), wake)
-        except Exception:
-            return
-        time.sleep(0.02)
-    time.sleep(0.03)
-
 def parse_color(c_str):
     c_str = c_str.lower().strip()
     named = {
@@ -94,7 +77,6 @@ def send_akko(backlight_rgb, side_rgb=None, backlight_mode=0x01, side_mode=0x01,
         elif "4011" in content:
             wl_nodes.append(node)
     nodes = usb_nodes or wl_nodes
-    wireless = bool(wl_nodes and not usb_nodes)
 
     if not nodes:
         print("[akko-rgb] Error: No Akko HID interface (:1.2) found.")
@@ -103,8 +85,6 @@ def send_akko(backlight_rgb, side_rgb=None, backlight_mode=0x01, side_mode=0x01,
     for node in nodes:
         try:
             fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
-            if wireless:
-                akko_rf_wake(fd)
             # 1. Send Side-strip first
             fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_sled)), raw_sled)
             time.sleep(0.03)

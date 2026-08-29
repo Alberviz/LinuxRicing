@@ -62,13 +62,13 @@ Ejemplos reales verificados a ojo (de `captures/akko-2.4g-2.4ghz-working.pcapng`
 | Azul `0,0,255` | `07 01 04 04 08 00 00 ff e8` | `08 01 04 04 08 00 00 ff e7` |
 | Blanco `255,255,255` | `07 01 04 04 08 ff ff ff ea` | `08 01 04 04 08 ff ff ff e9` |
 
-> **Wake RF antes de escribir (solo 2.4 GHz, `PID 0x4011`).** Una escritura
-> `0x07`/`0x08` sobre un enlace RF "frío" se pierde en silencio y el backlight se
-> queda **congelado en blanco**. Antes de la escritura de color hay que mandar
-> 2–3 keepalives `0xF7` (Feature report de 64 bytes, `byte[0]=0xF7`, sin checksum
-> — es lo que hace el driver oficial cada ~2 s). Por cable (`PID 0x4015`) es
-> innecesario. Implementado en `rgb/sync-rgb.py`, `rgb/akko-rgb`,
-> `rgb/rgb-notify-flash` y `rgb/battery-lighting` (`_akko_rf_wake`).
+> **Minimizar las señales al teclado.** No se manda nada al Akko salvo cuando el
+> usuario pide un cambio: nada de keepalives ni pulsos `0xF7` periódicos "para
+> que no se duerma" — cualquier señal repetida cada pocos segundos vuelve a
+> congelar el teclado. El driver oficial de Windows sí sondea `0xF7` cada ~2 s
+> (y por eso el `0xF7` "keepalive" existía como hipótesis), pero en Linux **no se
+> replica**. Si una escritura de color se pierde por 2.4 GHz sobre un enlace
+> frío, se busca otra solución antes que un keepalive.
 
 ### Catálogo de modos (`byte[1]`)
 

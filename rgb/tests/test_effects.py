@@ -63,15 +63,6 @@ def test_akko_stream_not_built_on_keys(bl):
     assert bl.build_akko_packets("keys", "stream", 50, (1, 2, 3)) == []
 
 
-def test_akko_rf_wake_sends_two_f7_keepalives(bl, monkeypatch):
-    sent = []
-    monkeypatch.setattr(bl.fcntl, "ioctl", lambda fd, req, buf: sent.append(bytes(buf)))
-    monkeypatch.setattr(bl.time, "sleep", lambda *_a: None)
-    bl._akko_rf_wake(7)
-    assert len(sent) == 2
-    assert all(b[1] == 0xF7 for b in sent)
-
-
 def test_apply_magichome_none_does_not_call_subprocess(bl, monkeypatch):
     called = []
     monkeypatch.setattr(bl.subprocess, "run", lambda *a, **k: called.append(a))
