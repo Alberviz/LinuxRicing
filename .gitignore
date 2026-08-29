@@ -5,6 +5,7 @@ __pycache__/
 .DS_Store
 
 # Obsidian vault: ignore per-machine state, keep notes and shared config
+.obsidian/
 vault/.obsidian/workspace.json
 vault/.obsidian/workspace-mobile.json
 vault/.obsidian/workspace

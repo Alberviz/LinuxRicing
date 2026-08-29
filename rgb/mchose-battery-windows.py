@@ -113,6 +113,18 @@ def get_k7_ultra_battery():
         return last_bat, last_status
     return None, "Desconectado"
 
+def resolve_akko_dongle_path():
+    """Instance ID (8&xxxxxxxx) del nodo MI_02 del dongle 2.4G. Cambia entre
+    máquinas y reconexiones, así que resolver en caliente."""
+    try:
+        for d in hid.enumerate(0x3151, 0x4011):
+            p = d['path'].decode('utf-8', 'ignore') if isinstance(d['path'], bytes) else str(d['path'])
+            if d.get('interface_number') == 2 or 'mi_02' in p.lower():
+                return p
+    except Exception:
+        pass
+    return None
+
 def get_akko_keyboard_battery():
     cache = load_cache()
     last_bat = cache.get("akko_battery", 80)
@@ -144,46 +156,46 @@ def get_akko_keyboard_battery():
     # 2. Query via gRPC bridge (PID 0x4011 / 2.4GHz Dongle)
     try:
         import urllib.request, struct
-        grpc_dev_path = r"\\?\HID#VID_3151&PID_4011&MI_02#8&11c3dae0&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}"
-        
-        def encode_varint(val):
-            out = bytearray()
-            while val > 0x7F:
-                out.append((val & 0x7F) | 0x80); val >>= 7
-            out.append(val & 0x7F)
-            return bytes(out)
+        grpc_dev_path = resolve_akko_dongle_path()
+        if grpc_dev_path:
+            def encode_varint(val):
+                out = bytearray()
+                while val > 0x7F:
+                    out.append((val & 0x7F) | 0x80); val >>= 7
+                out.append(val & 0x7F)
+                return bytes(out)
 
-        dp_bytes = grpc_dev_path.encode('utf-8')
-        pb_send = bytearray([0x0A]) + encode_varint(len(dp_bytes)) + dp_bytes
-        req_msg = bytearray(8); req_msg[0] = 0x83
-        pb_send.append(0x12); pb_send.extend(encode_varint(len(req_msg))); pb_send.extend(req_msg)
-        pb_send.append(0x20); pb_send.append(0x01) # DangleType KEYBOARD
+            dp_bytes = grpc_dev_path.encode('utf-8')
+            pb_send = bytearray([0x0A]) + encode_varint(len(dp_bytes)) + dp_bytes
+            req_msg = bytearray(8); req_msg[0] = 0x83
+            pb_send.append(0x12); pb_send.extend(encode_varint(len(req_msg))); pb_send.extend(req_msg)
+            pb_send.append(0x20); pb_send.append(0x01) # DangleType KEYBOARD
 
-        url = "http://127.0.0.1:3814/driver.DriverGrpc/sendMsg"
-        frame = bytes([0x00]) + struct.pack(">I", len(pb_send)) + pb_send
-        req = urllib.request.Request(url, data=frame, headers={"Content-Type": "application/grpc-web+proto", "x-grpc-web": "1"})
-        with urllib.request.urlopen(req, timeout=1.5) as resp:
-            resp.read()
-        time.sleep(0.03)
+            url = "http://127.0.0.1:3814/driver.DriverGrpc/sendMsg"
+            frame = bytes([0x00]) + struct.pack(">I", len(pb_send)) + pb_send
+            req = urllib.request.Request(url, data=frame, headers={"Content-Type": "application/grpc-web+proto", "x-grpc-web": "1"})
+            with urllib.request.urlopen(req, timeout=1.5) as resp:
+                resp.read()
+            time.sleep(0.03)
 
-        url_r = "http://127.0.0.1:3814/driver.DriverGrpc/readMsg"
-        pb_read = bytearray([0x0A]) + encode_varint(len(dp_bytes)) + dp_bytes
-        frame_r = bytes([0x00]) + struct.pack(">I", len(pb_read)) + pb_read
-        req_r = urllib.request.Request(url_r, data=frame_r, headers={"Content-Type": "application/grpc-web+proto", "x-grpc-web": "1"})
-        with urllib.request.urlopen(req_r, timeout=1.5) as resp:
-            data = resp.read()
-            if len(data) >= 5:
-                l = struct.unpack(">I", data[1:5])[0]
-                body = data[5:5+l]
-                if len(body) >= 3 and body[0] == 0x12:
-                    p = body[2:]
-                    if p[0] == 0x83 and p[1] > 0:
-                        bat = p[1]
-                        st = "Cargando (USB)" if p[2] == 1 else "Descargando"
-                        cache["akko_battery"] = bat
-                        cache["akko_status"] = st
-                        save_cache(cache)
-                        return bat, st
+            url_r = "http://127.0.0.1:3814/driver.DriverGrpc/readMsg"
+            pb_read = bytearray([0x0A]) + encode_varint(len(dp_bytes)) + dp_bytes
+            frame_r = bytes([0x00]) + struct.pack(">I", len(pb_read)) + pb_read
+            req_r = urllib.request.Request(url_r, data=frame_r, headers={"Content-Type": "application/grpc-web+proto", "x-grpc-web": "1"})
+            with urllib.request.urlopen(req_r, timeout=1.5) as resp:
+                data = resp.read()
+                if len(data) >= 5:
+                    l = struct.unpack(">I", data[1:5])[0]
+                    body = data[5:5+l]
+                    if len(body) >= 3 and body[0] == 0x12:
+                        p = body[2:]
+                        if p[0] == 0x83 and p[1] > 0:
+                            bat = p[1]
+                            st = "Cargando (USB)" if p[2] == 1 else "Descargando"
+                            cache["akko_battery"] = bat
+                            cache["akko_status"] = st
+                            save_cache(cache)
+                            return bat, st
     except Exception:
         pass
 

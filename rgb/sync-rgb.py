@@ -591,21 +591,12 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4, throttle: bo
                         fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
                         time.sleep(0.02)
 
-                # 2.4 GHz Pipeline Commit (Opcode 0x88) - Forces RF Dongle FIFO to flush to keyboard
-                req_sync = bytearray(64); req_sync[0] = 0x88; req_sync[7] = 0x77
-                raw_sync = bytearray([0x00]) + req_sync
-                try:
-                    fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_sync)), raw_sync)
-                    time.sleep(0.02)
-                except Exception:
-                    pass
-
                 os.close(fd)
                 try:
                     stamp.write_text(str(time.time()))
                 except Exception:
                     pass
-                log(f"Akko Keyboard ({node}): Backlight ({keys_mode}) + Side-Strip ({sidestrip_mode}) [Flushed 0x88]")
+                log(f"Akko Keyboard ({node}): Backlight ({keys_mode}) + Side-Strip ({sidestrip_mode})")
                 return
             except Exception as e:
                 log(f"Akko Keyboard error on {node}: {e}")
