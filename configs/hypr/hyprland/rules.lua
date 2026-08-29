@@ -170,9 +170,6 @@ tagged_rule(float_tag, {
     { class = "PandoraLauncher",    title = "Minecraft Game Output" },
 })
 
--- Suppress activation focus stealing on terminals
-hl.window_rule({ match = { class = "kitty|foot|ghostty|Alacritty" }, suppressevent = "activate" })
-
 
 -------------------------
 ---- Tag definitions ----
