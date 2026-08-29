@@ -609,7 +609,12 @@ def get_akko_keyboard_battery():
                         if resp83[1] == 0x83 and 0 < resp83[2] <= 100:
                             bat = resp83[2]
                             st_code = resp83[3]
-                            st = "Cargando" if st_code == 1 else "Descargando"
+                            is_chg = (st_code == 1)
+                            st = "Cargando" if is_chg else "Descargando"
+                            if is_chg and last_bat and 0 < last_bat <= 100:
+                                # Avoid jitter / temporary ADC dips while charging
+                                if abs(bat - last_bat) <= 5:
+                                    bat = max(last_bat, bat)
                             os.close(fd)
                             cache["akko_battery"] = bat
                             cache["akko_status"] = st
