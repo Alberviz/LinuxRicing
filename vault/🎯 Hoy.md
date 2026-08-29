@@ -42,9 +42,11 @@ le vas pidiendo a los agentes y los proyectos del [[Roadmap Maestro de Innovacio
 
 - **2026-08-29 · Claude** — Sistema de Backlog del vault: carpeta `Backlog/`, `Backlog.base`
   con 7 vistas y esta página. Semilla con el trabajo reciente + el Roadmap accionable.
+- **2026-08-29 · Claude** — Convergido a `main` (`9b8d78f`): running-pulse v2 + sonidos de
+  notificaciones + backlog del vault. Shell reiniciado y verificado, sonidos activos.
 - **2026-08-29 · Claude** — Sonidos de notificaciones de agentes: sonido al iniciar /
   completar / fallar, 4 paletas (`system` + 3 de Kenney CC0), CLI `agent-notify sound-set`.
-  Paleta activa: `kenney-glass`. Rama `feat/agent-notify-sounds`.
+  Paleta activa: `kenney-glass`.
 - **2026-08-29 · Claude** — *Running pulse* v2 del pip: aro palpitante mientras el agente
   trabaja + halo neón solo en el contorno; reproducibilidad de los hooks de Claude Code
   en `install.sh`.

@@ -1,6 +1,6 @@
 ---
 tipo: tarea
-estado: en-curso
+estado: hecha
 prioridad: 2
 area: infra
 origen: Alberto
