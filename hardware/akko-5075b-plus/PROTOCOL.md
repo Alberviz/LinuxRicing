@@ -48,7 +48,7 @@ Estructura idéntica para ambos opcodes:
 | 1 | modo | `0x01` = fijo/sólido (ver catálogo abajo) |
 | 2 | velocidad | `0..4`. Para `0x07` el firmware la invierte como `4 - speed`; para `0x08` es directa |
 | 3 | brillo | `0x04` = 100 % (rango `0..4`) |
-| 4 | flags | **`0x08` = `AKKO_FLAGS_CUSTOM_RGB`** (color de 24 bits). ⚠️ `0x07` aquí sería el preset arcoíris, no color personalizado |
+| 4 | flags + dirección | `byte[4] = 0x08 \| (dir << 4)`. Bit `0x08` = `AKKO_FLAGS_CUSTOM_RGB` (color de 24 bits) y **debe ir solo** en el nibble bajo — poner `0x01`/`0x02`/`0x04` hace que el firmware ignore el color y lo pinte en blanco. Nibble alto = dirección para los efectos direccionales (Wave, verificado): `0x08` →, `0x18` ←, `0x28` ↓, `0x38` ↑; `0x48`+ apaga. |
 | 5..7 | `R, G, B` | `0..255` |
 | 8 | checksum BIT7 | |
 | 9..63 | `0x00` | relleno |
