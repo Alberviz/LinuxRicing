@@ -143,9 +143,17 @@ ColumnLayout {
                 roleValue: "workspaces"
                 delegate: EntryWrapper {
                     Workspaces {
+                        id: wsComp
+
                         objectName: "taskbarWorkspaces"
                         screen: root.screen
                         fullscreen: root.fullscreen
+                    }
+
+                    overlay: AgentBadges {
+                        workspacesItem: wsComp
+                        width: wsComp.width
+                        height: wsComp.height
                     }
                 }
             }
@@ -199,6 +207,10 @@ ColumnLayout {
         required property var modelData
         required property int index
         default property Item item
+        // Capa opcional que se dibuja por encima de `item` sin recorte (p. ej.
+        // los badges de agentes, que sobresalen del contenedor de workspaces).
+        property Item overlay
+
         readonly property string entryId: modelData.id
 
         Layout.topMargin: index === 0 ? root.vPadding : 0
@@ -208,6 +220,6 @@ ColumnLayout {
         implicitWidth: item?.implicitWidth ?? 0
         implicitHeight: item?.implicitHeight ?? 0
 
-        children: item
+        children: overlay ? [item, overlay] : [item]
     }
 }

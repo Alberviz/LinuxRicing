@@ -60,65 +60,8 @@ ColumnLayout {
         verticalAlignment: Qt.AlignVCenter
         font.family: Tokens.font.workspaces
 
-        // Marcador de "sin ver": badge con contador (por defecto) o cuña lateral.
-        Item {
-            id: marker
-
-            anchors.centerIn: parent
-            width: Tokens.sizes.bar.innerWidth - Tokens.padding.small
-            height: parent.height
-            opacity: root.agentUnseen ? 1 : 0
-            Behavior on opacity {
-                Anim { easing: Tokens.anim.standardDecel }
-            }
-
-            readonly property int cnt: Agents.unseenCountForWs(root.ws)
-
-            Rectangle {
-                id: badge
-
-                visible: Agents.unseenMarker !== "wedge"
-                anchors.right: parent.right
-                anchors.top: parent.top
-                anchors.rightMargin: -3
-                anchors.topMargin: -1
-
-                implicitWidth: Math.max(11, badgeTxt.implicitWidth + 5)
-                height: 11
-                radius: height / 2
-                color: Colours.palette.m3primary
-                border.width: 1.5
-                border.color: Colours.palette.m3surface
-
-                SequentialAnimation on scale {
-                    running: marker.opacity > 0 && badge.visible
-                    loops: Animation.Infinite
-                    NumberAnimation { to: 1.18; duration: 800; easing.type: Easing.InOutSine }
-                    NumberAnimation { to: 1.0; duration: 800; easing.type: Easing.InOutSine }
-                }
-
-                StyledText {
-                    id: badgeTxt
-
-                    anchors.centerIn: parent
-                    text: marker.cnt > 1 ? String(marker.cnt) : ""
-                    color: Colours.palette.m3onPrimary
-                    font.pixelSize: 8
-                    font.bold: true
-                }
-            }
-
-            MaterialIcon {
-                visible: Agents.unseenMarker === "wedge"
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.right: parent.left
-                anchors.rightMargin: 1
-                rotation: 180
-                text: "play_arrow"
-                color: Colours.palette.m3tertiary
-                fontStyle: Tokens.font.icon.small
-            }
-        }
+        // El marcador de "sin ver" (badge / cuña) se dibuja en AgentBadges, fuera
+        // del recorte del contenedor de workspaces, para que no se corte.
     }
 
     Loader {

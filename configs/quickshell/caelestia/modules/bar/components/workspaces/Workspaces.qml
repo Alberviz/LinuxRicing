@@ -35,6 +35,16 @@ StyledClippingRect {
         return (c && c.isWorkspace) ? c : null;
     }
 
+    // El pip (Workspace) de un workspace concreto, si está en el grupo visible.
+    function pipFor(wsId: int): var {
+        for (let i = 0; i < workspaces.count; i++) {
+            const w = workspaces.itemAt(i);
+            if (w && w.ws === wsId)
+                return w;
+        }
+        return null;
+    }
+
     implicitWidth: Tokens.sizes.bar.innerWidth
     implicitHeight: layout.implicitHeight + Tokens.padding.small
 
