@@ -85,12 +85,16 @@ Ejemplos reales verificados a ojo (de `captures/akko-2.4g-2.4ghz-working.pcapng`
     `0x01` ⚡ cargando por cable · `0x02` 🔋 carga completa.
   - `byte[3]` = `batteryLp` (bandera de batería baja).
 
-En modo 2.4 GHz (`PID 0x4011`) `0x83` reporta el nivel real de la celda y responde de
-verdad por el bus RF; por cable (`PID 0x4015`) mientras carga `byte[1]` puede volver
-`0` (regla: si `cargando == 1`, ignorar el %).
+En modo 2.4 GHz (`PID 0x4011`), para obtener la respuesta `0x83` a través de la radio RF se ejecuta el ciclo canónico capturado:
+1. Enviar solicitud `0x83` (`83 00 00 00 00 00 00 7C`).
+2. Sondear con keepalive `0xF7` hasta que el transceptor RF indique frame listo (`resp[1] == 0x01` o `0x83`).
+3. Enviar `0xFC` (`FEA_CMD_GET_CACHED_RESPONSE`) para volcar el búfer de respuesta.
+4. Leer con `GET_REPORT`: devuelve `83 <bat%> <cargando> 00 ...`.
+
+Por cable (`PID 0x4015`) mientras carga `byte[1]` puede volver `0` (regla: si `cargando == 1` y `bat == 0`, mantener el último nivel conocido).
 
 > ⚠️ **No usar `0xF7` para la batería.** El poll `0xF7` del driver oficial es un
-> keepalive de RF; su `byte[1]` va a la deriva (74 → 66 con el teclado quieto) y su
+> keepalive de RF; su `byte[1]` contiene el centinela `0x42` (66 en decimal) y su
 > flag de carga está en `byte[3]`, no `byte[2]`. Es la causa del bug del "66 %" en
 > Linux. Ver [`USB_FINDINGS_2.4G.md`](USB_FINDINGS_2.4G.md) §"Detección de batería".
 

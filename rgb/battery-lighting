@@ -582,35 +582,43 @@ def get_akko_keyboard_battery():
         for node in dongle_nodes:
             try:
                 fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
-                req = bytearray(64)
-                req[0] = 0x83  # FEA_CMD_GET_BATTERY
-                req[7] = 0x7C
-                req[8] = 0x7C
-                raw = bytearray([0x00]) + req
-                fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw)), raw)
-                time.sleep(0.02)
-                resp = bytearray(65)
-                fcntl.ioctl(fd, HIDIOCGFEATURE(len(resp)), resp)
+                # Step 1: Send 0x83 request to trigger keyboard battery report
+                req83 = bytearray(64)
+                req83[0] = 0x83
+                req83[7] = 0x7C
+                fcntl.ioctl(fd, HIDIOCSFEATURE(65), bytearray([0x00]) + req83)
+                
+                # Step 2: Poll with 0xF7 until RF packet ready (or max 8 attempts)
+                for _ in range(8):
+                    time.sleep(0.03)
+                    reqF7 = bytearray(64)
+                    reqF7[0] = 0xF7
+                    fcntl.ioctl(fd, HIDIOCSFEATURE(65), bytearray([0x00]) + reqF7)
+                    time.sleep(0.02)
+                    respF7 = bytearray(65)
+                    fcntl.ioctl(fd, HIDIOCGFEATURE(65), respF7)
+                    
+                    if respF7[1] == 0x01 or respF7[1] == 0x83:
+                        # Step 3: Fetch cached 0x83 response with 0xFC
+                        reqFC = bytearray(64)
+                        reqFC[0] = 0xFC
+                        fcntl.ioctl(fd, HIDIOCSFEATURE(65), bytearray([0x00]) + reqFC)
+                        time.sleep(0.02)
+                        resp83 = bytearray(65)
+                        fcntl.ioctl(fd, HIDIOCGFEATURE(65), resp83)
+                        if resp83[1] == 0x83 and 0 < resp83[2] <= 100:
+                            bat = resp83[2]
+                            st_code = resp83[3]
+                            st = "Cargando" if st_code == 1 else "Descargando"
+                            os.close(fd)
+                            cache["akko_battery"] = bat
+                            cache["akko_status"] = st
+                            save_cache(cache)
+                            return bat, st
                 os.close(fd)
-                if len(resp) >= 5:
-                    if resp[1] == 0x83:
-                        bat = resp[2]
-                        st_code = resp[3]
-                        is_chg = (st_code == 1)
-                    else:
-                        bat = resp[2]
-                        is_chg = (resp[4] == 1 or resp[3] == 1)
-                    st = "Cargando" if is_chg else "Descargando"
-                    if is_chg and (bat == 0 or bat == 0x42):
-                        bat = last_bat if (last_bat and last_bat != 0x42) else (bat if 0 < bat <= 100 else 100)
-                    if 0 < bat <= 100:
-                        cache["akko_battery"] = bat
-                        cache["akko_status"] = st
-                        save_cache(cache)
-                        return bat, st
             except Exception:
                 pass
-        return last_bat, "Descargando"
+        return last_bat, cache.get("akko_status", "Descargando")
 
     return None, "Desconectado"
 
