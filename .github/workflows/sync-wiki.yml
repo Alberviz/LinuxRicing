@@ -1,0 +1,109 @@
+name: Sync Vault to Wiki
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'vault/**'
+
+jobs:
+  update-wiki:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Needed to push to the wiki
+
+    steps:
+      - name: Checkout main repository
+        uses: actions/checkout@v4
+        with:
+          path: main-repo
+
+      - name: Checkout wiki repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}.wiki
+          path: wiki-repo
+
+      - name: Build Wiki Content
+        run: |
+          mkdir -p wiki-build
+          
+          cat << 'PYEOF' > build_wiki.py
+          import os
+          import shutil
+
+          vault_dir = "main-repo/vault"
+          wiki_dir = "wiki-build"
+
+          if os.path.exists(wiki_dir):
+              shutil.rmtree(wiki_dir)
+          os.makedirs(wiki_dir)
+
+          def get_files_to_export():
+              files = []
+              for root, dirs, filenames in os.walk(vault_dir):
+                  if ".obsidian" in root:
+                      continue
+                  for f in filenames:
+                      if f.endswith(".md"):
+                          files.append(os.path.join(root, f))
+              return files
+
+          files = get_files_to_export()
+
+          for file_path in files:
+              rel_path = os.path.relpath(file_path, vault_dir)
+              if "Tareas de Agentes" in rel_path or "Inbox" in rel_path:
+                  continue
+                  
+              dest_path = os.path.join(wiki_dir, rel_path)
+              os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+              
+              with open(file_path, "r", encoding="utf-8") as f:
+                  content = f.read()
+                  
+              with open(dest_path, "w", encoding="utf-8") as f:
+                  f.write(content)
+
+          home_path = os.path.join(wiki_dir, "Home.md")
+          if os.path.exists(home_path):
+              with open(home_path, "r", encoding="utf-8") as f:
+                  home_content = f.read()
+              
+              sidebar_lines = ["# 🌌 Navegación\n"]
+              for line in home_content.splitlines():
+                  if line.startswith("## "):
+                      sidebar_lines.append(f"\n**{line[3:]}**")
+                  elif line.startswith("- [["):
+                      sidebar_lines.append(line)
+                      
+              with open(os.path.join(wiki_dir, "_Sidebar.md"), "w", encoding="utf-8") as f:
+                  f.write("\n".join(sidebar_lines))
+          PYEOF
+          
+          python3 build_wiki.py
+
+      - name: Sync and Commit Wiki
+        run: |
+          cd wiki-repo
+          
+          # Delete everything except .git
+          find . -maxdepth 1 ! -name '.git' ! -name '.' -exec rm -rf {} +
+          
+          # Copy the built wiki files
+          cp -a ../wiki-build/. .
+          
+          # Configure Git
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          git add .
+          
+          # Commit and push if there are changes
+          if ! git diff-index --quiet HEAD; then
+            git commit -m "docs: auto-sync wiki from Obsidian vault [skip ci]"
+            git push
+          else
+            echo "No changes to wiki."
+          fi
