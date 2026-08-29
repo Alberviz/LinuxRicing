@@ -5,6 +5,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Quickshell.Services.Notifications
+import Quickshell.Hyprland
 import Caelestia
 import Caelestia.Config
 import qs.components.misc
@@ -35,6 +36,21 @@ Singleton {
         if (GlobalConfig.notifs.fullscreen === "off" && hasFullscreen())
             return false;
         return true;
+    }
+
+    function triggerAgentNotify(name: string, task: string, ws: int, addr: string): void {
+        agentNotifyProcComp.createObject(root, {
+            command: ["agent-notify", "notify", "-n", name, "-t", task, "-w", String(ws), "-a", addr || "0x1"],
+            running: true
+        });
+    }
+
+    Component {
+        id: agentNotifyProcComp
+
+        Process {
+            onExited: destroy()
+        }
     }
 
     onDndChanged: {
@@ -93,6 +109,49 @@ Singleton {
 
         onNotification: notif => {
             notif.tracked = true;
+
+            const app = (notif.appName || "").toLowerCase();
+            const sum = (notif.summary || "").toLowerCase();
+            const isNativeAgent = (app === "antigravity" || app === "agy" || app === "claude" || app === "claude code" ||
+                                   sum.includes("antigravity") || sum.includes("claude code") || sum.includes("claude")) &&
+                                  app !== "caelestia-agents";
+
+            if (isNativeAgent) {
+                notif.dismiss();
+
+                const name = (app.includes("claude") || sum.includes("claude")) ? "Claude" : "Antigravity";
+                const taskText = notif.body || notif.summary || "Tarea completada";
+
+                let targetAddr = "";
+                let targetWs = 1;
+                const pid = notif.hints?.["sender-pid"] ?? notif.hints?.pid;
+                if (pid) {
+                    const tlByPid = Hyprland.toplevels.values.find(tl => tl.pid === Number(pid));
+                    if (tlByPid) {
+                        targetAddr = tlByPid.address;
+                        targetWs = tlByPid.workspace?.id || 1;
+                    }
+                }
+
+                if (!targetAddr) {
+                    const terminals = Hyprland.toplevels.values.filter(tl => {
+                        const cls = (tl.class || "").toLowerCase();
+                        return cls.includes("kitty") || cls.includes("foot") || cls.includes("alacritty") || cls.includes("wezterm") || cls.includes("terminal");
+                    });
+                    if (terminals.length > 0) {
+                        const activeTl = Hyprland.activeToplevel;
+                        const activeIsTerm = terminals.find(t => t.address === activeTl?.address);
+                        const chosen = activeIsTerm || terminals[0];
+                        targetAddr = chosen.address;
+                        targetWs = chosen.workspace?.id || Hypr.activeWsId || 1;
+                    } else {
+                        targetWs = Hypr.activeWsId || 1;
+                    }
+                }
+
+                root.triggerAgentNotify(name, taskText, targetWs, targetAddr);
+                return;
+            }
 
             const comp = notifComp.createObject(root, {
                 popup: root.shouldShowPopup(),
