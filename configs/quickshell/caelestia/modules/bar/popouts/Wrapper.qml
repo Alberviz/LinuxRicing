@@ -27,6 +27,7 @@ Item {
 
     property alias currentName: popoutState.currentName
     property alias hasCurrent: popoutState.hasCurrent
+    property alias agentsWs: popoutState.agentsWs
     property real currentCenter
 
     property string detachedMode

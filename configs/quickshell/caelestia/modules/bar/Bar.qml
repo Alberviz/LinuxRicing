@@ -72,6 +72,18 @@ ColumnLayout {
             popouts.currentName = id.toLowerCase();
             popouts.currentCenter = (ch.item as Item).mapToItem(root, 0, (ch.item as Item).implicitHeight / 2).y ?? 0;
             popouts.hasCurrent = true;
+        } else if (id === "workspaces") {
+            const wsw = ch.item; // Workspaces (StyledClippingRect)
+            const wsItem = wsw && wsw.wsAt ? wsw.wsAt(mapToItem(wsw, 0, y).y) : null;
+            if (wsItem && Agents.agentsForWs(wsItem.ws).length > 0) {
+                popouts.agentsWs = wsItem.ws;
+                popouts.currentName = "agents";
+                popouts.currentCenter = Qt.binding(() => wsItem.mapToItem(root, 0, wsItem.height / 2).y);
+                popouts.hasCurrent = true;
+                Agents.markSeen(wsItem.ws);
+            } else if (popouts.currentName === "agents") {
+                popouts.hasCurrent = false;
+            }
         }
     }
 
