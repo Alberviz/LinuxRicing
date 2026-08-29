@@ -133,11 +133,35 @@ El singleton `services/Agents.qml` gestiona el ciclo de vida sin requerir interv
 
 ---
 
-## 6. Limitaciones de la Versión 1 (v1)
+## 6. Versión 2 — Pulso «en curso» y contorno neón
 
-- **Sin estado «en curso» (*running state*):** En v1 solo se notifica la finalización. La animación de anillo palpitante mientras el agente trabaja queda diferida para v2.
-- **Persistencia en memoria:** La lista `completedAgents` reside en el singleton QML de Quickshell; un reinicio del shell (`caelestia shell -k`) limpia el estado de las notificaciones activas.
-- **Workspaces fuera de rango visible:** Si un agente finaliza en un workspace que no pertenece al grupo actualmente paginado en la barra (según `Config.bar.workspaces.shown`), el halo no se mostrará hasta que la paginación visual se desplace a dicho grupo.
+Implementada en `feat/agent-running-pulse` (commit `ea42e44`). Spec y decisiones:
+[`docs/superpowers/specs/2026-08-30-agent-running-pulse-workspace-pip-design.md`](file:///home/alberviz/LinuxRicing/docs/superpowers/specs/2026-08-30-agent-running-pulse-workspace-pip-design.md).
+
+Resumen operativo:
+
+- **Estado `running`:** mientras un agente procesa, el pip de su workspace muestra un
+  **contorno neón** (no relleno). Estilo por defecto `blink` (contorno blanco
+  parpadeando); alternativa `breathe`. Al terminar, el contorno pasa a **verde fijo**
+  del tema y aparece el **badge de «sin ver»** (con contador) en la esquina.
+- **Disparo (Claude Code):** hooks en `~/.claude/settings.json` —
+  `UserPromptSubmit` → `agent-notify hook prompt`, `Stop` → `agent-notify hook stop`.
+  El CLI resuelve el terminal exacto subiendo por el árbol de procesos del hook, así
+  que el halo **siempre cae en el workspace correcto**.
+- **Disparo (Antigravity):** interceptación de su notificación nativa en `Notifs.qml`
+  (no tiene hooks). Con una sola sesión `agy` es fiable; con varias, cae a heurística.
+- **CLI nuevo:** `agent-notify start|finish|hook {prompt,stop}`. `run` emite inicio y
+  fin. Estilo conmutable: `agent-notify style {blink|breathe|arc}` y
+  `agent-notify marker {badge|wedge}` (escriben `~/.config/caelestia/agents-config.json`).
+
+### Limitaciones vigentes
+
+- **Estado `error` (halo ámbar):** aplazado; un `Error (N)` se marca como completado normal.
+- **Persistencia en memoria:** `runningAgents` / `completedAgents` viven en el singleton
+  QML; `caelestia shell -k` los limpia.
+- **Workspaces fuera de rango visible:** si el workspace no está en el grupo paginado
+  de la barra (`Config.bar.workspaces.shown`), el halo no se muestra hasta desplazar la paginación.
+- **`arc` (spinner girando):** estilo de pulso previsto pero aún no implementado.
 
 ---
 

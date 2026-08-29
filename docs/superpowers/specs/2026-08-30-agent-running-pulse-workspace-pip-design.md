@@ -1,8 +1,8 @@
 # Indicador «En Curso» (*Running Pulse*) de Agentes en el Pip de Workspace — Diseño v2
 
 **Fecha:** 2026-08-30  
-**Rama propuesta:** `feat/agent-running-pulse`  
-**Estado:** Especificación redactada y lista para implementación (Fase 2)  
+**Rama:** `feat/agent-running-pulse`  
+**Estado:** Implementado (commit `ea42e44`). Ver "Ajustes en implementación" al final.  
 **Autores:** Claude & Gemini  
 **Referencia base:** [`docs/superpowers/specs/2026-08-29-agent-notifications-workspace-pip-design.md`](file:///home/alberviz/LinuxRicing/docs/superpowers/specs/2026-08-29-agent-notifications-workspace-pip-design.md)
 
@@ -174,3 +174,46 @@ flowchart TD
    - Disparo de finalización: el pulso debe detenerse y encenderse el halo estático y el puntito.
    - Hover sobre el pip: visualización correcta del tiempo de ejecución en vivo.
    - Enfoque de ventana: auto-descarte de estados.
+
+---
+
+## 7. Ajustes en implementación (2026-08-29)
+
+Decisiones tomadas con Alberto en el brainstorming visual y desviaciones respecto al borrador:
+
+### Recortes por YAGNI
+- **Sin botón de cancelar agente** en el popout (solo foco directo).
+- **Sin estado `error` / halo ámbar** en v2 — se aplaza. `finish -s "Error (N)"` se
+  registra como completado normal.
+- **Timer del popout simplificado:** "ejecutando desde hace X" se calcula al abrir la
+  tarjeta, sin contador que refresca cada segundo.
+
+### Lenguaje visual del marcador (nuevo)
+- El halo pasa de **relleno** del pip a **contorno neón** (anillo + glow) que lo rodea.
+- **En curso:** contorno **blanco parpadeando** (estilo `blink`, por defecto) o
+  respiración en color de paleta (`breathe`). El estilo `arc` (trazo girando tipo
+  spinner) queda **pendiente** — el `Loader`/switch ya está, solo falta la variante.
+- **Al terminar:** el contorno pasa a **verde fijo** (`m3primary`).
+- El puntito de 4 px de "sin ver" se sustituye por un **badge en la esquina** con
+  contador y pulso suave (`badge`, por defecto) o una **cuña lateral** (`wedge`).
+- Conmutable en caliente: `agent-notify style {blink|breathe|arc}` y
+  `agent-notify marker {badge|wedge}` escriben `~/.config/caelestia/agents-config.json`
+  (mirror en `Agents.qml`, `watchChanges`).
+
+### Disparadores (decisión final)
+- **Claude Code → hooks.** `~/.claude/settings.json` con `UserPromptSubmit` →
+  `agent-notify hook prompt` y `Stop` → `agent-notify hook stop`. El CLI lee el JSON
+  del hook por stdin (`cwd`, `prompt`). El proceso del hook es descendiente de Claude,
+  así que el árbol de procesos resuelve el terminal exacto sin heurísticas.
+- **Antigravity → interceptación en `Notifs.qml`** (sin hooks). Claude se quita de la
+  interceptación (lo poseen los hooks); dedup por `address` evita duplicados.
+- **Sin wrappers de shell.** `agent-notify run -- <bin>` sigue disponible para uso
+  manual, pero no se instalan alias de `claude` / `agy`.
+
+### Bug de v1 resuelto de camino
+El halo "no salía en el workspace que tocaba" **no** era la resolución de PID: era
+`AgentBg` posicionando el halo en `pip.y` (relativo al `ColumnLayout` de workspaces)
+sin sumar el offset del propio layout — igual que `ActiveIndicator` suma `mask.y`.
+Con el workspace activo alto (iconos de ventana) el halo se desplazaba uno o dos pips
+hacia arriba. `AgentBg` ahora recibe `layout` y usa `pip.y + layout.y`.
+(`OccupiedBg.qml` arrastra el mismo bug pero está desactivado por defecto — anotado.)
