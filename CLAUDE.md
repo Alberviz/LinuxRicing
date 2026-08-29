@@ -16,6 +16,24 @@ Alberto usa Claude y Gemini a la vez en este repo, misma identidad git. Reparto 
 `hardware/`, `install.sh`, `systemd/`**. `git fetch` a menudo; commitear pronto (un
 `git add -A` del otro agente puede barrer tu working tree a medias).
 
+## Backlog de tareas y bitácora de sesiones
+
+`vault/🎯 Hoy.md` (+ `vault/Backlog.base` + carpeta `vault/Backlog/`) es la lista viva y
+priorizada de tareas que Alberto abre cada día. **Mantenerla es trabajo de los agentes,
+no de Alberto:**
+
+- **Cuando Alberto diga «añade una tarea», «esto para el futuro», «apunta que hay
+  que…» o similar:** crea `vault/Backlog/<título>.md` con frontmatter `tipo: tarea`,
+  `estado: pendiente`, `prioridad` (1 urgente … 5 algún día), `area`, `origen: Alberto`,
+  `esfuerzo` (S/M/L) y `creado: <fecha ISO>`. Con eso aparece sola en las vistas.
+- **Al ponerte a trabajar en una tarea del backlog:** cambia su nota a `estado:
+  en-curso`. **Al terminar:** `estado: hecha` — nunca borres la nota, la vista «Hechas»
+  es el registro de lo hecho.
+- **Al cerrar la sesión:** añade UNA línea arriba del todo de la sección «📓 Bitácora de
+  sesiones» de `vault/🎯 Hoy.md`: `- **<fecha> · <agente>** — <qué hiciste>`.
+- Los proyectos grandes siguen viviendo en `Roadmap Maestro de Innovaciones.md`; el
+  Backlog es la rodaja accionable y enlaza al roadmap.
+
 ## Conocimiento de hardware
 
 `hardware/<dispositivo>/` es la **fuente canónica** de los protocolos de ingeniería

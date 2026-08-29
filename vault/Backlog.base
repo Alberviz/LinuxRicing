@@ -1,38 +1,44 @@
 filters:
   and:
-    - 'file.inFolder("Backlog")'
-    - 'file.ext == "md"'
-
+    - file.inFolder("Backlog")
+    - file.ext == "md"
 formulas:
-  prio: 'if(prioridad == 1, "🔴 1", if(prioridad == 2, "🟠 2", if(prioridad == 3, "🟡 3", if(prioridad == 4, "🔵 4", "⚪ 5"))))'
-  estado_icon: 'if(estado == "hecha", "✅", if(estado == "en-curso", "🔄", if(estado == "descartada", "✖️", "⏳")))'
-  dias: '(now() - file.ctime).days'
-
+  prio: if(prioridad == 1, "🔴 1", if(prioridad == 2, "🟠 2", if(prioridad == 3, "🟡 3", if(prioridad == 4, "🔵 4", "⚪ 5"))))
+  estado_icon: if(estado == "hecha", "✅", if(estado == "en-curso", "🔄", if(estado == "descartada", "✖️", "⏳")))
+  dias: (now() - file.ctime).days
 properties:
   formula.prio:
-    displayName: "Prioridad"
-  formula.estado_icon:
-    displayName: ""
+    displayName: Prioridad
   formula.dias:
-    displayName: "Días"
+    displayName: Días
   area:
-    displayName: "Área"
+    displayName: Área
   origen:
-    displayName: "Origen"
+    displayName: Origen
   esfuerzo:
-    displayName: "Esfuerzo"
+    displayName: Esfuerzo
   estado:
-    displayName: "Estado"
+    displayName: Estado
   creado:
-    displayName: "Creado"
-
+    displayName: Creado
 views:
   - type: table
-    name: "🎯 Hoy"
+    name: 🔨 En curso
+    filters:
+      and:
+        - estado == "en-curso"
+    order:
+      - formula.estado_icon
+      - file.name
+      - area
+      - origen
+      - formula.prio
+  - type: table
+    name: 🎯 Hoy
     filters:
       or:
-        - 'estado == "pendiente"'
-        - 'estado == "en-curso"'
+        - estado == "pendiente"
+        - estado == "en-curso"
     groupBy:
       property: prioridad
       direction: ASC
@@ -43,12 +49,17 @@ views:
       - esfuerzo
       - origen
       - estado
-
+    columnSize:
+      formula.estado_icon: 127
+      file.name: 125
+      note.area: 70
+      note.esfuerzo: 102
+      note.origen: 138
   - type: table
-    name: "📋 Todo"
+    name: 📋 Todo
     filters:
       not:
-        - 'estado == "descartada"'
+        - estado == "descartada"
     order:
       - formula.prio
       - formula.estado_icon
@@ -56,12 +67,11 @@ views:
       - area
       - esfuerzo
       - estado
-
   - type: table
-    name: "🗂️ Por área"
+    name: 🗂️ Por área
     filters:
       not:
-        - 'estado == "descartada"'
+        - estado == "descartada"
     groupBy:
       property: area
       direction: ASC
@@ -71,10 +81,8 @@ views:
       - file.name
       - esfuerzo
       - estado
-
   - type: table
-    name: "🆕 Reciente"
-    limit: 15
+    name: 🆕 Reciente
     order:
       - file.ctime
       - formula.estado_icon
@@ -82,23 +90,22 @@ views:
       - area
       - formula.prio
       - estado
-
+    limit: 15
   - type: table
-    name: "✅ Hechas"
+    name: ✅ Hechas
     filters:
       and:
-        - 'estado == "hecha"'
+        - estado == "hecha"
     order:
       - file.name
       - area
       - origen
       - creado
-
   - type: cards
-    name: "🃏 Tablero"
+    name: 🃏 Tablero
     filters:
       not:
-        - 'estado == "descartada"'
+        - estado == "descartada"
     groupBy:
       property: estado
       direction: ASC
