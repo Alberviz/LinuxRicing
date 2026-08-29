@@ -1,6 +1,6 @@
 ---
 tags: [rice, arquitectura, hyprland, quickshell, caelestia]
-actualizado: 2026-08-27
+actualizado: 2026-08-29
 ---
 
 # Arquitectura General del Setup · LinuxRicing
@@ -25,6 +25,9 @@ graph TD
     Caelestia --> Peripherals[Widget Periféricos + Ajustes MCHOSE]
     Caelestia --> WidgetDeck[Deck 4-en-1: Audio, Sistema, Clima, Almacenamiento]
     Caelestia --> LedStrip[Widget Tira LED Ambiente]
+    Caelestia --> AgentState[Servicio Agents: Pips de Workspace & Popouts]
+
+    AgentCLI[agent-notify CLI / Wrappers] -->|IPC & notify-send| Caelestia
 ```
 
 ---
@@ -35,6 +38,7 @@ graph TD
 |---|---|---|
 | **Hyprland** | Compositor Wayland dinámico | C++, Lua (`hyprland.lua`), IPC socket |
 | **Quickshell Caelestia** | Entorno de escritorio (Barra, Widgets, OSD, Dashboard) | QML, Qt Quick, JavaScript, Wayland Layer Shell |
+| **Notificaciones de Agentes** | Estado visual persistente en pips de workspace, toasts ricos y popouts de detalle | Python (`agent-notify`), Quickshell QML (`services/Agents.qml`, `AgentBg.qml`, `AgentsPopout.qml`), Hyprland IPC |
 | **Matugen** | Extracción dinámica de paletas Material You a partir de fondos | Rust, JSON (`~/.local/state/caelestia/scheme.json`) |
 | **Spicetify** | Sincronización cromática en tiempo real de Spotify | CLI `spicetify apply`, temas CSS / `color.ini` |
 | **OpenRGB** | Control de placa base ASUS TUF B560M-PLUS y RAM ENE DRAM | OpenRGB SDK (`localhost:6742`), SMBus / I2C |
@@ -51,13 +55,23 @@ graph TD
 
 ---
 
-## 3. Sincronización de Archivos (Repo ↔ Sistema)
+## 3. Subsistema de Notificaciones de Agentes de IA
+
+El rice integra un flujo continuo para agentes de desarrollo autónomo (Claude, Gemini, scripts largos):
+- **CLI (`agent-notify`)**: Disparado al terminar una tarea o envolviendo la ejecución (`agent-notify run`). Captura repositorio, duración y ventana de Hyprland.
+- **Servicio `Agents.qml` & UI**: Refleja el estado en el número de espacio de trabajo correspondiente de la barra (halo `AgentBg` y puntito de "sin ver"), despliega tarjetas en *hover* (`AgentsPopout`) y permite saltar al terminal con 1 clic mediante auto-descarte inteligente.
+- Más detalles en: [[Notificaciones de Agentes]].
+
+---
+
+## 4. Sincronización de Archivos (Repo ↔ Sistema)
 
 | Ámbito | Ruta Activa en el Sistema | Ruta en Git (`~/LinuxRicing/`) |
 |---|---|---|
 | **Quickshell Caelestia** | `~/.config/quickshell/caelestia/` | `configs/quickshell/caelestia/` |
 | **Widgets de Escritorio** | `~/.config/quickshell/.../Background.qml` | `widgets/Background.qml` |
 | **Scripts RGB** | `~/.local/bin/mchose-*`, `magichome-control` | `rgb/` |
+| **CLI de Notificación de Agentes** | `~/.local/bin/agent-notify` | `rgb/agent-notify` |
 | **Sincronizador Global (Linux)** | `~/.config/caelestia/sync-rgb.py` | `rgb/sync-rgb.py` |
 | **Sincronizador Global (Windows)** | `C:\Users\Alberviz\LinuxRicing\rgb\` | `rgb/sync-rgb-windows.py` |
 | **Bóveda Obsidian** | `~/LinuxRicing/vault/` | `vault/` |
