@@ -265,75 +265,6 @@ def get_cached_battery(device_pref: str) -> tuple[int, str]:
     return (100, "Descargando")
 
 
-AKKO_PROGRESSIVE_KEYS = [
-    # Fila Inferior (izq -> der)
-    11, 17, 23, 29, 35, 41, 47, 53, 59,
-    # Fila ZXCV (izq -> der)
-    10, 16, 22, 28, 34, 40, 46, 52, 58, 64,
-    # Fila ASDF (izq -> der)
-    9, 15, 21, 27, 33, 39, 45, 51, 57, 63, 69,
-    # Fila QWERTY (izq -> der)
-    8, 14, 20, 26, 32, 38, 44, 50, 56, 62, 68,
-    # Fila Números (izq -> der)
-    7, 13, 19, 25, 31, 37, 43, 49, 55, 61, 67, 73,
-]
-
-AKKO_KEY_ROWS = [
-    [7, 13, 19, 25, 31, 37, 43, 49, 55, 61, 67, 73],   # números (arriba)
-    [8, 14, 20, 26, 32, 38, 44, 50, 56, 62, 68],        # QWERTY
-    [9, 15, 21, 27, 33, 39, 45, 51, 57, 63, 69],        # ASDF
-    [10, 16, 22, 28, 34, 40, 46, 52, 58, 64],           # ZXCV
-    [11, 17, 23, 29, 35, 41, 47, 53, 59],               # inferior (abajo)
-]
-
-
-def akko_meter_keys_progressive(level: int):
-    keys = [(0, 0, 0)] * 130
-    if not level or level <= 0:
-        return keys
-    level = max(0, min(100, int(level)))
-    colour = get_akko_battery_level_color(level)
-    n_keys = len(AKKO_PROGRESSIVE_KEYS)
-    count = max(1, min(n_keys, int(round(n_keys * (level / 100.0)))))
-    for idx in AKKO_PROGRESSIVE_KEYS[:count]:
-        if 0 <= idx < 130:
-            keys[idx] = colour
-    return keys
-
-
-def akko_meter_keys_rows(level: int):
-    keys = [(0, 0, 0)] * 130
-    if not level or level <= 0:
-        return keys
-    n_rows = len(AKKO_KEY_ROWS)
-    rows_on = max(1, min(n_rows, int(level / 100 * n_rows + 0.5)))
-    colour = get_akko_battery_level_color(level)
-    for row in AKKO_KEY_ROWS[len(AKKO_KEY_ROWS) - rows_on:]:
-        for idx in row:
-            if 0 <= idx < 130:
-                keys[idx] = colour
-    return keys
-
-
-def akko_canvas_chunks(rgb_per_key):
-    flat = bytearray()
-    for (r, g, b) in rgb_per_key[:130]:
-        flat += bytes((r, g, b))
-    flat += bytes(392 - len(flat))
-    chunks = []
-    for ci in range(7):
-        buf = bytearray(64)
-        buf[0] = 0x0C
-        buf[1] = 0x00
-        buf[2] = 0x80
-        buf[3] = 0x01
-        buf[4] = ci
-        payload = flat[ci * 56:(ci + 1) * 56]
-        buf[8:8 + len(payload)] = payload
-        chunks.append(bytes(buf))
-    return chunks
-
-
 def _akko_checksum8(buf: bytearray) -> int:
     """
     ROYUAN 'Bit8' checksum used by SET_LEDPARAM/SET_SLEDPARAM: one's-complement
@@ -344,6 +275,25 @@ def _akko_checksum8(buf: bytearray) -> int:
     discard the packet, which is why colors never visibly changed.
     """
     return 0xFF - (sum(buf[:8]) & 0xFF)
+
+
+def _akko_rf_wake(fd: int) -> None:
+    """2x keepalive 0xF7 antes de escribir color por el dongle 2.4G.
+
+    Una escritura 0x07/0x08 sobre un enlace RF frío se pierde y el backlight se
+    queda congelado en blanco; el driver oficial sondea 0xF7 cada ~2 s para
+    mantener el enlace vivo. Por cable es innecesario y no se llama.
+    Ver hardware/akko-5075b-plus/PROTOCOL.md §A.
+    """
+    wake = bytearray(65)
+    wake[1] = 0xF7
+    for _ in range(2):
+        try:
+            fcntl.ioctl(fd, HIDIOCSFEATURE(len(wake)), wake)
+        except Exception:
+            return
+        time.sleep(0.02)
+    time.sleep(0.03)
 
 
 def get_akko_battery_level_color(bat_level: int | None) -> tuple[int, int, int]:
@@ -445,9 +395,11 @@ def sync_openrgb(r: int, g: int, b: int, argb_zones: bool = False, profile: dict
 def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4, throttle: bool = False, profile: dict | None = None):
     """
     Set Akko 5075B Plus Keyboard Backlight (Opcode 0x07) and Side-Strip (Opcode 0x08)
-    via direct USB HID Feature Reports on Interface 2.
-    Supports individual device profile modes: theme, fixed, battery_color, battery_meter_keys,
-    battery_meter_rows, breathing_battery, breathing, reactive_press, stream_battery, off.
+    via direct USB HID Feature Reports on Interface 2. Sólo modos de firmware de
+    una escritura (el lienzo per-key se retiró: congela el teclado por 2.4 GHz).
+    keys_mode: theme, fixed, battery_color, breathing_battery, breathing, wave,
+    reactive_press. sidestrip_mode: theme, fixed, battery_color, stream_battery,
+    breathing_battery, breathing, off.
     """
     usb_nodes, wl_nodes = [], []
     for h in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
@@ -469,6 +421,7 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4, throttle: bo
         elif "4011" in content:
             wl_nodes.append(node)
     nodes = usb_nodes or wl_nodes
+    wireless = bool(wl_nodes and not usb_nodes)
 
     if not nodes:
         log("Akko Keyboard: No HID node found")
@@ -490,44 +443,31 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4, throttle: bo
     akko_bat, akko_st = get_cached_battery("akko")
     bat_r, bat_g, bat_b = get_akko_battery_level_color(akko_bat)
 
-    # 1. Main Backlight (LED = Opcode 0x07)
-    use_canvas = False
-    canvas_packets = []
-    if keys_mode == "battery_meter_keys":
-        use_canvas = True
-        key_map = akko_meter_keys_progressive(akko_bat)
-    elif keys_mode == "battery_meter_rows":
-        use_canvas = True
-        key_map = akko_meter_keys_rows(akko_bat)
+    # 1. Main Backlight (LED = Opcode 0x07) — modos de firmware de una escritura
+    led = bytearray(64)
+    led[0] = 0x07
+    led[3] = brightness
+    led[4] = AKKO_FLAGS_CUSTOM_RGB
 
-    if use_canvas:
-        act = bytearray(64)
-        act[0] = 0x07; act[1] = 0x0D; act[2] = 0x04; act[3] = brightness; act[4] = AKKO_FLAGS_CUSTOM_RGB
-        act[8] = _akko_checksum8(act)
-        canvas_packets = [bytes([0x00]) + act] + [bytes([0x00]) + c for c in akko_canvas_chunks(key_map)]
-        raw_led = None
-    else:
-        led = bytearray(64)
-        led[0] = 0x07
-        led[3] = brightness
-        led[4] = AKKO_FLAGS_CUSTOM_RGB
+    if keys_mode == "fixed":
+        kr, kg, kb = hex_to_rgb(profile.get("keys_fixed_color", "d8bde7"))
+        led[1] = 0x01; led[2] = 0x04; led[5], led[6], led[7] = kr, kg, kb
+    elif keys_mode == "battery_color":
+        led[1] = 0x01; led[2] = 0x04; led[5], led[6], led[7] = bat_r, bat_g, bat_b
+    elif keys_mode == "breathing_battery":
+        led[1] = 0x02; led[2] = 0x02; led[5], led[6], led[7] = bat_r, bat_g, bat_b
+    elif keys_mode == "breathing":
+        led[1] = 0x02; led[2] = 0x02; led[5], led[6], led[7] = r, g, b
+    elif keys_mode in ("wave", "wave_battery"):
+        wr, wg, wb = (bat_r, bat_g, bat_b) if keys_mode == "wave_battery" else (r, g, b)
+        led[1] = 0x04; led[2] = 0x02; led[5], led[6], led[7] = wr, wg, wb
+    elif keys_mode == "reactive_press":
+        led[1] = 0x08; led[2] = 0x03; led[5], led[6], led[7] = r, g, b
+    else:  # theme
+        led[1] = 0x01; led[2] = 0x04; led[5], led[6], led[7] = r, g, b
 
-        if keys_mode == "fixed":
-            kr, kg, kb = hex_to_rgb(profile.get("keys_fixed_color", "d8bde7"))
-            led[1] = 0x01; led[2] = 0x04; led[5], led[6], led[7] = kr, kg, kb
-        elif keys_mode == "battery_color":
-            led[1] = 0x01; led[2] = 0x04; led[5], led[6], led[7] = bat_r, bat_g, bat_b
-        elif keys_mode == "breathing_battery":
-            led[1] = 0x02; led[2] = 0x02; led[5], led[6], led[7] = bat_r, bat_g, bat_b
-        elif keys_mode == "breathing":
-            led[1] = 0x02; led[2] = 0x02; led[5], led[6], led[7] = r, g, b
-        elif keys_mode == "reactive_press":
-            led[1] = 0x08; led[2] = 0x03; led[5], led[6], led[7] = r, g, b
-        else:  # theme
-            led[1] = 0x01; led[2] = 0x04; led[5], led[6], led[7] = r, g, b
-
-        led[8] = _akko_checksum8(led)
-        raw_led = bytearray([0x00]) + led
+    led[8] = _akko_checksum8(led)
+    raw_led = bytearray([0x00]) + led
 
     # 2. Side-Strip (SLED = Opcode 0x08)
     sled = bytearray(64)
@@ -577,19 +517,16 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4, throttle: bo
         for node in nodes:
             try:
                 fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
+                if wireless:
+                    _akko_rf_wake(fd)
                 if not skip_sidestrip:
                     fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_sled)), raw_sled)
                     time.sleep(0.03)
                 if not skip_keys:
-                    if use_canvas:
-                        for pkt in canvas_packets:
-                            fcntl.ioctl(fd, HIDIOCSFEATURE(len(pkt)), pkt)
-                            time.sleep(0.03)
-                    elif raw_led:
-                        fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
-                        time.sleep(0.03)
-                        fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
-                        time.sleep(0.02)
+                    fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
+                    time.sleep(0.03)
+                    fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw_led)), raw_led)
+                    time.sleep(0.02)
 
                 os.close(fd)
                 try:
