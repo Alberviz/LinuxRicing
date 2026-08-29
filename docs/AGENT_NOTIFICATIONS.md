@@ -1,0 +1,149 @@
+# Runbook de Notificaciones de Agentes de IA en Caelestia
+
+Guía de uso y referencia operativa del sistema de notificaciones enriquecidas e indicadores de estado en los pips de workspace de la barra de Caelestia.
+
+---
+
+## 1. Visión General
+
+Cuando un agente de IA (Claude, Gemini, Antigravity, scripts de compilación, etc.) finaliza una tarea en segundo plano dentro de un terminal de Hyprland, este subsistema garantiza que el usuario reciba:
+
+1. **Toast nativo enriquecido** (arriba a la derecha): Muestra el nombre del agente, proyecto Git, tarea realizada, duración y workspace. Permite hacer clic para saltar y enfocar la ventana directamente.
+2. **Halo de acento persistente en el pip del workspace** (`AgentBg`): La barra de Caelestia ilumina el número del espacio de trabajo donde terminó el agente.
+3. **Puntito de «sin ver» (*unseen dot*)**: Un punto circular de acento en la esquina del pip indica que la notificación no ha sido inspeccionada.
+4. **Tarjeta de detalle en hover (`AgentsPopout`)**: Al pasar el ratón por encima del pip, se despliega una tarjeta con los metadatos completos y el tiempo relativo transcurrido. Al desplegarse, apaga el puntito de «sin ver».
+5. **Auto-descarte inteligente**: El halo se apaga automáticamente al enfocar la ventana del terminal o al entrar al workspace si la ventana ya fue cerrada.
+
+---
+
+## 2. Comandos de Lanzamiento y Uso
+
+El script CLI `agent-notify` gestiona la captura del contexto de Hyprland y la comunicación con Quickshell e IPC.
+
+### A. Forma Recomendada: Envoltorio (`run`)
+
+Captura automáticamente la hora de inicio y fin para calcular la duración real de ejecución, además de registrar la ventana activa (`address`), el espacio de trabajo actual (`ws`) y el repositorio Git (`dir`). Al finalizar, propaga el mismo código de salida que el comando ejecutado.
+
+```bash
+agent-notify run -n <NombreAgente> -t "<descripción de tarea>" -- <comando...>
+```
+
+**Ejemplos prácticos:**
+
+```bash
+# Ejecución de sesión interactiva de Claude
+agent-notify run -n Claude -t "Refactorización de notificaciones" -- claude
+
+# Ejecución de tarea desasistida de Gemini Antigravity
+agent-notify run -n Gemini -t "Actualización de notas de arquitectura" -- agy run "..."
+
+# Tarea de compilación o script largo
+agent-notify run -n Antigravity -t "Compilación de kernel Linux" -- make -j$(nproc)
+```
+
+---
+
+### B. Disparo Directo al Terminar (`notify`)
+
+Útil para integrar al final de scripts existentes, funciones de shell (`.bashrc`/`.zshrc`), traps de finalización o herramientas que ya controlan su propio ciclo de vida.
+
+```bash
+agent-notify notify -n <Nombre> -t "<tarea corta>" [-s <estado>] [-d <duración>] [-w <workspace>] [-a <address>]
+```
+
+**Parámetros:**
+- `-n, --name`: Nombre del agente o herramienta (por defecto: `Agente`).
+- `-t, --task`: Texto descriptivo de la tarea realizada (por defecto toma el valor de `--status`).
+- `-s, --status`: Estado de finalización (por defecto: `Completado`).
+- `-d, --duration`: Texto de duración personalizada (ej. `2m 14s`).
+- `-w, --ws`: Forzar ID de workspace (opcional; por defecto detecta la ventana activa vía `hyprctl`).
+- `-a, --address`: Forzar dirección de ventana de Hyprland (opcional; ej. `0x5578ab12cd00`).
+
+**Ejemplo:**
+
+```bash
+agent-notify notify -n Gemini -t "Sincronización del Vault completada" -d "45s"
+```
+
+---
+
+### C. Prueba Rápida del Sistema (`test`)
+
+Inyecta un agente de prueba simulado («Antigravity») en el **workspace activo real** con una duración de `1m 30s` para verificar visualmente el toast, el halo y la tarjeta popout.
+
+```bash
+agent-notify test
+```
+
+---
+
+### D. Limpieza Global (`clear`)
+
+Elimina todas las notificaciones de agentes registradas en el servicio de Quickshell y apaga inmediatamente todos los halos y puntitos de los pips de workspace.
+
+```bash
+agent-notify clear
+```
+
+---
+
+## 3. Experiencia Visual e Interacción
+
+```
+[ Terminal WS 3 ] ──(termina agente)──> [ Toast nativo (5s) ] + [ Pip WS 3: Halo + Puntito ]
+                                                                      │
+                                        ┌─────────────────────────────┴─────────────────────────────┐
+                                        ▼                                                           ▼
+                             [ Hover sobre Pip 3 ]                                       [ Clic en Pip o Toast ]
+                                        │                                                           │
+                        Despliega tarjeta AgentsPopout                                  Hyprland enfoca terminal
+                        Apaga el puntito (markSeen)                                     Auto-descarta notificación
+                        Mantiene el halo de acento                                      Halo se apaga
+```
+
+### Componentes de la Interfaz:
+- **Toast nativo de escritorio:** Se ubica en la esquina superior derecha con el icono de robot `smart_toy`, proyecto, tarea y tiempo. Expira automáticamente tras ~5 segundos.
+- **Pip del Workspace (Barra):**
+  - **Halo de acento (`AgentBg.qml`):** Capa con resplandor suave en `m3primary` y desenfoque (*glow*) renderizada dentro del recorte de la barra.
+  - **Puntito de novedad:** Rectángulo redondeado de 4 px en la esquina superior del indicador numérico.
+  - **Contraste de color:** El dígito del workspace adopta el color `m3onPrimaryContainer` para maximizar la legibilidad sobre el halo luminoso.
+- **Tarjeta Popout (`AgentsPopout.qml`):**
+  - Al posicionar el cursor sobre el pip, se abre una tarjeta flotante estilizada con tokens Material You.
+  - Contiene: Icono `smart_toy`, nombre del agente, texto de la tarea, nombre del proyecto, tiempo relativo (*«hace X min»* o *«ahora mismo»*), duración de ejecución, chip de estado *«✔ Completado»* y mensaje instructivo de navegación.
+
+---
+
+## 4. Ciclo de Vida y Auto-Descarte
+
+El singleton `services/Agents.qml` gestiona el ciclo de vida sin requerir intervención manual constante:
+
+1. **Al enfocar la ventana:** Si el usuario hace clic en el terminal o cambia a él mediante atajos de teclado (`onActiveToplevelChanged`), el agente asociado a esa dirección de ventana (`address`) se descarta automáticamente y el halo se apaga.
+2. **Al entrar al workspace (ventana cerrada):** Si el agente terminó en un terminal que se cerró automáticamente al finalizar el comando, al ingresar al espacio de trabajo correspondiente (`onFocusedWorkspaceChanged`), el sistema detecta que la ventana ya no existe en `Hyprland.toplevels` y descarta la notificación.
+3. **Persistencia tras expiración del toast:** Si el usuario no atiende el toast durante los primeros 5 segundos, el toast desaparece pero el halo y el puntito del pip se mantienen en la barra hasta que el usuario visite el terminal o limpie el estado.
+4. **Deduplicación por terminal:** Si un mismo terminal ejecuta múltiples tareas sucesivas, la nueva finalización reemplaza a la anterior, actualiza la tarea y restablece el estado de «sin ver» (`seen: false`).
+
+---
+
+## 5. Resiliencia y Casos Extremos
+
+- **Degradación sin Quickshell IPC:** Si `quickshell` no se encuentra en ejecución o falla la llamada IPC, `agent-notify` degrada limpiamente a `notify-send` estándar, manteniendo el soporte de foco mediante el hint de escritorio `-h string:address:0x...`.
+- **Ventana movida de Workspace:** Si el usuario traslada la ventana del terminal a otro espacio de trabajo antes o después de que finalice, `Agents.liveWs()` consulta en tiempo real `Hyprland.toplevels` y mueve el halo de acento dinámicamente al pip del nuevo workspace.
+- **Modo No Molestar (DND) y Pantalla Completa:** Las notificaciones emergentes son suprimidas por la política de Caelestia, pero el halo en la barra y el registro interno en `Agents.qml` se generan con normalidad sin interrumpir.
+- **Multi-Monitor:** Cada instancia de la barra en monitores secundarios proyecta el halo sobre el workspace correspondiente respetando `perMonitorWorkspaces`.
+
+---
+
+## 6. Limitaciones de la Versión 1 (v1)
+
+- **Sin estado «en curso» (*running state*):** En v1 solo se notifica la finalización. La animación de anillo palpitante mientras el agente trabaja queda diferida para v2.
+- **Persistencia en memoria:** La lista `completedAgents` reside en el singleton QML de Quickshell; un reinicio del shell (`caelestia shell -k`) limpia el estado de las notificaciones activas.
+- **Workspaces fuera de rango visible:** Si un agente finaliza en un workspace que no pertenece al grupo actualmente paginado en la barra (según `Config.bar.workspaces.shown`), el halo no se mostrará hasta que la paginación visual se desplace a dicho grupo.
+
+---
+
+## 7. Documentación y Especificaciones Relacionadas
+
+- **Especificación de Diseño:** [`docs/superpowers/specs/2026-08-29-agent-notifications-workspace-pip-design.md`](file:///home/alberviz/LinuxRicing/docs/superpowers/specs/2026-08-29-agent-notifications-workspace-pip-design.md)
+- **Plan de Implementación:** [`docs/superpowers/plans/2026-08-29-agent-notifications-workspace-pip.md`](file:///home/alberviz/LinuxRicing/docs/superpowers/plans/2026-08-29-agent-notifications-workspace-pip.md)
+- **Nota de Arquitectura y Widgets:** [[Notificaciones de Agentes]]
+- **Registro de Pruebas de QA:** [[QA · Notificaciones de Agentes]]
