@@ -185,4 +185,19 @@ Ambos agentes (Claude y Gemini) escriben aquí — añadir, no reescribir.
   - Sincronizado `rgb/argb-wave.py` y `~/.config/caelestia/argb-wave.py` sin expiración de TTL para que la caché de paleta en `/tmp` mantenga la continuidad de color.
   - Añadidos tests unitarios en `rgb/tests/test_sync_rgb_alerts.py` (`test_sync_openrgb_skips_when_alert_active` y `test_sync_openrgb_retries_and_sets_direct_mode`) para blindar contra futuras regresiones.
 
+### Los efectos "al cargar" del teclado Akko por 2.4 GHz no hacían nada
+- **Síntoma:** en el Centro de Notificaciones, al elegir efectos de carga para el teclado Akko (medidor tecla a tecla, "flujo", etc.) no se veía nada, o el teclado se quedaba congelado, o el gradiente de color de batería no avanzaba mientras cargaba.
+- **Causa:** varias, todas por 2.4 GHz:
+  1. El lienzo per-key (`0x07` modo `0x0D` + 7×`0x0C`) se re-renderizaba cada tick de carga; cada pasada satura la radio y deja el teclado sin responder ~1 s, y el firmware del 5075B ni siquiera conmuta a modo lienzo de forma fiable.
+  2. El efecto "flujo" (`stream`) se mandaba como modo `0x05` sobre el opcode de las teclas (`0x07`), donde el modo 5 es *Ripple* (reactivo), no un flujo — invisible sin pulsar teclas. El modo 5 solo es un flujo en la tira lateral (`0x08`).
+  3. `battery-lighting` solo reaplicaba un efecto cuando cambiaba su **nombre**, no cuando subía la batería, así que el gradiente rojo→verde de `breathing_battery`/`stream_battery` se quedaba clavado en el nivel inicial durante toda la carga.
+  4. Ninguna ruta de escritura de color (`sync-rgb.py`, `akko-rgb`, `rgb-notify-flash`, `battery-lighting`) despertaba el enlace RF antes de escribir; una escritura `0x07`/`0x08` sobre el dongle "frío" se pierde y deja el backlight congelado en blanco.
+- **Arreglo:**
+  - Retirado del stack de Linux todo efecto que no sea un modo de firmware de una sola escritura: fuera `battery_meter` / "Letra a letra" / "Fila a fila" y todo el andamiaje de lienzo (`akko_canvas_chunks`, `AKKO_KEY_ROWS`, `apply_akko_meter`) en `rgb/battery-lighting` y `rgb/sync-rgb.py`, y de la UI (`AkkoCard.qml`, `BatteryLightingConfig.qml`).
+  - Añadido el efecto de firmware `wave` / `wave_battery` (opcode `0x07` modo `0x04`); `stream` retirado de las teclas, `stream_battery` conservado en la tira.
+  - Añadido `_akko_rf_wake(fd)`: 2× keepalive `0xF7` antes de la escritura de color, solo sobre el dongle (`PID 0x4011`), en los cuatro scripts.
+  - `battery-lighting` reaplica los efectos de color de batería mientras carga cuando el nivel cruza un escalón de 10 % (1 paquete de firmware, sin congelar).
+  - Flash de notificación limitado a 2 pulsos en el Akko por 2.4 GHz.
+  - Documentado en `hardware/akko-5075b-plus/{PROTOCOL,README,BATTERY_LIGHTING_FRONTEND}.md`; tests en `rgb/tests/test_effects.py`.
+
 
