@@ -1,5 +1,4 @@
 import importlib.util
-import json
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 import pytest
@@ -68,3 +67,11 @@ def test_run_wrapper_propagates_exit_code(an, monkeypatch):
     with pytest.raises(SystemExit) as e:
         an.run_wrapped_command(["false"], name="Claude")
     assert e.value.code == 7
+
+
+def test_run_with_no_command_exits_nonzero(an, monkeypatch):
+    import sys as sys_module
+    monkeypatch.setattr(sys_module, "argv", ["agent-notify", "run"])
+    with pytest.raises(SystemExit) as e:
+        an.main()
+    assert e.value.code == 1

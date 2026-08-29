@@ -205,7 +205,7 @@ def main():
         if not cmd and unknown:
             cmd = unknown
         if not cmd:
-            parser.parse_args(["run", "--help"])
+            print("uso: agent-notify run [-n NOMBRE] [-t TAREA] -- <comando...>", file=sys.stderr)
             sys.exit(1)
         run_wrapped_command(cmd, name=args.name, task=args.task)
 
