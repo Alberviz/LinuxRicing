@@ -94,6 +94,30 @@ Singleton {
         onNotification: notif => {
             notif.tracked = true;
 
+            const app = (notif.appName || "").toLowerCase();
+            const sum = (notif.summary || "").toLowerCase();
+
+            // Deduplicar: Si es una notificación nativa de Antigravity / Claude / Kitty y ya tenemos una de caelestia-agents
+            const isNativeAgent = app === "antigravity" || app === "agy" || app === "claude" || sum.includes("antigravity") || sum.includes("claude code");
+            if (isNativeAgent && app !== "caelestia-agents") {
+                const hasAgentNotif = root.popups.some(p => p.appName === "caelestia-agents" && (Date.now() - p.time.getTime()) < 6000);
+                if (hasAgentNotif) {
+                    notif.dismiss();
+                    return;
+                }
+            }
+
+            // Si llega una de caelestia-agents, cerrar cualquier notificación nativa genérica previa
+            if (app === "caelestia-agents") {
+                for (const existing of root.popups) {
+                    const eApp = (existing.appName || "").toLowerCase();
+                    const eSum = (existing.summary || "").toLowerCase();
+                    if ((eApp === "antigravity" || eApp === "agy" || eApp === "claude" || eSum.includes("antigravity") || eSum.includes("claude code")) && eApp !== "caelestia-agents") {
+                        existing.close();
+                    }
+                }
+            }
+
             const comp = notifComp.createObject(root, {
                 popup: root.shouldShowPopup(),
                 notification: notif

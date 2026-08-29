@@ -153,8 +153,22 @@ Item {
                 idx = index;
         }
 
+        width: parent ? parent.width : implicitWidth
         implicitWidth: notif.implicitWidth
         implicitHeight: notif.implicitHeight + (idx === 0 ? 0 : Tokens.spacing.medium)
+        height: implicitHeight
+
+        Behavior on height {
+            Anim {
+                easing: Tokens.anim.emphasizedDecel
+            }
+        }
+
+        Behavior on implicitHeight {
+            Anim {
+                easing: Tokens.anim.emphasizedDecel
+            }
+        }
 
         ListView.onRemove: removeAnim.start()
 
