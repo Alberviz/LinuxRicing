@@ -14,20 +14,55 @@ import time
 from pathlib import Path
 
 
-def get_hyprland_window():
-    """Obtiene la información de la ventana activa en Hyprland."""
+def get_hyprland_window(target_pid=None):
+    """Obtiene la información de la ventana en Hyprland que aloja al agente."""
     try:
-        res = subprocess.run(["hyprctl", "activewindow", "-j"], capture_output=True, text=True, check=True)
-        data = json.loads(res.stdout)
-        if data and isinstance(data, dict):
-            return {
-                "address": data.get("address", ""),
-                "ws_id": data.get("workspace", {}).get("id", 1),
-                "ws_name": data.get("workspace", {}).get("name", "1"),
-                "class": data.get("class", "Terminal"),
-                "title": data.get("title", ""),
-                "pid": data.get("pid", 0)
-            }
+        clients_out = subprocess.run(["hyprctl", "clients", "-j"], capture_output=True, text=True)
+        if clients_out.returncode == 0 and clients_out.stdout.strip():
+            clients = json.loads(clients_out.stdout)
+            client_pids = {c["pid"]: c for c in clients if "pid" in c}
+
+            # 1. Rastrear padres en /proc/<pid>/stat para target_pid y ppid
+            candidate_pids = []
+            if target_pid:
+                try:
+                    candidate_pids.append(int(target_pid))
+                except (ValueError, TypeError):
+                    pass
+            candidate_pids.append(os.getppid())
+
+            for start_pid in candidate_pids:
+                p = start_pid
+                while p > 1:
+                    if p in client_pids:
+                        c = client_pids[p]
+                        return {
+                            "address": c.get("address", ""),
+                            "ws_id": c.get("workspace", {}).get("id", 1),
+                            "ws_name": c.get("workspace", {}).get("name", "1"),
+                            "class": c.get("class", "Terminal"),
+                            "title": c.get("title", ""),
+                            "pid": c.get("pid", start_pid)
+                        }
+                    try:
+                        with open(f"/proc/{p}/stat") as f:
+                            p = int(f.read().split()[3])
+                    except Exception:
+                        break
+
+        # 2. Fallback: activewindow
+        res = subprocess.run(["hyprctl", "activewindow", "-j"], capture_output=True, text=True)
+        if res.returncode == 0 and res.stdout.strip():
+            data = json.loads(res.stdout)
+            if data and isinstance(data, dict) and data.get("address"):
+                return {
+                    "address": data.get("address", ""),
+                    "ws_id": data.get("workspace", {}).get("id", 1),
+                    "ws_name": data.get("workspace", {}).get("name", "1"),
+                    "class": data.get("class", "Terminal"),
+                    "title": data.get("title", ""),
+                    "pid": data.get("pid", 0)
+                }
     except Exception:
         pass
     return {
@@ -40,15 +75,23 @@ def get_hyprland_window():
     }
 
 
-def get_project_name():
-    """Obtiene el nombre del repositorio git o directorio actual."""
+def get_project_name(target_pid=None):
+    """Obtiene el nombre del repositorio git o directorio del agente."""
+    cwd = None
+    if target_pid:
+        try:
+            cwd = os.readlink(f"/proc/{int(target_pid)}/cwd")
+        except Exception:
+            pass
+    if not cwd:
+        cwd = os.getcwd()
     try:
-        res = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+        res = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=cwd, capture_output=True, text=True)
         if res.returncode == 0 and res.stdout.strip():
             return Path(res.stdout.strip()).name
     except Exception:
         pass
-    return Path(os.getcwd()).name
+    return Path(cwd).name
 
 
 def send_quickshell_ipc(agent_data):
@@ -103,7 +146,7 @@ def send_desktop_notification(agent_data):
 
 
 def build_agent_data(name="Agente", status="Completado", task=None, duration="",
-                     address="", ws=1, terminal="Terminal"):
+                     address="", ws=1, terminal="Terminal", target_pid=None):
     """Construye el diccionario de datos del agente según el contrato de datos."""
     return {
         "id": f"agent-{int(time.time() * 1000)}",
@@ -112,21 +155,21 @@ def build_agent_data(name="Agente", status="Completado", task=None, duration="",
         "status": status,
         "address": address,
         "ws": ws,
-        "dir": get_project_name(),
+        "dir": get_project_name(target_pid),
         "duration": duration,
         "terminal": terminal,
     }
 
 
 def notify_agent(name="Agente", status="Completado", task=None, duration="",
-                 custom_address=None, custom_ws=None):
+                 custom_address=None, custom_ws=None, target_pid=None):
     """Registra y notifica la finalización de un agente."""
-    win = get_hyprland_window()
+    win = get_hyprland_window(target_pid=target_pid)
     address = custom_address if custom_address else win["address"]
-    ws = custom_ws if custom_ws else win["ws_id"]
+    ws = custom_ws if custom_ws is not None else win["ws_id"]
 
     agent_data = build_agent_data(name=name, status=status, task=task, duration=duration,
-                                  address=address, ws=ws, terminal=win["class"])
+                                  address=address, ws=ws, terminal=win["class"], target_pid=target_pid)
 
     # 1. Registrar en Quickshell (píldora interactiva en la barra)
     send_quickshell_ipc(agent_data)
@@ -167,6 +210,7 @@ def build_parser():
     parser.add_argument("--duration", "-d", default="", help="Duración de la tarea")
     parser.add_argument("--address", "-a", default=None, help="Dirección de ventana Hyprland")
     parser.add_argument("--ws", "-w", default=None, type=int, help="ID de Workspace")
+    parser.add_argument("--pid", "-p", default=None, type=int, help="PID del proceso del agente")
 
     sub = parser.add_subparsers(dest="subcommand")
 
@@ -184,6 +228,7 @@ def build_parser():
     npx.add_argument("--duration", "-d", default="", help="Duración de la tarea")
     npx.add_argument("--address", "-a", default=None, help="Dirección de ventana Hyprland")
     npx.add_argument("--ws", "-w", default=None, type=int, help="ID de Workspace")
+    npx.add_argument("--pid", "-p", default=None, type=int, help="PID del proceso del agente")
 
     # test subcommand
     sub.add_parser("test", help="Probar notificación y píldora de agente")
@@ -228,7 +273,8 @@ def main():
             task=args.task,
             duration=args.duration,
             custom_address=args.address,
-            custom_ws=args.ws
+            custom_ws=args.ws,
+            target_pid=args.pid
         )
 
 

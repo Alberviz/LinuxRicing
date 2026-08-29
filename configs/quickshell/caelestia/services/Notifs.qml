@@ -38,9 +38,12 @@ Singleton {
         return true;
     }
 
-    function triggerAgentNotify(name: string, task: string, ws: int, addr: string): void {
+    function triggerAgentNotify(name: string, task: string, pid: string): void {
+        const cmd = ["agent-notify", "notify", "-n", name, "-t", task];
+        if (pid && pid.length > 0 && pid !== "0")
+            cmd.push("-p", pid);
         agentNotifyProcComp.createObject(root, {
-            command: ["agent-notify", "notify", "-n", name, "-t", task, "-w", String(ws), "-a", addr || "0x1"],
+            command: cmd,
             running: true
         });
     }
@@ -121,35 +124,9 @@ Singleton {
 
                 const name = (app.includes("claude") || sum.includes("claude")) ? "Claude" : "Antigravity";
                 const taskText = notif.body || notif.summary || "Tarea completada";
+                const pid = notif.hints?.["sender-pid"] ?? notif.hints?.pid ?? "";
 
-                let targetAddr = "";
-                let targetWs = 1;
-                const pid = notif.hints?.["sender-pid"] ?? notif.hints?.pid;
-                if (pid) {
-                    const tlByPid = Hyprland.toplevels.values.find(tl => tl.pid === Number(pid));
-                    if (tlByPid) {
-                        targetAddr = tlByPid.address;
-                        targetWs = tlByPid.workspace?.id || 1;
-                    }
-                }
-
-                if (!targetAddr) {
-                    const terminals = Hyprland.toplevels.values.filter(tl => {
-                        const cls = (tl.class || "").toLowerCase();
-                        return cls.includes("kitty") || cls.includes("foot") || cls.includes("alacritty") || cls.includes("wezterm") || cls.includes("terminal");
-                    });
-                    if (terminals.length > 0) {
-                        const activeTl = Hyprland.activeToplevel;
-                        const activeIsTerm = terminals.find(t => t.address === activeTl?.address);
-                        const chosen = activeIsTerm || terminals[0];
-                        targetAddr = chosen.address;
-                        targetWs = chosen.workspace?.id || Hypr.activeWsId || 1;
-                    } else {
-                        targetWs = Hypr.activeWsId || 1;
-                    }
-                }
-
-                root.triggerAgentNotify(name, taskText, targetWs, targetAddr);
+                root.triggerAgentNotify(name, taskText, String(pid));
                 return;
             }
 
