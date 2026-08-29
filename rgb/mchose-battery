@@ -310,19 +310,35 @@ def get_akko_keyboard_battery():
                         resp83 = bytearray(65)
                         fcntl.ioctl(fd, HIDIOCGFEATURE(65), resp83)
                         if resp83[1] == 0x83 and 0 < resp83[2] <= 100:
-                            bat = resp83[2]
+                            raw_bat = resp83[2]
                             st_code = resp83[3]
                             is_chg = (st_code == 1)
                             st = "Cargando" if is_chg else "Descargando"
-                            if is_chg and last_bat and 0 < last_bat <= 100:
-                                # Avoid jitter / temporary ADC dips while charging
-                                if abs(bat - last_bat) <= 5:
-                                    bat = max(last_bat, bat)
+
+                            last_st = cache.get("akko_status")
+                            last_b = cache.get("akko_battery")
+                            last_ema = cache.get("akko_battery_ema")
+
+                            if last_st != st or last_b is None or last_ema is None:
+                                ema = float(raw_bat)
+                                filtered_bat = raw_bat
+                            else:
+                                alpha = 0.3
+                                ema = (1.0 - alpha) * float(last_ema) + alpha * float(raw_bat)
+                                cand = int(round(ema))
+                                if is_chg:
+                                    filtered_bat = max(int(last_b), cand)
+                                else:
+                                    filtered_bat = min(int(last_b), cand)
+
+                            filtered_bat = max(1, min(100, filtered_bat))
                             os.close(fd)
-                            cache["akko_battery"] = bat
+                            cache["akko_battery"] = filtered_bat
+                            cache["akko_battery_raw"] = raw_bat
+                            cache["akko_battery_ema"] = round(ema, 2)
                             cache["akko_status"] = st
                             save_cache(cache)
-                            return bat, st
+                            return filtered_bat, st
                 os.close(fd)
             except Exception:
                 pass
