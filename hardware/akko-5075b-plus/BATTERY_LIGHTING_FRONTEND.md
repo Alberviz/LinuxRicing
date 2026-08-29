@@ -37,17 +37,24 @@ retroiluminación de teclas + tira lateral.
 
 ### Efectos
 
-**Retroiluminación al cargar** (`charging.backlight`):
+**Retroiluminación al cargar** (`charging.backlight`) — solo modos de firmware de
+una escritura:
 
-| clave | etiqueta | idea de implementación (pendiente) |
+| clave | etiqueta | implementación |
 | --- | --- | --- |
-| `theme` | Tema | color sólido del tema (0x07 modo 0x01) — discreto |
-| `fill` | Barra de carga | relleno por filas de abajo arriba según `%` usando el lienzo tecla a tecla (0x07 modo 0x0D + 0x0C); se re-renderiza en cada tick, **sin animación rápida** (la radio 2.4 GHz se corrompe si se escribe muy seguido — ver Base de Datos de Errores) |
-| `breathing` | Respiración | respiración en color según nivel de batería (rojo→ámbar→verde) |
-| `stream` | Flujo | *steady stream* por firmware (0x07 modo 0x05) en color de batería |
+| `theme` | Tema | color sólido del tema (`0x07` modo `1`) — discreto |
+| `wave` / `wave_battery` | Ola | `0x07` modo `4`, animada por el teclado, en color de tema o de batería |
+| `breathing_battery` | Respiración (batería) | `0x07` modo `2` en color según nivel (rojo→ámbar→verde) |
+| `breathing` | Respiración | `0x07` modo `2` en color de tema |
 
-**Tira lateral al cargar** (`charging.sidestrip`): `stream_battery` (defecto,
-comportamiento actual de `sync-rgb.py`), `breathing`, `solid`, `none`.
+> El relleno tecla a tecla (`fill` / `battery_meter`) **se retiró**: el lienzo
+> per-key congela el teclado ~1 s por pasada sobre 2.4 GHz. Ver `PROTOCOL.md` §C.
+
+**Tira lateral al cargar** (`charging.sidestrip`): `stream_battery` (defecto),
+`breathing` / `breathing_battery`, `solid_theme`, `none`.
+
+Mientras carga, el daemon reescribe el efecto cuando el nivel cruza un escalón de
+10 % para que el gradiente de color avance (1 paquete de firmware, sin congelar).
 
 **Batería baja** (`low_battery.backlight` y `.sidestrip`): `red_breathing`
 (defecto), `red_static`, `none`.
@@ -69,8 +76,9 @@ Diseño completo en
 2. ~~Reglas escritas a fuego en `mchose-battery` / `sync-rgb.py`~~ — el motor
    lee el perfil editable `~/.config/caelestia/battery-lighting.json`
    (con migración de los antiguos `akko-config.json` / `mchose-config.json`).
-3. Renderer del efecto `fill` / medidor tecla a tecla — implementado
-   (`build_akko_packets`, mapa `AKKO_KEY_ROWS`). **PENDIENTE:** validar el mapa
-   de coordenadas contra hardware real.
+3. ~~Renderer del efecto `fill` / medidor tecla a tecla~~ — **retirado.** El
+   lienzo per-key congela el teclado ~1 s por pasada sobre 2.4 GHz; los efectos
+   del teclado son ahora solo modos de firmware de una escritura (`wave`,
+   `breathing_battery`, …). Ver `PROTOCOL.md` §C.
 4. Botón «Probar» en `AkkoCard` — Fase 2 (frontend); el motor ya expone
    `battery-lighting --apply <perfil>` para el disparo inmediato.

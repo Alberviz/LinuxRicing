@@ -62,6 +62,14 @@ Ejemplos reales verificados a ojo (de `captures/akko-2.4g-2.4ghz-working.pcapng`
 | Azul `0,0,255` | `07 01 04 04 08 00 00 ff e8` | `08 01 04 04 08 00 00 ff e7` |
 | Blanco `255,255,255` | `07 01 04 04 08 ff ff ff ea` | `08 01 04 04 08 ff ff ff e9` |
 
+> **Wake RF antes de escribir (solo 2.4 GHz, `PID 0x4011`).** Una escritura
+> `0x07`/`0x08` sobre un enlace RF "frío" se pierde en silencio y el backlight se
+> queda **congelado en blanco**. Antes de la escritura de color hay que mandar
+> 2–3 keepalives `0xF7` (Feature report de 64 bytes, `byte[0]=0xF7`, sin checksum
+> — es lo que hace el driver oficial cada ~2 s). Por cable (`PID 0x4015`) es
+> innecesario. Implementado en `rgb/sync-rgb.py`, `rgb/akko-rgb`,
+> `rgb/rgb-notify-flash` y `rgb/battery-lighting` (`_akko_rf_wake`).
+
 ### Catálogo de modos (`byte[1]`)
 
 - **Teclas (`0x07`):** `0` Off · `1` AlwaysOn (sólido) · `2` Breath · `3` Neon ·
@@ -73,6 +81,16 @@ Ejemplos reales verificados a ojo (de `captures/akko-2.4g-2.4ghz-working.pcapng`
 - **Tira lateral (`0x08`):** `0` Off · `1` AlwaysOn · `2` Breath · `3` Neon ·
   `4` Wave · `5` Snake (steady stream) · `20` MusicFollow3 · `21` ScreenColor
   (ambilight) · `22` MusicFollow2.
+
+> ⚠️ **El modo `5` NO es el mismo en las dos zonas.** En la tira lateral (`0x08`)
+> es un *flujo* continuo; en las teclas (`0x07`) es *Ripple*, reactivo, y no se
+> ve nada sin pulsar teclas. El efecto "flujo/stream" solo tiene sentido en la
+> tira. En las teclas, para algo animado usar `4` Wave.
+>
+> **El stack de Linux solo usa efectos de una sola escritura** (`1` sólido,
+> `2` Breath, `4` Wave). El lienzo per-key (modo `13`/`0x0D` + `0x0C`, §C) **no
+> se usa**: por 2.4 GHz congela el teclado ~1 s por pasada y el firmware del
+> 5075B no conmuta a ese modo de forma fiable.
 
 ## B. Telemetría de batería (`0x83`)
 
@@ -98,11 +116,15 @@ Por cable (`PID 0x4015`) mientras carga `byte[1]` puede volver `0` (regla: si `c
 > flag de carga está en `byte[3]`, no `byte[2]`. Es la causa del bug del "66 %" en
 > Linux. Ver [`USB_FINDINGS_2.4G.md`](USB_FINDINGS_2.4G.md) §"Detección de batería".
 
-## C. Per-key / lienzo (`0x07` modo `0x0D` + `0x0C`)
+## C. Per-key / lienzo (`0x07` modo `0x0D` + `0x0C`) — NO usado
 
-> ⚠️ **Solo estado estático.** Refrescar el lienzo por 2.4 GHz deja el teclado sin
-> responder ~0.5–1 s por pasada. Por cable no hay contención de radio. Detalle y
-> PoC en [`USB_FINDINGS_2.4G.md`](USB_FINDINGS_2.4G.md).
+> ⚠️ **El stack de Linux ya no usa el lienzo per-key.** Refrescar el lienzo por
+> 2.4 GHz deja el teclado sin responder ~0.5–1 s por pasada y el firmware del
+> 5075B no conmuta a modo lienzo de forma fiable. Se retiró de `rgb/sync-rgb.py`
+> y `rgb/battery-lighting` (efectos `battery_meter_keys` / `battery_meter_rows` /
+> `battery_meter`). Se documenta aquí por si sirve por **cable** en el futuro,
+> donde no hay contención de radio. PoC en
+> [`USB_FINDINGS_2.4G.md`](USB_FINDINGS_2.4G.md).
 
 1. **Entrar en modo lienzo:** `0x07` con `byte[1]=0x0D`, `byte[2]=0x04`,
    `byte[3]=0x04`, resto `0x00`, checksum en `byte[8]`.
@@ -130,19 +152,29 @@ Por cable (`PID 0x4015`) mientras carga `byte[1]` puede volver `0` (regla: si `c
    - ZXCV `Z..M`: `[10,16,22,28,34,40,46,52,58,64]`
    - Fila inferior: `[11,17,23,29,35,41,47,53,59]`
 
-   > **PENDIENTE:** validar este mapa contra hardware real (lo usa
-   > `build_akko_packets` / `AKKO_KEY_ROWS` en `rgb/battery-lighting`).
+   > **PENDIENTE:** mapa sin validar contra hardware real; solo relevante si
+   > algún día se reactiva el lienzo por cable.
 
-## D. Iluminación reactiva a batería (tira lateral)
+## D. Iluminación reactiva a batería
 
 Ya no está escrita a fuego: la gobierna el daemon `rgb/battery-lighting`
 (`systemd/battery-lighting.service`) desde `~/.config/caelestia/battery-lighting.json`
-(`reactive_enabled`, umbrales, colores, efectos). Comportamiento por defecto:
+(reglas: origen, disparador, acciones con efecto por zona). Todos los efectos del
+teclado son **modos de firmware de una sola escritura** (`_AKKO_EFFECTS` en el
+daemon):
 
-- **Normal (> 20 %):** modo `0x01` con el color acento del tema.
-- **Batería baja (≤ 20 %, sin cargar):** modo `0x01` en rojo puro `255,0,0`.
-- **Cargando:** modo `0x05` (flujo) a velocidad mínima con gradiente HSV según nivel
-  (`≤15 %` rojo → ámbar → amarillo → lima → `100 %` verde).
+| efecto | teclas `0x07` | tira `0x08` |
+|---|---|---|
+| `theme` / `solid_theme` | modo `1` color de tema | modo `1` color de tema |
+| `breathing` / `breathing_battery` | modo `2` (tema / color de batería) | modo `2` |
+| `wave` / `wave_battery` | modo `4` (tema / color de batería) | — |
+| `stream_battery` | — (modo 5 en teclas es Ripple) | modo `5` flujo, color de batería |
+| `red_static` / `red_breathing` | modo `1` / `2` en rojo `255,0,0` | ídem |
+
+- **Color de batería:** `≤15 %` rojo → ámbar → lima → `100 %` verde (HSV).
+- **Mientras carga**, el daemon reescribe el efecto cuando el nivel cruza un
+  escalón de 10 % para que el gradiente avance (1 paquete de firmware, sin
+  congelar el teclado).
 
 ## E. Palanca / opciones (`0x86`)
 
