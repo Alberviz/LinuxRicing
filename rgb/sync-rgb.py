@@ -45,14 +45,14 @@ DEFAULT_RGB_CONFIG = {
     },
     "device_profiles": {
         "akko_keyboard": {
-            "keys_mode": "theme",
-            "keys_fixed_color": "d8bde7",
-            "sidestrip_mode": "stream_battery",
-            "sidestrip_fixed_color": "d8bde7",
+            "keys": {"animation": "solid", "colour": {"source": "theme", "hex": "d8bde7"},
+                     "speed": 3, "direction": "right"},
+            "sidestrip": {"animation": "snake", "colour": {"source": "battery", "hex": "d8bde7"},
+                          "speed": 1, "direction": "right"},
         },
         "mchose_base": {
-            "mode": "theme",
-            "fixed_color": "d8bde7",
+            "ring": {"animation": "solid", "colour": {"source": "theme", "hex": "d8bde7"},
+                     "speed": 3, "direction": "right"},
         },
         "openrgb": {
             "mode": "theme",
@@ -289,6 +289,91 @@ def get_akko_battery_level_color(bat_level: int | None) -> tuple[int, int, int]:
     return (int(nr * 255), int(ng * 255), int(nb * 255))
 
 
+# --- Modelo de efecto Akko (duplicado a propósito de rgb/battery-lighting;
+#     ver docs/AKKO_EFFECTS_MODEL_HANDOFF.md) --------------------------------
+_AKKO_ANIM_BYTE = {
+    "off": 0, "solid": 1, "breathing": 2, "neon": 3, "wave": 4, "ripple": 5,
+    "raindrop": 6, "snake": 7, "press_action": 8, "converge": 9, "sine_wave": 10,
+    "kaleidoscope": 11, "line_wave": 12, "laser": 14, "circle_wave": 15,
+    "dazzing": 16, "meteor": 18, "train": 23, "fireworks": 24,
+}
+_AKKO_SIDESTRIP_ANIMS = {"off", "solid", "breathing", "neon", "wave", "snake"}
+_AKKO_DIRECTIONAL = {"wave"}
+_AKKO_DIR_IDX = {"right": 0, "left": 1, "down": 2, "up": 3}
+_AKKO_EFFECT_ALIASES = {
+    "theme": {"animation": "solid", "colour": {"source": "theme"}},
+    "fixed": {"animation": "solid", "colour": {"source": "fixed"}},
+    "battery_color": {"animation": "solid", "colour": {"source": "battery"}},
+    "breathing": {"animation": "breathing", "colour": {"source": "theme"}},
+    "breathing_battery": {"animation": "breathing", "colour": {"source": "battery"}},
+    "theme_breathing": {"animation": "breathing", "colour": {"source": "theme"}},
+    "battery_breathing": {"animation": "breathing", "colour": {"source": "battery"}},
+    "hardware_battery": {"animation": "hardware_battery", "colour": {"source": "battery"}},
+    "wave": {"animation": "wave", "colour": {"source": "theme"}},
+    "wave_battery": {"animation": "wave", "colour": {"source": "battery"}},
+    "stream": {"animation": "snake", "colour": {"source": "battery"}},
+    "stream_battery": {"animation": "snake", "colour": {"source": "battery"}},
+    "reactive_press": {"animation": "press_action", "colour": {"source": "theme"}},
+    "press_action": {"animation": "press_action", "colour": {"source": "theme"}},
+    "red_static": {"animation": "solid", "colour": {"source": "fixed", "hex": "ff0000"}},
+    "red_breathing": {"animation": "breathing", "colour": {"source": "fixed", "hex": "ff0000"}},
+    "off": {"animation": "off", "colour": {"source": "theme"}},
+    "none": {"animation": "off", "colour": {"source": "theme"}},
+}
+
+
+def _akko_norm_effect(eff):
+    if isinstance(eff, str):
+        eff = _AKKO_EFFECT_ALIASES.get(eff, {"animation": "off"})
+    eff = eff if isinstance(eff, dict) else {}
+    out = {"animation": eff.get("animation", "solid"),
+           "speed": eff.get("speed", 3),
+           "direction": eff.get("direction", "right")}
+    c = eff.get("colour") or {}
+    out["colour"] = {"source": c.get("source", "theme"),
+                     "hex": (c.get("hex") or "d8bde7").lstrip("#").lower()}
+    if out["colour"]["source"] not in ("theme", "fixed", "battery"):
+        out["colour"]["source"] = "theme"
+    try:
+        out["speed"] = max(1, min(5, int(out["speed"])))
+    except (TypeError, ValueError):
+        out["speed"] = 3
+    if out["direction"] not in _AKKO_DIR_IDX:
+        out["direction"] = "right"
+    if out["animation"] not in _AKKO_ANIM_BYTE and out["animation"] != "hardware_battery":
+        out["animation"] = "off"
+    return out
+
+
+def _akko_effect_buf(opcode: int, eff: dict, theme_rgb, bat_rgb, bright: int = 4) -> bytearray:
+    anim = eff["animation"]
+    if opcode == 0x08 and anim not in _AKKO_SIDESTRIP_ANIMS:
+        anim = "solid"
+    mode = _AKKO_ANIM_BYTE.get(anim, 1)
+    src = eff["colour"]["source"]
+    if src == "fixed":
+        h = eff["colour"]["hex"] or "d8bde7"
+        rgb = (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+    elif src == "battery":
+        rgb = bat_rgb
+    else:
+        rgb = theme_rgb
+    sp = max(1, min(5, eff["speed"]))
+    speed_byte = (5 - sp) if opcode == 0x07 else (sp - 1)
+    flag = 0x08
+    if anim in _AKKO_DIRECTIONAL:
+        flag = 0x08 | (_AKKO_DIR_IDX.get(eff["direction"], 0) << 4)
+    buf = bytearray(64)
+    buf[0] = opcode
+    buf[1] = mode
+    buf[2] = speed_byte
+    buf[3] = bright
+    buf[4] = flag
+    buf[5], buf[6], buf[7] = rgb
+    buf[8] = _akko_checksum8(buf)
+    return buf
+
+
 def sync_openrgb(r: int, g: int, b: int, argb_zones: bool = False, profile: dict | None = None):
     """Set PC components (Motherboard, RAM, Fans) in OpenRGB via SDK Server, skipping Akko to avoid USB collisions.
 
@@ -378,9 +463,9 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4, throttle: bo
     Set Akko 5075B Plus Keyboard Backlight (Opcode 0x07) and Side-Strip (Opcode 0x08)
     via direct USB HID Feature Reports on Interface 2. Sólo modos de firmware de
     una escritura (el lienzo per-key se retiró: congela el teclado por 2.4 GHz).
-    keys_mode: theme, fixed, battery_color, breathing_battery, breathing, wave,
-    reactive_press. sidestrip_mode: theme, fixed, battery_color, stream_battery,
-    breathing_battery, breathing, off.
+    El perfil trae `keys` y `sidestrip` como objetos de efecto
+    {animation, colour:{source,hex}, speed, direction}; también acepta el perfil
+    antiguo {keys_mode, keys_fixed_color, sidestrip_mode, sidestrip_fixed_color}.
     """
     usb_nodes, wl_nodes = [], []
     for h in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
@@ -407,8 +492,6 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4, throttle: bo
         log("Akko Keyboard: No HID node found")
         return
 
-    AKKO_FLAGS_CUSTOM_RGB = 0x08
-
     alert_zones = battery_alert_zones()
     skip_sidestrip = "akko_keyboard:sidestrip" in alert_zones
     skip_keys = "akko_keyboard:keys" in alert_zones
@@ -417,62 +500,27 @@ def sync_akko_keyboard(r: int, g: int, b: int, brightness: int = 4, throttle: bo
         return
 
     profile = profile or {}
-    keys_mode = profile.get("keys_mode", "theme")
-    sidestrip_mode = profile.get("sidestrip_mode", "stream_battery")
+
+    def _profile_effect(new_key, mode_key, fixed_key, default_mode):
+        if new_key in profile:
+            return profile[new_key]
+        m = profile.get(mode_key, default_mode)
+        if m == "fixed":
+            return {"animation": "solid",
+                    "colour": {"source": "fixed", "hex": profile.get(fixed_key, "d8bde7")}}
+        return m
+
+    keys_eff = _akko_norm_effect(_profile_effect("keys", "keys_mode", "keys_fixed_color", "theme"))
+    side_eff = _akko_norm_effect(_profile_effect("sidestrip", "sidestrip_mode",
+                                                 "sidestrip_fixed_color", "stream_battery"))
 
     akko_bat, akko_st = get_cached_battery("akko")
-    bat_r, bat_g, bat_b = get_akko_battery_level_color(akko_bat)
+    bat_rgb = get_akko_battery_level_color(akko_bat)
 
-    # 1. Main Backlight (LED = Opcode 0x07) — modos de firmware de una escritura
-    led = bytearray(64)
-    led[0] = 0x07
-    led[3] = brightness
-    led[4] = AKKO_FLAGS_CUSTOM_RGB
-
-    if keys_mode == "fixed":
-        kr, kg, kb = hex_to_rgb(profile.get("keys_fixed_color", "d8bde7"))
-        led[1] = 0x01; led[2] = 0x04; led[5], led[6], led[7] = kr, kg, kb
-    elif keys_mode == "battery_color":
-        led[1] = 0x01; led[2] = 0x04; led[5], led[6], led[7] = bat_r, bat_g, bat_b
-    elif keys_mode == "breathing_battery":
-        led[1] = 0x02; led[2] = 0x02; led[5], led[6], led[7] = bat_r, bat_g, bat_b
-    elif keys_mode == "breathing":
-        led[1] = 0x02; led[2] = 0x02; led[5], led[6], led[7] = r, g, b
-    elif keys_mode in ("wave", "wave_battery"):
-        wr, wg, wb = (bat_r, bat_g, bat_b) if keys_mode == "wave_battery" else (r, g, b)
-        led[1] = 0x04; led[2] = 0x02; led[5], led[6], led[7] = wr, wg, wb
-    elif keys_mode == "reactive_press":
-        led[1] = 0x08; led[2] = 0x03; led[5], led[6], led[7] = r, g, b
-    else:  # theme
-        led[1] = 0x01; led[2] = 0x04; led[5], led[6], led[7] = r, g, b
-
-    led[8] = _akko_checksum8(led)
-    raw_led = bytearray([0x00]) + led
-
-    # 2. Side-Strip (SLED = Opcode 0x08)
-    sled = bytearray(64)
-    sled[0] = 0x08
-    sled[3] = brightness
-    sled[4] = AKKO_FLAGS_CUSTOM_RGB
-
-    if sidestrip_mode == "off":
-        sled[1] = 0x00; sled[2] = 0x00; sled[5], sled[6], sled[7] = 0, 0, 0
-    elif sidestrip_mode == "fixed":
-        sr, sg, sb = hex_to_rgb(profile.get("sidestrip_fixed_color", "d8bde7"))
-        sled[1] = 0x01; sled[2] = 0x04; sled[5], sled[6], sled[7] = sr, sg, sb
-    elif sidestrip_mode == "battery_color":
-        sled[1] = 0x01; sled[2] = 0x04; sled[5], sled[6], sled[7] = bat_r, bat_g, bat_b
-    elif sidestrip_mode == "stream_battery":
-        sled[1] = 0x05; sled[2] = 0x00; sled[5], sled[6], sled[7] = bat_r, bat_g, bat_b
-    elif sidestrip_mode == "breathing_battery":
-        sled[1] = 0x02; sled[2] = 0x02; sled[5], sled[6], sled[7] = bat_r, bat_g, bat_b
-    elif sidestrip_mode == "breathing":
-        sled[1] = 0x02; sled[2] = 0x02; sled[5], sled[6], sled[7] = r, g, b
-    else:  # theme
-        sled[1] = 0x01; sled[2] = 0x04; sled[5], sled[6], sled[7] = r, g, b
-
-    sled[8] = _akko_checksum8(sled)
-    raw_sled = bytearray([0x00]) + sled
+    raw_led = bytearray([0x00]) + _akko_effect_buf(0x07, keys_eff, (r, g, b), bat_rgb, brightness)
+    raw_sled = bytearray([0x00]) + _akko_effect_buf(0x08, side_eff, (r, g, b), bat_rgb, brightness)
+    keys_mode = keys_eff["animation"]
+    sidestrip_mode = side_eff["animation"]
 
     lock_fd = None
     try:
@@ -547,28 +595,34 @@ def sync_mchose_base(r: int, g: int, b: int, profile: dict | None = None):
         return
 
     profile = profile or {}
-    bmode = profile.get("mode", "theme")
 
     k7_bat, _ = get_cached_battery("k7")
     bat_r, bat_g, bat_b = get_akko_battery_level_color(k7_bat)
 
-    mode_byte = 0x06
-    speed_byte = 0x00
-    br, bg, bb = r, g, b
-
-    if bmode == "fixed":
-        br, bg, bb = hex_to_rgb(profile.get("fixed_color", "d8bde7"))
-        mode_byte = 0x06
-    elif bmode == "battery_color":
+    # perfil nuevo {ring: <efecto>} o antiguo {mode, fixed_color}
+    _MCHOSE_ANIM_BYTE = {"solid": 0x06, "breathing": 0x02, "wave": 0x07,
+                         "hardware_battery": 0x01}
+    if "ring" in profile:
+        eff = _akko_norm_effect(profile["ring"])
+    else:
+        m = profile.get("mode", "theme")
+        if m == "fixed":
+            eff = _akko_norm_effect({"animation": "solid",
+                                     "colour": {"source": "fixed",
+                                                "hex": profile.get("fixed_color", "d8bde7")}})
+        else:
+            eff = _akko_norm_effect(m)
+    bmode = eff["animation"]
+    mode_byte = _MCHOSE_ANIM_BYTE.get(bmode, 0x06)
+    speed_byte = max(0, min(4, eff["speed"] - 1))
+    src = eff["colour"]["source"]
+    if src == "fixed":
+        br, bg, bb = hex_to_rgb(eff["colour"]["hex"] or "d8bde7")
+    elif src == "battery":
         br, bg, bb = bat_r, bat_g, bat_b
-        mode_byte = 0x06
-    elif bmode == "theme_breathing":
-        mode_byte = 0x02
-        speed_byte = 0x01
+    else:
         br, bg, bb = r, g, b
-    elif bmode == "wave":
-        mode_byte = 0x07
-        speed_byte = 0x03
+    if bmode == "wave":
         br, bg, bb = 255, 59, 0
 
     payload = [
