@@ -20,8 +20,10 @@ Singleton {
     property string state: "idle"
     // Modo de invocación del ciclo en curso: centro | barra
     property string mode: "centro"
-    // Último texto transcrito de Alberto (para el bocadillo)
+    // Último texto transcrito de Alberto
     property string transcript: ""
+    // Última respuesta de Aurora, al completo (para el bocadillo del modo principal)
+    property string reply: ""
     // Acciones ejecutadas en el ciclo: [{icon, text}, ...]
     property var actions: []
     // Nivel de voz 0..1 (grabando y hablando), ya suavizado
@@ -67,6 +69,7 @@ Singleton {
                 root.mode = ev.mode;
             if (ev.value === "listening") {
                 root.transcript = "";
+                root.reply = "";
                 root.actions = [];
             }
             if (ev.value === "idle")
@@ -77,6 +80,9 @@ Singleton {
             break;
         case "transcript":
             root.transcript = ev.value;
+            break;
+        case "reply":
+            root.reply = ev.value;
             break;
         case "result":
             root.actions = ev.actions ?? [];

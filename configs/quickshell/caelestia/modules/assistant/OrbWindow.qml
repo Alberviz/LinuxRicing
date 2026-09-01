@@ -9,9 +9,9 @@ import qs.components.containers
 import qs.services
 import qs.modules.assistant
 
-// Modo centro: la forma de Aurora emerge del borde inferior de la pantalla
-// (queda medio oculta), con un resplandor suave detrás para darle cuerpo sin
-// oscurecer el resto. Layershell a pantalla completa, click-through.
+// Modo centro (conversación): la forma de Aurora nace como un punto en el
+// borde inferior y se abre hacia arriba. Se queda mientras dura la charla.
+// Layershell a pantalla completa, transparente y click-through.
 StyledWindow {
     id: win
 
@@ -37,28 +37,46 @@ StyledWindow {
         id: root
 
         anchors.fill: parent
-        opacity: win.visible ? 1 : 0
 
-        readonly property real box: 360
-        // Cuánto asoma la forma por encima del borde inferior.
-        readonly property real reveal: Aurora.active ? box * 0.62 : box * 0.42
+        readonly property real box: 340
+        // Fracción de la forma que asoma sobre el borde inferior.
+        readonly property real revealFrac: 0.58
 
-        Behavior on opacity {
+        // Se "abre" de punto a tamaño completo al aparecer.
+        property real bloom: 0
+        state: win.visible ? "open" : "closed"
+        states: [
+            State {
+                name: "open"
+                PropertyChanges {
+                    root.bloom: 1
+                }
+            },
+            State {
+                name: "closed"
+                PropertyChanges {
+                    root.bloom: 0
+                }
+            }
+        ]
+        transitions: Transition {
             NumberAnimation {
-                duration: 260
-                easing.type: Easing.OutQuad
+                property: "bloom"
+                duration: 460
+                easing.type: Easing.OutBack
+                easing.overshoot: 1.1
             }
         }
 
-        // Resplandor detrás de la forma, anclado abajo. No oscurece nada;
-        // solo un halo que sube desde el borde.
+        // Resplandor mínimo, pegado al borde inferior (a revisar en los mockups).
         Rectangle {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottom: parent.bottom
-            width: root.box * 3
+            width: root.box * 2.2
             height: width
-            anchors.bottomMargin: -height / 2 + root.reveal * 0.7
+            anchors.bottomMargin: -height * 0.62
             radius: width / 2
+            opacity: root.bloom
             gradient: Gradient {
                 orientation: Gradient.Vertical
                 GradientStop {
@@ -66,15 +84,11 @@ StyledWindow {
                     color: "transparent"
                 }
                 GradientStop {
-                    position: 0.5
-                    color: Qt.alpha(Aurora.accent, 0.10)
-                }
-                GradientStop {
                     position: 1
-                    color: Qt.alpha(Aurora.accent, 0.20)
+                    color: Qt.alpha(Aurora.accent, 0.16)
                 }
             }
-            scale: 0.9 + 0.15 * Aurora.amplitude
+            scale: 0.85 + 0.2 * Aurora.amplitude
             Behavior on scale {
                 NumberAnimation {
                     duration: 160
@@ -82,7 +96,7 @@ StyledWindow {
             }
         }
 
-        // Caja fija que emerge; la forma va centrada dentro.
+        // Caja anclada abajo; la forma nace de su base y crece hacia arriba.
         Item {
             id: orbBox
 
@@ -90,13 +104,13 @@ StyledWindow {
             height: root.box
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottom: parent.bottom
-            anchors.bottomMargin: root.reveal - height
+            anchors.bottomMargin: -height * (1 - root.revealFrac)
 
-            Behavior on anchors.bottomMargin {
-                NumberAnimation {
-                    duration: 340
-                    easing.type: Easing.OutCubic
-                }
+            transform: Scale {
+                origin.x: orbBox.width / 2
+                origin.y: orbBox.height * root.revealFrac
+                xScale: root.bloom
+                yScale: root.bloom
             }
 
             Orb {
@@ -107,18 +121,23 @@ StyledWindow {
             }
         }
 
-        // Bocadillo con lo último que dijo Alberto, sobre la forma.
+        // Bocadillo sobre la forma. Prioriza la RESPUESTA de Aurora al
+        // completo; mientras piensa, muestra lo que ha entendido.
         Rectangle {
+            id: bubble
+
+            readonly property string body: Aurora.reply || Aurora.transcript
+
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottom: parent.bottom
-            anchors.bottomMargin: root.reveal + 24
+            anchors.bottomMargin: root.box * root.revealFrac + 20
 
-            visible: label.text.length > 0 && Aurora.state !== "idle"
-            opacity: visible ? 1 : 0
-            width: Math.min(label.implicitWidth + Tokens.padding.large * 2, parent.width * 0.5)
+            visible: bubble.body.length > 0 && Aurora.state !== "idle" && Aurora.state !== "listening"
+            opacity: (visible ? 1 : 0) * root.bloom
+            width: Math.min(Math.max(label.implicitWidth + Tokens.padding.large * 2, 220), parent.width * 0.62)
             height: label.implicitHeight + Tokens.padding.medium * 2
-            radius: Tokens.rounding.full
-            color: Qt.alpha(Aurora.surface, 0.9)
+            radius: Tokens.rounding.large
+            color: Qt.alpha(Aurora.surface, 0.92)
 
             Behavior on opacity {
                 NumberAnimation {
@@ -132,11 +151,12 @@ StyledWindow {
                 anchors.centerIn: parent
                 width: parent.width - Tokens.padding.large * 2
                 horizontalAlignment: Text.AlignHCenter
-                elide: Text.ElideRight
-                maximumLineCount: 2
                 wrapMode: Text.WordWrap
-                text: Aurora.transcript
+                maximumLineCount: 8
+                elide: Text.ElideRight
+                text: bubble.body
                 color: Aurora.onSurface
+                opacity: Aurora.reply ? 1 : 0.6
                 font: Tokens.font.body.medium
             }
         }

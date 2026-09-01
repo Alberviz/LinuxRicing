@@ -1930,7 +1930,9 @@ Variants {
                 // 360° Concentric Gravitational Resonance Rings Canvas
                 Canvas {
                     id: radialCanvas
-                    anchors.fill: parent
+                    anchors.centerIn: parent
+                    width: 448
+                    height: 448
                     renderTarget: Canvas.FramebufferObject
 
                     property real orbitPhase: 0.0

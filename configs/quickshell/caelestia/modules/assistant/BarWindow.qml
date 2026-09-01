@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Shapes
 import Quickshell
 import Quickshell.Wayland
 import Caelestia.Config
@@ -9,10 +10,9 @@ import qs.components.containers
 import qs.services
 import qs.modules.assistant
 
-// Modo barra: un punto anclado al borde derecho de la barra de Caelestia (que
-// NO se toca). Al activarse, un conector con forma de píldora se estira sin
-// cortarse hasta la forma de Aurora; al terminar, cuelgan las pastillas de
-// acción. Capa propia click-through por encima de la barra.
+// Modo barra (un input): SOLO un cordón que brota del borde derecho de la
+// barra de Caelestia, se estira y late con la voz, y cuelga una pastilla por
+// acción. Sin esfera ni forma. Un input -> respuesta -> se recoge.
 StyledWindow {
     id: win
 
@@ -32,7 +32,7 @@ StyledWindow {
     implicitWidth: 380
     mask: Region {}
 
-    // Linger: tras terminar, deja las pastillas ~3 s antes de recogerse.
+    // Linger: deja las pastillas ~3 s tras terminar antes de recogerse.
     property bool linger: false
     Timer {
         id: lingerTimer
@@ -60,70 +60,67 @@ StyledWindow {
 
         anchors.fill: parent
         opacity: win.engaged ? 1 : 0
-
         Behavior on opacity {
             NumberAnimation {
                 duration: 200
             }
         }
 
-        // El ancla vive en el borde derecho de la barra de Caelestia (aquí sí
-        // hay contexto de pantalla para leer Tokens/Config).
-        readonly property real barWidth: Tokens.sizes.bar.innerWidth + Math.max(Tokens.padding.small, Config.border.thickness) * 2
-        readonly property real anchorX: barWidth + 4
-        readonly property real anchorY: height / 2
-        readonly property real shapeSize: Aurora.state === "idle" ? 12 : 30 + 14 * Aurora.amplitude
-        property real shapeX: win.engaged ? anchorX + 66 : anchorX
+        // El cordón arranca en el borde derecho de la barra de Caelestia.
+        readonly property real originX: Tokens.sizes.bar.innerWidth + Math.max(Tokens.padding.small, Config.border.thickness) * 2
+        readonly property real midY: height / 2
+        // Longitud del cordón: 0 recogido, se estira al activarse.
+        property real len: win.engaged ? (Aurora.state === "idle" ? 34 : 90) : 0
 
-        Behavior on shapeX {
+        Behavior on len {
             Anim {
                 type: Anim.Emphasized
             }
         }
 
-        // Punto ancla, siempre pegado al borde de la barra
+        // El cordón: una curva que sale de la barra, con grosor y onda que
+        // laten con la voz. Nunca se corta.
+        Shape {
+            anchors.fill: parent
+            preferredRendererType: Shape.CurveRenderer
+            asynchronous: true
+
+            ShapePath {
+                fillColor: "transparent"
+                strokeColor: Aurora.accent
+                strokeWidth: 3 + 4 * Aurora.amplitude
+                capStyle: ShapePath.RoundCap
+
+                startX: canvas.originX
+                startY: canvas.midY
+
+                PathQuad {
+                    x: canvas.originX + canvas.len
+                    y: canvas.midY
+                    controlX: canvas.originX + canvas.len * 0.5
+                    controlY: canvas.midY - (6 + 22 * Aurora.amplitude)
+                }
+            }
+        }
+
+        // Punta del cordón
         Rectangle {
-            width: 9
-            height: 9
-            radius: 4.5
-            x: canvas.anchorX - width / 2
-            y: canvas.anchorY - height / 2
+            width: 8 + 6 * Aurora.amplitude
+            height: width
+            radius: width / 2
+            x: canvas.originX + canvas.len - width / 2
+            y: canvas.midY - height / 2
             color: Aurora.accent
             opacity: win.engaged ? 1 : 0
         }
 
-        // Conector: píldora que se estira del ancla a la forma. Nunca se corta.
-        Rectangle {
-            height: 4 + 3 * Aurora.amplitude
-            radius: height / 2
-            x: canvas.anchorX
-            y: canvas.anchorY - height / 2
-            width: Math.max(0, canvas.shapeX - canvas.anchorX)
-            color: Aurora.accent
-            opacity: win.engaged ? 1 : 0
-        }
-
-        // La forma de Aurora
-        Orb {
-            id: drop
-
-            baseSize: canvas.shapeSize
-            state: Aurora.state
-            level: Aurora.amplitude
-            x: canvas.shapeX - implicitSize / 2
-            y: canvas.anchorY - implicitSize / 2
-        }
-
-        // Tallo + una pastilla por acción, colgando de la forma
+        // Tallo con una pastilla por acción, colgando de la punta.
         Column {
-            id: stem
-
-            x: canvas.shapeX + 24
-            y: canvas.anchorY - height / 2
+            x: canvas.originX + canvas.len + 20
+            y: canvas.midY - height / 2
             spacing: Tokens.spacing.small
             visible: (Aurora.state === "speaking" || win.linger) && Aurora.actions.length > 0
             opacity: visible ? 1 : 0
-
             Behavior on opacity {
                 NumberAnimation {
                     duration: 200
@@ -154,7 +151,6 @@ StyledWindow {
                             property: "opacity"
                             to: 1
                             duration: 220
-                            easing.type: Easing.OutQuad
                         }
                         Anim {
                             target: pill
@@ -166,7 +162,6 @@ StyledWindow {
 
                     Row {
                         id: pillRow
-
                         anchors.centerIn: parent
                         spacing: Tokens.spacing.small
 
