@@ -39,6 +39,14 @@ Lo que ya está hecho.
 
 *Los agentes añaden una línea por sesión, lo más reciente arriba.*
 
+- **2026-09-01 · Claude** — Brainstorming + arranque del **sistema solar binario** del
+  escritorio (sustituirá los widgets). Plan por versiones en `docs/sistema-solar-binario.md`
+  + maqueta `artifact 0cf6374a`. Mergeado `feat/aurora-voice-assistant` → `main`; ramas
+  `feat/sistema-solar` (paraguas) + `feat/sistema-solar-v1` (worktree dedicado). v1 WIP
+  commiteado (7d88b47): motor puro config-driven `Sim.js` + `SolarSystem.qml` +
+  `SolarSystemModel` (adaptadores cava/agentes/tareas) + capa `SolarSystemLayer`. Carga
+  limpia. Falta cerrar la disposición con Alberto y adaptadores de batería/LED. Además:
+  fix del recorte del anillo orbital de música (`Background.qml`, lienzo 448px).
 - **2026-09-01 · Claude** — Aurora → **Laura**: rename hecho en el código
   (`assistant/` completo + módulo Quickshell; sockets `laura-events.sock`;
   `laurad.py`, `laura.service`, `laura-toggle`). Daemon: conversación
