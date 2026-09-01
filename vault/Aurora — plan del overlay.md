@@ -62,8 +62,9 @@ Todo en la rama, `estado: funcional`.
 | Archivo | Estado |
 |---|---|
 | `Laura.qml` | **Singleton/servicio.** Lee el bus por `Socket` y expone `state`, `mode`, `amplitude` (suavizada), `transcript`, `reply`, `actions` + colores del tema (`accent`, `accentAlt`, `surface`, `onSurface`). **Se queda.** |
-| `Assistant.qml` | Entrada del módulo, registrada en `shell.qml`. **Se queda.** |
-| `Orb.qml`, `OrbWindow.qml`, `BarWindow.qml` | Las ventanas del overlay viejo (orbe + cordón). **Se borran en el rediseño.** |
+| `Assistant.qml` | Entrada del módulo, registrada en `shell.qml`. Instancia una sola `LauraOverlay` por pantalla. **Se queda.** |
+| `LauraOverlay.qml` | **NUEVO (rama `feat/laura-overlay-redesign`).** La ventana única del overlay: borde inferior iluminado + píldora de subtítulos. |
+| `Orb.qml`, `OrbWindow.qml`, `BarWindow.qml` | Overlay viejo (orbe + cordón). **Borrados.** |
 
 ### Lógica del ciclo (`cycle(mode, cancel)`)
 
@@ -76,7 +77,14 @@ Todo en la rama, `estado: funcional`.
   `_play_with_amplitude()` → corta al instante.
 - Historial podado a system + últimos 12 mensajes (Ollama corre con contexto 4096).
 
-## Diseño del overlay — DECIDIDO
+## Diseño del overlay — DECIDIDO · IMPLEMENTADO
+
+> **Estado (2026-09-01):** rehecho en `feat/laura-overlay-redesign`
+> (`LauraOverlay.qml`). El shell carga sin errores (`INFO: Configuration
+> Loaded`). Falta que Alberto reinstale el servicio como `laura` y ate el
+> atajo para verlo reaccionar en vivo (ver «Pendiente de Alberto»). El fondo
+> vistoso lo lleva otra sesión en `feat/sistema-solar`
+> ([[Sistema solar binario del escritorio]]).
 
 **Un solo modo** (se acaba la separación centro/barra). El overlay es **mínimo**:
 lo vistoso pasa en el **fondo del escritorio** (orbe de música / sistema que
@@ -147,10 +155,14 @@ completo, hasta ~8 líneas; mientras piensa, `transcript` atenuado).
 
 ## Pendiente de trabajo (agentes)
 
-- **Rehacer el overlay** con el estilo decidido (borde inferior + subtítulos):
-  una sola ventana unificada, borrar `Orb.qml` / `OrbWindow.qml` /
-  `BarWindow.qml`, terminar el rename en esos archivos nuevos. `laura-toggle`
-  puede dejar de aceptar argumento (o mantener `centro` por compatibilidad).
+- ~~**Rehacer el overlay** con el estilo decidido (borde inferior +
+  subtítulos)~~ — **HECHO** en `feat/laura-overlay-redesign`: `LauraOverlay.qml`
+  (ventana única), `Orb`/`OrbWindow`/`BarWindow` borrados, `laura-toggle` sin
+  argumento (manda `activate` a secas). Pendiente: merge a `main` + prueba en
+  vivo de Alberto.
+- **Limpieza pendiente:** `assistant/design/` conserva mockups del overlay viejo
+  marcados «DECIDIDO» (orbe líquido / punto+cordón) que ya no aplican. El
+  `cycle()` del daemon todavía tiene la rama `barra` muerta.
 - **Vault:** renombrar Aurora → Laura en las notas (Gemini). Backlog:
   [[Renombrar el asistente de voz de Aurora a Laura]].
 - **Cancelación de eco / push-to-talk** para que el modo conversación no coja

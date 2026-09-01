@@ -39,6 +39,16 @@ Lo que ya está hecho.
 
 *Los agentes añaden una línea por sesión, lo más reciente arriba.*
 
+- **2026-09-01 · Claude** — Overlay de **Laura** rehecho (rama
+  `feat/laura-overlay-redesign`): un solo modo, `LauraOverlay.qml` = borde
+  inferior de la pantalla iluminado (altura + intensidad siguen el estado:
+  amplitud del micro al escuchar, envolvente del TTS al hablar, deriva de tono
+  al pensar) + píldora translúcida de subtítulos (transcript + respuesta
+  completa). Borrados `Orb`/`OrbWindow`/`BarWindow`; `laura-toggle` sin
+  argumento. Shell recargado sin errores. Coordinado con la sesión del
+  [[Sistema solar binario del escritorio]] (fondo): reparto de archivos, merge
+  de `feat/aurora-voice-assistant` a `main`, backlog + roadmap del sistema
+  solar. Pendiente de Alberto: reinstalar el servicio como `laura`, atajo.
 - **2026-09-01 · Claude** — Aurora → **Laura**: rename hecho en el código
   (`assistant/` completo + módulo Quickshell; sockets `laura-events.sock`;
   `laurad.py`, `laura.service`, `laura-toggle`). Daemon: conversación
