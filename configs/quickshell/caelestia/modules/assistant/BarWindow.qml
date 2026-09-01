@@ -19,7 +19,7 @@ StyledWindow {
     required property ShellScreen modelData
 
     screen: modelData
-    name: "aurora-bar"
+    name: "laura-bar"
 
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.exclusionMode: ExclusionMode.Ignore
@@ -40,19 +40,19 @@ StyledWindow {
         onTriggered: win.linger = false
     }
     Connections {
-        target: Aurora
+        target: Laura
         function onStateChanged(): void {
-            if (Aurora.state === "idle" && Aurora.actions.length > 0) {
+            if (Laura.state === "idle" && Laura.actions.length > 0) {
                 win.linger = true;
                 lingerTimer.restart();
-            } else if (Aurora.state === "listening") {
+            } else if (Laura.state === "listening") {
                 win.linger = false;
                 lingerTimer.stop();
             }
         }
     }
 
-    readonly property bool engaged: Aurora.mode === "barra" && (Aurora.active || linger)
+    readonly property bool engaged: Laura.mode === "barra" && (Laura.active || linger)
     visible: engaged
 
     Item {
@@ -70,7 +70,7 @@ StyledWindow {
         readonly property real originX: Tokens.sizes.bar.innerWidth + Math.max(Tokens.padding.small, Config.border.thickness) * 2
         readonly property real midY: height / 2
         // Longitud del cordón: 0 recogido, se estira al activarse.
-        property real len: win.engaged ? (Aurora.state === "idle" ? 34 : 90) : 0
+        property real len: win.engaged ? (Laura.state === "idle" ? 34 : 90) : 0
 
         Behavior on len {
             Anim {
@@ -87,8 +87,8 @@ StyledWindow {
 
             ShapePath {
                 fillColor: "transparent"
-                strokeColor: Aurora.accent
-                strokeWidth: 3 + 4 * Aurora.amplitude
+                strokeColor: Laura.accent
+                strokeWidth: 3 + 4 * Laura.amplitude
                 capStyle: ShapePath.RoundCap
 
                 startX: canvas.originX
@@ -98,19 +98,19 @@ StyledWindow {
                     x: canvas.originX + canvas.len
                     y: canvas.midY
                     controlX: canvas.originX + canvas.len * 0.5
-                    controlY: canvas.midY - (6 + 22 * Aurora.amplitude)
+                    controlY: canvas.midY - (6 + 22 * Laura.amplitude)
                 }
             }
         }
 
         // Punta del cordón
         Rectangle {
-            width: 8 + 6 * Aurora.amplitude
+            width: 8 + 6 * Laura.amplitude
             height: width
             radius: width / 2
             x: canvas.originX + canvas.len - width / 2
             y: canvas.midY - height / 2
-            color: Aurora.accent
+            color: Laura.accent
             opacity: win.engaged ? 1 : 0
         }
 
@@ -119,7 +119,7 @@ StyledWindow {
             x: canvas.originX + canvas.len + 20
             y: canvas.midY - height / 2
             spacing: Tokens.spacing.small
-            visible: (Aurora.state === "speaking" || win.linger) && Aurora.actions.length > 0
+            visible: (Laura.state === "speaking" || win.linger) && Laura.actions.length > 0
             opacity: visible ? 1 : 0
             Behavior on opacity {
                 NumberAnimation {
@@ -128,7 +128,7 @@ StyledWindow {
             }
 
             Repeater {
-                model: Aurora.actions
+                model: Laura.actions
 
                 StyledRect {
                     id: pill

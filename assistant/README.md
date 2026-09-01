@@ -1,4 +1,4 @@
-# Aurora — asistente de voz local
+# Laura — asistente de voz local
 
 Estado: **v1** — atajo de teclado + voz + acciones básicas del sistema.
 Diseño completo y decisiones en `vault/Backlog/Asistente de voz con IA local.md`.
@@ -16,28 +16,28 @@ kokoro, sounddevice, soundfile; `playerctl`, `wpctl`, `ffmpeg`, `xdg-open`.
 1. **Arrancar el daemon** (deja la terminal abierta para ver el log):
 
    ```fish
-   ~/LinuxRicing/assistant/.venv/bin/python ~/LinuxRicing/assistant/aurorad.py
+   ~/LinuxRicing/assistant/.venv/bin/python ~/LinuxRicing/assistant/laurad.py
    ```
 
    O como servicio:
 
    ```fish
-   cp ~/LinuxRicing/assistant/aurora.service ~/.config/systemd/user/
+   cp ~/LinuxRicing/assistant/laura.service ~/.config/systemd/user/
    systemctl --user daemon-reload
-   systemctl --user enable --now aurora
-   journalctl --user -u aurora -f      # ver el log
+   systemctl --user enable --now laura
+   journalctl --user -u laura -f      # ver el log
    ```
 
 2. **Atajo de teclado.** Añade esta línea a `~/.config/caelestia/hypr-user.lua`
    (fichero de overrides del usuario, sobrevive a las actualizaciones de Caelestia):
 
    ```lua
-   hl.bind("SUPER + A", hl.dsp.exec_cmd("/home/alberviz/LinuxRicing/assistant/aurora-toggle"))
+   hl.bind("SUPER + A", hl.dsp.exec_cmd("/home/alberviz/LinuxRicing/assistant/laura-toggle"))
    ```
 
    Recarga Hyprland (`hyprctl reload`) o cierra sesión y entra.
 
-3. **Usar.** Pulsa `SUPER + A`, habla, calla. Aurora transcribe, piensa,
+3. **Usar.** Pulsa `SUPER + A`, habla, calla. Laura transcribe, piensa,
    ejecuta y responde. Sale un `notify-send` en cada paso.
 
 ## Qué entiende (v1)
@@ -57,6 +57,6 @@ tiempos de grabación). Reinicia el daemon tras cambiarlo.
 
 ## Pendiente (fases siguientes)
 
-Wake word «Aurora», integraciones externas vía n8n (calendario, tareas),
+Wake word «Laura», integraciones externas vía n8n (calendario, tareas),
 memoria persistente, overlay visual en Quickshell, *streaming* por frases,
 *barge-in*, *fallback* online. Ver la nota del vault.

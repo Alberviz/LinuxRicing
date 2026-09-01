@@ -1,10 +1,10 @@
-"""Bus de eventos de Aurora.
+"""Bus de eventos de Laura.
 
 Un socket Unix (`SOCK_STREAM`) que acepta varios lectores a la vez y les emite
 eventos como JSON, uno por línea. Lo consume el overlay de Quickshell; si no hay
 nadie escuchando, `emit()` es casi un no-op.
 
-Eventos que se emiten (ver `aurorad.py`):
+Eventos que se emiten (ver `laurad.py`):
 
     {"type":"state","value":"idle|listening|thinking|speaking","mode":"centro|barra"}
     {"type":"amplitude","value":0.0-1.0}

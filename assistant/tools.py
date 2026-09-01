@@ -1,4 +1,4 @@
-"""Herramientas locales que Aurora puede ejecutar (fase 4, set inicial).
+"""Herramientas locales que Laura puede ejecutar (fase 4, set inicial).
 
 Cada función devuelve un dict serializable. El esquema de abajo es el que se le
 pasa a Ollama (formato estilo OpenAI). Añadir una herramienta = una función + su

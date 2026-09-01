@@ -1,8 +1,8 @@
 #!/usr/bin/env python
-"""Dispara un ciclo de Aurora. Atar a atajos de Hyprland.
+"""Dispara un ciclo de Laura. Atar a atajos de Hyprland.
 
-    hl.bind("SUPER + A",         hl.dsp.exec_cmd(".../aurora-toggle centro"))
-    hl.bind("SUPER + SHIFT + A", hl.dsp.exec_cmd(".../aurora-toggle barra"))
+    hl.bind("SUPER + A",         hl.dsp.exec_cmd(".../laura-toggle centro"))
+    hl.bind("SUPER + SHIFT + A", hl.dsp.exec_cmd(".../laura-toggle barra"))
 
 Argumento opcional: modo de overlay (`centro` por defecto | `barra`).
 """
@@ -14,13 +14,13 @@ mode = sys.argv[1].strip().lower() if len(sys.argv) > 1 else "centro"
 if mode not in ("centro", "barra"):
     mode = "centro"
 
-path = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "aurora.sock")
+path = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "laura.sock")
 try:
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.connect(path)
     s.sendall(f"activate:{mode}".encode())
     s.close()
 except (FileNotFoundError, ConnectionRefusedError):
-    sys.stderr.write("aurora: el daemon no está corriendo\n")
-    os.system("notify-send -a Aurora 'Aurora' 'El daemon no está corriendo'")
+    sys.stderr.write("laura: el daemon no está corriendo\n")
+    os.system("notify-send -a Laura 'Laura' 'El daemon no está corriendo'")
     sys.exit(1)

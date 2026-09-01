@@ -9,7 +9,7 @@ import qs.components.containers
 import qs.services
 import qs.modules.assistant
 
-// Modo centro (conversación): la forma de Aurora nace como un punto en el
+// Modo centro (conversación): la forma de Laura nace como un punto en el
 // borde inferior y se abre hacia arriba. Se queda mientras dura la charla.
 // Layershell a pantalla completa, transparente y click-through.
 StyledWindow {
@@ -18,7 +18,7 @@ StyledWindow {
     required property ShellScreen modelData
 
     screen: modelData
-    name: "aurora-orb"
+    name: "laura-orb"
 
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.exclusionMode: ExclusionMode.Ignore
@@ -31,7 +31,7 @@ StyledWindow {
 
     mask: Region {}
 
-    visible: Aurora.active && Aurora.mode === "centro"
+    visible: Laura.active && Laura.mode === "centro"
 
     Item {
         id: root
@@ -85,10 +85,10 @@ StyledWindow {
                 }
                 GradientStop {
                     position: 1
-                    color: Qt.alpha(Aurora.accent, 0.16)
+                    color: Qt.alpha(Laura.accent, 0.16)
                 }
             }
-            scale: 0.85 + 0.2 * Aurora.amplitude
+            scale: 0.85 + 0.2 * Laura.amplitude
             Behavior on scale {
                 NumberAnimation {
                     duration: 160
@@ -116,28 +116,28 @@ StyledWindow {
             Orb {
                 anchors.centerIn: parent
                 baseSize: root.box
-                state: Aurora.state
-                level: Aurora.amplitude
+                state: Laura.state
+                level: Laura.amplitude
             }
         }
 
-        // Bocadillo sobre la forma. Prioriza la RESPUESTA de Aurora al
+        // Bocadillo sobre la forma. Prioriza la RESPUESTA de Laura al
         // completo; mientras piensa, muestra lo que ha entendido.
         Rectangle {
             id: bubble
 
-            readonly property string body: Aurora.reply || Aurora.transcript
+            readonly property string body: Laura.reply || Laura.transcript
 
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottom: parent.bottom
             anchors.bottomMargin: root.box * root.revealFrac + 20
 
-            visible: bubble.body.length > 0 && Aurora.state !== "idle" && Aurora.state !== "listening"
+            visible: bubble.body.length > 0 && Laura.state !== "idle" && Laura.state !== "listening"
             opacity: (visible ? 1 : 0) * root.bloom
             width: Math.min(Math.max(label.implicitWidth + Tokens.padding.large * 2, 220), parent.width * 0.62)
             height: label.implicitHeight + Tokens.padding.medium * 2
             radius: Tokens.rounding.large
-            color: Qt.alpha(Aurora.surface, 0.92)
+            color: Qt.alpha(Laura.surface, 0.92)
 
             Behavior on opacity {
                 NumberAnimation {
@@ -155,8 +155,8 @@ StyledWindow {
                 maximumLineCount: 8
                 elide: Text.ElideRight
                 text: bubble.body
-                color: Aurora.onSurface
-                opacity: Aurora.reply ? 1 : 0.6
+                color: Laura.onSurface
+                opacity: Laura.reply ? 1 : 0.6
                 font: Tokens.font.body.medium
             }
         }

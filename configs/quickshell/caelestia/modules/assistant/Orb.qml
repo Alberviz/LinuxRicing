@@ -6,7 +6,7 @@ import qs.components
 import qs.services
 import qs.modules.assistant
 
-// Núcleo visual de Aurora. Una forma expresiva de Material 3 (M3Shapes) — el
+// Núcleo visual de Laura. Una forma expresiva de Material 3 (M3Shapes) — el
 // mismo lenguaje que el LoadingIndicator y el resto de Caelestia: morphea
 // entre formas según el estado y late con la voz.
 MaterialShape {
@@ -14,7 +14,7 @@ MaterialShape {
 
     // "idle" | "listening" | "thinking" | "speaking"
     property string state: "idle"
-    // Nivel de voz 0..1 (ya suavizado por el servicio Aurora)
+    // Nivel de voz 0..1 (ya suavizado por el servicio Laura)
     property real level: 0
     // Tamaño de referencia (el consumidor lo fija)
     property real baseSize: 300

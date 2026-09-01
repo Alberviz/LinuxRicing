@@ -1,13 +1,13 @@
 #!/usr/bin/env python
-"""Aurora — daemon de asistente de voz local.
+"""Laura — daemon de asistente de voz local.
 
 Carga los modelos una vez y se queda escuchando en un socket Unix. Cuando
-`aurora-toggle` le manda "activate" (atado a un atajo de Hyprland), hace UN ciclo:
+`laura-toggle` le manda "activate" (atado a un atajo de Hyprland), hace UN ciclo:
 
     grabar (corta sola al detectar silencio) -> transcribir -> LLM con
     herramientas -> ejecutar acciones -> responder hablando
 
-Arranque:  ~/LinuxRicing/assistant/.venv/bin/python aurorad.py
+Arranque:  ~/LinuxRicing/assistant/.venv/bin/python laurad.py
 """
 from __future__ import annotations
 
@@ -50,12 +50,12 @@ EFFECTS = {
 
 
 def log(*a):
-    print("[aurora]", *a, flush=True)
+    print("[laura]", *a, flush=True)
 
 
 def notify(title: str, body: str = ""):
     if CFG["daemon"].get("notify"):
-        subprocess.Popen(["notify-send", "-a", "Aurora", "-i",
+        subprocess.Popen(["notify-send", "-a", "Laura", "-i",
                           "audio-input-microphone-symbolic", title, body],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -140,8 +140,8 @@ _STT_NOISE = {"música", "musica", "gracias", "subtítulos realizados por la com
 def transcribe(audio: np.ndarray) -> str:
     if audio.size < SR * 0.3:
         return ""
-    sf.write("/tmp/aurora_in.wav", audio, SR)
-    segments, _ = _stt.transcribe("/tmp/aurora_in.wav",
+    sf.write("/tmp/laura_in.wav", audio, SR)
+    segments, _ = _stt.transcribe("/tmp/laura_in.wav",
                                   language=CFG["stt"]["language"],
                                   vad_filter=True)
     text = " ".join(s.text for s in segments).strip()
@@ -210,14 +210,14 @@ def speak(text: str, cancel: threading.Event | None = None) -> None:
     for _, _, a in _kokoro(text, voice=CFG["tts"]["voice"]):
         parts.append(a.detach().cpu().numpy() if hasattr(a, "detach")
                      else np.asarray(a))
-    sf.write("/tmp/aurora_raw.wav", np.concatenate(parts), 24000)
+    sf.write("/tmp/laura_raw.wav", np.concatenate(parts), 24000)
     af = EFFECTS.get(CFG["tts"]["effect"])
-    out = "/tmp/aurora_raw.wav"
+    out = "/tmp/laura_raw.wav"
     if af:
         subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i",
-                        "/tmp/aurora_raw.wav", "-af", af, "/tmp/aurora_out.wav"],
+                        "/tmp/laura_raw.wav", "-af", af, "/tmp/laura_out.wav"],
                        check=True)
-        out = "/tmp/aurora_out.wav"
+        out = "/tmp/laura_out.wav"
     _play_with_amplitude(out, cancel)
 
 
@@ -272,7 +272,7 @@ def cycle(mode: str = "centro", cancel: threading.Event | None = None) -> None:
     if cancel is None:
         cancel = threading.Event()
     log(f"escuchando… (modo {mode})")
-    notify("Aurora te escucha…")
+    notify("Laura te escucha…")
     grace = CFG["audio"].get("followup_seconds", 4)
     max_turns = CFG["llm"].get("max_turns", 6)
     first = True
@@ -292,7 +292,7 @@ def cycle(mode: str = "centro", cancel: threading.Event | None = None) -> None:
             if not text:
                 if first:
                     log("(nada que transcribir)")
-                    notify("Aurora", "no te he oído")
+                    notify("Laura", "no te he oído")
                 break
             if cancel.is_set():
                 break
@@ -302,8 +302,8 @@ def cycle(mode: str = "centro", cancel: threading.Event | None = None) -> None:
             bus.emit(type="transcript", value=text)
             bye = _is_farewell(text)
             reply, actions = converse(text)
-            log(f"aurora: {reply}  · acciones: {actions}")
-            notify("Aurora", reply)
+            log(f"laura: {reply}  · acciones: {actions}")
+            notify("Laura", reply)
             bus.emit(type="reply", value=reply)
             bus.emit(type="result", actions=actions)
             bus.emit(type="state", value="speaking", mode=mode)
@@ -334,7 +334,7 @@ def main() -> None:
             cycle(mode, cancel)
         except Exception as e:  # noqa: BLE001
             log(f"error en el ciclo: {e}")
-            notify("Aurora", f"error: {e}")
+            notify("Laura", f"error: {e}")
             bus.emit(type="state", value="idle", mode=mode)
 
     try:

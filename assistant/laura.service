@@ -1,0 +1,18 @@
+# Servicio de usuario para Laura.
+#   cp laura.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now laura
+[Unit]
+Description=Laura — asistente de voz local
+After=graphical-session.target pipewire.service
+Wants=pipewire.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/LinuxRicing/assistant
+ExecStart=%h/LinuxRicing/assistant/.venv/bin/python %h/LinuxRicing/assistant/laurad.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical-session.target

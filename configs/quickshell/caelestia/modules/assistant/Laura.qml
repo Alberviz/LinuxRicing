@@ -6,15 +6,15 @@ import Quickshell
 import Quickshell.Io
 import qs.services
 
-// Servicio del asistente de voz Aurora.
+// Servicio del asistente de voz Laura.
 //
-// Lee el bus de eventos del daemon (`$XDG_RUNTIME_DIR/aurora-events.sock`,
+// Lee el bus de eventos del daemon (`$XDG_RUNTIME_DIR/laura-events.sock`,
 // JSON por líneas — ver assistant/events.py) y lo expone como propiedades
 // reactivas para el overlay. Si el daemon aún no está, reintenta la conexión.
 Singleton {
     id: root
 
-    readonly property string socketPath: `${Quickshell.env("XDG_RUNTIME_DIR")}/aurora-events.sock`
+    readonly property string socketPath: `${Quickshell.env("XDG_RUNTIME_DIR")}/laura-events.sock`
 
     // Estado del ciclo: idle | listening | thinking | speaking
     property string state: "idle"
@@ -22,7 +22,7 @@ Singleton {
     property string mode: "centro"
     // Último texto transcrito de Alberto
     property string transcript: ""
-    // Última respuesta de Aurora, al completo (para el bocadillo del modo principal)
+    // Última respuesta de Laura, al completo (para el bocadillo del modo principal)
     property string reply: ""
     // Acciones ejecutadas en el ciclo: [{icon, text}, ...]
     property var actions: []

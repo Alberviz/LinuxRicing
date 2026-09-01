@@ -5,13 +5,13 @@ import Quickshell
 import qs.services
 import qs.modules.assistant
 
-// Punto de entrada del overlay de Aurora. Se registra en shell.qml
+// Punto de entrada del overlay de Laura. Se registra en shell.qml
 // (`import "modules/assistant"` + `Assistant {}`). Las dos ventanas existen
-// siempre; su visibilidad la decide un binding sobre el servicio Aurora.
+// siempre; su visibilidad la decide un binding sobre el servicio Laura.
 Scope {
     // Fuerza la carga del singleton al iniciar el shell (no perezosa),
     // para que enganche el socket de eventos del daemon desde ya.
-    Component.onCompleted: Aurora.socketPath // fuerza la carga del singleton
+    Component.onCompleted: Laura.socketPath // fuerza la carga del singleton
 
     Variants {
         model: Screens.screens
