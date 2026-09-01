@@ -14,6 +14,7 @@ language = "es"
 model = "qwen3:4b-instruct"
 url = "http://localhost:11434/api/chat"
 max_tool_rounds = 5
+max_turns = 6          # turnos de conversación en modo centro antes de cerrar solo
 timeout = 45           # segundos por llamada a Ollama antes de rendirse
 history_msgs = 12      # mensajes de historial que se conservan (además del system)
 system_prompt = """
@@ -32,8 +33,8 @@ voice = "ef_dora"      # kokoro: ef_dora (mujer), em_alex, em_santa
 effect = "jarvis"      # jarvis | subnautica | robot | dry
 
 [audio]
-max_seconds = 15       # tope de grabación del primer input
-followup_seconds = 6   # espera de un follow-up en modo centro antes de cerrar
+max_seconds = 15       # tope de grabación de una intervención
+followup_seconds = 4   # si en modo centro no empiezas a hablar en estos segundos, cierra
 silence_ms = 900       # silencio que corta la grabación
 amp_gain = 12.0        # multiplicador RMS->0..1 para la amplitud del overlay
 

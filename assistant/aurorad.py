@@ -85,13 +85,14 @@ _messages = [{"role": "system", "content": CFG["llm"]["system_prompt"].strip()}]
 
 
 def listen(max_seconds: float | None = None,
-           cancel: threading.Event | None = None) -> np.ndarray:
+           cancel: threading.Event | None = None,
+           start_grace: float | None = None) -> np.ndarray:
     """Graba desde el micro y corta cuando detecta silencio tras hablar.
 
-    `max_seconds` acota la espera: para la primera intervención se usa el
-    tope normal; para esperar un follow-up en modo conversación se pasa un
-    tope más corto (si Alberto no dice nada, se cierra). `cancel` corta la
-    grabación de inmediato (segundo SUPER+A)."""
+    `max_seconds` acota la grabación total. `start_grace` (follow-up) cierra
+    la escucha si la voz no ha empezado en esos segundos: así la conversación
+    no se queda abierta esperando. `cancel` corta al instante (segundo
+    SUPER+A)."""
     if max_seconds is None:
         max_seconds = CFG["audio"]["max_seconds"]
     vad = VADIterator(_vad_model, sampling_rate=SR,
@@ -108,6 +109,8 @@ def listen(max_seconds: float | None = None,
         while time.monotonic() - t0 < max_seconds:
             if cancel is not None and cancel.is_set():
                 break
+            if start_grace is not None and not spoke and time.monotonic() - t0 > start_grace:
+                break
             try:
                 chunk = q.get(timeout=0.2)
             except queue.Empty:
@@ -122,7 +125,16 @@ def listen(max_seconds: float | None = None,
                 elif "end" in event and spoke:
                     break
     vad.reset_states()
-    return np.concatenate(frames)[:, 0] if frames else np.zeros(0, "float32")
+    # Sin arranque de voz detectado = no habló nadie (evita que Whisper
+    # alucine palabras del silencio y la conversación no acabe nunca).
+    if not spoke or not frames:
+        return np.zeros(0, "float32")
+    return np.concatenate(frames)[:, 0]
+
+
+# Alucinaciones típicas de Whisper sobre silencio/ruido (es).
+_STT_NOISE = {"música", "musica", "gracias", "subtítulos realizados por la comunidad de amara.org",
+              "suscríbete", "suscribíos", "¡gracias!", "gracias por ver el video", "amara.org"}
 
 
 def transcribe(audio: np.ndarray) -> str:
@@ -130,8 +142,12 @@ def transcribe(audio: np.ndarray) -> str:
         return ""
     sf.write("/tmp/aurora_in.wav", audio, SR)
     segments, _ = _stt.transcribe("/tmp/aurora_in.wav",
-                                  language=CFG["stt"]["language"])
-    return " ".join(s.text for s in segments).strip()
+                                  language=CFG["stt"]["language"],
+                                  vad_filter=True)
+    text = " ".join(s.text for s in segments).strip()
+    if text.lower().strip(" .,!?¡¿") in _STT_NOISE or len(text.strip(" .,!?")) < 2:
+        return ""
+    return text
 
 
 def ollama_chat(messages: list[dict]) -> dict:
@@ -257,12 +273,18 @@ def cycle(mode: str = "centro", cancel: threading.Event | None = None) -> None:
         cancel = threading.Event()
     log(f"escuchando… (modo {mode})")
     notify("Aurora te escucha…")
-    followup = CFG["audio"].get("followup_seconds", 6)
+    grace = CFG["audio"].get("followup_seconds", 4)
+    max_turns = CFG["llm"].get("max_turns", 6)
     first = True
+    turns = 0
     try:
         while not cancel.is_set():
             bus.emit(type="state", value="listening", mode=mode)
-            audio = listen(None if first else followup, cancel)
+            if first:
+                audio = listen(cancel=cancel)
+            else:
+                audio = listen(max_seconds=CFG["audio"]["max_seconds"],
+                               cancel=cancel, start_grace=grace)
             if cancel.is_set():
                 break
             bus.emit(type="state", value="thinking", mode=mode)
@@ -286,7 +308,8 @@ def cycle(mode: str = "centro", cancel: threading.Event | None = None) -> None:
             bus.emit(type="result", actions=actions)
             bus.emit(type="state", value="speaking", mode=mode)
             speak(reply, cancel)
-            if mode != "centro" or bye:
+            turns += 1
+            if mode != "centro" or bye or turns >= max_turns:
                 break
     finally:
         bus.emit(type="state", value="idle", mode=mode)
