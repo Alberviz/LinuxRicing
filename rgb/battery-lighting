@@ -239,9 +239,14 @@ def seed_config():
 SEVERITY = {"critical": 3, "low": 2, "charging": 1}
 
 
-def evaluate_trigger(rule, level, charging, critical_threshold):
+def evaluate_trigger(rule, level, charging, critical_threshold, mode=None):
     trig = rule["trigger"]
     if trig == "charging":
+        # No aplicar efecto de carga si está conectado por cable USB: el firmware
+        # reporta charging=true (técnicamente sí está cargando), pero no queremos
+        # que el LED lo muestre.
+        if mode == "Cable USB":
+            return False
         return bool(charging)
     if level is None:
         return False
@@ -268,7 +273,8 @@ def resolve(config, telemetry):
         src = telemetry.get(rule["source"], {})
         if not src.get("connected"):
             continue
-        if not evaluate_trigger(rule, src.get("level"), src.get("charging", False), ct):
+        if not evaluate_trigger(rule, src.get("level"), src.get("charging", False), ct,
+                                mode=src.get("mode")):
             continue
         sev = SEVERITY[rule["trigger"]]
         for action in rule.get("actions", []):
