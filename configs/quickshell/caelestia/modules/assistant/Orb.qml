@@ -211,6 +211,8 @@ Item {
         model: 3
 
         Rectangle {
+            id: wave
+
             required property int index
 
             anchors.centerIn: parent
@@ -227,11 +229,11 @@ Item {
                 loops: Animation.Infinite
 
                 PauseAnimation {
-                    duration: index * 550
+                    duration: wave.index * 550
                 }
                 ParallelAnimation {
                     NumberAnimation {
-                        target: parent
+                        target: wave
                         property: "scale"
                         from: 0.7
                         to: 1.8
@@ -240,14 +242,14 @@ Item {
                     }
                     SequentialAnimation {
                         NumberAnimation {
-                            target: parent
+                            target: wave
                             property: "opacity"
                             from: 0
                             to: 0.5
                             duration: 300
                         }
                         NumberAnimation {
-                            target: parent
+                            target: wave
                             property: "opacity"
                             to: 0
                             duration: 1350
