@@ -80,17 +80,17 @@ Singleton {
         id: sock
 
         path: root.socketPath
+        connected: true
         parser: SplitParser {
             onRead: line => root._handle(line)
         }
     }
 
-    // El daemon puede arrancar después del shell (o reiniciarse). Reengancha.
+    // El daemon puede reiniciarse: si el socket se cae, reconecta.
     Timer {
         interval: 2000
         running: true
         repeat: true
-        triggeredOnStart: true
         onTriggered: {
             if (!sock.connected)
                 sock.connected = true;
