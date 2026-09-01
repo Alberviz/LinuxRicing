@@ -19,6 +19,8 @@ Caelestia, paleta matugen, sistema de notificaciones de agentes). Se activa con 
 **animación reactiva minimalista** (círculo futurista que late con la voz) y puede
 **ejecutar acciones en el ordenador**, no solo conversar.
 
+> [!abstract] Para retomar el overlay en una sesión limpia: **[[Aurora — plan del overlay]]**
+
 > [!info] Estado — **v1 en curso** (rama `feat/aurora-voice-assistant`)
 > Fase 0 hecha. Fases 1-3 formalizadas en `assistant/` (daemon `aurorad.py` +
 > `tools.py` + `config.toml` + `aurora-toggle` + `aurora.service`). Bucle completo:
