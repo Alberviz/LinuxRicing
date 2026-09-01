@@ -285,6 +285,28 @@ mejor opción de timbre pero previsiblemente de pago si se usa a diario.
   necesita (webhook de n8n, o el *fallback* online de §2.1/§2.3). El LLM y el STT/TTS
   siguen 100% locales.
 
+#### Portapapeles y lectura de pantalla (fase 4, tools nuevas)
+
+Pregunta de Alberto (2026-09-01): ¿puede Aurora leer la pantalla y escribir en el
+portapapeles? **Sí, el setup ya tiene casi todo.**
+
+- **Portapapeles:** `copiar(texto)` → `wl-copy`; `leer_portapapeles()` → `wl-paste`;
+  **pegar de verdad** en la app activa → `ydotool key ctrl+v` / `wtype` (Hyprland ya
+  usa `ydotool` para el pegado del historial). Habilita: "copia esto", "traduce el
+  portapapeles y pégalo".
+- **Leer pantalla, por niveles:**
+  1. *Contexto de ventanas* — `hyprctl clients` (títulos, apps, foco). Sin captura.
+  2. *Captura + OCR local* — `grim` (ya instalado) + **tesseract** (ligero, 0 VRAM) →
+     texto al LLM. Cubre "¿qué dice este error?", "resume esto", "saca el código de la
+     pantalla".
+  3. *Captura + visión* — modelo de visión local (moondream / Qwen2-VL-2B, ~2-4 GB,
+     compite por VRAM con el LLM → turnarse) o mandar la captura al *fallback* online
+     (Claude/GPT-4o) solo cuando se pida.
+- **Privacidad:** captura siempre bajo petición, nunca en bucle; la imagen se queda
+  local salvo *fallback* online explícito; gate de confirmación la primera vez.
+- Patrón potente = encadenar: `grim` + OCR + otra tool ("saca el error de la pantalla
+  y búscalo en Google").
+
 ### 2.7 Activación por voz ("Aurora", en vez de solo el atajo)
 
 > [!question] Pregunta de Alberto: ¿se puede activar diciendo "Aurora" en vez de tener
