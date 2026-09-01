@@ -1,7 +1,6 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import QtQuick.Shapes
 import Quickshell
 import Quickshell.Wayland
 import Caelestia.Config
@@ -10,9 +9,10 @@ import qs.components.containers
 import qs.services
 import qs.modules.assistant
 
-// Modo barra: "punto con cordón". Capa propia anclada al borde izquierdo, por
-// encima de la barra de Caelestia (que NO se toca). En reposo es un punto; al
-// activarse se despega en un cordón que nunca se corta y hace de gota reactiva.
+// Modo barra: un punto anclado al borde derecho de la barra de Caelestia (que
+// NO se toca). Al activarse, un conector con forma de píldora se estira sin
+// cortarse hasta la forma de Aurora; al terminar, cuelgan las pastillas de
+// acción. Capa propia click-through por encima de la barra.
 StyledWindow {
     id: win
 
@@ -67,133 +67,60 @@ StyledWindow {
             }
         }
 
-        // Geometría — el ancla vive en el borde derecho de la barra de
-        // Caelestia (aquí sí hay contexto de pantalla para leer Tokens/Config).
+        // El ancla vive en el borde derecho de la barra de Caelestia (aquí sí
+        // hay contexto de pantalla para leer Tokens/Config).
         readonly property real barWidth: Tokens.sizes.bar.innerWidth + Math.max(Tokens.padding.small, Config.border.thickness) * 2
-        readonly property real anchorX: barWidth
+        readonly property real anchorX: barWidth + 4
         readonly property real anchorY: height / 2
-        // No readonly: el Behavior necesita interceptar los cambios del binding.
-        property real dropX: win.engaged ? anchorX + 64 : anchorX
-        readonly property real dropR: (Aurora.state === "idle" ? 5 : 15 + 10 * Aurora.amplitude)
+        readonly property real shapeSize: Aurora.state === "idle" ? 12 : 30 + 14 * Aurora.amplitude
+        property real shapeX: win.engaged ? anchorX + 66 : anchorX
 
-        Behavior on dropX {
-            NumberAnimation {
-                duration: 320
-                easing.type: Easing.OutBack
+        Behavior on shapeX {
+            Anim {
+                type: Anim.Emphasized
             }
         }
 
-        // Punto ancla, siempre pegado al borde
+        // Punto ancla, siempre pegado al borde de la barra
         Rectangle {
-            x: canvas.anchorX - 4
-            y: canvas.anchorY - 4
-            width: 8
-            height: 8
-            radius: 4
+            width: 9
+            height: 9
+            radius: 4.5
+            x: canvas.anchorX - width / 2
+            y: canvas.anchorY - height / 2
             color: Aurora.accent
+            opacity: win.engaged ? 1 : 0
         }
 
-        // Cordón: curva del ancla a la gota. Nunca se corta.
-        Shape {
-            anchors.fill: parent
-            preferredRendererType: Shape.CurveRenderer
-            asynchronous: true
-
-            ShapePath {
-                fillColor: "transparent"
-                strokeColor: Aurora.accent
-                strokeWidth: 2 + 2 * Aurora.amplitude
-                capStyle: ShapePath.RoundCap
-
-                startX: canvas.anchorX
-                startY: canvas.anchorY
-
-                PathQuad {
-                    x: canvas.dropX - canvas.dropR
-                    y: canvas.anchorY
-                    controlX: (canvas.anchorX + canvas.dropX) / 2
-                    controlY: canvas.anchorY - 6 * Aurora.amplitude
-                }
-            }
+        // Conector: píldora que se estira del ancla a la forma. Nunca se corta.
+        Rectangle {
+            height: 4 + 3 * Aurora.amplitude
+            radius: height / 2
+            x: canvas.anchorX
+            y: canvas.anchorY - height / 2
+            width: Math.max(0, canvas.shapeX - canvas.anchorX)
+            color: Aurora.accent
+            opacity: win.engaged ? 1 : 0
         }
 
-        // La gota
-        Item {
+        // La forma de Aurora
+        Orb {
             id: drop
 
-            x: canvas.dropX - canvas.dropR
-            y: canvas.anchorY - canvas.dropR
-            width: canvas.dropR * 2
-            height: canvas.dropR * 2
-
-            transform: Scale {
-                origin.x: drop.width / 2
-                origin.y: drop.height / 2
-                xScale: 1 + 0.12 * Aurora.amplitude
-                yScale: 1 - 0.08 * Aurora.amplitude
-            }
-
-            Rectangle {
-                anchors.fill: parent
-                radius: width / 2
-                antialiasing: true
-                gradient: Gradient {
-                    orientation: Gradient.Vertical
-                    GradientStop {
-                        position: 0
-                        color: Qt.lighter(Aurora.accentAlt, 1.2)
-                    }
-                    GradientStop {
-                        position: 1
-                        color: Aurora.accent
-                    }
-                }
-            }
+            baseSize: canvas.shapeSize
+            state: Aurora.state
+            level: Aurora.amplitude
+            x: canvas.shapeX - implicitSize / 2
+            y: canvas.anchorY - implicitSize / 2
         }
 
-        // Aro "pensando" alrededor de la gota
-        Shape {
-            id: bring
-
-            width: canvas.dropR * 3
-            height: width
-            x: canvas.dropX - width / 2
-            y: canvas.anchorY - width / 2
-            visible: Aurora.state === "thinking"
-            preferredRendererType: Shape.CurveRenderer
-
-            NumberAnimation on rotation {
-                running: bring.visible
-                from: 0
-                to: 360
-                duration: 1000
-                loops: Animation.Infinite
-            }
-
-            ShapePath {
-                fillColor: "transparent"
-                strokeColor: Aurora.accentAlt
-                strokeWidth: 2
-                capStyle: ShapePath.RoundCap
-
-                PathAngleArc {
-                    centerX: bring.width / 2
-                    centerY: bring.height / 2
-                    radiusX: bring.width / 2 - 1
-                    radiusY: bring.height / 2 - 1
-                    startAngle: 0
-                    sweepAngle: 260
-                }
-            }
-        }
-
-        // Tallo + una pastilla por acción, colgando de la gota
+        // Tallo + una pastilla por acción, colgando de la forma
         Column {
             id: stem
 
-            x: canvas.dropX + 26
+            x: canvas.shapeX + 24
             y: canvas.anchorY - height / 2
-            spacing: 6
+            spacing: Tokens.spacing.small
             visible: (Aurora.state === "speaking" || win.linger) && Aurora.actions.length > 0
             opacity: visible ? 1 : 0
 
@@ -206,16 +133,16 @@ StyledWindow {
             Repeater {
                 model: Aurora.actions
 
-                Rectangle {
+                StyledRect {
                     id: pill
 
                     required property var modelData
                     required property int index
 
-                    width: pillRow.implicitWidth + 20
-                    height: pillRow.implicitHeight + 12
-                    radius: height / 2
-                    color: Qt.alpha(Aurora.surface, 0.9)
+                    implicitWidth: pillRow.implicitWidth + Tokens.padding.large * 2
+                    implicitHeight: pillRow.implicitHeight + Tokens.padding.small * 2
+                    radius: Tokens.rounding.full
+                    color: Colours.palette.m3surfaceContainer
 
                     opacity: 0
                     x: -12
@@ -229,12 +156,11 @@ StyledWindow {
                             duration: 220
                             easing.type: Easing.OutQuad
                         }
-                        NumberAnimation {
+                        Anim {
                             target: pill
                             property: "x"
                             to: 0
-                            duration: 260
-                            easing.type: Easing.OutBack
+                            type: Anim.Emphasized
                         }
                     }
 
@@ -242,19 +168,20 @@ StyledWindow {
                         id: pillRow
 
                         anchors.centerIn: parent
-                        spacing: 6
+                        spacing: Tokens.spacing.small
 
                         MaterialIcon {
                             anchors.verticalCenter: parent.verticalCenter
                             text: pill.modelData.icon ?? "bolt"
-                            color: Aurora.accent
+                            color: Colours.palette.m3primary
                             fontStyle: Tokens.font.icon.small
                         }
 
                         StyledText {
                             anchors.verticalCenter: parent.verticalCenter
                             text: pill.modelData.text ?? ""
-                            color: Aurora.onSurface
+                            color: Colours.palette.m3onSurface
+                            font: Tokens.font.label.large
                         }
                     }
                 }
