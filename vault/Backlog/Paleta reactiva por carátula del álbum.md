@@ -1,4 +1,5 @@
 ---
+fileClass: Backlog
 tipo: tarea
 estado: pendiente
 prioridad: 4

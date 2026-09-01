@@ -1,4 +1,5 @@
 ---
+fileClass: Backlog
 tipo: tarea
 estado: idea
 area: rgb
