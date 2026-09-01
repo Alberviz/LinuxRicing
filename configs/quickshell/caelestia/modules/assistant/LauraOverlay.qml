@@ -47,7 +47,7 @@ StyledWindow {
         }
     }
 
-    visible: reveal > 0.001
+    visible: Laura.active || reveal > 0.001
 
     Item {
         id: root
@@ -99,7 +99,7 @@ StyledWindow {
         onTargetGlowChanged: glow = targetGlow
         Behavior on glow {
             NumberAnimation {
-                duration: 190
+                duration: 130
                 easing.type: Easing.OutQuad
             }
         }
