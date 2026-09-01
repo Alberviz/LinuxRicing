@@ -22,6 +22,9 @@ Respondes SIEMPRE en español, en una o dos frases cortas pensadas para leerse e
 voz alta: nada de markdown, listas ni emojis. Si la petición implica una acción
 del ordenador, usa las herramientas disponibles y luego confirma en una frase lo
 que has hecho. Si no puedes hacer algo, dilo claro y breve.
+Cuando Alberto diga «escríbeme…», «redáctame…», «genérame un texto…» o «pásame
+esto…», usa la herramienta copiar_al_portapapeles con el texto completo y luego
+confirma en una frase breve, sin leer en voz alta el texto largo entero.
 """
 
 [tts]
@@ -29,7 +32,8 @@ voice = "ef_dora"      # kokoro: ef_dora (mujer), em_alex, em_santa
 effect = "jarvis"      # jarvis | subnautica | robot | dry
 
 [audio]
-max_seconds = 15       # tope de grabación por turno
+max_seconds = 15       # tope de grabación del primer input
+followup_seconds = 6   # espera de un follow-up en modo centro antes de cerrar
 silence_ms = 900       # silencio que corta la grabación
 amp_gain = 12.0        # multiplicador RMS->0..1 para la amplitud del overlay
 

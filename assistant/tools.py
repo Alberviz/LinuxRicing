@@ -95,6 +95,14 @@ def bloquear_pantalla() -> dict:
     return {"ok": True, "resumen": "Bloquear pantalla"}
 
 
+def copiar_al_portapapeles(texto: str) -> dict:
+    """Copia un texto al portapapeles del sistema (Wayland, wl-copy)."""
+    if shutil.which("wl-copy") is None:
+        return {"ok": False, "error": "no encuentro 'wl-copy' en el sistema"}
+    subprocess.run(["wl-copy"], input=texto, text=True)
+    return {"ok": True, "resumen": "Copiado al portapapeles"}
+
+
 # Icono (Material Symbols) para la píldora de acción del overlay.
 TOOL_ICONS = {
     "control_musica": "music_note",
@@ -104,6 +112,7 @@ TOOL_ICONS = {
     "abrir_app": "open_in_new",
     "captura_pantalla": "screenshot_monitor",
     "bloquear_pantalla": "lock",
+    "copiar_al_portapapeles": "content_copy",
 }
 
 
@@ -123,6 +132,7 @@ DISPATCH = {
     "abrir_app": abrir_app,
     "captura_pantalla": captura_pantalla,
     "bloquear_pantalla": bloquear_pantalla,
+    "copiar_al_portapapeles": copiar_al_portapapeles,
 }
 
 TOOLS = [
@@ -216,6 +226,23 @@ TOOLS = [
             "name": "bloquear_pantalla",
             "description": "Bloquea la sesión (pantalla de bloqueo).",
             "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "copiar_al_portapapeles",
+            "description": "Copia un texto al portapapeles del sistema. Úsalo cuando Alberto pida que le redactes/generes un texto, un mensaje, código, o una respuesta larga para pegarla en otro sitio.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "texto": {
+                        "type": "string",
+                        "description": "el texto completo que se copia al portapapeles",
+                    }
+                },
+                "required": ["texto"],
+            },
         },
     },
 ]

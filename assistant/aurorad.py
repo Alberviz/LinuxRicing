@@ -17,6 +17,7 @@ import queue
 import socket
 import subprocess
 import sys
+import threading
 import time
 import tomllib
 import urllib.request
@@ -83,8 +84,16 @@ _kokoro = KPipeline(lang_code="e")
 _messages = [{"role": "system", "content": CFG["llm"]["system_prompt"].strip()}]
 
 
-def listen() -> np.ndarray:
-    """Graba desde el micro y corta cuando detecta silencio tras hablar."""
+def listen(max_seconds: float | None = None,
+           cancel: threading.Event | None = None) -> np.ndarray:
+    """Graba desde el micro y corta cuando detecta silencio tras hablar.
+
+    `max_seconds` acota la espera: para la primera intervención se usa el
+    tope normal; para esperar un follow-up en modo conversación se pasa un
+    tope más corto (si Alberto no dice nada, se cierra). `cancel` corta la
+    grabación de inmediato (segundo SUPER+A)."""
+    if max_seconds is None:
+        max_seconds = CFG["audio"]["max_seconds"]
     vad = VADIterator(_vad_model, sampling_rate=SR,
                       min_silence_duration_ms=CFG["audio"]["silence_ms"])
     q: queue.Queue = queue.Queue()
@@ -96,8 +105,13 @@ def listen() -> np.ndarray:
                         blocksize=VAD_CHUNK,
                         callback=lambda indata, *_: q.put(indata.copy())):
         t0 = time.monotonic()
-        while time.monotonic() - t0 < CFG["audio"]["max_seconds"]:
-            chunk = q.get()
+        while time.monotonic() - t0 < max_seconds:
+            if cancel is not None and cancel.is_set():
+                break
+            try:
+                chunk = q.get(timeout=0.2)
+            except queue.Empty:
+                continue
             frames.append(chunk)
             rms = float(np.sqrt(np.mean(chunk[:, 0] ** 2)))
             bus.emit(type="amplitude", value=min(1.0, rms * gain))
@@ -173,8 +187,8 @@ def converse(user_text: str) -> tuple[str, list[dict]]:
     return (_messages[-1].get("content") or "Hecho.").strip(), actions
 
 
-def speak(text: str) -> None:
-    if not text:
+def speak(text: str, cancel: threading.Event | None = None) -> None:
+    if not text or (cancel is not None and cancel.is_set()):
         return
     parts = []
     for _, _, a in _kokoro(text, voice=CFG["tts"]["voice"]):
@@ -188,23 +202,32 @@ def speak(text: str) -> None:
                         "/tmp/aurora_raw.wav", "-af", af, "/tmp/aurora_out.wav"],
                        check=True)
         out = "/tmp/aurora_out.wav"
-    _play_with_amplitude(out)
+    _play_with_amplitude(out, cancel)
 
 
-def _play_with_amplitude(wav_path: str, hz: float = 25.0) -> None:
+def _play_with_amplitude(wav_path: str, cancel: threading.Event | None = None,
+                         hz: float = 25.0) -> None:
     """Reproduce el wav y emite su envolvente RMS por ventanas, en sincronía."""
     data, sr = sf.read(wav_path, dtype="float32")
     if data.ndim > 1:
         data = data.mean(axis=1)
     win = max(1, int(sr / hz))
     env = np.array([np.sqrt(np.mean(data[i:i + win] ** 2))
-                    for i in range(0, len(data), win)])
+                    for i in range(0, len(data), win) if data[i:i + win].size])
+    if env.size == 0:
+        proc = subprocess.Popen(["paplay", wav_path])
+        proc.wait()
+        return
+    env = np.nan_to_num(env)
     peak = float(env.max()) or 1.0
     env = np.minimum(1.0, env / peak)
     step = win / sr
     proc = subprocess.Popen(["paplay", wav_path])
     t0 = time.monotonic()
     for i, v in enumerate(env):
+        if cancel is not None and cancel.is_set():
+            proc.terminate()
+            break
         bus.emit(type="amplitude", value=float(v))
         target = t0 + (i + 1) * step
         time.sleep(max(0.0, target - time.monotonic()))
@@ -212,28 +235,61 @@ def _play_with_amplitude(wav_path: str, hz: float = 25.0) -> None:
     bus.emit(type="amplitude", value=0.0)
 
 
-def cycle(mode: str = "centro") -> None:
+_FAREWELL = ("adios", "adiós", "hasta luego", "hasta pronto", "hasta la vista",
+             "nada mas", "nada más", "eso es todo", "eso es to", "chao", "chau",
+             "ciao", "ya esta", "ya está", "buenas noches", "gracias nada")
+
+
+def _is_farewell(text: str) -> bool:
+    t = text.lower().strip(" .,!?¡¿")
+    return any(k in t for k in _FAREWELL)
+
+
+def cycle(mode: str = "centro", cancel: threading.Event | None = None) -> None:
+    """Un ciclo de asistente.
+
+    - modo `barra`: un solo input -> respuesta -> se cierra.
+    - modo `centro`: conversación. Tras responder, vuelve a escuchar un
+      follow-up; se cierra si Alberto no dice nada en `followup_seconds`, si
+      se despide («adiós», «hasta luego»…) o si vuelve a pulsar el atajo.
+    """
+    if cancel is None:
+        cancel = threading.Event()
     log(f"escuchando… (modo {mode})")
     notify("Aurora te escucha…")
-    bus.emit(type="state", value="listening", mode=mode)
-    audio = listen()
-    bus.emit(type="state", value="thinking", mode=mode)
-    text = transcribe(audio)
-    if not text:
-        log("(nada que transcribir)")
-        notify("Aurora", "no te he oído")
+    followup = CFG["audio"].get("followup_seconds", 6)
+    first = True
+    try:
+        while not cancel.is_set():
+            bus.emit(type="state", value="listening", mode=mode)
+            audio = listen(None if first else followup, cancel)
+            if cancel.is_set():
+                break
+            bus.emit(type="state", value="thinking", mode=mode)
+            text = transcribe(audio)
+            if not text:
+                if first:
+                    log("(nada que transcribir)")
+                    notify("Aurora", "no te he oído")
+                break
+            if cancel.is_set():
+                break
+            first = False
+            log(f"tú: {text}")
+            notify("Tú", text)
+            bus.emit(type="transcript", value=text)
+            bye = _is_farewell(text)
+            reply, actions = converse(text)
+            log(f"aurora: {reply}  · acciones: {actions}")
+            notify("Aurora", reply)
+            bus.emit(type="reply", value=reply)
+            bus.emit(type="result", actions=actions)
+            bus.emit(type="state", value="speaking", mode=mode)
+            speak(reply, cancel)
+            if mode != "centro" or bye:
+                break
+    finally:
         bus.emit(type="state", value="idle", mode=mode)
-        return
-    log(f"tú: {text}")
-    notify("Tú", text)
-    bus.emit(type="transcript", value=text)
-    reply, actions = converse(text)
-    log(f"aurora: {reply}  · acciones: {actions}")
-    notify("Aurora", reply)
-    bus.emit(type="result", actions=actions)
-    bus.emit(type="state", value="speaking", mode=mode)
-    speak(reply)
-    bus.emit(type="state", value="idle", mode=mode)
 
 
 def main() -> None:
@@ -246,7 +302,18 @@ def main() -> None:
     bus.start()
     bus.emit(type="state", value="idle", mode="centro")
     log(f"listo. control: {sock_path}  ·  eventos: {bus.path}")
-    busy = False
+
+    cancel = threading.Event()
+    worker: threading.Thread | None = None
+
+    def run(mode: str) -> None:
+        try:
+            cycle(mode, cancel)
+        except Exception as e:  # noqa: BLE001
+            log(f"error en el ciclo: {e}")
+            notify("Aurora", f"error: {e}")
+            bus.emit(type="state", value="idle", mode=mode)
+
     try:
         while True:
             conn, _ = srv.accept()
@@ -257,18 +324,14 @@ def main() -> None:
             mode = data.split(":", 1)[1].strip() if ":" in data else "centro"
             if mode not in ("centro", "barra"):
                 mode = "centro"
-            if busy:
-                log("ocupado, ignoro")
+            if worker is not None and worker.is_alive():
+                # Segundo atajo mientras hay un ciclo -> cerrar.
+                log("atajo repetido, cierro el ciclo")
+                cancel.set()
                 continue
-            busy = True
-            try:
-                cycle(mode)
-            except Exception as e:  # noqa: BLE001
-                log(f"error en el ciclo: {e}")
-                notify("Aurora", f"error: {e}")
-                bus.emit(type="state", value="idle", mode=mode)
-            finally:
-                busy = False
+            cancel.clear()
+            worker = threading.Thread(target=run, args=(mode,), daemon=True)
+            worker.start()
     except KeyboardInterrupt:
         pass
     finally:
