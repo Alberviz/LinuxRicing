@@ -18,40 +18,62 @@ properties:
   esfuerzo:
     displayName: Esfuerzo
   estado:
+    type: select
+    options:
+      - idea
+      - pendiente
+      - en-curso
+      - hecha
+      - descartada
     displayName: Estado
   creado:
     displayName: Creado
+  flujo:
+    displayName: Flujo
 views:
   - type: table
     name: 💡 Ideas
     filters:
-      and:
+      or:
         - estado == "idea"
+        - estado.isEmpty()
     order:
       - file.name
       - area
+      - flujo
       - esfuerzo
-      - creado
+      - formula.prio
+      - estado
+    sort:
+      - property: estado
+        direction: ASC
     columnSize:
       file.name: 320
       note.area: 90
+      note.flujo: 95
   - type: table
     name: 🔨 En curso
     filters:
       and:
-        - estado == "en-curso"
+        - estado == ["en-curso"]
     order:
       - formula.estado_icon
       - file.name
       - area
-      - origen
       - formula.prio
+      - estado
+      - flujo
+    sort:
+      - property: origen
+        direction: ASC
+    columnSize:
+      formula.estado_icon: 34
+      file.name: 106
   - type: table
     name: 🎯 Hoy
     filters:
-      or:
-        - estado == "pendiente"
-        - estado == "en-curso"
+      and:
+        - estado == ["pendiente"]
     groupBy:
       property: prioridad
       direction: ASC
@@ -60,10 +82,13 @@ views:
       - file.name
       - area
       - esfuerzo
-      - origen
       - estado
+      - flujo
+    sort:
+      - property: origen
+        direction: ASC
     columnSize:
-      formula.estado_icon: 127
+      formula.estado_icon: 42
       file.name: 125
       note.area: 70
       note.esfuerzo: 102
@@ -110,6 +135,10 @@ views:
       - formula.prio
       - estado
     limit: 15
+    columnSize:
+      file.ctime: 66
+      formula.estado_icon: 32
+      file.name: 284
   - type: table
     name: ✅ Hechas
     filters:
