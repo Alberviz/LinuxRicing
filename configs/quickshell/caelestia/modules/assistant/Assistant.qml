@@ -11,7 +11,7 @@ import qs.modules.assistant
 Scope {
     // Fuerza la carga del singleton al iniciar el shell (no perezosa),
     // para que enganche el socket de eventos del daemon desde ya.
-    Component.onCompleted: Aurora.socketPath
+    Component.onCompleted: Aurora.socketPath // fuerza la carga del singleton
 
     Variants {
         model: Screens.screens

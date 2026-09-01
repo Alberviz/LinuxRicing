@@ -37,6 +37,16 @@ class EventBus:
         self._srv.bind(self.path)
         self._srv.listen(8)
         threading.Thread(target=self._accept_loop, daemon=True).start()
+        threading.Thread(target=self._heartbeat_loop, daemon=True).start()
+
+    def _heartbeat_loop(self) -> None:
+        """Latido periódico. El overlay lo usa para detectar que el daemon se
+        ha caído (Quickshell no siempre nota que el socket remoto murió) y
+        forzar una reconexión."""
+        import time
+        while True:
+            time.sleep(5)
+            self.emit(type="ping")
 
     def _accept_loop(self) -> None:
         assert self._srv is not None

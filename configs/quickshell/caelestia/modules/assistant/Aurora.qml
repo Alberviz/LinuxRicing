@@ -52,7 +52,14 @@ Singleton {
         } catch (e) {
             return;
         }
-        watchdog.restart();
+        // Cualquier línea (incluido el ping) prueba que el enlace sigue vivo.
+        linkWatch.restart();
+        if (ev.type === "ping")
+            return;
+        // Los eventos de "progreso" reinician el guardián de estado atascado;
+        // amplitude no cuenta (fluye sin que el ciclo avance).
+        if (ev.type !== "amplitude")
+            stuckWatch.restart();
         switch (ev.type) {
         case "state":
             root.state = ev.value;
@@ -77,35 +84,49 @@ Singleton {
         }
     }
 
-    // Si el daemon se queda colgado (p. ej. Ollama no responde) y deja de
-    // mandar eventos, no dejar el overlay atascado en "pensando" para siempre.
+    // Quickshell no reconecta un Socket que ya erró: reasignar `connected` no
+    // basta. Hay que recrear el objeto. El Socket vive en un Loader y lo
+    // reciclamos cuando el enlace lleva demasiado tiempo mudo.
+    Component {
+        id: socketComp
+
+        Socket {
+            path: root.socketPath
+            connected: true
+            parser: SplitParser {
+                onRead: line => root._handle(line)
+            }
+        }
+    }
+
+    Loader {
+        id: sockLoader
+        active: true
+        sourceComponent: socketComp
+    }
+
+    // El daemon manda un "ping" cada 5 s; cada línea reinicia este timer. Si
+    // pasan 9 s sin recibir NADA, el enlace está muerto (o el daemon aún no
+    // estaba) -> recrear el Socket.
     Timer {
-        id: watchdog
-        interval: 90000
+        id: linkWatch
+        interval: 9000
+        repeat: true
+        running: true
+        onTriggered: {
+            sockLoader.active = false;
+            sockLoader.active = true;
+        }
+    }
+
+    // Si el ciclo se atasca (p. ej. Ollama no responde) y el estado no avanza
+    // en 75 s, devolver el overlay a idle para no quedarse en "pensando".
+    Timer {
+        id: stuckWatch
+        interval: 75000
         onTriggered: {
             root.state = "idle";
             root.amplitude = 0;
-        }
-    }
-
-    Socket {
-        id: sock
-
-        path: root.socketPath
-        connected: true
-        parser: SplitParser {
-            onRead: line => root._handle(line)
-        }
-    }
-
-    // El daemon puede reiniciarse: si el socket se cae, reconecta.
-    Timer {
-        interval: 2000
-        running: true
-        repeat: true
-        onTriggered: {
-            if (!sock.connected)
-                sock.connected = true;
         }
     }
 }
