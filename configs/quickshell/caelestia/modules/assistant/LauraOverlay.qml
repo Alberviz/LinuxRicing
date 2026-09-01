@@ -105,10 +105,12 @@ StyledWindow {
         }
 
         // Color de la luz: primario; al pensar deriva hacia terciario.
-        function _lerp(a: color, b: color, t: real): color {
+        function _lerp(a, b, t) {
             return Qt.rgba(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t, 1);
         }
-        readonly property color lightColor: root.thinking ? root._lerp(Colours.palette.m3primary, Colours.palette.m3tertiary, root.thinkPulse) : Colours.palette.m3primary
+        // No `readonly`: el Behavior necesita poder escribir la propiedad al
+        // reevaluarse el binding (transición de tono al entrar/salir de "piensa").
+        property color lightColor: root.thinking ? root._lerp(Colours.palette.m3primary, Colours.palette.m3tertiary, root.thinkPulse) : Colours.palette.m3primary
         Behavior on lightColor {
             ColorAnimation {
                 duration: 400
