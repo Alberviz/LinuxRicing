@@ -7,41 +7,29 @@ actualizado: 2026-09-01
 
 # 🎯 Hoy · ¿Qué hago?
 
-## 💡 Ideas — ¿con qué me pongo hoy?
+## 💡 Ideas — banco sin desarrollar
 
-Tu base de datos de ideas. **Elige una y ponte:** en la tabla, cambia su **Estado**
-de `idea` a `pendiente` (y ponle una **prioridad**) — con eso baja sola a *En curso /
-Pendiente* de aquí abajo. Para añadir una idea nueva, crea una nota en `Backlog/` con
-`estado: idea` (o dile a un agente «apunta la idea …»).
+Tu base de datos de ideas en bruto. **Para elegir una:** edita su fila en la tabla y cambia **Estado** de `idea` a `pendiente`. Con eso se promociona y baja a la sección de abajo con contexto. Para añadir idea nueva, crea una nota en `Backlog/` con `estado: idea` (o dile a un agente «apunta la idea …»).
 
 ![[Backlog.base#💡 Ideas]]
 
 ---
 
-Abajo, la parte estructurada: lo que ya has elegido, con prioridades y estado. Las
-tareas de detalle las van añadiendo los agentes cuando se lo pides.
-
-> [!tip] Cómo funciona
-> - **`idea` → `pendiente` → `en-curso` → `hecha`.** Tú promocionas ideas y ordenas
->   prioridad (1 = ya … 5 = algún día) editando la tabla; los agentes hacen el resto.
-> - Cambia de vista con las pestañas: **Ideas · En curso · Hoy · Todo · Por área ·
->   Reciente · Hechas · Tablero**.
-
----
-
-## 🔨 En curso ahora mismo
-
-![[Backlog.base#🔨 En curso]]
-
 ## 🎯 Pendiente (por prioridad)
+
+Lo que ya has elegido y está listo para hacerse. Usa el **selector de estado** en cada fila para cambiar entre Pendiente → En curso → Terminado.
 
 ![[Backlog.base#🎯 Hoy]]
 
-## 🆕 Actividad reciente de los agentes
+## 🔨 En curso ahora mismo
 
-![[Backlog.base#🆕 Reciente]]
+Lo que se está haciendo en este momento.
+
+![[Backlog.base#🔨 En curso]]
 
 ## ✅ Terminado
+
+Lo que ya está hecho.
 
 ![[Backlog.base#✅ Hechas]]
 
@@ -51,6 +39,26 @@ tareas de detalle las van añadiendo los agentes cuando se lo pides.
 
 *Los agentes añaden una línea por sesión, lo más reciente arriba.*
 
+- **2026-09-01 · Claude** — Aurora → **Laura**: rename hecho en el código
+  (`assistant/` completo + módulo Quickshell; sockets `laura-events.sock`;
+  `laurad.py`, `laura.service`, `laura-toggle`). Daemon: conversación
+  multi-turno en modo centro (cierra por «adiós» / repetir atajo / silencio /
+  6 turnos), ciclo en hilo worker con evento `cancel`, evento `reply` con la
+  respuesta completa, guardas anti-alucinación de Whisper, herramienta
+  `copiar_al_portapapeles`. Overlay: arreglada la reconexión del `Socket` de
+  Quickshell (Loader + heartbeat `ping`). **Pivote de diseño:** overlay
+  minimalista, lo vistoso va al fondo del escritorio; elegido **borde inferior
+  iluminado + subtítulos** (lo que dice Alberto + respuesta completa). Estado
+  y trampas en [[Aurora — plan del overlay]]. Pendiente: reinstalar el
+  servicio, atajo de Hyprland, rehacer el overlay con el estilo nuevo.
+- **2026-09-01 · Claude** — [[Asistente de voz con IA local]] «Aurora»: investigación
+  completa (LLM/STT/TTS/acciones/wake word/n8n, precios, rendimiento) + **v1 construida**
+  en rama `feat/aurora-voice-assistant` (`assistant/`): daemon que hace atajo → VAD →
+  Whisper → Qwen3-4B con tool-calling → acciones → Kokoro `ef_dora` + efecto jarvis.
+  Servicio systemd `--user` activo. Diseño del overlay decidido con mockups (Claude
+  Design): **modo centro = orbe líquido**, **modo barra = punto con cordón**. Plan de
+  implementación del overlay listo para sesión limpia en [[Aurora — plan del overlay]].
+  Whisper va en CPU (GPU peta con el LLM cargado); daemon ocupa ~3 GB de RAM.
 - **2026-09-01 · Claude** — Flujo de dos niveles en esta página: nuevo estado `idea` +
   vista «💡 Ideas» arriba (base de datos de ideas); promocionar = cambiar `estado` a
   `pendiente` en la tabla. Fix del widget del teclado Akko por cable (transporte real,

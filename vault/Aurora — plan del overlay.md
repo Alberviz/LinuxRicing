@@ -3,150 +3,166 @@ tipo: plan
 proyecto: "[[Asistente de voz con IA local]]"
 estado: en-curso
 creado: 2026-09-01
+actualizado: 2026-09-01
 tags:
+  - laura
   - aurora
   - plan
 ---
 
-# Aurora — plan de implementación del overlay (fase 6)
+# Laura — asistente de voz local (estado, arquitectura y plan)
 
-Plan de traspaso para una sesión limpia. Las **decisiones ya están tomadas**
-(diseño incluido); esto es solo ejecución.
+> Antes se llamaba **Aurora**. El rename a **Laura** está hecho en el código
+> (`assistant/` + módulo de Quickshell); falta en el vault (Gemini) y en la
+> reinstalación del servicio (Alberto). Rama: `feat/aurora-voice-assistant`.
 
-## Contexto imprescindible
+## Qué es y qué funciona (v1)
 
-- **Diseño y decisiones completas:** [[Asistente de voz con IA local]] (§2.5 para el
-  overlay, §1 para VRAM, §2.3 para la voz).
-- **Mockups del overlay:** canvas de Claude Design en
-  `assistant/design/aurora-overlay.html` — publicado. Dos modos decididos:
-  - **Modo centro — orbe líquido.** Círculo grande centrado en pantalla. Esfera con
-    brillo/degradado (accent rosa + lavanda del theming) que ondula y respira.
-    Estados: reposo (orbe pequeño, respira lento) · escuchando (crece y ondula con la
-    voz) · pensando (halo que gira) · hablando (anillos que emanan) + bocadillo de
-    respuesta breve.
-  - **Modo barra — "punto con cordón".** La barra de Caelestia es **vertical, a la
-    izquierda**. En reposo, Aurora es un **punto** anclado a la barra. Al activarla el
-    punto **se despega en un cordón fino que nunca se corta** y hace de gota que se
-    deforma con la voz. Pensando: se calma, un aro gira alrededor. Resultado: la gota
-    se deshace hacia abajo en un **tallo con una pastilla (icono + texto corto) por
-    acción**; al terminar todo se recoge en el punto.
-- **Rama de trabajo:** `feat/aurora-voice-assistant` (ya existe, con la v1 + los
-  mockups commiteados). Seguir en ella; mergear a `main` al final.
-- **Reparto de trabajo:** Alberto hace instalaciones, config y pruebas; el agente
-  programa. Marcado abajo con **[A]** / **[Ag]**.
+Asistente de voz **100 % local**. Pipeline probado de extremo a extremo:
 
-## Estado actual (v1, ya en la rama)
+```
+atajo (SUPER+A) → grabar (VAD corta sola) → faster-whisper (STT) →
+Qwen3-4B por Ollama con tool-calling → ejecutar acciones →
+Kokoro (voz ef_dora + efecto "jarvis") → hablar
+```
 
-`assistant/` contiene un daemon funcional:
+Feedback: `notify-send` en cada paso **+** un overlay de Quickshell que reacciona
+al estado y a la voz (en rediseño, ver abajo).
 
-- `aurorad.py` — servicio systemd `--user` (`aurora.service`, instalado y activo).
-  Escucha en `$XDG_RUNTIME_DIR/aurora.sock`; al recibir `"activate"` hace un ciclo:
-  grabar (VAD) → faster-whisper (`small`, CPU) → Qwen3-4B por Ollama con *tool
-  calling* → ejecutar acciones → Kokoro `ef_dora` + efecto "jarvis" (TTS).
-  **Feedback actual = solo `notify-send`** en cada paso.
-- `tools.py` — 7 herramientas locales (música, volumen, silenciar, abrir web/app,
-  captura, bloquear).
-- `config.toml` — voz, efecto, modelo STT, prompt, apps, tiempos.
-- `aurora-toggle` — cliente que manda `"activate"` al socket (para el atajo).
-- El bucle completo **ya funciona** de extremo a extremo (probado a mano).
+## Arquitectura
 
-Lo que **falta** para el overlay: el daemon no publica su estado ni la amplitud; no
-hay módulo de Quickshell; solo hay un disparador (no distingue modo centro/barra).
+Todo en la rama, `estado: funcional`.
 
-## Trabajo, en orden
+### Daemon — `assistant/`
 
-### 1 · Daemon: capa de eventos — [Ag]
+| Archivo | Qué hace |
+|---|---|
+| `laurad.py` | Servicio `laura.service` (systemd `--user`). Carga los modelos una vez. Socket de control `$XDG_RUNTIME_DIR/laura.sock` (recibe `activate:centro` / `activate:barra`). El ciclo corre en un **hilo worker**; el hilo principal sigue aceptando conexiones. |
+| `events.py` | `EventBus`: servidor socket Unix `laura-events.sock`, **multi-lector**, JSON por líneas. Reemite el último `state` a cada cliente nuevo. Hilo de **heartbeat** que emite `{"type":"ping"}` cada 5 s. |
+| `tools.py` | 8 herramientas: `control_musica`, `volumen`, `silenciar`, `abrir_web`, `abrir_app`, `captura_pantalla`, `bloquear_pantalla`, `copiar_al_portapapeles` (wl-copy). Cada una devuelve `{ok, resumen, …}`. `TOOL_ICONS` (Material Symbols) + `accion_overlay()` → `{icon, text}` para las píldoras. |
+| `config.toml` | Todo lo tuneable: voz, efecto, modelo STT, `system_prompt`, apps, tiempos, `max_turns`, `timeout` de Ollama, `history_msgs`, `amp_gain`, `followup_seconds`. |
+| `laura-toggle` | Cliente que manda `activate:<modo>` al socket de control. Para el atajo de Hyprland. |
+| `README.md` | Puesta en marcha + migración del servicio aurora→laura. |
 
-En `aurorad.py`, además de `notify-send`, publicar eventos JSON por líneas en un
-socket/FIFO propio (p. ej. `$XDG_RUNTIME_DIR/aurora-events.sock`, servidor que admite
-varios lectores; o un FIFO). Eventos:
+### Bus de eventos (lo que consume el overlay)
 
 ```json
 {"type":"state","value":"idle|listening|thinking|speaking","mode":"centro|barra"}
-{"type":"amplitude","value":0.0-1.0}          // ~30-60 Hz mientras graba y mientras habla
-{"type":"result","actions":[{"icon":"volume","text":"Volumen al 60 %"}, ...]}
-{"type":"transcript","value":"lo que dijo Alberto"}   // opcional, para el bocadillo
+{"type":"amplitude","value":0.0-1.0}      // ~30 Hz al grabar; envolvente del wav al hablar
+{"type":"transcript","value":"lo que dijo Alberto"}
+{"type":"reply","value":"la respuesta completa de Laura"}
+{"type":"result","actions":[{"icon":"volume_up","text":"Subir volumen"}, …]}
+{"type":"ping"}                            // latido cada 5 s (para detectar caída)
 ```
 
-- `amplitude` mientras graba = RMS del bloque de `sounddevice` (ya se tiene el stream
-  en `listen()`).
-- `amplitude` mientras habla = RMS del wav de Kokoro por ventanas, reproducido en
-  sincronía con `paplay` (o exponer el nivel del sink por PipeWire; lo más simple:
-  precalcular la envolvente del wav y emitirla temporizada).
-- `mode` viene del disparador (ver paso 2).
-- Los `actions` salen del bucle de tool-calling: mapear cada `tool_call` ejecutado a
-  `{icon, text}` corto (hay que añadir esa traducción; `tools.py` puede devolver un
-  campo `resumen`).
+### Overlay — `configs/quickshell/caelestia/modules/assistant/`
 
-### 2 · Dos disparadores — [Ag] + [A]
+(Sincronizar SIEMPRE a `~/.config/quickshell/caelestia/` y reiniciar el shell.)
 
-- **[Ag]** `aurora-toggle` acepta un argumento: `aurora-toggle centro` /
-  `aurora-toggle barra` (por defecto `centro`). Manda `activate:centro` /
-  `activate:barra` al socket de control. `aurorad.py` guarda el modo del ciclo en
-  curso y lo mete en los eventos `state`.
-- **[A]** Dos atajos en `~/.config/caelestia/hypr-user.lua`:
-  ```lua
-  hl.bind("SUPER + A",        hl.dsp.exec_cmd("/home/alberviz/LinuxRicing/assistant/aurora-toggle centro"))
-  hl.bind("SUPER + SHIFT + A", hl.dsp.exec_cmd("/home/alberviz/LinuxRicing/assistant/aurora-toggle barra"))
-  ```
+| Archivo | Estado |
+|---|---|
+| `Laura.qml` | **Singleton/servicio.** Lee el bus por `Socket` y expone `state`, `mode`, `amplitude` (suavizada), `transcript`, `reply`, `actions` + colores del tema (`accent`, `accentAlt`, `surface`, `onSurface`). **Se queda.** |
+| `Assistant.qml` | Entrada del módulo, registrada en `shell.qml`. **Se queda.** |
+| `Orb.qml`, `OrbWindow.qml`, `BarWindow.qml` | Las ventanas del overlay viejo (orbe + cordón). **Se borran en el rediseño.** |
 
-### 3 · Módulo Quickshell `modules/assistant/` — [Ag]
+### Lógica del ciclo (`cycle(mode, cancel)`)
 
-Vive en `configs/quickshell/caelestia/modules/assistant/` (y sincronizar a
-`~/.config/quickshell/caelestia/` — ver `CLAUDE.md`, reinicio obligatorio del shell).
+- **`barra`**: un input → respuesta → se recoge.
+- **`centro`**: conversación multi-turno. Tras responder, escucha un follow-up con
+  `start_grace` (4 s). **Se cierra** si: Alberto se despide (`_is_farewell`:
+  «adiós», «hasta luego», «nada más»…), **repite el atajo** (pone el evento
+  `cancel`), calla 4 s, o llega a `max_turns` (6).
+- `cancel` (threading.Event) se comprueba en `listen()`, `speak()` y
+  `_play_with_amplitude()` → corta al instante.
+- Historial podado a system + últimos 12 mensajes (Ollama corre con contexto 4096).
 
-- **`Aurora.qml` (singleton/servicio)** — abre un `Socket`/`Process` que lee el socket
-  de eventos del daemon y expone propiedades reactivas: `state`, `amplitude`,
-  `actions`, `transcript`, `mode`. Colores desde el singleton `Colours` de Caelestia
-  (theming dinámico — usar `Colours.palette.m3primary` / `m3tertiary` o equivalente).
-- **`OrbWindow.qml`** — `WlrLayershell` a pantalla completa, `exclusiveZone: -1`,
-  transparente, *click-through* (`WlrLayershell.keyboardFocus: None`, sin capturar
-  ratón salvo si algún día hay interacción). Visible cuando
-  `Aurora.mode === "centro" && Aurora.state !== "idle"`. El orbe:
-  **empezar sin shader** — capas de `Rectangle`/`Canvas` con `RadialGradient`,
-  `border-radius` animado (wobble) y `SequentialAnimation`/`Behavior` por estado,
-  escalando con `Aurora.amplitude`. Bocadillo de respuesta = `StyledText` en una
-  píldora translúcida debajo. Dejar el orbe en un componente aparte (`Orb.qml`) para
-  poder cambiarlo por un `ShaderEffect` GLSL más adelante sin tocar el resto.
-- **`BarWindow.qml`** — `WlrLayershell` anclado al **borde izquierdo**
-  (`anchors: { left: true; top: true; bottom: true }`), estrecho (~120-200 px),
-  transparente, *click-through*. **No tocar el módulo `bar` de Caelestia** — esto va
-  como capa por encima de su borde. Dibuja: el punto ancla (a la altura vertical que
-  se decida, p. ej. centrado), el cordón (un `Shape`/`Path` que se estira), la gota
-  (`Rectangle` con `radius` animado / `Shape` que se deforma con `amplitude`), el aro
-  de "pensando", y en "resultado" el tallo + una pastilla por cada `Aurora.actions[i]`
-  (icono Material Symbols + `StyledText`). Auto-ocultar ~3 s tras el resultado.
-- **Registrar el módulo** donde Caelestia carga los suyos (revisar `shell.qml` /
-  `Variants` / el loader de módulos) para que ambas ventanas existan siempre y se
-  muestren por binding.
+## Diseño del overlay — DECIDIDO
 
-### 4 · Integración y verificación — [A]
+**Un solo modo** (se acaba la separación centro/barra). El overlay es **mínimo**:
+lo vistoso pasa en el **fondo del escritorio** (orbe de música / sistema que
+orbita — plan del otro agente). El overlay solo señala el estado de Laura.
 
-1. **[Ag]** sincronizar los archivos QML a `~/.config/quickshell/caelestia/` y
-   verificar que los pares gemelos queden idénticos (`diff -q`).
-2. **[A]** reiniciar el shell:
+**Estilo elegido (Alberto, 2026-09-01):**
+
+> **El borde inferior de la pantalla se ilumina**, como una barra de luz, con
+> **subtítulos**: una línea con lo que dice Alberto (`transcript`) y luego la
+> **respuesta completa** de Laura (`reply`).
+
+Estados de la luz del borde inferior:
+- **reposo** — apagado.
+- **escucha** — brillo estable, intensidad sigue `amplitude`.
+- **piensa** — la luz deriva / se mueve (deriva de tono o un punto que recorre el borde).
+- **habla** — palpita al ritmo de la envolvente del TTS.
+
+Mockup con las 5 direcciones que se barajaron (elegida la **B · Borde inferior**):
+Artifact de Claude — <https://claude.ai/code/artifact/65142660-67cf-4c38-84a0-968a0e4509a0>
+
+Implementación esperada: `WlrLayershell` a pantalla completa, transparente,
+click-through (`mask: Region {}`), en `WlrLayer.Overlay`. La luz = gradientes
+(sin shader). Colores desde `Colours.palette` de Caelestia. Los subtítulos =
+una píldora translúcida centrada abajo con `StyledText` (que muestre `reply`
+completo, hasta ~8 líneas; mientras piensa, `transcript` atenuado).
+
+## Trampas conocidas (leer antes de tocar nada)
+
+1. **El `Socket` de Quickshell NO reconecta tras un error.** Reasignar
+   `connected` no basta. Solución aplicada: el `Socket` vive en un `Loader`;
+   un `Timer` (`linkWatch`, 9 s) lo **recrea** si no llega ninguna línea. El
+   daemon manda `ping` cada 5 s como señal de vida. Mantener este patrón.
+2. **Whisper alucina voz del silencio/ruido** («Música», «Gracias»,
+   «¡Suscríbete!», «Subtítulos… amara.org»). Mitigado: `listen()` devuelve
+   vacío si silero no detecta arranque de voz + `vad_filter=True` + lista
+   `_STT_NOISE`. **Aún coge audio real de vídeos/podcasts cerca del micro** →
+   pendiente cancelación de eco / push-to-talk.
+3. **El daemon se reinicia solo al cambiar un archivo** (Alberto tiene un
+   watcher). ~6 s recargando modelos. Hace el testeo rápido incómodo.
+4. **`Tokens` / `Config` de Caelestia necesitan contexto de pantalla.**
+   Accederlos dentro de `contentItem` (hijos de la ventana), no en la raíz de
+   la ventana, o dan warning «accessed without a screen set» y valores malos.
+5. **`MaterialShape`** viene de `import M3Shapes` (formas expresivas M3:
+   `SoftBurst`, `Cookie9Sided`, `Flower`, `Puffy`, `Sunny`, `Oval`…). Morphea
+   sola al cambiar `shape` (via `animationDuration`). Es el mismo componente
+   que el `LoadingIndicator` de Caelestia. (Menos relevante ya con el borde
+   inferior, pero útil.)
+6. **Singletons de módulo** se importan `import qs.modules.assistant`.
+   Ventanas por pantalla: `Variants { model: Screens.screens; Scope { required
+   property ShellScreen modelData; … } }`.
+7. **`mask: Region {}`** (vacío) en un `PanelWindow`/`StyledWindow` = click-through total.
+8. **Archivos gemelos:** `configs/quickshell/caelestia/` ⇔
+   `~/.config/quickshell/caelestia/` (`cp` + `diff -rq`). Reinicio del shell
+   obligatorio tras tocar UI (`caelestia shell -k … ; caelestia shell -d`).
+9. **Whisper en CPU** (`device = "cpu"`): en GPU peta junto a Ollama y
+   recalienta la gráfica.
+
+## Pendiente de Alberto (instalaciones/config)
+
+1. Reinstalar el servicio:
    ```bash
-   caelestia shell -k 2>/dev/null || pkill -f "qs -c caelestia" 2>/dev/null || true; sleep 1; caelestia shell -d
+   systemctl --user disable --now aurora; rm -f ~/.config/systemd/user/aurora.service
+   cp ~/LinuxRicing/assistant/laura.service ~/.config/systemd/user/
+   systemctl --user daemon-reload && systemctl --user enable --now laura
    ```
-   comprobar `INFO: Configuration Loaded` sin errores.
-3. **[A]** añadir los dos atajos, `hyprctl reload`, y probar:
-   - `SUPER+A` → orbe centrado que escucha/piensa/habla y reacciona a la voz.
-   - `SUPER+SHIFT+A` → punto en la barra que se estira, gota reactiva, y al terminar
-     cuelga las pastillas de acción.
+2. En `~/.config/caelestia/hypr-user.lua`: cambiar `aurora-toggle` →
+   `laura-toggle` en las dos líneas del atajo. `hyprctl reload`.
 
-## Decisiones técnicas ya tomadas (no re-debatir)
+## Pendiente de trabajo (agentes)
 
-- **Orbe sin shader primero**; el `ShaderEffect` GLSL es una mejora posterior aislada
-  en `Orb.qml`.
-- **Modo barra = layershell propio anclado al borde**, NO modificar el módulo `bar`
-  de Caelestia.
-- **IPC = socket Unix con JSON por líneas** (sin dependencias). El de control
-  (`aurora.sock`) y el de eventos (`aurora-events.sock`) separados.
-- **Whisper en CPU** (en GPU peta junto al LLM — ver §1 de la nota).
-- **Colores desde `Colours` de Caelestia**, nunca hardcodeados.
+- **Rehacer el overlay** con el estilo decidido (borde inferior + subtítulos):
+  una sola ventana unificada, borrar `Orb.qml` / `OrbWindow.qml` /
+  `BarWindow.qml`, terminar el rename en esos archivos nuevos. `laura-toggle`
+  puede dejar de aceptar argumento (o mantener `centro` por compatibilidad).
+- **Vault:** renombrar Aurora → Laura en las notas (Gemini). Backlog:
+  [[Renombrar el asistente de voz de Aurora a Laura]].
+- **Cancelación de eco / push-to-talk** para que el modo conversación no coja
+  audio de vídeos.
+- Fases siguientes (ver [[Asistente de voz con IA local]]): wake word «Laura»,
+  n8n (calendario/tareas), memoria persistente, streaming por frases, fallback
+  online, carga perezosa de modelos.
 
-## Después de esto
+## Reparto con el otro agente
 
-Fase 4 (más acciones + n8n + memoria), fase 5 (wake word "Aurora"), fase 7 (fallback
-online, carga perezosa de modelos para bajar los ~3 GB de RAM, sonidos). Ver
-[[Asistente de voz con IA local]] §4.
+- **Este trabajo (overlay + daemon):** `assistant/`, `configs/quickshell/…/assistant/`.
+- **El otro agente (fondo vistoso):** `widgets/Background.qml` /
+  `configs/quickshell/…/background/` — el orbe de música y el «sistema solar»
+  de agentes que orbita. Su plan hay que leerlo antes de rehacer el overlay
+  (comparten el borde inferior de la pantalla).
