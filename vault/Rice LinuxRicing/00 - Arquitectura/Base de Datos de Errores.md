@@ -368,3 +368,33 @@ Ambos agentes (Claude y Gemini) escriben aquí — añadir, no reescribir.
   rancia (`akko_mode: "2.4G Inalámbrico"`) todavía en disco. Shell recargado sin
   errores QML. Detalle en `hardware/akko-5075b-plus/USB_FINDINGS_2.4G.md`
   (§"Solución aplicada (2026-09-01)").
+
+### El halo «en curso» de agentes parpadeaba sin ningún agente trabajando
+- **Síntoma:** el contorno neón blanco parpadeante (*running pulse*) del pip de un
+  workspace se quedaba encendido aunque no hubiera ningún agente procesando nada.
+- **Causa:** la función `claude` de `~/.config/fish/config.fish` lanza Claude Code
+  vía `agent-notify run --name "Claude Code" …`. `run_wrapped_command()` llamaba a
+  `start_agent()` al arrancar y a `finish_agent()` **solo al salir el proceso**. Como
+  Claude Code es un REPL interactivo que pasa horas ocioso esperando input, el agente
+  quedaba en `runningAgents` toda la sesión → halo parpadeando. Encima, al cerrar el
+  terminal, `finish_agent()` ya no resolvía la ventana → mandaba `complete` con
+  `address` vacío, y el filtro de `Agents.qml`
+  (`na === "" || _normAddr(a.address) !== na`) trataba el address vacío como
+  «no quitar nada» → la entrada fantasma no se limpiaba nunca (hasta reiniciar el
+  shell). Se veían 3–4 ficheros de estado huérfanos en `$XDG_RUNTIME_DIR/agent-notify/`.
+- **Arreglo** (rama `fix/akko-kb-transport-and-battery`):
+  - `rgb/agent-notify`: `run` detecta los procesos gestionados por hooks per-turno
+    (`_is_hook_managed`: basename `claude` o nombre con «claude») y **no** marca
+    `running` durante toda la vida del proceso — de eso se encargan los hooks
+    `UserPromptSubmit` (→ `start`) y `Stop` (→ `finish`). Al salir, `run` barre con
+    `ipc call agents clearRunning {address}` (address resuelto al arrancar, con el
+    terminal vivo). Para `make -j` / `agy` / builds se mantiene el ciclo vida =
+    tarea.
+  - `services/Agents.qml`: (a) `complete` con address vacío ya no es un no-op que
+    acumula fantasmas — limpia por nombre solo si hay una única sesión con ese
+    nombre; (b) nuevo `clearRunningByAddress()` + IPC `clearRunning`; (c) TTL
+    `runningTtlMs` (20 min): un pulso sin refrescar caduca solo (filtro en
+    `runningWsMap` + `Timer` de poda).
+- **Verificado:** simulado start/complete/clearRunning por IPC; con 2 sesiones Claude
+  un `complete` ambiguo no apaga el pulso de la otra; con 1, sí. Shell recargado sin
+  errores QML.

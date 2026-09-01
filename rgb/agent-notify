@@ -362,10 +362,52 @@ def notify_agent(name="Agente", status="Completado", task=None, duration="",
     print(f"✓ Notificación enviada: {name} en Workspace {ws} ({agent_data['dir']})")
 
 
+def _is_hook_managed(cmd_args, name):
+    """True si el proceso envuelto gestiona su propio estado 'en curso' por
+    hooks per-turno (Claude Code: UserPromptSubmit -> start, Stop -> finish).
+
+    Para estos, `run` NO debe marcar 'en curso' durante toda la vida del
+    proceso: es un REPL interactivo que pasa la mayor parte del tiempo ocioso
+    esperando input, y hacerlo deja el halo parpadeando sin que haya ninguna
+    tarea corriendo. Los hooks encienden y apagan el pulso por cada turno."""
+    base = Path(cmd_args[0]).name.lower() if cmd_args else ""
+    n = (name or "").lower()
+    return base == "claude" or "claude" in n
+
+
 def run_wrapped_command(cmd_args, name=None, task=None):
-    """Ejecuta un comando emitiendo `start` al arrancar y `complete` al terminar."""
+    """Ejecuta un comando envuelto.
+
+    - Tarea desatendida (build, `agy`, `make -j`…): emite `start` al arrancar y
+      `complete`/`Cancelado` al terminar — la vida del proceso ES la tarea.
+    - REPL con hooks (Claude Code): NO toca el estado 'en curso' (lo hacen los
+      hooks per-turno); solo limpia al salir cualquier pulso que quedara de un
+      turno interrumpido."""
     if not name:
         name = Path(cmd_args[0]).name.capitalize()
+
+    hook_managed = _is_hook_managed(cmd_args, name)
+
+    if hook_managed:
+        # Resolvemos la ventana ahora (viva) y guardamos su address para poder
+        # barrer al salir aunque el terminal ya no exista.
+        win = get_hyprland_window(agent_name=name)
+        addr = win["address"]
+        try:
+            ret = subprocess.run(cmd_args)
+            rc = ret.returncode
+        except KeyboardInterrupt:
+            rc = 130
+        # Limpieza: apaga cualquier pulso 'en curso' que dejara un turno a medias.
+        if addr:
+            quickshell_ipc("clearRunning", {"address": addr})
+        try:
+            f = _state_file(addr)
+            if f.exists():
+                f.unlink()
+        except Exception:
+            pass
+        sys.exit(rc)
 
     start_agent(name=name, task=task or f"Ejecutando {Path(cmd_args[0]).name}")
 

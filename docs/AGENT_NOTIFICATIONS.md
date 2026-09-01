@@ -150,9 +150,19 @@ Resumen operativo:
   que el halo **siempre cae en el workspace correcto**.
 - **Disparo (Antigravity):** interceptación de su notificación nativa en `Notifs.qml`
   (no tiene hooks). Con una sola sesión `agy` es fiable; con varias, cae a heurística.
-- **CLI nuevo:** `agent-notify start|finish|hook {prompt,stop}`. `run` emite inicio y
-  fin. Estilo conmutable: `agent-notify style {blink|breathe|arc}` y
-  `agent-notify marker {badge|wedge}` (escriben `~/.config/caelestia/agents-config.json`).
+- **CLI nuevo:** `agent-notify start|finish|hook {prompt,stop}`. Estilo conmutable:
+  `agent-notify style {blink|breathe|arc}` y `agent-notify marker {badge|wedge}`
+  (escriben `~/.config/caelestia/agents-config.json`).
+- **`run` y REPLs con hooks:** para un proceso que gestiona su propio estado por hooks
+  per-turno (Claude Code), `run` **no** marca `running` durante toda la vida del
+  proceso — sería un REPL interactivo mayormente ocioso y el halo parpadearía sin que
+  haya ninguna tarea. Los hooks encienden/apagan el pulso por turno; `run` solo barre
+  al salir (`ipc call agents clearRunning`) cualquier pulso que dejara un turno a
+  medias. Para tareas desatendidas (`make -j`, `agy`, builds) `run` sí marca
+  inicio/fin: ahí la vida del proceso **es** la tarea.
+- **Caducidad:** un pulso `running` sin refrescar más de `runningTtlMs` (20 min) se
+  descarta solo (`Agents.qml`), por si un `Stop` se pierde (terminal cerrado → address
+  vacío, `SIGKILL`, crash).
 
 ### Limitaciones vigentes
 

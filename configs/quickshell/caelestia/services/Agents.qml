@@ -14,6 +14,12 @@ Singleton {
     property list<var> runningAgents: []
     readonly property int count: completedAgents.length
 
+    // Un pulso "en curso" caduca si nadie lo refresca. Los hooks per-turno de
+    // Claude Code mandan `start` en cada prompt (refresca startTime) y `complete`
+    // al terminar; si un `complete` se pierde (terminal ya cerrado -> address
+    // vacío, SIGKILL, crash) esto evita que el halo parpadee para siempre.
+    readonly property int runningTtlMs: 20 * 60 * 1000
+
     // Estilo visual (config: ~/.config/caelestia/agents-config.json)
     property string runningStyle: "blink"   // blink | breathe | arc
     property string unseenMarker: "badge"   // badge | wedge
@@ -41,12 +47,29 @@ Singleton {
 
     readonly property var runningWsMap: {
         const _deps = [Hypr.activeWsId, Hyprland.toplevels.values.length, runningAgents.length];
+        const now = Date.now();
         const m = ({});
         for (const a of root.runningAgents) {
+            if (a.startTime && (now - a.startTime) > root.runningTtlMs)
+                continue; // pulso caducado: no lo pintamos
             const w = root.liveWs(a.address, a.ws);
             (m[w] = m[w] || []).push(a);
         }
         return m;
+    }
+
+    // Poda periódica de pulsos "en curso" caducados (respaldo del filtro de
+    // runningWsMap, para que la lista no crezca sin límite).
+    Timer {
+        interval: 60000
+        running: root.runningAgents.length > 0
+        repeat: true
+        onTriggered: {
+            const now = Date.now();
+            const fresh = root.runningAgents.filter(a => !a.startTime || (now - a.startTime) <= root.runningTtlMs);
+            if (fresh.length !== root.runningAgents.length)
+                root.runningAgents = fresh;
+        }
     }
 
     function _normAddr(addr: string): string {
@@ -159,8 +182,18 @@ Singleton {
             seen: false
         };
 
-        // Sale de la lista de "en curso"…
-        root.runningAgents = root.runningAgents.filter(a => na === "" || root._normAddr(a.address) !== na);
+        // Sale de la lista de "en curso". Con address, filtramos por address.
+        // Sin address (el terminal ya se cerró y `finish` no pudo resolverlo):
+        // solo limpiamos por nombre si hay UNA única entrada con ese nombre, para
+        // no apagar el pulso de otra sesión del mismo agente que sí siga viva.
+        // El resto lo recoge el TTL de runningTtlMs.
+        if (na) {
+            root.runningAgents = root.runningAgents.filter(a => root._normAddr(a.address) !== na);
+        } else {
+            const sameName = root.runningAgents.filter(a => a.name === entry.name);
+            if (sameName.length === 1)
+                root.runningAgents = root.runningAgents.filter(a => a.name !== entry.name);
+        }
         // …y entra en "completado" (una entrada por terminal).
         root.completedAgents = [
             ...root.completedAgents.filter(a => a.id !== entry.id && (na === "" || root._normAddr(a.address) !== na)),
@@ -223,6 +256,17 @@ Singleton {
     function dismissByAddress(address: string): void {
         const norm = root._normAddr(address);
         root.completedAgents = root.completedAgents.filter(a => root._normAddr(a.address) !== norm);
+        root.runningAgents = root.runningAgents.filter(a => root._normAddr(a.address) !== norm);
+    }
+
+    // Apaga solo el pulso "en curso" de una ventana, sin tocar lo completado.
+    // Lo usa el wrapper `agent-notify run` al salir, para barrer un pulso que
+    // dejara un turno interrumpido (el terminal aún vivo -> address fiable).
+    function clearRunningByAddress(dataStr: string): void {
+        const data = root._parse(dataStr);
+        const norm = root._normAddr((data && data.address) || dataStr || "");
+        if (!norm)
+            return;
         root.runningAgents = root.runningAgents.filter(a => root._normAddr(a.address) !== norm);
     }
 
@@ -293,6 +337,7 @@ Singleton {
         function start(data: string): void { root.start(data); }
         function complete(data: string): void { root.complete(data); }
         function notify(data: string): void { root.notify(data); }
+        function clearRunning(data: string): void { root.clearRunningByAddress(data); }
         function focus(address: string): void { root.focus(address); }
         function dismiss(id: string): void { root.dismiss(id); }
         function markSeen(ws: int): void { root.markSeen(ws); }
