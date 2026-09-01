@@ -4,7 +4,7 @@ filters:
     - file.ext == "md"
 formulas:
   prio: if(prioridad == 1, "🔴 1", if(prioridad == 2, "🟠 2", if(prioridad == 3, "🟡 3", if(prioridad == 4, "🔵 4", "⚪ 5"))))
-  estado_icon: if(estado == "hecha", "✅", if(estado == "en-curso", "🔄", if(estado == "descartada", "✖️", "⏳")))
+  estado_icon: if(estado == "idea", "💡", if(estado == "hecha", "✅", if(estado == "en-curso", "🔄", if(estado == "descartada", "✖️", "⏳"))))
   dias: (now() - file.ctime).days
 properties:
   formula.prio:
@@ -22,6 +22,19 @@ properties:
   creado:
     displayName: Creado
 views:
+  - type: table
+    name: 💡 Ideas
+    filters:
+      and:
+        - estado == "idea"
+    order:
+      - file.name
+      - area
+      - esfuerzo
+      - creado
+    columnSize:
+      file.name: 320
+      note.area: 90
   - type: table
     name: 🔨 En curso
     filters:
@@ -58,8 +71,11 @@ views:
   - type: table
     name: 📋 Todo
     filters:
-      not:
-        - estado == "descartada"
+      and:
+        - not:
+            - estado == "descartada"
+        - not:
+            - estado == "idea"
     order:
       - formula.prio
       - formula.estado_icon
@@ -70,8 +86,11 @@ views:
   - type: table
     name: 🗂️ Por área
     filters:
-      not:
-        - estado == "descartada"
+      and:
+        - not:
+            - estado == "descartada"
+        - not:
+            - estado == "idea"
     groupBy:
       property: area
       direction: ASC

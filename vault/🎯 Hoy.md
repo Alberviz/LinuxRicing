@@ -7,32 +7,24 @@ actualizado: 2026-09-01
 
 # 🎯 Hoy · ¿Qué hago?
 
-## 🪣 Bucket List — ¿con qué me pongo hoy?
+## 💡 Ideas — ¿con qué me pongo hoy?
 
-Checklist rápida. Marca `[x]` al terminar; añade líneas tú o pídeselo a un agente.
-El detalle de cada cosa vive en su nota del `Backlog/` y en [[Roadmap Maestro de Innovaciones]].
+Tu base de datos de ideas. **Elige una y ponte:** en la tabla, cambia su **Estado**
+de `idea` a `pendiente` (y ponle una **prioridad**) — con eso baja sola a *En curso /
+Pendiente* de aquí abajo. Para añadir una idea nueva, crea una nota en `Backlog/` con
+`estado: idea` (o dile a un agente «apunta la idea …»).
 
-- [ ] Terminar el **sistema de sonido** del ecosistema
-- [ ] Terminar el **sistema de notificaciones** de agentes
-- [ ] Terminar el **sistema de LEDs** (falta el teclado — ligado a la batería del Akko)
-- [ ] **Agente IA para el arranque** (dual-boot) con tema visual propio
-- [ ] **Centro de Iluminación RGB** (ventana única de control)
-- [ ] **Escenas de 1 clic** (Gaming / Trabajo / Cine / Descanso)
-- [ ] **Ambilight** en la tira LED
-- [ ] **Letras sincronizadas** en el escritorio
-- [ ] **Paridad Windows-Linux** del escritorio
+![[Backlog.base#💡 Ideas]]
 
 ---
 
-Lista viva y priorizada de todo lo que hay pendiente en el setup **LinuxRicing**: lo que
-le vas pidiendo a los agentes y los proyectos del [[Roadmap Maestro de Innovaciones]].
+Abajo, la parte estructurada: lo que ya has elegido, con prioridades y estado. Las
+tareas de detalle las van añadiendo los agentes cuando se lo pides.
 
 > [!tip] Cómo funciona
-> - **Las tareas se añaden solas.** Cuando le dices a un agente *«añade esta tarea»* o
->   *«esto para el futuro»*, él crea la nota en `Backlog/` y aparece aquí.
-> - **Tú mandas en el orden:** edita `prioridad` (1 = ya … 5 = algún día) y `estado`
->   directamente en la tabla.
-> - Cambia de vista con las pestañas de la tabla: **En curso · Hoy · Todo · Por área ·
+> - **`idea` → `pendiente` → `en-curso` → `hecha`.** Tú promocionas ideas y ordenas
+>   prioridad (1 = ya … 5 = algún día) editando la tabla; los agentes hacen el resto.
+> - Cambia de vista con las pestañas: **Ideas · En curso · Hoy · Todo · Por área ·
 >   Reciente · Hechas · Tablero**.
 
 ---
@@ -59,6 +51,10 @@ le vas pidiendo a los agentes y los proyectos del [[Roadmap Maestro de Innovacio
 
 *Los agentes añaden una línea por sesión, lo más reciente arriba.*
 
+- **2026-09-01 · Claude** — Flujo de dos niveles en esta página: nuevo estado `idea` +
+  vista «💡 Ideas» arriba (base de datos de ideas); promocionar = cambiar `estado` a
+  `pendiente` en la tabla. Fix del widget del teclado Akko por cable (transporte real,
+  sin batería inventada). Investigado el falso positivo del *running pulse* de agentes.
 - **2026-08-29 · Claude** — Sistema de Backlog del vault: carpeta `Backlog/`, `Backlog.base`
   con 7 vistas y esta página. Semilla con el trabajo reciente + el Roadmap accionable.
 - **2026-08-29 · Claude** — Convergido a `main` (`9b8d78f`): running-pulse v2 + sonidos de

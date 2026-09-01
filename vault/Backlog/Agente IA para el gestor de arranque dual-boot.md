@@ -1,7 +1,6 @@
 ---
 tipo: tarea
-estado: pendiente
-prioridad: 4
+estado: idea
 area: agentes
 origen: Alberto
 esfuerzo: L
