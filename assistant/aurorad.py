@@ -129,12 +129,28 @@ def ollama_chat(messages: list[dict]) -> dict:
     }).encode()
     req = urllib.request.Request(CFG["llm"]["url"], data=body,
                                  headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=120) as resp:
+    with urllib.request.urlopen(req, timeout=CFG["llm"].get("timeout", 45)) as resp:
         return json.loads(resp.read())
+
+
+def _trim_history() -> None:
+    """Acota el historial: Ollama corre con contexto pequeño (-c 4096) y si
+    `_messages` crece sin límite las respuestas se vuelven lentísimas o cuelgan."""
+    keep = CFG["llm"].get("history_msgs", 12)
+    if len(_messages) <= keep + 1:
+        return
+    tail = _messages[-keep:]
+    # No arrancar el tail con respuestas de herramienta huérfanas ni con un
+    # assistant que referencia tool_calls ya recortados.
+    while tail and (tail[0].get("role") == "tool"
+                    or (tail[0].get("role") == "assistant" and tail[0].get("tool_calls"))):
+        tail.pop(0)
+    _messages[:] = [_messages[0], *tail]
 
 
 def converse(user_text: str) -> tuple[str, list[dict]]:
     """Devuelve (respuesta, acciones) donde acciones = [{icon, text}, ...]."""
+    _trim_history()
     _messages.append({"role": "user", "content": user_text})
     actions: list[dict] = []
     for _ in range(CFG["llm"]["max_tool_rounds"]):

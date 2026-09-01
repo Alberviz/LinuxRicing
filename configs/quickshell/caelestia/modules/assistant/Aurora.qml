@@ -52,6 +52,7 @@ Singleton {
         } catch (e) {
             return;
         }
+        watchdog.restart();
         switch (ev.type) {
         case "state":
             root.state = ev.value;
@@ -73,6 +74,17 @@ Singleton {
         case "result":
             root.actions = ev.actions ?? [];
             break;
+        }
+    }
+
+    // Si el daemon se queda colgado (p. ej. Ollama no responde) y deja de
+    // mandar eventos, no dejar el overlay atascado en "pensando" para siempre.
+    Timer {
+        id: watchdog
+        interval: 90000
+        onTriggered: {
+            root.state = "idle";
+            root.amplitude = 0;
         }
     }
 

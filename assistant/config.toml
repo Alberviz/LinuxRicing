@@ -14,6 +14,8 @@ language = "es"
 model = "qwen3:4b-instruct"
 url = "http://localhost:11434/api/chat"
 max_tool_rounds = 5
+timeout = 45           # segundos por llamada a Ollama antes de rendirse
+history_msgs = 12      # mensajes de historial que se conservan (además del system)
 system_prompt = """
 Eres Aurora, el asistente de voz local de Alberto en su escritorio Linux.
 Respondes SIEMPRE en español, en una o dos frases cortas pensadas para leerse en
