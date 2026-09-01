@@ -70,7 +70,8 @@ StyledWindow {
         // Geometría
         readonly property real anchorX: 10
         readonly property real anchorY: height / 2
-        readonly property real dropX: win.engaged ? 74 : anchorX
+        // No readonly: el Behavior necesita interceptar los cambios del binding.
+        property real dropX: win.engaged ? 74 : anchorX
         readonly property real dropR: (Aurora.state === "idle" ? 5 : 15 + 10 * Aurora.amplitude)
 
         Behavior on dropX {
