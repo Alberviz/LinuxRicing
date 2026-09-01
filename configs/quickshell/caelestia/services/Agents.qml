@@ -66,7 +66,7 @@ Singleton {
         repeat: true
         onTriggered: {
             const now = Date.now();
-            const fresh = root.runningAgents.filter(a => !a.startTime || (now - a.startTime) <= root.runningTtlMs);
+            const fresh = root.runningAgents.filter(a => a.startTime && (now - a.startTime) <= root.runningTtlMs);
             if (fresh.length !== root.runningAgents.length)
                 root.runningAgents = fresh;
         }
