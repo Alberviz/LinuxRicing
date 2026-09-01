@@ -67,3 +67,22 @@ capturas `.pcapng` van en `hardware/<dispositivo>/captures/`.
      ```
   3. Comprobar que la salida confirme `INFO: Configuration Loaded` sin errores de sintaxis o propiedades QML.
 
+- **NUNCA fiarse del hot-reload de Quickshell.** La recarga in-process que dispara
+  cualquier cambio de archivo en `~/.config/quickshell/caelestia/` **fuga las
+  animaciones de la generación anterior**: los `FrameAnimation` y los bucles de
+  repintado de `Canvas` siguen vivos a 60fps como zombis. Tras ~10 recargas un
+  núcleo se clava al 100% y no se recupera («el shell va petado»). Un restart
+  limpio con la config completa vuelve a 0%. Por eso el paso 2 es **restart
+  completo, siempre** — nunca dejar que el shell se recargue solo y seguir
+  trabajando encima.
+
+- **Gatear el `running:` de toda animación.** Prohibido `FrameAnimation { running:
+  true }` incondicional. Atarlo a actividad real (visible, no en pausa, y algo
+  que de verdad se mueva). En reposo, parar el bucle del todo y repintar una vez
+  al cambiar los datos. Preferir un `Timer` con `interval` regulable a
+  `FrameAnimation` para poder bajar los fps cuando no hacen falta.
+
+- **`Canvas` 2D: nada de `shadowBlur` a ritmo de animación** — es un gaussian
+  por-píxel en el hilo GUI. Para resplandores, gradiente radial; para algo más
+  pesado, `ShaderEffect` / `Shape` en GPU.
+
