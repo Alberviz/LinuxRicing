@@ -1,0 +1,54 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600&display=swap">
+  <style>
+    :root { --bg:#120d10; --text:#f3e1e9; --subtext:#b7a7af; --primary:#e9b8d8; --tertiary:#ead4ff;
+      --font:"Google Sans Flex","Google Sans","Figtree",system-ui,sans-serif; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:var(--font); background:var(--bg); color:var(--text); }
+    a { color:var(--primary); } a:hover { color:var(--tertiary); }
+    .stage { width:620px; height:620px; position:relative; overflow:hidden;
+      background:radial-gradient(120% 100% at 50% 42%,#1c1319,#100c0f 55%,#0a070900 100%); display:grid;
+      grid-template-rows:1fr auto; }
+    .wrap { display:grid; place-items:center; }
+
+    .plasma { width:260px; height:260px; border-radius:50%; position:relative; isolation:isolate;
+      filter:blur(0.4px) saturate(1.05); }
+    .plasma::before, .plasma::after { content:""; position:absolute; inset:0; border-radius:50%; }
+    .plasma::before {
+      background:conic-gradient(from 0deg, #f6d2ea, #e9b8d8, #cf9fd6, #ead4ff, #f6d2ea);
+      animation:swirl 14s linear infinite; mix-blend-mode:screen; opacity:0.85;
+      mask:radial-gradient(circle at 50% 50%, #000 30%, transparent 72%); }
+    .plasma::after {
+      background:radial-gradient(45% 40% at 38% 34%, rgba(255,255,255,0.9), rgba(246,210,234,0.2) 45%, transparent 70%),
+                 radial-gradient(60% 55% at 70% 72%, rgba(207,159,214,0.7), transparent 65%);
+      animation:swirl 9s linear infinite reverse; mix-blend-mode:screen; }
+    .plasma .halo { position:absolute; inset:-22%; border-radius:50%;
+      box-shadow:0 0 90px 10px rgba(233,184,216,0.4); }
+    @keyframes swirl { to { transform:rotate(360deg); } }
+
+    .cap { padding:26px 32px 30px; }
+    .cap h3 { margin:0 0 4px; font-size:15px; letter-spacing:2px; text-transform:uppercase; color:var(--text); font-weight:600; }
+    .cap p { margin:0; font-size:13px; color:var(--subtext); line-height:1.5; }
+  </style>
+</helmet>
+<div class="stage">
+  <div class="wrap">
+    <div class="plasma"><div class="halo"></div></div>
+  </div>
+  <div class="cap">
+    <h3>Orbe · Plasma</h3>
+    <p>Nebulosa que gira dentro de la esfera, colores en movimiento constante.
+       Se siente vivo y cálido; el estado se nota en la velocidad y el brillo del remolino.</p>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

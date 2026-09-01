@@ -1,0 +1,57 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600&display=swap">
+  <style>
+    :root { --bg:#120d10; --text:#f3e1e9; --subtext:#b7a7af; --primary:#e9b8d8; --tertiary:#ead4ff;
+      --font:"Google Sans Flex","Google Sans","Figtree",system-ui,sans-serif; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:var(--font); background:var(--bg); color:var(--text); }
+    a { color:var(--primary); } a:hover { color:var(--tertiary); }
+    .stage { width:620px; height:620px; position:relative; overflow:hidden;
+      background:radial-gradient(120% 100% at 50% 40%,#1a1217,#110c0f 55%,#0a0709 100%);
+      display:grid; grid-template-rows:1fr auto; }
+    .wrap { display:grid; place-items:center; }
+
+    .glass { width:240px; height:240px; border-radius:50%; position:relative;
+      background:
+        radial-gradient(38% 34% at 32% 28%, rgba(255,255,255,0.95), rgba(255,255,255,0) 60%),
+        radial-gradient(80% 80% at 68% 74%, rgba(233,184,216,0.5), rgba(207,159,214,0.15) 55%, rgba(20,15,18,0) 78%),
+        radial-gradient(100% 100% at 50% 50%, rgba(234,212,255,0.14), rgba(18,13,16,0.6) 72%);
+      box-shadow:
+        inset 0 -22px 40px rgba(207,159,214,0.35),
+        inset 0 14px 30px rgba(255,255,255,0.28),
+        0 30px 60px -18px rgba(0,0,0,0.7),
+        0 0 44px -6px rgba(233,184,216,0.4);
+      animation:bob 6s ease-in-out infinite; }
+    .glass::before { content:""; position:absolute; left:20%; top:14%; width:34%; height:22%;
+      border-radius:50%; background:linear-gradient(180deg, rgba(255,255,255,0.9), transparent);
+      filter:blur(2px); transform:rotate(-18deg); }
+    .glass::after { content:""; position:absolute; inset:0; border-radius:50%;
+      border:1px solid rgba(255,255,255,0.18); }
+    @keyframes bob { 0%,100% { transform:translateY(-4px); } 50% { transform:translateY(6px); } }
+
+    .cap { padding:26px 32px 30px; }
+    .cap h3 { margin:0 0 4px; font-size:15px; letter-spacing:2px; text-transform:uppercase; color:var(--text); font-weight:600; }
+    .cap p { margin:0; font-size:13px; color:var(--subtext); line-height:1.5; }
+  </style>
+</helmet>
+<div class="stage">
+  <div class="wrap">
+    <div class="glass"></div>
+  </div>
+  <div class="cap">
+    <h3>Orbe · Cristal</h3>
+    <p>Una canica de vidrio con reflejo y luz de borde: tiene peso, parece un objeto físico
+       flotando. Sobrio y táctil; los estados se muestran con la luz interior y micro-movimiento.</p>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

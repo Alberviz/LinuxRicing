@@ -1,11 +1,22 @@
 {
+  "pages": [
+    { "id": "orbe", "name": "Orbe · centro" },
+    { "id": "gota", "name": "Gota · barra" }
+  ],
   "artboards": [
-    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1180, "h": 720, "title": "Centro · Orbe líquido" },
-    { "file": "BarMode.dc.html", "x": 1300, "y": 0, "w": 1180, "h": 640, "title": "Modo barra · La gota" }
+    { "file": "Main.dc.html", "page": "orbe", "x": 0, "y": 0, "w": 1180, "h": 720, "title": "Orbe · versión actual (base)" },
+    { "file": "OrbePlasma.dc.html", "page": "orbe", "x": 1320, "y": 0, "w": 620, "h": 620, "title": "Orbe · Plasma" },
+    { "file": "OrbeCristal.dc.html", "page": "orbe", "x": 2060, "y": 0, "w": 620, "h": 620, "title": "Orbe · Cristal" },
+    { "file": "OrbeMalla.dc.html", "page": "orbe", "x": 2800, "y": 0, "w": 620, "h": 620, "title": "Orbe · Malla" },
+
+    { "file": "BarMode.dc.html", "page": "gota", "x": 0, "y": 0, "w": 1180, "h": 640, "title": "Gota · versión actual (base)" },
+    { "file": "GotaVidrio.dc.html", "page": "gota", "x": 1320, "y": 0, "w": 560, "h": 380, "title": "Gota · Vidrio" },
+    { "file": "GotaTinta.dc.html", "page": "gota", "x": 1960, "y": 0, "w": 560, "h": 380, "title": "Gota · Tinta" },
+    { "file": "GotaContorno.dc.html", "page": "gota", "x": 2600, "y": 0, "w": 560, "h": 380, "title": "Gota · Contorno" }
   ],
   "annotations": [
-    { "id": "nota-centro", "x": 0, "y": -150, "w": 520, "text": "Modo centro — DECIDIDO: orbe líquido. Círculo grande en el centro de la pantalla, aparece al activar Aurora. Abajo, los 4 estados: reposo · escuchando · pensando · hablando. Se hará con shader en QML." },
-    { "id": "nota-barra", "x": 1300, "y": -150, "w": 560, "text": "Modo barra — LA GOTA. La barra de Caelestia es vertical (izquierda). Aurora es un icono fijo en ella; al activarla sale una gota hacia la derecha con cuello que la une a la barra. Dentro va el anillo HUD (pequeño y preciso). En reposo/pensando solo el icono+anillo; al terminar, una fila por acción y se colapsa sola a los ~3 s. Disparador propio, distinto al del modo centro." }
+    { "id": "n-orbe", "page": "orbe", "x": 0, "y": -140, "w": 620, "text": "Modo centro — la idea (orbe grande al activar Aurora) está decidida; falta el look. Base a la izquierda + 3 direcciones nuevas. Elige una o dime qué mezclar. Paleta = matugen actual de Caelestia." },
+    { "id": "n-gota", "page": "gota", "x": 0, "y": -140, "w": 620, "text": "Modo barra — la idea (gota que sale de la barra vertical con anillo HUD dentro, una fila por acción) está decidida; falta el look. Base a la izquierda + 3 tratamientos: vidrio / tinta plana / solo contorno." }
   ],
-  "launch": { "view": "canvas" }
+  "launch": { "view": "canvas", "page": "orbe" }
 }

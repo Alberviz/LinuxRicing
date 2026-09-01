@@ -1,0 +1,69 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600&display=swap">
+  <style>
+    :root { --bg:#120d10; --bar:#171015; --text:#f3e1e9; --subtext:#b7a7af;
+      --primary:#e9b8d8; --tertiary:#ead4ff; --outline:#6b5c64;
+      --font:"Google Sans Flex","Google Sans","Figtree",system-ui,sans-serif; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:var(--font); background:var(--bg); color:var(--text); }
+    a { color:var(--primary); } a:hover { color:var(--tertiary); }
+    .stage { width:560px; height:380px; position:relative; overflow:hidden;
+      background:radial-gradient(130% 100% at 0% 45%,#181117,#110c0f 60%); }
+    .bar { position:absolute; top:0; bottom:0; left:0; width:44px; background:var(--bar);
+      border-right:1px solid rgba(80,69,76,0.4); display:flex; flex-direction:column;
+      align-items:center; padding:14px 0; gap:14px; }
+    .bar .d { width:7px; height:7px; border-radius:50%; background:#3a3035; }
+    .bar .d.on { background:var(--primary); box-shadow:0 0 8px 1px rgba(233,184,216,0.5); }
+    .bar .aur { width:24px; height:24px; border-radius:7px; border:1px solid var(--primary); }
+    .bar .sp { flex:1; }
+
+    .scene { position:absolute; left:44px; top:132px; display:flex; align-items:stretch; }
+    .neck { width:20px; align-self:center; height:30px;
+      border-top:1.5px solid var(--outline); border-bottom:1.5px solid var(--outline);
+      clip-path:polygon(0 30%,100% 8%,100% 92%,0 70%); }
+    .gota { background:rgba(18,13,16,0.55); border:1.5px solid var(--outline); border-left:none;
+      border-radius:2px 22px 22px 2px; padding:13px 22px 13px 14px;
+      display:flex; gap:13px; align-items:flex-start; }
+    .ring { flex:none; margin-top:2px; }
+    .rows { display:flex; flex-direction:column; gap:8px; }
+    .r { display:flex; align-items:center; gap:9px; font-size:13.5px; color:var(--text); }
+    .r svg { flex:none; }
+
+    .tag { position:absolute; left:78px; top:94px; font-size:11px; letter-spacing:1.5px;
+      text-transform:uppercase; color:var(--subtext); font-weight:600; }
+    .cap { position:absolute; left:78px; bottom:24px; right:24px; font-size:12.5px; color:var(--subtext); line-height:1.5; }
+  </style>
+</helmet>
+<div class="stage">
+  <div class="bar">
+    <div class="d on"></div><div class="d"></div><div class="sp"></div>
+    <div class="aur"></div><div class="sp"></div><div class="d"></div>
+  </div>
+  <div class="tag">Gota · Solo contorno</div>
+  <div class="scene">
+    <div class="neck"></div>
+    <div class="gota">
+      <svg class="ring" width="27" height="27" viewBox="0 0 40 40" fill="none">
+        <circle cx="20" cy="20" r="16" stroke="#e9b8d8" stroke-width="1" stroke-dasharray="1 5" opacity="0.6"/>
+        <circle cx="20" cy="20" r="12" stroke="#e9b8d8" stroke-width="1.4"/>
+        <circle cx="20" cy="20" r="3.5" stroke="#ead4ff" stroke-width="1.2"/>
+      </svg>
+      <div class="rows">
+        <div class="r"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#b5ccba" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Volumen al 60 %</div>
+        <div class="r"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#b5ccba" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Google abierto</div>
+      </div>
+    </div>
+  </div>
+  <div class="cap">Casi todo aire: línea fina, fondo apenas tintado. Lo más discreto, "de línea", muy en la onda de los HUD.</div>
+</div>
+</x-dc>
+</body>
+</html>
