@@ -215,13 +215,29 @@ mejor opción de timbre pero previsiblemente de pago si se usa a diario.
 
 ### 2.5 Animación reactiva
 
-- **Elegido: overlay QML en Quickshell**, módulo nuevo `modules/assistant/`. Ventana sin
-  marco, transparente, centrada (`WlrLayershell`, sin zona exclusiva, *click-through*
-  salvo al interactuar). El **círculo futurista** = un `ShaderEffect` con *fragment
-  shader* GLSL (anillo con brillo, *fresnel*, desplazamiento por ruido) controlado por
-  *uniforms*: `amplitude` (RMS del audio), `state` (idle / listening / thinking /
-  speaking) y `accent` (color de la paleta matugen). La amplitud llega por el socket de
-  eventos del daemon.
+> [!success] Diseño decidido (2026-09-01) — mockups en canvas
+> `assistant/design/aurora-overlay.html` (canvas de Claude Design). **Dos modos, dos
+> disparadores:**
+> - **Modo centro — orbe líquido.** Círculo grande en el centro de la pantalla al
+>   activar Aurora. Esfera con brillo y degradado (rosa primario + lavanda) que ondula
+>   y respira. Estados: reposo (orbe pequeño, respira lento) · escuchando (crece y
+>   ondula con la voz) · pensando (halo que gira) · hablando (anillos que emanan) +
+>   bocadillo de respuesta breve. Se hará con `ShaderEffect` GLSL.
+> - **Modo barra — "la gota".** La barra de Caelestia es **vertical, a la izquierda**.
+>   Aurora es un icono fijo en ella; al activarla sale una **gota hacia la derecha con
+>   un "cuello"** que la une a la barra (encaja con el sistema de *popouts* que
+>   Caelestia ya tiene). Dentro va el **anillo HUD** (concéntrico, ticks, pequeño y
+>   preciso — el HUD vive aquí; el orbe es para el centro). Reposo/pensando: solo
+>   icono + anillo. Al terminar: **una fila por acción** ("Volumen 60 %", "Google
+>   abierto") y se colapsa sola a los ~3 s. Para comandos rápidos del sistema.
+
+- **Implementación: overlay QML en Quickshell**, módulo nuevo `modules/assistant/`.
+  Modo centro = ventana `WlrLayershell` sin marco, transparente, centrada, *click-through*
+  salvo al interactuar; el orbe es un `ShaderEffect` con *fragment shader* GLSL
+  controlado por *uniforms*: `amplitude` (RMS del audio), `state` (idle / listening /
+  thinking / speaking) y `accent` (paleta matugen). Modo barra = entrada en la barra +
+  popout propio (aprovechar `BarPopouts.Wrapper`). La amplitud y el estado llegan por
+  el socket de eventos del daemon (que hay que añadir en la fase 1).
 - **Integración de tema:** reutilizar los *singletons* `Appearance` / `Colours` de
   Caelestia. El know-how de visualización de audio ya existe en el ecosistema
   ([[Pulsación rítmica CAVA en la tira LED]]).
