@@ -29,7 +29,7 @@ StyledWindow {
     anchors.bottom: true
     anchors.left: true
 
-    implicitWidth: 260
+    implicitWidth: 380
     mask: Region {}
 
     // Linger: tras terminar, deja las pastillas ~3 s antes de recogerse.
@@ -67,11 +67,13 @@ StyledWindow {
             }
         }
 
-        // Geometría
-        readonly property real anchorX: 10
+        // Geometría — el ancla vive en el borde derecho de la barra de
+        // Caelestia (aquí sí hay contexto de pantalla para leer Tokens/Config).
+        readonly property real barWidth: Tokens.sizes.bar.innerWidth + Math.max(Tokens.padding.small, Config.border.thickness) * 2
+        readonly property real anchorX: barWidth
         readonly property real anchorY: height / 2
         // No readonly: el Behavior necesita interceptar los cambios del binding.
-        property real dropX: win.engaged ? 74 : anchorX
+        property real dropX: win.engaged ? anchorX + 64 : anchorX
         readonly property real dropR: (Aurora.state === "idle" ? 5 : 15 + 10 * Aurora.amplitude)
 
         Behavior on dropX {
