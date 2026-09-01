@@ -398,3 +398,33 @@ Ambos agentes (Claude y Gemini) escriben aquí — añadir, no reescribir.
 - **Verificado:** simulado start/complete/clearRunning por IPC; con 2 sesiones Claude
   un `complete` ambiguo no apaga el pulso de la otra; con 1, sí. Shell recargado sin
   errores QML.
+
+### El shell de Quickshell «iba muy petado» (un core al 100 %)
+- **Síntoma:** Caelestia/Quickshell respondía lento; `qs -c caelestia` con un
+  hilo (el GUI) clavado al 97–99 % de CPU de forma sostenida, sin recuperarse.
+  Coincidió con una tarde de dos agentes montando el sistema solar del fondo y
+  el overlay de voz, con syncs frecuentes a `~/.config/quickshell/caelestia/`.
+- **Causa:** **Quickshell fuga en cada hot-reload.** Al cambiar cualquier
+  archivo de la config, Quickshell recarga el motor QML in-process pero **no
+  destruye los `FrameAnimation` ni los repaint de `Canvas` de la generación
+  anterior**. Cada reload deja otro bucle a ~60 fps corriendo sobre un árbol QML
+  muerto. Los disparadores son los `FrameAnimation { running: true }`
+  incondicionales: el de `DesktopCircularMedia` en `Background.qml` (repinta un
+  `Canvas` de 448 px aunque no suene música ni se vea el widget) y el de
+  `SolarSystem.qml`. Tras ~10 reloads acumulados → un core saturado que ya no
+  baja. El auto-reload de Quickshell es silencioso (`QS_NO_RELOAD_POPUP=1`), así
+  que la degradación pasa desapercibida.
+- **Pruebas** (CPU leída de `/proc/PID/stat`): restart limpio con la config
+  **completa** = 0 %. 10 reloads seguidos con los `FrameAnimation` activos =
+  98 % clavado. 10 reloads con el solar desactivado y gateado el
+  `FrameAnimation` del visualizador de música = se queda en 0 %.
+- **Remedio inmediato:** restart **completo**, nunca hot-reload:
+  `caelestia shell -k 2>/dev/null; sleep 1; caelestia shell -d`. Deja el shell a
+  0 % de CPU al instante.
+- **Arreglo de fondo** (pendiente, territorio del fondo/`Background.qml`):
+  gatear el `running:` de cada `FrameAnimation` a `visible && (música sonando ||
+  agentes activos)`, bajar a 30 fps, y a medio plazo mover el dibujado a
+  `ShaderEffect` / `Shape` GPU en vez de `Canvas.onPaint` con `shadowBlur` (un
+  gaussian por-píxel en el hilo GUI por cada glow). **Regla de trabajo:** tras
+  sincronizar UI a `~/.config`, hacer restart completo del shell; no encadenar
+  auto-reloads.
