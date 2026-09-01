@@ -1,0 +1,133 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600&display=swap">
+  <style>
+    :root {
+      --bg: #120d10; --surface: #1f171c; --surface-hi: #261d22; --outline: #50454c;
+      --text: #f3e1e9; --subtext: #b7a7af; --primary: #e9b8d8; --tertiary: #ead4ff;
+      --font: "Google Sans Flex", "Google Sans", "Figtree", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: var(--font); background: var(--bg); color: var(--text); }
+    a { color: var(--primary); } a:hover { color: var(--tertiary); }
+
+    .stage { width: 1180px; height: 470px; position: relative; overflow: hidden;
+      background: radial-gradient(120% 120% at 50% 0%, #1b1218 0%, #130e11 55%, #0c080a 100%); }
+
+    .bar { position: absolute; top: 0; left: 0; right: 0; height: 42px;
+      display: flex; align-items: center; justify-content: space-between; padding: 0 16px;
+      background: rgba(18,13,16,0.92); border-bottom: 1px solid rgba(80,69,76,0.5); }
+    .bar .group { display: flex; align-items: center; gap: 10px; color: var(--subtext); font-size: 12px; }
+    .ws { display: flex; gap: 6px; }
+    .ws i { width: 8px; height: 8px; border-radius: 50%; background: #3a3035; display: block; }
+    .ws i.on { background: var(--primary); box-shadow: 0 0 8px 1px rgba(233,184,216,0.6); }
+    .clock { color: var(--text); font-weight: 600; font-size: 12px; letter-spacing: 0.5px; }
+
+    .caption { position: absolute; top: 60px; left: 16px; font-size: 12px; letter-spacing: 2px;
+      text-transform: uppercase; color: var(--subtext); font-weight: 600; }
+
+    .rows { position: absolute; top: 92px; left: 0; right: 0;
+      display: flex; flex-direction: column; align-items: center; gap: 30px; }
+    .row { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+    .row .lbl { font-size: 12px; color: var(--subtext); }
+
+    /* la cápsula que "sale de la barra" */
+    .pill { display: flex; align-items: center; gap: 12px;
+      padding: 10px 16px 10px 12px; border-radius: 14px;
+      background: rgba(38,29,34,0.94); border: 1px solid var(--outline);
+      box-shadow: 0 16px 44px -14px rgba(0,0,0,0.75), 0 0 0 1px rgba(233,184,216,0.06);
+      backdrop-filter: blur(10px); min-width: 260px; }
+    .pill .ico { width: 30px; height: 30px; border-radius: 9px; flex: none;
+      display: grid; place-items: center; background: rgba(233,184,216,0.12);
+      border: 1px solid rgba(233,184,216,0.25); }
+    .pill .txt { font-size: 14px; font-weight: 500; color: var(--text); }
+    .pill .sub { font-size: 12px; color: var(--subtext); }
+    .pill .col { display: flex; flex-direction: column; gap: 1px; }
+    .pill .meter { margin-left: auto; width: 70px; height: 5px; border-radius: 3px;
+      background: rgba(80,69,76,0.6); overflow: hidden; flex: none; }
+    .pill .meter span { display: block; height: 100%; width: 60%;
+      background: linear-gradient(90deg, var(--primary), var(--tertiary)); border-radius: 3px; }
+
+    .connector { width: 2px; height: 14px; background: linear-gradient(var(--outline), transparent); }
+
+    @keyframes bars { 0%,100% { transform: scaleY(0.4); } 50% { transform: scaleY(1); } }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .b { animation: bars 1s ease-in-out infinite; transform-origin: bottom; }
+    .b:nth-child(2) { animation-delay: 0.2s; } .b:nth-child(3) { animation-delay: 0.4s; }
+    .spin { animation: spin 2s linear infinite; transform-origin: center; }
+  </style>
+</helmet>
+
+<div class="stage">
+  <div class="bar">
+    <div class="group">
+      <div class="ws"><i class="on"></i><i></i><i></i><i></i></div>
+    </div>
+    <div class="clock">14:32</div>
+    <div class="group">
+      <span>WIFI</span><span>·</span><span>68%</span>
+    </div>
+  </div>
+
+  <div class="caption">Modo barra · comandos rápidos del sistema</div>
+
+  <div class="rows">
+    <!-- ESCUCHANDO -->
+    <div class="row">
+      <div class="connector"></div>
+      <div class="pill">
+        <div class="ico">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#e9b8d8" stroke-width="2" stroke-linecap="round">
+            <rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>
+          </svg>
+        </div>
+        <div class="col"><span class="txt">Escuchando…</span></div>
+        <div style="margin-left: auto; display: flex; align-items: flex-end; gap: 3px; height: 18px;">
+          <span class="b" style="width:3px;height:8px;background:#ead4ff;border-radius:2px;display:block"></span>
+          <span class="b" style="width:3px;height:16px;background:#e9b8d8;border-radius:2px;display:block"></span>
+          <span class="b" style="width:3px;height:11px;background:#f6d2ea;border-radius:2px;display:block"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- PENSANDO -->
+    <div class="row">
+      <div class="connector"></div>
+      <div class="pill">
+        <div class="ico">
+          <svg class="spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#e9b8d8" stroke-width="2" stroke-linecap="round">
+            <path d="M21 12a9 9 0 1 1-6.2-8.5"/>
+          </svg>
+        </div>
+        <div class="col"><span class="txt">Un momento…</span>
+          <span class="sub">«sube el brillo al máximo»</span></div>
+      </div>
+    </div>
+
+    <!-- RESULTADO -->
+    <div class="row">
+      <div class="connector"></div>
+      <div class="pill">
+        <div class="ico">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#b5ccba" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 6 9 17l-5-5"/>
+          </svg>
+        </div>
+        <div class="col"><span class="txt">Brillo al 100 %</span></div>
+        <div class="meter"><span style="width: 100%"></span></div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1180, "h": 720, "title": "Centro · Anillo HUD" },
+    { "file": "Orbe.dc.html", "x": 1300, "y": 0, "w": 1180, "h": 720, "title": "Centro · Orbe líquido" },
+    { "file": "BarMode.dc.html", "x": 2600, "y": 0, "w": 1180, "h": 470, "title": "Modo barra" }
+  ],
+  "annotations": [
+    { "id": "nota-centro", "x": 0, "y": -150, "w": 520, "text": "Modo centro — dos direcciones para el círculo. Elige una (o mézclalas). Abajo de cada una, los 4 estados: reposo · escuchando · pensando · hablando. Paleta = matugen actual de Caelestia (rosa primario + lavanda)." },
+    { "id": "nota-barra", "x": 2600, "y": -150, "w": 480, "text": "Modo barra — cápsula que baja de la barra de Caelestia para comandos rápidos del sistema. Sin círculo grande: icono + estado + resultado en una línea. El disparador será otro atajo distinto al del modo centro." }
+  ],
+  "launch": { "view": "canvas" }
+}
