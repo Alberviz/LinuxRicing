@@ -1,0 +1,19 @@
+#!/usr/bin/env python
+"""Dispara un ciclo de Aurora. Atar a un atajo de Hyprland.
+
+    hl.bind("SUPER + A", hl.dsp.exec_cmd("/home/alberviz/LinuxRicing/assistant/aurora-toggle"))
+"""
+import os
+import socket
+import sys
+
+path = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "aurora.sock")
+try:
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.connect(path)
+    s.sendall(b"activate")
+    s.close()
+except (FileNotFoundError, ConnectionRefusedError):
+    sys.stderr.write("aurora: el daemon no está corriendo\n")
+    os.system("notify-send -a Aurora 'Aurora' 'El daemon no está corriendo'")
+    sys.exit(1)

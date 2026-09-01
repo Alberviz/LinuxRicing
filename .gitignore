@@ -17,3 +17,6 @@ vault/Inbox/attachments/
 
 # Superpowers brainstorming (visual companion mockups + state)
 .superpowers/
+
+# Aurora: entorno virtual local
+assistant/.venv/

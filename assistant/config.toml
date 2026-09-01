@@ -1,0 +1,39 @@
+# Aurora — configuración. Editable sin tocar código; reinicia el daemon tras cambiar.
+
+[daemon]
+socket = "$XDG_RUNTIME_DIR/aurora.sock"
+notify = true          # avisos con notify-send (escuchando / respuesta)
+
+[stt]
+model = "small"        # tiny | base | small | medium
+device = "cpu"         # cpu (fiable en esta GPU) | cuda
+language = "es"
+
+[llm]
+model = "qwen3:4b-instruct"
+url = "http://localhost:11434/api/chat"
+max_tool_rounds = 5
+system_prompt = """
+Eres Aurora, el asistente de voz local de Alberto en su escritorio Linux.
+Respondes SIEMPRE en español, en una o dos frases cortas pensadas para leerse en
+voz alta: nada de markdown, listas ni emojis. Si la petición implica una acción
+del ordenador, usa las herramientas disponibles y luego confirma en una frase lo
+que has hecho. Si no puedes hacer algo, dilo claro y breve.
+"""
+
+[tts]
+voice = "ef_dora"      # kokoro: ef_dora (mujer), em_alex, em_santa
+effect = "jarvis"      # jarvis | subnautica | robot | dry
+
+[audio]
+max_seconds = 15       # tope de grabación por turno
+silence_ms = 900       # silencio que corta la grabación
+
+# Apps que Aurora puede abrir. clave = como lo dices; valor = comando.
+[apps]
+navegador = "zen-browser"
+terminal = "kitty"
+editor = "codium"
+archivos = "dolphin"
+spotify = "spotify"
+discord = "vesktop"
