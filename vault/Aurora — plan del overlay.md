@@ -1,7 +1,7 @@
 ---
 tipo: plan
 proyecto: "[[Asistente de voz con IA local]]"
-estado: listo-para-ejecutar
+estado: en-curso
 creado: 2026-09-01
 tags:
   - aurora

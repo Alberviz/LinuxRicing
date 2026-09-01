@@ -2,6 +2,7 @@
 
 [daemon]
 socket = "$XDG_RUNTIME_DIR/aurora.sock"
+events_socket = "$XDG_RUNTIME_DIR/aurora-events.sock"  # bus de eventos para el overlay
 notify = true          # avisos con notify-send (escuchando / respuesta)
 
 [stt]
@@ -28,6 +29,7 @@ effect = "jarvis"      # jarvis | subnautica | robot | dry
 [audio]
 max_seconds = 15       # tope de grabación por turno
 silence_ms = 900       # silencio que corta la grabación
+amp_gain = 12.0        # multiplicador RMS->0..1 para la amplitud del overlay
 
 # Apps que Aurora puede abrir. clave = como lo dices; valor = comando.
 [apps]

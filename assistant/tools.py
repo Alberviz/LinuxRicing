@@ -29,7 +29,13 @@ def control_musica(accion: str) -> dict:
     r = _run(["playerctl", sub])
     if r.returncode != 0:
         return {"ok": False, "error": "no hay ningún reproductor activo"}
-    return {"ok": True, "accion": accion}
+    resumen = {
+        "reproducir_pausar": "Reproducir / pausar",
+        "siguiente": "Siguiente canción",
+        "anterior": "Canción anterior",
+        "parar": "Parar música",
+    }[accion]
+    return {"ok": True, "accion": accion, "resumen": resumen}
 
 
 def volumen(porcentaje: int) -> dict:
@@ -38,13 +44,14 @@ def volumen(porcentaje: int) -> dict:
     _run(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "0"])
     r = _run(["wpctl", "set-volume", "-l", "1.4", "@DEFAULT_AUDIO_SINK@",
               f"{abs(int(porcentaje))}%{signo}"])
-    return {"ok": r.returncode == 0}
+    resumen = "Subir volumen" if porcentaje >= 0 else "Bajar volumen"
+    return {"ok": r.returncode == 0, "resumen": resumen}
 
 
 def silenciar() -> dict:
     """Silencia o quita el silencio del audio."""
     r = _run(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"])
-    return {"ok": r.returncode == 0}
+    return {"ok": r.returncode == 0, "resumen": "Silenciar / activar audio"}
 
 
 def abrir_web(consulta: str) -> dict:
@@ -58,7 +65,9 @@ def abrir_web(consulta: str) -> dict:
         url = "https://www.google.com/search?q=" + urllib.parse.quote(consulta)
     subprocess.Popen(["xdg-open", url],
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return {"ok": True, "url": url}
+    es_busqueda = "google.com/search" in url
+    return {"ok": True, "url": url,
+            "resumen": f"Buscar «{consulta}»" if es_busqueda else "Abrir web"}
 
 
 def abrir_app(nombre: str, _apps: dict | None = None) -> dict:
@@ -69,21 +78,41 @@ def abrir_app(nombre: str, _apps: dict | None = None) -> dict:
     if shutil.which(partes[0]) is None:
         return {"ok": False, "error": f"no encuentro la aplicación '{partes[0]}'"}
     subprocess.Popen(partes, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return {"ok": True, "app": comando}
+    return {"ok": True, "app": comando, "resumen": f"Abrir {nombre.strip()}"}
 
 
 def captura_pantalla() -> dict:
     """Hace una captura de pantalla."""
     subprocess.Popen(["caelestia", "screenshot"],
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return {"ok": True}
+    return {"ok": True, "resumen": "Captura de pantalla"}
 
 
 def bloquear_pantalla() -> dict:
     """Bloquea la sesión."""
     subprocess.Popen(["loginctl", "lock-session"],
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return {"ok": True}
+    return {"ok": True, "resumen": "Bloquear pantalla"}
+
+
+# Icono (Material Symbols) para la píldora de acción del overlay.
+TOOL_ICONS = {
+    "control_musica": "music_note",
+    "volumen": "volume_up",
+    "silenciar": "volume_off",
+    "abrir_web": "public",
+    "abrir_app": "open_in_new",
+    "captura_pantalla": "screenshot_monitor",
+    "bloquear_pantalla": "lock",
+}
+
+
+def accion_overlay(name: str, result: dict) -> dict:
+    """Traduce un tool_call ejecutado a `{icon, text}` para el overlay."""
+    return {
+        "icon": TOOL_ICONS.get(name, "bolt"),
+        "text": result.get("resumen") or name.replace("_", " ").capitalize(),
+    }
 
 
 DISPATCH = {

@@ -27,9 +27,12 @@ import sounddevice as sd
 import soundfile as sf
 
 import tools as tools_mod
+from events import EventBus
 
 HERE = Path(__file__).resolve().parent
 CFG = tomllib.loads((HERE / "config.toml").read_text())
+
+bus = EventBus(CFG["daemon"]["events_socket"])
 
 SR = 16000
 VAD_CHUNK = 512  # silero-vad requiere exactamente 512 muestras a 16 kHz
@@ -88,6 +91,7 @@ def listen() -> np.ndarray:
     frames: list[np.ndarray] = []
     spoke = False
 
+    gain = float(CFG["audio"].get("amp_gain", 12.0))
     with sd.InputStream(samplerate=SR, channels=1, dtype="float32",
                         blocksize=VAD_CHUNK,
                         callback=lambda indata, *_: q.put(indata.copy())):
@@ -95,6 +99,8 @@ def listen() -> np.ndarray:
         while time.monotonic() - t0 < CFG["audio"]["max_seconds"]:
             chunk = q.get()
             frames.append(chunk)
+            rms = float(np.sqrt(np.mean(chunk[:, 0] ** 2)))
+            bus.emit(type="amplitude", value=min(1.0, rms * gain))
             event = vad(chunk[:, 0], return_seconds=True)
             if event:
                 if "start" in event:
@@ -127,14 +133,16 @@ def ollama_chat(messages: list[dict]) -> dict:
         return json.loads(resp.read())
 
 
-def converse(user_text: str) -> str:
+def converse(user_text: str) -> tuple[str, list[dict]]:
+    """Devuelve (respuesta, acciones) donde acciones = [{icon, text}, ...]."""
     _messages.append({"role": "user", "content": user_text})
+    actions: list[dict] = []
     for _ in range(CFG["llm"]["max_tool_rounds"]):
         msg = ollama_chat(_messages)["message"]
         _messages.append(msg)
         calls = msg.get("tool_calls") or []
         if not calls:
-            return (msg.get("content") or "").strip()
+            return (msg.get("content") or "").strip(), actions
         for call in calls:
             fn = call["function"]
             args = fn.get("arguments") or {}
@@ -142,9 +150,11 @@ def converse(user_text: str) -> str:
                 args = json.loads(args or "{}")
             result = tools_mod.run_tool(fn["name"], args, CFG.get("apps", {}))
             log(f"tool {fn['name']}({args}) -> {result}")
+            if result.get("ok"):
+                actions.append(tools_mod.accion_overlay(fn["name"], result))
             _messages.append({"role": "tool", "name": fn["name"],
                               "content": json.dumps(result, ensure_ascii=False)})
-    return (_messages[-1].get("content") or "Hecho.").strip()
+    return (_messages[-1].get("content") or "Hecho.").strip(), actions
 
 
 def speak(text: str) -> None:
@@ -162,24 +172,52 @@ def speak(text: str) -> None:
                         "/tmp/aurora_raw.wav", "-af", af, "/tmp/aurora_out.wav"],
                        check=True)
         out = "/tmp/aurora_out.wav"
-    subprocess.run(["paplay", out])
+    _play_with_amplitude(out)
 
 
-def cycle() -> None:
-    log("escuchando…")
+def _play_with_amplitude(wav_path: str, hz: float = 25.0) -> None:
+    """Reproduce el wav y emite su envolvente RMS por ventanas, en sincronía."""
+    data, sr = sf.read(wav_path, dtype="float32")
+    if data.ndim > 1:
+        data = data.mean(axis=1)
+    win = max(1, int(sr / hz))
+    env = np.array([np.sqrt(np.mean(data[i:i + win] ** 2))
+                    for i in range(0, len(data), win)])
+    peak = float(env.max()) or 1.0
+    env = np.minimum(1.0, env / peak)
+    step = win / sr
+    proc = subprocess.Popen(["paplay", wav_path])
+    t0 = time.monotonic()
+    for i, v in enumerate(env):
+        bus.emit(type="amplitude", value=float(v))
+        target = t0 + (i + 1) * step
+        time.sleep(max(0.0, target - time.monotonic()))
+    proc.wait()
+    bus.emit(type="amplitude", value=0.0)
+
+
+def cycle(mode: str = "centro") -> None:
+    log(f"escuchando… (modo {mode})")
     notify("Aurora te escucha…")
+    bus.emit(type="state", value="listening", mode=mode)
     audio = listen()
+    bus.emit(type="state", value="thinking", mode=mode)
     text = transcribe(audio)
     if not text:
         log("(nada que transcribir)")
         notify("Aurora", "no te he oído")
+        bus.emit(type="state", value="idle", mode=mode)
         return
     log(f"tú: {text}")
     notify("Tú", text)
-    reply = converse(text)
-    log(f"aurora: {reply}")
+    bus.emit(type="transcript", value=text)
+    reply, actions = converse(text)
+    log(f"aurora: {reply}  · acciones: {actions}")
     notify("Aurora", reply)
+    bus.emit(type="result", actions=actions)
+    bus.emit(type="state", value="speaking", mode=mode)
     speak(reply)
+    bus.emit(type="state", value="idle", mode=mode)
 
 
 def main() -> None:
@@ -189,24 +227,30 @@ def main() -> None:
     srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     srv.bind(sock_path)
     srv.listen(4)
-    log(f"listo. socket: {sock_path}")
+    bus.start()
+    bus.emit(type="state", value="idle", mode="centro")
+    log(f"listo. control: {sock_path}  ·  eventos: {bus.path}")
     busy = False
     try:
         while True:
             conn, _ = srv.accept()
             with conn:
                 data = conn.recv(64).decode(errors="ignore").strip()
-            if data != "activate":
+            if not data.startswith("activate"):
                 continue
+            mode = data.split(":", 1)[1].strip() if ":" in data else "centro"
+            if mode not in ("centro", "barra"):
+                mode = "centro"
             if busy:
                 log("ocupado, ignoro")
                 continue
             busy = True
             try:
-                cycle()
+                cycle(mode)
             except Exception as e:  # noqa: BLE001
                 log(f"error en el ciclo: {e}")
                 notify("Aurora", f"error: {e}")
+                bus.emit(type="state", value="idle", mode=mode)
             finally:
                 busy = False
     except KeyboardInterrupt:
@@ -215,6 +259,7 @@ def main() -> None:
         srv.close()
         if os.path.exists(sock_path):
             os.unlink(sock_path)
+        bus.close()
 
 
 if __name__ == "__main__":
