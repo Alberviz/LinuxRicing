@@ -1,17 +1,15 @@
 {
   "pages": [
-    { "id": "barra", "name": "Modo barra" },
-    { "id": "orbe", "name": "Orbe (decidido)" }
+    { "id": "barra", "name": "Modo barra (decidido)" },
+    { "id": "orbe", "name": "Modo centro (decidido)" }
   ],
   "artboards": [
-    { "file": "Lobulo.dc.html", "page": "barra", "x": 0, "y": 0, "w": 600, "h": 700, "title": "A · Lóbulo (tu idea 1)" },
-    { "file": "HaloBrote.dc.html", "page": "barra", "x": 720, "y": 0, "w": 600, "h": 700, "title": "B · Halo + brote (2 + 1)" },
-    { "file": "PuntoTether.dc.html", "page": "barra", "x": 1440, "y": 0, "w": 600, "h": 700, "title": "C · Punto con cordón (tu idea 3)" },
-    { "file": "Main.dc.html", "page": "orbe", "x": 0, "y": 0, "w": 1180, "h": 720, "title": "Orbe líquido — decidido, no se toca" }
+    { "file": "PuntoTether.dc.html", "page": "barra", "x": 0, "y": 0, "w": 600, "h": 700, "title": "Modo barra · Punto con cordón" },
+    { "file": "Main.dc.html", "page": "orbe", "x": 0, "y": 0, "w": 1180, "h": 720, "title": "Modo centro · Orbe líquido" }
   ],
   "annotations": [
-    { "id": "n-barra", "page": "barra", "x": 0, "y": -150, "w": 640, "text": "Segundo modo de invocación: mínimo, fusionado a la barra vertical de Caelestia, sin ventana. Tres direcciones, cada una en sus 3 estados (escuchando reactivo · pensando en bucle · resultado icono+texto). A = la barra se hincha en un lóbulo del mismo color. B = casi siempre solo un borde que brilla; panel solo si hay acciones. C = un punto que se estira con cordón y al final cuelga las acciones de un tallo. Color = accent dinámico del theming." },
-    { "id": "n-orbe", "page": "orbe", "x": 0, "y": -150, "w": 480, "text": "El otro modo, ya decidido: orbe líquido grande, centrado. Aquí solo de referencia, no se rediseña." }
+    { "id": "n-barra", "page": "barra", "x": 0, "y": -150, "w": 620, "text": "DECIDIDO. Segundo modo de invocación (ligero, fusionado a la barra vertical): un punto anclado a la barra que, al activar Aurora, se despega en un cordón fino (nunca se corta) y hace de gota que se deforma con la voz. Pensando: se calma, un aro gira. Resultado: se deshace hacia abajo en un tallo con una pastilla por acción. Color = accent dinámico del theming." },
+    { "id": "n-orbe", "page": "orbe", "x": 0, "y": -150, "w": 480, "text": "DECIDIDO. Modo centro: orbe líquido grande y centrado, para la experiencia completa. Se implementará con shader en QML." }
   ],
   "launch": { "view": "canvas", "page": "barra" }
 }

@@ -223,13 +223,15 @@ mejor opción de timbre pero previsiblemente de pago si se usa a diario.
 >   y respira. Estados: reposo (orbe pequeño, respira lento) · escuchando (crece y
 >   ondula con la voz) · pensando (halo que gira) · hablando (anillos que emanan) +
 >   bocadillo de respuesta breve. Se hará con `ShaderEffect` GLSL.
-> - **Modo barra — "la gota".** La barra de Caelestia es **vertical, a la izquierda**.
->   Aurora es un icono fijo en ella; al activarla sale una **gota hacia la derecha con
->   un "cuello"** que la une a la barra (encaja con el sistema de *popouts* que
->   Caelestia ya tiene). Dentro va el **anillo HUD** (concéntrico, ticks, pequeño y
->   preciso — el HUD vive aquí; el orbe es para el centro). Reposo/pensando: solo
->   icono + anillo. Al terminar: **una fila por acción** ("Volumen 60 %", "Google
->   abierto") y se colapsa sola a los ~3 s. Para comandos rápidos del sistema.
+> - **Modo barra — "punto con cordón".** La barra de Caelestia es **vertical, a la
+>   izquierda**. En reposo, Aurora es un **punto** anclado a la barra. Al activarla,
+>   el punto **se despega en un cordón fino** (que nunca se corta — de ahí la "fusión
+>   sin ventana") y se convierte en una **gota que se deforma con la voz**.
+>   *Pensando:* la gota se calma y un aro gira a su alrededor. *Resultado:* la gota se
+>   "deshace" hacia abajo en un **tallo con una pastilla por acción** colgando (icono +
+>   texto corto); al terminar todo se recoge en el punto. Color = accent dinámico del
+>   theming. Para invocación rápida y ligera, sin la experiencia a pantalla completa.
+>   *(Descartadas: "lóbulo" —la barra se hincha— y "halo + brote".)*
 
 - **Implementación: overlay QML en Quickshell**, módulo nuevo `modules/assistant/`.
   Modo centro = ventana `WlrLayershell` sin marco, transparente, centrada, *click-through*
