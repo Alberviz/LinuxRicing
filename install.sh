@@ -214,6 +214,17 @@ if [ "$SELECTED_RGB" = true ]; then
     # 6d. Unidades systemd de usuario
     if [ -d "$BASE_DIR/systemd" ]; then
         mkdir -p "$HOME/.config/systemd/user"
+        # Retira unidades legacy: mchose-battery.{timer,service} lanzaban
+        # `mchose-battery --notify`, flag que ya no existe (la telemetría y las
+        # notificaciones viven ahora en battery-lighting). El servicio quedaba
+        # en fallo perpetuo y su caché rancia confundía al widget de periféricos.
+        for legacy in mchose-battery.timer mchose-battery.service; do
+            if [ -f "$HOME/.config/systemd/user/$legacy" ] || \
+               systemctl --user list-unit-files "$legacy" >/dev/null 2>&1; then
+                systemctl --user disable --now "$legacy" 2>/dev/null || true
+                rm -f "$HOME/.config/systemd/user/$legacy"
+            fi
+        done
         cp -u "$BASE_DIR/systemd/"*.service "$HOME/.config/systemd/user/" 2>/dev/null || true
         systemctl --user daemon-reload || true
         # openrgb + battery-lighting siempre; argb-wave solo si su script existe (rama feature/argb-wave)

@@ -251,18 +251,21 @@ Variants {
         }
 
         property int headsetBat: 0
+        property bool headsetBatteryKnown: false
         property string headsetStatus: "Desconectado"
         property string headsetMode: "Desconectado"
         property bool headsetCharging: false
         property bool headsetConnected: false
 
         property int mouseBat: 0
+        property bool mouseBatteryKnown: false
         property string mouseStatus: "Desconectado"
         property string mouseMode: "Desconectado"
         property bool mouseCharging: false
         property bool mouseConnected: false
 
         property int kbBat: 0
+        property bool kbBatteryKnown: false
         property string kbStatus: "Desconectado"
         property string kbMode: "Desconectado"
         property bool kbCharging: false
@@ -277,6 +280,7 @@ Variants {
                     try {
                         const data = JSON.parse(text);
                         if (data.headset) {
+                            periphRoot.headsetBatteryKnown = data.headset.battery !== null && data.headset.battery !== undefined;
                             periphRoot.headsetBat = data.headset.battery ?? 0;
                             periphRoot.headsetStatus = data.headset.status ?? "Desconectado";
                             periphRoot.headsetMode = data.headset.mode ?? (data.headset.connected ? "2.4G Inalámbrico" : "Desconectado");
@@ -284,6 +288,7 @@ Variants {
                             periphRoot.headsetConnected = data.headset.connected ?? false;
                         }
                         if (data.mouse) {
+                            periphRoot.mouseBatteryKnown = data.mouse.battery !== null && data.mouse.battery !== undefined;
                             periphRoot.mouseBat = data.mouse.battery ?? 0;
                             periphRoot.mouseStatus = data.mouse.status ?? "Desconectado";
                             periphRoot.mouseMode = data.mouse.mode ?? (data.mouse.connected ? "2.4G Inalámbrico" : "Desconectado");
@@ -291,6 +296,7 @@ Variants {
                             periphRoot.mouseConnected = data.mouse.connected ?? false;
                         }
                         if (data.keyboard) {
+                            periphRoot.kbBatteryKnown = data.keyboard.battery !== null && data.keyboard.battery !== undefined;
                             periphRoot.kbBat = data.keyboard.battery ?? 0;
                             periphRoot.kbStatus = data.keyboard.status ?? "Desconectado";
                             periphRoot.kbMode = data.keyboard.mode ?? (data.keyboard.connected ? "2.4G Inalámbrico" : "Desconectado");
@@ -439,6 +445,7 @@ Variants {
                     name: "V9 Pro"
                     icon: periphRoot.headsetCharging ? "battery_charging_full" : "headphones"
                     battery: periphRoot.headsetBat
+                    batteryKnown: periphRoot.headsetBatteryKnown
                     status: periphRoot.headsetStatus
                     mode: periphRoot.headsetMode
                     charging: periphRoot.headsetCharging
@@ -451,6 +458,7 @@ Variants {
                     name: "K7 Ultra"
                     icon: periphRoot.mouseCharging ? "battery_charging_full" : "mouse"
                     battery: periphRoot.mouseBat
+                    batteryKnown: periphRoot.mouseBatteryKnown
                     status: periphRoot.mouseStatus
                     mode: periphRoot.mouseMode
                     charging: periphRoot.mouseCharging
@@ -463,6 +471,7 @@ Variants {
                     name: "Akko 5075B"
                     icon: periphRoot.kbCharging ? "battery_charging_full" : "keyboard"
                     battery: periphRoot.kbBat
+                    batteryKnown: periphRoot.kbBatteryKnown
                     status: periphRoot.kbStatus
                     mode: periphRoot.kbMode
                     charging: periphRoot.kbCharging
@@ -480,6 +489,9 @@ Variants {
         required property string name
         required property string icon
         required property int battery
+        // false = el dispositivo no reporta % (p.ej. el Akko por cable): se
+        // muestra sólo el estado/modo, sin porcentaje ni relleno líquido.
+        property bool batteryKnown: true
         required property string status
         property string mode: "Desconectado"
         required property bool charging
@@ -488,8 +500,8 @@ Variants {
         property bool isClickable: false
         signal clicked()
 
-        readonly property bool isLowBattery: connected && battery <= 20 && !charging
-        readonly property real fillPercent: devItem.connected ? Math.max(0.06, Math.min(1.0, devItem.battery / 100.0)) : 0.0
+        readonly property bool isLowBattery: connected && batteryKnown && battery <= 20 && !charging
+        readonly property real fillPercent: (devItem.connected && devItem.batteryKnown) ? Math.max(0.06, Math.min(1.0, devItem.battery / 100.0)) : 0.0
 
         implicitHeight: Math.max(116, itemCol.implicitHeight + Tokens.padding.medium * 2)
         radius: Tokens.rounding.large
@@ -504,7 +516,7 @@ Variants {
             id: liquidContainer
             anchors.fill: parent
             clip: true
-            visible: devItem.connected
+            visible: devItem.connected && devItem.batteryKnown
 
             property real animatedHeight: devItem.height * devItem.fillPercent
 
@@ -655,7 +667,10 @@ Variants {
                 }
 
                 StyledText {
-                    text: devItem.connected ? `${devItem.battery}%` : "Off"
+                    // Sin conexión → "Off". Conectado sin % reportado (Akko por
+                    // cable) → sin texto; el chip de modo de abajo dice el estado.
+                    text: !devItem.connected ? "Off" : (devItem.batteryKnown ? `${devItem.battery}%` : "")
+                    visible: text.length > 0
                     color: devItem.connected ? (devItem.isLowBattery ? Colours.palette.m3error : (devItem.charging ? Colours.palette.m3primary : Colours.palette.m3onSurface)) : Colours.palette.m3outline
                     font: Tokens.font.title.medium
                 }

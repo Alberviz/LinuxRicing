@@ -1,6 +1,6 @@
 ---
 tags: [rice, errores, referencia]
-actualizado: 2026-08-29
+actualizado: 2026-09-01
 ---
 
 # Base de Datos de Errores
@@ -322,3 +322,49 @@ Ambos agentes (Claude y Gemini) escriben aquí — añadir, no reescribir.
      carga).
 - **Limitación:** si el flag se queda pegado en `1` tras desenchufar, el wave
   tarda unos minutos en apagarse (hasta que el EMA baje ~6 bajo el pico).
+
+---
+
+## 2026-09-01
+
+### El widget mostraba "2.4GHz" y batería inventada con el Akko SOLO por cable
+- **Síntoma:** con la palanca en cable y **sin** dongle 2.4 GHz en el bus (solo
+  `3151:4015`), el widget de periféricos seguía mostrando el teclado como "2.4G
+  Inalámbrico" y un nivel de batería (p.ej. 54 %) que no venía de ningún sitio.
+  Las entradas del 2026-08-29 arreglaron el caso "cable + dongle a la vez" pero
+  no este.
+- **Causa:** dos fallos independientes.
+  1. **Caché rancia dada por fresca para siempre.** `fresh_cache_reading()` en
+     `rgb/mchose-battery` devolvía `akko_status`/`akko_battery` de
+     `~/.cache/mchose_battery.json` mientras el `mtime` estuviera a < 90 s — pero
+     el fichero tenía el `mtime` **en el futuro** (salto de reloj NTP hacia
+     atrás en esta máquina), así que la edad salía negativa y siempre pasaba el
+     test. Su `akko_mode` rancio (`"2.4G Inalámbrico"`, de una sesión anterior)
+     ganaba a la enumeración USB real. Y nadie mantenía la caché al día: el
+     `mchose-battery.timer` disparaba `mchose-battery --notify` (flag ya
+     inexistente → `mchose-battery.service` en fallo cada 60 s) y
+     `battery-lighting.service` estaba **deshabilitado y parado**.
+  2. **Batería 100 hardcodeada por cable.** El firmware del Akko no reporta
+     porcentaje por cable (`0x83` byte[bat] = `0x00`, ver USB_FINDINGS fase C).
+     El código lo tapaba con
+     `bat = resp[2] if 0<resp[2]<=100 else cache.get("akko_battery", 100)` →
+     `100` fijo, o el valor rancio de 2.4G.
+- **Arreglo** (rama `fix/akko-kb-transport-and-battery`):
+  - `get_akko_keyboard_battery()` (en `rgb/mchose-battery`, gemelo
+    `widgets/mchose-battery`, y la copia de `rgb/battery-lighting`) devuelve
+    `(nivel|None, status, mode, connected)`. **El modo sale siempre de
+    `akko_live_transport()`** — enumeración en vivo: `0x4015`→cable, si no
+    `0x4011`→2.4G, si no UPower→BT — nunca de la caché.
+  - **Cable USB → `nivel = None`.** El widget muestra solo `⚡ Cargando · Cable
+    USB`, sin porcentaje ni relleno líquido (`DeviceItem.batteryKnown`). El
+    estado de carga sí se lee (`0x83` byte[3], reintento 4×).
+  - `fresh_cache_reading()` descarta edad negativa y exige que el transporte
+    cacheado coincida con el vivo; solo se usa ya en la rama 2.4G.
+  - `install.sh` retira `mchose-battery.{timer,service}` legacy;
+    `battery-lighting.service` habilitado y arrancado como único escritor de la
+    caché. En la máquina: `systemctl --user` disable/rm + enable --now.
+- **Verificado:** `mchose-battery --json` y `battery-lighting --dump` → teclado
+  `mode: "Cable USB"`, `battery: null`, `charging: true`, aun con la caché
+  rancia (`akko_mode: "2.4G Inalámbrico"`) todavía en disco. Shell recargado sin
+  errores QML. Detalle en `hardware/akko-5075b-plus/USB_FINDINGS_2.4G.md`
+  (§"Solución aplicada (2026-09-01)").

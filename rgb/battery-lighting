@@ -460,69 +460,109 @@ def get_k7_ultra_battery():
     return None, "Sin respuesta"
 
 
-def get_akko_keyboard_battery():
-    cache = load_cache()
-    last_bat = cache.get("akko_battery", 100)
+def _akko_has_wired():
+    return bool(glob_hidraw_nodes(0x3151, 0x4015, iface=2) or glob_hidraw_nodes(0x3151, 0x4015))
 
-    # 1. Check if connected via Wired USB (PID 0x4015) - Direct VBUS USB Power / Charging
-    wired_nodes = glob_hidraw_nodes(0x3151, 0x4015, iface=2) or glob_hidraw_nodes(0x3151, 0x4015)
-    if wired_nodes:
-        for node in wired_nodes:
-            try:
-                fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
-                req = bytearray(64)
-                req[0] = 0x83  # FEA_CMD_GET_BATTERY
-                req[8] = 0xFF - (sum(req[:8]) & 0xFF)
-                raw = bytearray([0x00]) + req
-                fcntl.ioctl(fd, HIDIOCSFEATURE(len(raw)), raw)
-                time.sleep(0.02)
-                resp = bytearray(65)
-                fcntl.ioctl(fd, HIDIOCGFEATURE(len(resp)), resp)
-                os.close(fd)
-                if len(resp) >= 4 and resp[1] == 0x83:
-                    st_code = resp[3]
-                    if st_code == 1:
-                        st = "Cargando (USB)"
-                    elif st_code == 2:
-                        st = "Cargada (USB)"
-                    else:
-                        st = "Conectado (USB)"
-                    bat = resp[2] if (0 < resp[2] <= 100) else last_bat
-                    cache["akko_battery"] = bat
-                    save_cache(cache)
-                    return bat, st
-            except Exception:
-                pass
-        # PID 0x4015 enumerado pero sin respuesta 0x83 por el nodo cableado.
-        # Si además está el dongle, el cerebro del teclado habla por radio
-        # (palanca en 2.4G, cable solo para cargar): dejamos que la rama 2.4G
-        # decida el modo y el estado de carga. Si no hay dongle, el transporte
-        # activo es USB pero no afirmamos "Cargando" sin confirmarlo.
-        if not (glob_hidraw_nodes(0x3151, 0x4011, iface=2) or glob_hidraw_nodes(0x3151, 0x4011)):
-            return last_bat, "Conectado (USB)"
+def _akko_has_dongle():
+    return bool(glob_hidraw_nodes(0x3151, 0x4011, iface=2) or glob_hidraw_nodes(0x3151, 0x4011))
 
-    # 2. Check if connected via Bluetooth / UPower (Real BLE Battery GATT Telemetry)
+def _akko_has_bluetooth():
     try:
         res = subprocess.run(["upower", "-e"], capture_output=True, text=True, timeout=1)
         for line in res.stdout.splitlines():
             if "keyboard" in line.lower() or "akko" in line.lower():
-                info = subprocess.run(["upower", "-i", line], capture_output=True, text=True, timeout=1).stdout
+                return line.strip()
+    except Exception:
+        pass
+    return None
+
+def akko_live_transport():
+    """Transporte ACTIVO del teclado según enumeración USB / servicios, en vivo.
+    Regla de hardware/akko-5075b-plus/USB_FINDINGS_2.4G.md: `0x4015` sólo enumera
+    con la palanca física en 'cable'. Nunca se deduce de un valor cacheado."""
+    if _akko_has_wired():
+        return "cable"
+    if _akko_has_dongle():
+        return "2.4g"
+    if _akko_has_bluetooth():
+        return "bt"
+    return None
+
+def _akko_wired_status():
+    """Lee 0x83 por el nodo cableado (PID 0x4015). Devuelve el string de estado
+    o None si el nodo enumera pero no contesta. Por cable el firmware NO reporta
+    porcentaje (0x83 byte[bat] = 0x00), así que aquí sólo sale el estado."""
+    nodes = glob_hidraw_nodes(0x3151, 0x4015, iface=2) or glob_hidraw_nodes(0x3151, 0x4015)
+    for node in nodes:
+        for _ in range(4):
+            fd = None
+            try:
+                fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
+                req = bytearray(64)
+                req[0] = 0x83  # FEA_CMD_GET_BATTERY
+                req[7] = (0xFF - (sum(req[:7]) & 0xFF)) & 0xFF  # checksum BIT7
+                fcntl.ioctl(fd, HIDIOCSFEATURE(65), bytearray([0x00]) + req)
+                time.sleep(0.03)
+                resp = bytearray(65)
+                fcntl.ioctl(fd, HIDIOCGFEATURE(65), resp)
+                os.close(fd)
+                fd = None
+                if len(resp) >= 4 and resp[1] == 0x83:
+                    st_code = resp[3]
+                    if st_code == 1:
+                        return "Cargando (USB)"
+                    if st_code == 2:
+                        return "Cargada (USB)"
+                    return "Conectado (USB)"
+            except Exception:
+                if fd is not None:
+                    try:
+                        os.close(fd)
+                    except Exception:
+                        pass
+            time.sleep(0.02)
+    return None
+
+def get_akko_keyboard_battery():
+    """Devuelve (nivel|None, status, mode, connected). El MODO sale siempre de
+    la enumeración en vivo; el NIVEL sólo si el aparato lo reporta (None por
+    cable: el firmware no lo expone)."""
+    cache = load_cache()
+    transport = akko_live_transport()
+
+    if transport is None:
+        return None, "Desconectado", "Desconectado", False
+
+    if transport == "cable":
+        st = _akko_wired_status()
+        if st is not None:
+            return None, st, "Cable USB", True
+        if not _akko_has_dongle():
+            return None, "Conectado (USB)", "Cable USB", True
+        transport = "2.4g"
+
+    if transport == "bt":
+        dev = _akko_has_bluetooth()
+        if dev:
+            try:
+                info = subprocess.run(["upower", "-i", dev], capture_output=True, text=True, timeout=1).stdout
                 pct = None
                 state = "Descargando"
                 for iline in info.splitlines():
                     if "percentage:" in iline:
                         pct = int(iline.split(":")[1].strip().replace("%", ""))
-                    elif "state:" in iline:
-                        if "charging" in iline:
-                            state = "Cargando"
+                    elif "state:" in iline and "charging" in iline:
+                        state = "Cargando"
                 if pct is not None:
                     cache["akko_battery"] = pct
                     save_cache(cache)
-                    return pct, state
-    except Exception:
-        pass
+                    return pct, f"{state} (Bluetooth)", "Bluetooth", True
+            except Exception:
+                pass
+        return None, "Conectado (Bluetooth)", "Bluetooth", True
 
-    # 3. Check if connected via 2.4 GHz Dongle (PID 0x4011)
+    # --- 2.4 GHz (PID 0x4011) ---
+    last_bat = cache.get("akko_battery")
     dongle_nodes = glob_hidraw_nodes(0x3151, 0x4011, iface=2) or glob_hidraw_nodes(0x3151, 0x4011)
     if dongle_nodes:
         for node in dongle_nodes:
@@ -605,13 +645,13 @@ def get_akko_keyboard_battery():
                             cache["akko_battery_ema"] = round(ema, 2)
                             cache["akko_status"] = st
                             save_cache(cache)
-                            return displayed, st
+                            return displayed, st, "2.4G Inalámbrico", True
                 os.close(fd)
             except Exception:
                 pass
-        return last_bat, cache.get("akko_status", "Descargando")
+        return last_bat, cache.get("akko_status", "Descargando"), "2.4G Inalámbrico", True
 
-    return None, "Desconectado"
+    return None, "Desconectado", "Desconectado", False
 
 
 def read_telemetry():
@@ -637,8 +677,27 @@ def read_telemetry():
             "status": st,
             "mode": mode,
         }
+
+    def akko_one():
+        # get_akko_keyboard_battery() devuelve (nivel|None, status, mode, connected):
+        # el modo ya viene resuelto por transporte en vivo y `connected` no
+        # depende de que haya nivel (por cable no hay % pero sí conexión).
+        try:
+            lvl, st, mode, connected = get_akko_keyboard_battery()
+        except Exception:
+            lvl, st, mode, connected = None, "Desconectado", "Desconectado", False
+        charging = (isinstance(st, str) and "cargando" in st.lower()
+                    and "descargando" not in st.lower())
+        return {
+            "level": lvl,
+            "charging": charging,
+            "connected": connected,
+            "status": st,
+            "mode": mode,
+        }
+
     return {
-        "akko_keyboard": one(get_akko_keyboard_battery, default_mode="2.4G Inalámbrico"),
+        "akko_keyboard": akko_one(),
         "mchose_mouse": one(get_k7_ultra_battery, default_mode="2.4G Inalámbrico"),
         "v9_headset": one(get_v9_pro_battery, default_mode="2.4G Inalámbrico"),
     }

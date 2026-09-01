@@ -232,11 +232,47 @@ delega el "volver a estático" en `sync-rgb.py`, y éste se salta las zonas que
 wave de carga** tras dejar de cargar. Ahora `write_alerts(new)` va antes de la
 liberación.
 
-**Mejora pendiente (baja prioridad):** el `mchose-battery.timer` de systemd
-lanza `mchose-battery --notify` (flag que ya no existe) cada 60 s → el servicio
-falla en bucle. Retirar ese timer/servicio; de paso, un lector menos sobre el
-dongle. **Vía limpia para el flag pegado:** sniff en Windows buscando un opcode
+**Vía limpia para el flag pegado:** sniff en Windows buscando un opcode
 que reporte VBUS, o un evento del driver al conectar/desconectar el cable.
+
+### Solución aplicada (2026-09-01) — transporte en vivo + sin % inventado por cable
+
+Síntoma: con la palanca en **cable** (sólo `0x4015` en el bus, sin dongle) el
+widget de periféricos mostraba `2.4GHz` y un nivel de batería falso.
+
+Causas:
+
+1. **Caché rancia tratada como verdad.** `fresh_cache_reading()` en
+   `rgb/mchose-battery` devolvía `akko_status`/`akko_mode` de
+   `~/.cache/mchose_battery.json` mientras el `mtime` estuviera a < 90 s. El
+   fichero tenía un `mtime` en el **futuro** (salto de reloj NTP hacia atrás en
+   esta máquina CachyOS) → edad negativa, siempre "fresca". Su `akko_mode`
+   rancio (`"2.4G Inalámbrico"`, de una sesión previa en 2.4G) ganaba a la
+   enumeración real. Además nadie mantenía la caché honesta: el
+   `mchose-battery.timer` disparaba `mchose-battery --notify` (flag ya
+   inexistente → servicio en fallo perpetuo) y `battery-lighting.service`
+   estaba deshabilitado.
+2. **% inventado por cable.** El firmware NO reporta porcentaje por cable
+   (`0x83` byte[bat] = `0x00`, fase C arriba). El código lo tapaba con
+   `bat = resp[2] if 0<resp[2]<=100 else cache.get("akko_battery", 100)` →
+   caía en un **100 hardcodeado** o en el valor rancio de 2.4G.
+
+Arreglo (`rgb/mchose-battery`, gemelo `widgets/mchose-battery`, y la copia en
+`rgb/battery-lighting`):
+
+- `get_akko_keyboard_battery()` devuelve `(nivel|None, status, mode, connected)`.
+- **El modo sale siempre de `akko_live_transport()`** (enumeración USB en vivo:
+  `0x4015`→cable, si no `0x4011`→2.4G, si no UPower→BT), nunca de la caché.
+- **Cable USB → `nivel = None`** (el widget muestra sólo `⚡ Cargando · Cable
+  USB`, sin porcentaje). El estado de carga sí se lee (`0x83` byte[3], con
+  reintento 4×). Si `0x4015` enumera pero no contesta y hay dongle → se trata
+  como 2.4G.
+- `fresh_cache_reading()`: descarta edad negativa y exige que el transporte
+  cacheado coincida con el vivo. Sólo se usa ya en la rama 2.4G.
+- systemd: `install.sh` retira `mchose-battery.{timer,service}` legacy y
+  `battery-lighting.service` queda como único escritor de la caché.
+- QML (`Background.qml`): `DeviceItem.batteryKnown`; con `false` se oculta el
+  `%` y el relleno líquido, se mantiene el chip de modo.
 
 ## Per-key / iluminación personalizada (DIY) — opcode `0x0C`
 
