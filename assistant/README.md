@@ -22,6 +22,9 @@ kokoro, sounddevice, soundfile; `playerctl`, `wpctl`, `ffmpeg`, `xdg-open`.
    O como servicio:
 
    ```fish
+   # si vienes del nombre antiguo (aurora):
+   systemctl --user disable --now aurora 2>/dev/null; rm -f ~/.config/systemd/user/aurora.service
+
    cp ~/LinuxRicing/assistant/laura.service ~/.config/systemd/user/
    systemctl --user daemon-reload
    systemctl --user enable --now laura

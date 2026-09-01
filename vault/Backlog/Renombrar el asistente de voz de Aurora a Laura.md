@@ -1,7 +1,7 @@
 ---
 fileClass: Backlog
 tipo: tarea
-estado: pendiente
+estado: en-curso
 prioridad: 4
 area: assistant
 origen: Alberto
@@ -19,3 +19,16 @@ Quickshell `modules/assistant/` (singleton `Aurora.qml`, namespaces de las
 ventanas, etc.), los atajos de Hyprland, y las notas del vault
 ([[Asistente de voz con IA local]], [[Aurora — plan del overlay]]). Ver
 [[Roadmap Maestro de Innovaciones]].
+
+## Progreso
+
+- **Hecho (código, Claude):** `assistant/` completo (`laurad.py`, `laura.service`,
+  `laura-toggle`, `config.toml`, prompts, sockets `laura.sock` /
+  `laura-events.sock`) y el módulo de Quickshell (singleton `Laura.qml`,
+  namespaces `laura-orb` / `laura-bar`, referencias).
+- **Pendiente de Alberto:** reinstalar el servicio de usuario
+  (`disable --now aurora` → `enable --now laura`) y cambiar el atajo de
+  Hyprland a `laura-toggle`.
+- **Pendiente (vault, Gemini):** renombrar en las notas.
+- **Pendiente:** el overlay se rehace entero (unificar modos, luz de bordes);
+  el rename final de esas ventanas va con ese rediseño.
