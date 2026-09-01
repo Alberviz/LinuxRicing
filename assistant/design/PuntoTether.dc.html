@@ -1,0 +1,91 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600&display=swap">
+  <style>
+    :root { --bg:#120d10; --bar:#171015; --text:#f3e1e9; --subtext:#b7a7af;
+      --accent:#e9b8d8; --accent-2:#ead4ff; --success:#b5ccba;
+      --font:"Google Sans Flex","Google Sans","Figtree",system-ui,sans-serif; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:var(--font); background:var(--bg); color:var(--text); }
+    a { color:var(--accent); } a:hover { color:var(--accent-2); }
+    .stage { width:600px; height:700px; position:relative; overflow:hidden;
+      background:radial-gradient(130% 90% at 8% 45%,#1a1218,#120d10 60%,#0c0809 100%); }
+    .rail { position:absolute; top:0; bottom:0; left:0; width:46px; background:var(--bar); }
+    .rail .d { position:absolute; left:19px; width:8px; height:8px; border-radius:50%; background:#3a3035; }
+    .rail .d.on { background:var(--accent); box-shadow:0 0 8px 1px rgba(233,184,216,0.5); }
+
+    .tag { position:absolute; left:70px; font-size:11px; letter-spacing:1.5px;
+      text-transform:uppercase; color:var(--subtext); font-weight:600; }
+    .note { position:absolute; font-size:12px; color:var(--subtext); line-height:1.5; }
+
+    .anchor { position:absolute; left:38px; width:14px; height:14px; border-radius:50%;
+      background:var(--accent); box-shadow:0 0 14px 3px rgba(233,184,216,0.7); }
+    .tether { position:absolute; height:3px; background:linear-gradient(90deg, var(--accent), rgba(233,184,216,0.4));
+      border-radius:2px; }
+
+    @keyframes blobwob {
+      0%,100% { border-radius:50% 50% 52% 48%/52% 48% 52% 48%; transform:scale(1); }
+      50% { border-radius:54% 46% 46% 54%/46% 54% 46% 54%; transform:scale(1.08); }
+    }
+    .blob { position:absolute; background:radial-gradient(60% 60% at 40% 35%, #f6d2ea, #e9b8d8 55%, rgba(207,159,214,0.4));
+      box-shadow:0 0 26px -2px rgba(233,184,216,0.6); animation:blobwob 1.3s ease-in-out infinite; }
+    @keyframes orbitc { to { transform:rotate(360deg); } }
+    .orbit { position:absolute; border:2px solid transparent; border-top-color:var(--accent);
+      border-radius:50%; animation:orbitc 1.9s linear infinite; }
+
+    .chip { position:absolute; display:flex; align-items:center; gap:8px;
+      background:var(--bar); border-radius:11px; padding:8px 13px; font-size:12.5px;
+      color:var(--text); white-space:nowrap; }
+    .chip svg { flex:none; }
+    .stem { position:absolute; width:2px; background:linear-gradient(var(--accent), rgba(233,184,216,0.3)); }
+  </style>
+</helmet>
+<div class="stage">
+  <div class="rail">
+    <div class="d on" style="top:16px"></div><div class="d" style="top:36px"></div>
+    <div class="d" style="bottom:16px"></div>
+  </div>
+
+  <!-- ESCUCHANDO -->
+  <div class="tag" style="top:44px">Escuchando</div>
+  <div class="tether" style="top:96px; left:46px; width:34px"></div>
+  <div class="blob" style="top:76px; left:78px; width:42px; height:42px"></div>
+  <div class="anchor" style="top:90px"></div>
+  <div class="note" style="top:130px; left:120px; width:400px">
+    el punto se despega en un cordón fino y se convierte en una gota que se deforma
+    con la voz. El cordón nunca se corta.</div>
+
+  <!-- PENSANDO -->
+  <div class="tag" style="top:250px">Pensando</div>
+  <div class="tether" style="top:302px; left:46px; width:34px"></div>
+  <div class="blob" style="top:284px; left:78px; width:38px; height:38px; animation:none; border-radius:50%"></div>
+  <div class="orbit" style="top:276px; left:70px; width:54px; height:54px"></div>
+  <div class="anchor" style="top:296px"></div>
+  <div class="note" style="top:334px; left:120px; width:400px">
+    la gota se calma y un aro gira a su alrededor.</div>
+
+  <!-- RESULTADO -->
+  <div class="tag" style="top:452px">Resultado</div>
+  <div class="anchor" style="top:496px"></div>
+  <div class="stem" style="top:502px; left:44px; height:96px"></div>
+  <div class="tether" style="top:501px; left:46px; width:20px"></div>
+  <div class="chip" style="top:492px; left:66px">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#b5ccba" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+    Volumen al 60 %</div>
+  <div class="chip" style="top:536px; left:66px">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#b5ccba" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+    Google abierto</div>
+  <div class="note" style="top:610px; left:70px; width:440px">
+    la gota se "deshace" hacia abajo en un tallo con una pastilla por acción colgando.
+    Al terminar, todo se recoge en el punto.</div>
+</div>
+</x-dc>
+</body>
+</html>

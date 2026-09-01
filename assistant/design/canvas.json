@@ -1,22 +1,17 @@
 {
   "pages": [
-    { "id": "orbe", "name": "Orbe · centro" },
-    { "id": "gota", "name": "Gota · barra" }
+    { "id": "barra", "name": "Modo barra" },
+    { "id": "orbe", "name": "Orbe (decidido)" }
   ],
   "artboards": [
-    { "file": "Main.dc.html", "page": "orbe", "x": 0, "y": 0, "w": 1180, "h": 720, "title": "Orbe · versión actual (base)" },
-    { "file": "OrbePlasma.dc.html", "page": "orbe", "x": 1320, "y": 0, "w": 620, "h": 620, "title": "Orbe · Plasma" },
-    { "file": "OrbeCristal.dc.html", "page": "orbe", "x": 2060, "y": 0, "w": 620, "h": 620, "title": "Orbe · Cristal" },
-    { "file": "OrbeMalla.dc.html", "page": "orbe", "x": 2800, "y": 0, "w": 620, "h": 620, "title": "Orbe · Malla" },
-
-    { "file": "BarMode.dc.html", "page": "gota", "x": 0, "y": 0, "w": 1180, "h": 640, "title": "Gota · versión actual (base)" },
-    { "file": "GotaVidrio.dc.html", "page": "gota", "x": 1320, "y": 0, "w": 560, "h": 380, "title": "Gota · Vidrio" },
-    { "file": "GotaTinta.dc.html", "page": "gota", "x": 1960, "y": 0, "w": 560, "h": 380, "title": "Gota · Tinta" },
-    { "file": "GotaContorno.dc.html", "page": "gota", "x": 2600, "y": 0, "w": 560, "h": 380, "title": "Gota · Contorno" }
+    { "file": "Lobulo.dc.html", "page": "barra", "x": 0, "y": 0, "w": 600, "h": 700, "title": "A · Lóbulo (tu idea 1)" },
+    { "file": "HaloBrote.dc.html", "page": "barra", "x": 720, "y": 0, "w": 600, "h": 700, "title": "B · Halo + brote (2 + 1)" },
+    { "file": "PuntoTether.dc.html", "page": "barra", "x": 1440, "y": 0, "w": 600, "h": 700, "title": "C · Punto con cordón (tu idea 3)" },
+    { "file": "Main.dc.html", "page": "orbe", "x": 0, "y": 0, "w": 1180, "h": 720, "title": "Orbe líquido — decidido, no se toca" }
   ],
   "annotations": [
-    { "id": "n-orbe", "page": "orbe", "x": 0, "y": -140, "w": 620, "text": "Modo centro — la idea (orbe grande al activar Aurora) está decidida; falta el look. Base a la izquierda + 3 direcciones nuevas. Elige una o dime qué mezclar. Paleta = matugen actual de Caelestia." },
-    { "id": "n-gota", "page": "gota", "x": 0, "y": -140, "w": 620, "text": "Modo barra — la idea (gota que sale de la barra vertical con anillo HUD dentro, una fila por acción) está decidida; falta el look. Base a la izquierda + 3 tratamientos: vidrio / tinta plana / solo contorno." }
+    { "id": "n-barra", "page": "barra", "x": 0, "y": -150, "w": 640, "text": "Segundo modo de invocación: mínimo, fusionado a la barra vertical de Caelestia, sin ventana. Tres direcciones, cada una en sus 3 estados (escuchando reactivo · pensando en bucle · resultado icono+texto). A = la barra se hincha en un lóbulo del mismo color. B = casi siempre solo un borde que brilla; panel solo si hay acciones. C = un punto que se estira con cordón y al final cuelga las acciones de un tallo. Color = accent dinámico del theming." },
+    { "id": "n-orbe", "page": "orbe", "x": 0, "y": -150, "w": 480, "text": "El otro modo, ya decidido: orbe líquido grande, centrado. Aquí solo de referencia, no se rediseña." }
   ],
-  "launch": { "view": "canvas", "page": "orbe" }
+  "launch": { "view": "canvas", "page": "barra" }
 }

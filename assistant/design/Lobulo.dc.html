@@ -1,0 +1,112 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600&display=swap">
+  <style>
+    :root { --bg:#120d10; --bar:#171015; --text:#f3e1e9; --subtext:#b7a7af;
+      --accent:#e9b8d8; --accent-2:#ead4ff; --success:#b5ccba;
+      --font:"Google Sans Flex","Google Sans","Figtree",system-ui,sans-serif; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:var(--font); background:var(--bg); color:var(--text); }
+    a { color:var(--accent); } a:hover { color:var(--accent-2); }
+    .stage { width:600px; height:700px; position:relative; overflow:hidden;
+      background:radial-gradient(130% 90% at 8% 45%,#1a1218,#120d10 60%,#0c0809 100%); }
+
+    .rail { position:absolute; top:0; bottom:0; left:0; width:46px; background:var(--bar); }
+    .rail .d { position:absolute; left:19px; width:8px; height:8px; border-radius:50%; background:#3a3035; }
+    .rail .d.on { background:var(--accent); box-shadow:0 0 8px 1px rgba(233,184,216,0.5); }
+
+    .scene { position:absolute; left:0; display:flex; align-items:center; }
+    /* el lóbulo: MISMO color que la barra, sin borde, sin sombra — parte del silueta */
+    .lobe { background:var(--bar); position:relative; }
+    .lobe .content { position:absolute; inset:0; display:flex; flex-direction:column;
+      align-items:center; justify-content:center; gap:8px; }
+
+    .tag { position:absolute; left:70px; font-size:11px; letter-spacing:1.5px;
+      text-transform:uppercase; color:var(--subtext); font-weight:600; }
+
+    .ring { display:block; }
+    .row { display:flex; align-items:center; gap:9px; font-size:13px; color:var(--text); white-space:nowrap; }
+    .row svg { flex:none; }
+
+    @keyframes ripple { 0%,100% { d:path("M0 0 Q46 6 46 34 Q46 62 30 74 Q14 86 30 100 Q46 114 46 140 Q46 168 0 174 Z"); }
+      50% { d:path("M0 0 Q46 6 46 34 Q46 66 26 78 Q6 90 26 104 Q46 118 46 140 Q46 168 0 174 Z"); } }
+    @keyframes sweep { 0% { transform:translateY(-30%); opacity:0; } 40% { opacity:0.8; } 100% { transform:translateY(120%); opacity:0; } }
+    .edge-sweep { position:absolute; left:8px; width:3px; height:36px; border-radius:2px;
+      background:linear-gradient(var(--accent), transparent); filter:blur(1px);
+      animation:sweep 2.6s ease-in-out infinite; }
+  </style>
+</helmet>
+<div class="stage">
+  <div class="rail">
+    <div class="d on" style="top:16px"></div><div class="d" style="top:36px"></div>
+    <div class="d" style="bottom:16px"></div>
+  </div>
+
+  <!-- ESCUCHANDO -->
+  <div class="tag" style="top:44px">Escuchando</div>
+  <div class="scene" style="top:66px">
+    <svg width="92" height="176" viewBox="0 0 92 176" style="display:block">
+      <path fill="#171015" d="M0 0 H10 Q46 6 46 34 Q46 62 30 74 Q14 86 30 100 Q46 114 46 142 Q46 170 10 176 H0 Z">
+        <animate attributeName="d" dur="1.6s" repeatCount="indefinite"
+          values="M0 0 H10 Q46 6 46 34 Q46 62 30 74 Q14 86 30 100 Q46 114 46 142 Q46 170 10 176 H0 Z;
+                  M0 0 H10 Q46 6 46 34 Q46 68 24 80 Q2 92 24 104 Q46 116 46 142 Q46 170 10 176 H0 Z;
+                  M0 0 H10 Q46 6 46 34 Q46 62 30 74 Q14 86 30 100 Q46 114 46 142 Q46 170 10 176 H0 Z"/>
+      </path>
+    </svg>
+    <div style="position:relative; margin-left:-70px; width:44px; height:44px; display:grid; place-items:center">
+      <svg width="30" height="30" viewBox="0 0 40 40" fill="none">
+        <circle cx="20" cy="20" r="14" stroke="#e9b8d8" stroke-width="1.4" opacity="0.5"/>
+        <g transform="translate(20 20)">
+          <rect x="-6" y="-3" width="2.2" height="6" rx="1.1" fill="#ead4ff"/>
+          <rect x="-2" y="-7" width="2.2" height="14" rx="1.1" fill="#e9b8d8"/>
+          <rect x="2" y="-5" width="2.2" height="10" rx="1.1" fill="#f6d2ea"/>
+        </g>
+      </svg>
+    </div>
+  </div>
+  <div class="tag" style="top:150px; left:120px; text-transform:none; letter-spacing:0">
+    el borde derecho del lóbulo ondula con tu voz</div>
+
+  <!-- PENSANDO -->
+  <div class="tag" style="top:270px">Pensando</div>
+  <div class="scene" style="top:292px">
+    <svg width="92" height="150" viewBox="0 0 92 150">
+      <path fill="#171015" d="M0 0 H10 Q46 6 46 30 Q46 58 30 65 Q14 72 30 85 Q46 92 46 120 Q46 144 10 150 H0 Z"/>
+    </svg>
+    <div class="edge-sweep" style="top:14px"></div>
+    <div style="position:relative; margin-left:-66px; width:40px; height:40px; display:grid; place-items:center">
+      <svg width="26" height="26" viewBox="0 0 40 40" fill="none">
+        <circle cx="20" cy="20" r="13" stroke="#50454c" stroke-width="2"/>
+        <circle cx="20" cy="20" r="13" stroke="#e9b8d8" stroke-width="2.6" stroke-linecap="round" stroke-dasharray="14 60">
+          <animateTransform attributeName="transform" type="rotate" from="0 20 20" to="360 20 20" dur="1.8s" repeatCount="indefinite"/>
+        </circle>
+      </svg>
+    </div>
+  </div>
+  <div class="tag" style="top:360px; left:120px; text-transform:none; letter-spacing:0">
+    una luz recorre el borde interior; el lóbulo no se mueve</div>
+
+  <!-- RESULTADO -->
+  <div class="tag" style="top:470px">Resultado</div>
+  <div class="scene" style="top:492px">
+    <svg width="196" height="150" viewBox="0 0 196 150">
+      <path fill="#171015" d="M0 0 H10 Q40 4 44 26 L44 30 Q44 44 60 46 L176 46 Q196 46 196 66 L196 104 Q196 124 176 124 L60 124 Q44 126 44 140 Q44 146 10 150 H0 Z"/>
+    </svg>
+    <div style="position:absolute; left:54px; top:0; height:150px; display:flex; flex-direction:column; justify-content:center; gap:9px">
+      <div class="row"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b5ccba" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Volumen al 60 %</div>
+      <div class="row"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b5ccba" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Google abierto</div>
+    </div>
+  </div>
+  <div class="tag" style="top:628px; left:70px; text-transform:none; letter-spacing:0">
+    el lóbulo se estira; dentro, una fila por acción. Luego se deshincha en la barra.</div>
+</div>
+</x-dc>
+</body>
+</html>

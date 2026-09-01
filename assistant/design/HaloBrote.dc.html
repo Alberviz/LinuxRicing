@@ -1,0 +1,97 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600&display=swap">
+  <style>
+    :root { --bg:#120d10; --bar:#171015; --text:#f3e1e9; --subtext:#b7a7af;
+      --accent:#e9b8d8; --accent-2:#ead4ff; --success:#b5ccba;
+      --font:"Google Sans Flex","Google Sans","Figtree",system-ui,sans-serif; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:var(--font); background:var(--bg); color:var(--text); }
+    a { color:var(--accent); } a:hover { color:var(--accent-2); }
+    .stage { width:600px; height:700px; position:relative; overflow:hidden;
+      background:radial-gradient(130% 90% at 8% 45%,#1a1218,#120d10 60%,#0c0809 100%); }
+
+    .col { position:absolute; top:0; bottom:0; width:200px; display:flex; }
+    .rail { width:46px; background:var(--bar); position:relative; height:100%; }
+    .rail .d { position:absolute; left:19px; width:8px; height:8px; border-radius:50%; background:#3a3035; }
+    .rail .d.on { background:var(--accent); box-shadow:0 0 8px 1px rgba(233,184,216,0.5); }
+    /* halo: gradiente en el borde interior derecho de la barra */
+    .halo { position:absolute; right:0; width:16px; top:0; bottom:0;
+      background:linear-gradient(90deg, transparent, rgba(233,184,216,0.55));
+      filter:blur(3px); }
+
+    .tag { position:absolute; font-size:11px; letter-spacing:1.5px; text-transform:uppercase;
+      color:var(--subtext); font-weight:600; }
+    .note { position:absolute; font-size:12px; color:var(--subtext); line-height:1.5; }
+
+    @keyframes band { 0%,100% { transform:translateY(120px) scaleY(0.6); opacity:0.5; }
+      50% { transform:translateY(-40px) scaleY(1.3); opacity:1; } }
+    @keyframes dotloop { 0% { top:8%; } 50% { top:78%; } 100% { top:8%; } }
+    .band { position:absolute; right:0; width:22px; height:120px; border-radius:12px;
+      background:radial-gradient(closest-side, rgba(246,210,234,0.9), rgba(233,184,216,0) 80%);
+      filter:blur(2px); animation:band 1.4s ease-in-out infinite; }
+    .loopdot { position:absolute; right:2px; width:12px; height:12px; border-radius:50%;
+      background:var(--accent); box-shadow:0 0 12px 3px rgba(233,184,216,0.8);
+      animation:dotloop 2.6s ease-in-out infinite; }
+
+    .sprout { background:var(--bar); border-radius:0 14px 14px 0; padding:12px 16px 12px 10px;
+      display:flex; flex-direction:column; gap:8px; position:absolute; }
+    .sprout::before { content:""; position:absolute; left:-10px; top:50%; transform:translateY(-50%);
+      width:12px; height:26px; background:var(--bar); clip-path:polygon(100% 0,0 30%,0 70%,100% 100%); }
+    .row { display:flex; align-items:center; gap:9px; font-size:13px; color:var(--text); white-space:nowrap; }
+    .row svg { flex:none; }
+  </style>
+</helmet>
+<div class="stage">
+
+  <!-- ESCUCHANDO -->
+  <div class="col" style="left:0; height:220px; top:44px">
+    <div class="rail">
+      <div class="d on" style="top:14px"></div><div class="d" style="top:34px"></div>
+      <div class="halo"></div>
+      <div class="band" style="top:0"></div>
+    </div>
+  </div>
+  <div class="tag" style="top:44px; left:74px">Escuchando</div>
+  <div class="note" style="top:70px; left:74px; width:420px">
+    Sin panel. Solo el borde interior de la barra brilla y una banda de luz sube y baja
+    con tu voz. Presencia cero.</div>
+
+  <!-- PENSANDO -->
+  <div class="col" style="left:0; height:220px; top:284px">
+    <div class="rail">
+      <div class="d on" style="top:14px"></div><div class="d" style="top:34px"></div>
+      <div class="halo" style="opacity:0.7"></div>
+      <div class="loopdot"></div>
+    </div>
+  </div>
+  <div class="tag" style="top:284px; left:74px">Pensando</div>
+  <div class="note" style="top:310px; left:74px; width:420px">
+    El halo se atenúa y un punto de luz recorre el borde en bucle. Sigue sin haber panel.</div>
+
+  <!-- RESULTADO -->
+  <div class="col" style="left:0; height:200px; top:520px">
+    <div class="rail">
+      <div class="d on" style="top:14px"></div><div class="d" style="top:34px"></div>
+      <div class="halo" style="opacity:0.5"></div>
+    </div>
+  </div>
+  <div class="sprout" style="left:46px; top:556px">
+    <div class="row"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b5ccba" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Volumen al 60 %</div>
+    <div class="row"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b5ccba" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Google abierto</div>
+  </div>
+  <div class="tag" style="top:520px; left:74px">Resultado</div>
+  <div class="note" style="top:640px; left:74px; width:440px">
+    SOLO cuando hay acciones que enseñar brota una mini-cápsula del punto exacto del borde,
+    con el mismo fondo de la barra. Se retrae al terminar.</div>
+</div>
+</x-dc>
+</body>
+</html>
