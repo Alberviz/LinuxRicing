@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# ==============================================================================
+#  🛸 display-selector — Selector interactivo de proyección de pantallas (Win+P)
+#  Permite alternar entre: Solo monitor externo, Extender, Duplicar y Solo portátil
+# ==============================================================================
+
+# Si ya hay una instancia de fuzzel abierta, cerrarla
+pkill fuzzel && exit 0
+
+# Detectar pantallas dinámicamente mediante hyprctl
+MONITORS_JSON=$(hyprctl monitors all -j 2>/dev/null)
+
+# Identificar monitor integrado (eDP-*) y monitor externo (HDMI, DP, etc.)
+INTERNAL_MON=$(echo "$MONITORS_JSON" | jq -r '.[] | select(.name | startswith("eDP")) | .name' 2>/dev/null | head -n 1)
+EXTERNAL_MON=$(echo "$MONITORS_JSON" | jq -r '.[] | select((.name | startswith("eDP") | not)) | .name' 2>/dev/null | head -n 1)
+
+# Fallbacks si no se detecta el nombre
+INTERNAL_MON=${INTERNAL_MON:-"eDP-2"}
+EXTERNAL_MON=${EXTERNAL_MON:-"HDMI-A-1"}
+
+# Opciones del menú estilo Windows (Win+P)
+OPTIONS="🖥️   Solo monitor externo (Apagar pantalla del portátil)\n🔀  Extender pantallas (Doble monitor a 144Hz)\n🪞   Duplicar / Espejo (144Hz en ambas pantallas)\n💻  Solo pantalla del portátil\n❌  Cancelar"
+
+CHOSEN=$(echo -e "$OPTIONS" | fuzzel --dmenu --lines=5 --width=46 --prompt="Proyectar pantalla 󰍹   " --placeholder="Elige cómo proyectar las pantallas...")
+
+case "$CHOSEN" in
+    *"Solo monitor externo"*)
+        # 1. Apagar pantalla del portátil para ahorro de energía / 0 consumo
+        # 2. Asignar el monitor externo como salida principal en 0x0 a 144Hz
+        hyprctl keyword monitor "$INTERNAL_MON, disable"
+        hyprctl keyword monitor "$EXTERNAL_MON, 1920x1080@144, 0x0, 1"
+        notify-send -a "Pantalla" -i video-display "Modo: Solo Monitor Externo" "Pantalla del portátil ($INTERNAL_MON) apagada.\nMonitor externo ($EXTERNAL_MON) activo a 144Hz."
+        ;;
+    *"Extender pantallas"*)
+        # Activar ambas pantallas una al lado de la otra a 144Hz
+        hyprctl keyword monitor "$EXTERNAL_MON, 1920x1080@144, 0x0, 1"
+        hyprctl keyword monitor "$INTERNAL_MON, 1920x1080@144, auto-left, 1"
+        notify-send -a "Pantalla" -i video-display "Modo: Pantallas Extendidas" "Doble monitor activo a 144Hz ($INTERNAL_MON + $EXTERNAL_MON)."
+        ;;
+    *"Duplicar"*)
+        # Activar espejo
+        hyprctl keyword monitor "$INTERNAL_MON, 1920x1080@144, auto, 1"
+        hyprctl keyword monitor "$EXTERNAL_MON, 1920x1080@144, auto, 1, mirror, $INTERNAL_MON"
+        notify-send -a "Pantalla" -i video-display "Modo: Duplicado / Espejo" "Ambas pantallas mostrando el mismo contenido a 144Hz."
+        ;;
+    *"Solo pantalla del portátil"*)
+        # Deshabilitar monitor externo y activar portátil
+        hyprctl keyword monitor "$EXTERNAL_MON, disable"
+        hyprctl keyword monitor "$INTERNAL_MON, 1920x1080@144, 0x0, 1"
+        notify-send -a "Pantalla" -i video-display "Modo: Solo Portátil" "Monitor externo ($EXTERNAL_MON) deshabilitado.\nPortátil activo a 144Hz."
+        ;;
+    *)
+        exit 0
+        ;;
+esac

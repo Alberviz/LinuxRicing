@@ -147,6 +147,11 @@ if [ "$SELECTED_WIDGETS" = true ]; then
         chmod +x "$HOME/.local/bin/desktop-deck-helper"
         echo -e "  ${SUCCESS}✔ Helper de Clima y Hardware instalado en ~/.local/bin${RESET}"
     fi
+    if [ -f "$BASE_DIR/widgets/display-selector" ]; then
+        cp -u "$BASE_DIR/widgets/display-selector" "$HOME/.local/bin/display-selector"
+        chmod +x "$HOME/.local/bin/display-selector"
+        echo -e "  ${SUCCESS}✔ Selector de pantallas (Win+P) instalado en ~/.local/bin${RESET}"
+    fi
 fi
 
 # 4. Instalar Google Tasks CLI
