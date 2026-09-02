@@ -29,7 +29,18 @@ Item {
     property var smoothedVals2: []
 
     FrameAnimation {
-        running: true
+        // Gatear a actividad real: solo late si el widget se ve y hay música
+        // sonando. Un FrameAnimation incondicional repinta un Canvas FBO de
+        // 448px a 60fps para siempre y clava un núcleo (ver CLAUDE.md).
+        running: mediaRoot.visible && (Players.active?.isPlaying ?? false)
+        onRunningChanged: {
+            if (!running) {
+                const len = 48;
+                mediaRoot.smoothedVals = new Array(len).fill(0.02);
+                mediaRoot.smoothedVals2 = new Array(len).fill(0.02);
+                radialCanvas.requestPaint();
+            }
+        }
         onTriggered: {
             const vals = mediaRoot.cavaVals || [];
             const len = 48;
