@@ -29,12 +29,20 @@ actúa.
   adaptadores.
 
 > [!info] Estado
-> Plan cerrado y **v1 en curso** (otro agente). Rama paraguas
-> `feat/sistema-solar`; sub-rama por versión. Los widgets se quedan como fuente
-> de verdad hasta la v3.
+> **v1.5 hecha** (2026-09-02, rama `feat/sistema-solar-v1`, sin mergear aún):
+> disposición completa, adaptadores reales de batería y LED, cambio de ratón
+> M8 → K7 Ultra integrado, 5 bugs de la v1 corregidos, `SolarSystemLayer`
+> cableada al shell y verificada (carga limpia, ~5 % CPU en reposo). Los widgets
+> siguen siendo la fuente de verdad hasta la v3.
 >
-> Documentos: `docs/sistema-solar-binario.md` · plan visual por versiones en el
-> artifact de Claude (`0cf6374a-85f0-4f6a-8003-3aae212b33b1`).
+> **Decisión pendiente de Alberto** (ver maqueta v1.5): ¿la música vuelve a ser
+> sol dominante o se queda como agujero negro en la esquina?
+>
+> **Siguiente:** v2 (hover / clic / congelar) — necesita iteración en vivo.
+>
+> Documentos: `docs/sistema-solar-binario.md` · maqueta original
+> `artifact 0cf6374a-85f0-4f6a-8003-3aae212b33b1` · maqueta v1.5
+> `artifact 6935dde1-72c3-4ba1-8c87-c907f7ba8561`.
 
 Va en [[Roadmap Maestro de Innovaciones]] §2. Comparte el gesto del "borde
 inferior iluminado" con el overlay de voz de [[Aurora — plan del overlay|Laura]]
