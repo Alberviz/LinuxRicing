@@ -56,10 +56,32 @@ kokoro, sounddevice, soundfile; `playerctl`, `wpctl`, `ffmpeg`, `xdg-open`.
 ## Configurar
 
 Todo en `config.toml` (voz, efecto, modelo STT, prompt, apps que puede abrir,
-tiempos de grabación). Reinicia el daemon tras cambiarlo.
+tiempos de grabación, modo calidad, wake word). Reinicia el daemon tras cambiarlo.
+
+## Activación por voz («Laura») — wake word
+
+El daemon puede escuchar en segundo plano con un modelo diminuto (openWakeWord,
+CPU, no transcribe nada) y arrancar el ciclo al oír «Laura», además del atajo.
+Está **desactivado** hasta que haya un modelo entrenado.
+
+Puesta en marcha:
+
+1. `openwakeword` + `onnxruntime` ya están en el venv.
+2. **Entrenar el modelo «Laura»** (cosa de Alberto). Los modelos de fábrica de openWakeWord son
+   para otras palabras. El propio proyecto tiene un cuaderno de entrenamiento
+   automático que genera cientos de muestras sintéticas con TTS
+   (`piper-sample-generator`) y entrena un modelo pequeño:
+   <https://github.com/dscripka/openWakeWord> → *Training new models* (el
+   notebook de Colab `automatic_model_training.ipynb`; palabra objetivo:
+   `laura`). Salida: `laura.onnx` (o `.tflite`).
+3. Deja el modelo en `assistant/models/laura.onnx`.
+4. En `config.toml`, `[wake] enabled = true`. Reinicia el daemon.
+5. Ajusta `[wake] threshold` (sube a 0.6-0.7 si se dispara solo).
+
+Mientras hay un ciclo activo el wake listener se pausa (no compite por el micro
+ni se dispara con la voz de Laura). El atajo `SUPER+A` sigue funcionando igual.
 
 ## Pendiente (fases siguientes)
 
-Wake word «Laura», integraciones externas vía n8n (calendario, tareas),
-memoria persistente, overlay visual en Quickshell, *streaming* por frases,
-*barge-in*, *fallback* online. Ver la nota del vault.
+Integraciones externas vía n8n (calendario, tareas), memoria persistente,
+*fallback* online. Ver la nota del vault.

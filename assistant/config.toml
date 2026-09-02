@@ -44,6 +44,14 @@ esto aquí» usa pegar_texto; para «qué dice este error» o «lee la pantalla�
 leer_pantalla; para «qué tengo abierto» usa ventanas_abiertas.
 """
 
+[wake]
+enabled = false        # activación por voz diciendo «Laura», además del atajo.
+model = "models/laura.onnx"  # modelo openWakeWord de «Laura» (.onnx o .tflite).
+                       # Si no existe, se ignora y queda solo el atajo. Ver
+                       # README para entrenarlo (openWakeWord + piper-sample-gen).
+threshold = 0.5        # 0..1. Súbelo (0.6-0.7) si hay disparos falsos.
+cooldown = 3.0         # segundos "sordo" tras un disparo (evita re-triggers).
+
 [tts]
 voice = "ef_dora"      # kokoro: ef_dora (mujer), em_alex, em_santa
 effect = "jarvis"      # jarvis | subnautica | robot | dry
