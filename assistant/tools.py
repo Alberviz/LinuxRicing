@@ -127,25 +127,42 @@ def pegar_texto(texto: str) -> dict:
     return {"ok": True, "resumen": "Pegado en la ventana activa"}
 
 
-def leer_pantalla(zona: str = "todo") -> dict:
-    """Hace una captura y le pasa el OCR (tesseract). `zona`: todo | seleccion.
-    Devuelve el texto reconocido para que Laura pueda responder sobre él."""
+def _active_window_geom() -> str | None:
+    """Geometría 'X,Y WxH' de la ventana con foco, para acotar la captura."""
+    r = _run(["hyprctl", "-j", "activewindow"])
+    try:
+        w = json.loads(r.stdout)
+        (x, y), (aw, ah) = w["at"], w["size"]
+        return f"{x},{y} {aw}x{ah}"
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
+def leer_pantalla(zona: str = "ventana") -> dict:
+    """Captura y OCR (tesseract). `zona`: ventana (la que tiene foco, rápido) |
+    todo (pantalla entera) | seleccion (recuadro con el ratón). Devuelve el
+    texto reconocido para que Laura responda sobre él."""
     if shutil.which("grim") is None:
         return {"ok": False, "error": "no encuentro 'grim'"}
     if shutil.which("tesseract") is None:
         return {"ok": False, "error": "falta 'tesseract' (instala tesseract y "
                                      "tesseract-data-spa para el OCR)"}
     png = "/tmp/laura_ocr.png"
+    geom = None
     if zona == "seleccion" and shutil.which("slurp"):
         sel = _run(["slurp"])
         if sel.returncode != 0 or not sel.stdout.strip():
             return {"ok": False, "error": "selección cancelada"}
-        cap = _run(["grim", "-g", sel.stdout.strip(), png])
-    else:
-        cap = _run(["grim", png])
+        geom = sel.stdout.strip()
+    elif zona != "todo":
+        geom = _active_window_geom()
+    cap = _run(["grim", "-g", geom, png] if geom else ["grim", png])
     if cap.returncode != 0:
         return {"ok": False, "error": "no pude capturar la pantalla"}
-    ocr = _run(["tesseract", png, "-", "-l", "spa+eng", "--psm", "6"])
+    # --oem 1 (solo LSTM) es más rápido; acotar a la ventana activa reduce
+    # mucho el área a procesar, que es lo que más pesa en el OCR.
+    ocr = _run(["tesseract", png, "-", "-l", "spa+eng",
+                "--oem", "1", "--psm", "6"])
     texto = ocr.stdout.strip()
     if not texto:
         return {"ok": False, "error": "no reconocí texto en la pantalla"}
@@ -353,8 +370,8 @@ TOOLS = [
                 "properties": {
                     "zona": {
                         "type": "string",
-                        "enum": ["todo", "seleccion"],
-                        "description": "todo = pantalla entera; seleccion = Alberto elige un recuadro con el ratón",
+                        "enum": ["ventana", "todo", "seleccion"],
+                        "description": "ventana = la que tiene el foco (por defecto, rápido); todo = pantalla entera; seleccion = Alberto elige un recuadro con el ratón",
                     }
                 },
             },
