@@ -123,7 +123,11 @@ def pegar_texto(texto: str) -> dict:
     # 29 = LEFTCTRL, 47 = V (códigos de tecla del kernel de Linux).
     r = _run(["ydotool", "key", "29:1", "47:1", "47:0", "29:0"])
     if r.returncode != 0:
-        return {"ok": False, "error": "ydotool falló (¿está corriendo ydotoold?)"}
+        # El texto sí quedó en el portapapeles: que Alberto lo pegue a mano.
+        return {"ok": True, "resumen": "Copiado (pega tú con Ctrl+V)",
+                "nota": "No pude pegarlo yo (ydotoold no está corriendo). El "
+                        "texto está en el portapapeles; dile a Alberto que lo "
+                        "pegue él con Ctrl+V."}
     return {"ok": True, "resumen": "Pegado en la ventana activa"}
 
 
