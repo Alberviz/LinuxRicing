@@ -53,9 +53,14 @@ capturas `.pcapng` van en `hardware/<dispositivo>/captures/`.
 
 ## Copias que deben ir idénticas
 
-- `widgets/Background.qml` ⇔ `configs/quickshell/caelestia/modules/background/Background.qml`
-  (verificar con `diff -q`, sin salida).
 - `rgb/mchose-battery` ⇔ `widgets/mchose-battery` (verificar con `diff -q`, sin salida).
+
+El widget de escritorio (`Background.qml` y sus componentes `Desktop*`, `Deck*`,
+`DeviceItem`, `TaskRow`) vive **solo** en
+`configs/quickshell/caelestia/modules/background/`; ya no hay copia en `widgets/`.
+`install.sh` despliega toda esa carpeta. `widgets/` conserva únicamente los
+helpers ejecutables (`gtasks`, `desktop-deck-helper`, `display-selector`,
+`magichome-control`, `mchose-battery`).
 
 ## Reinicio obligatorio del Shell tras cambios en UI/Widgets
 

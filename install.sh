@@ -11,8 +11,8 @@
 #    configs/caelestia/shell.json    -> ~/.config/caelestia/shell.json (semilla)
 #    configs/caelestia/rgb-config.json -> ~/.config/caelestia/         (semilla)
 #    configs/spicetify/Themes/*      -> ~/.config/spicetify/Themes/
-#    widgets/Background.qml          -> ~/.config/quickshell/caelestia/modules/background/
-#    widgets/{gtasks,desktop-deck-helper} -> ~/.local/bin/
+#    configs/quickshell/caelestia/modules/background/* -> ~/.config/.../modules/background/
+#    widgets/{gtasks,desktop-deck-helper,display-selector,magichome-control} -> ~/.local/bin/
 #    rgb/{sync-rgb,argb-wave}.py     -> ~/.config/caelestia/
 #    rgb/sounds/*                    -> ~/.config/caelestia/sounds/  (paletas de notificación)
 #    rgb/{agent-notify,akko-rgb,battery-lighting,magichome-control,mchose-battery,
@@ -138,9 +138,9 @@ fi
 if [ "$SELECTED_WIDGETS" = true ]; then
     echo -e "${PRIMARY}➔ Instalando Desktop Widgets (Background.qml y Helper)...${RESET}"
     mkdir -p "$HOME/.config/quickshell/caelestia/modules/background"
-    if [ -f "$BASE_DIR/widgets/Background.qml" ]; then
-        cp -u "$BASE_DIR/widgets/Background.qml" "$HOME/.config/quickshell/caelestia/modules/background/Background.qml"
-        echo -e "  ${SUCCESS}✔ Background.qml con Deck interactivo desplegado${RESET}"
+    if [ -d "$BASE_DIR/configs/quickshell/caelestia/modules/background" ]; then
+        cp -ru "$BASE_DIR/configs/quickshell/caelestia/modules/background/"* "$HOME/.config/quickshell/caelestia/modules/background/"
+        echo -e "  ${SUCCESS}✔ Módulo Background (Deck interactivo, modularizado) desplegado${RESET}"
     fi
     if [ -f "$BASE_DIR/widgets/desktop-deck-helper" ]; then
         cp -u "$BASE_DIR/widgets/desktop-deck-helper" "$HOME/.local/bin/desktop-deck-helper"
