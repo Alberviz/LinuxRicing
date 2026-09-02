@@ -39,7 +39,7 @@ Lo que ya está hecho.
 
 *Los agentes añaden una línea por sesión, lo más reciente arriba.*
 
-- **2026-09-02 · Gemini** — Diagnóstico de rendimiento, layout y optimización de Laura: eliminadas dos instancias concurrentes de Quickshell (liberando ~70-80% CPU y corrigiendo los 120px de margen izquierdo a 60px). Corregido el cuello de botella de Laura: Whisper y Kokoro estaban forzados a CPU saturando los 16 hilos al 100% durante el STT; configurada la precarga de bibliotecas dinámicas de NVIDIA (`libcublas`, `libcudnn`) y migrados Whisper y Kokoro a CUDA en la RTX 4050. Gateadas las animaciones de `Orb.qml` en reposo.
+- **2026-09-02 · Gemini** — Rendimiento, layout, Laura CUDA y selector de pantallas: eliminadas instancias duplicadas de Quickshell y optimizado Laura en CUDA (Whisper/Kokoro en RTX 4050). Implementado el módulo nativo de Caelestia `ProjectDialog` (`Super + P`) con tarjetas interactivas Material Design 3, atajos numéricos 1-4, animación de entrada/salida y llamadas a la API Lua de Hyprland (`hyprctl eval`) para control en caliente de monitores a 144Hz y apagado de panel integrado.
 
 - **2026-09-01 · Claude** — Brainstorming + arranque del **sistema solar binario** del
   escritorio (sustituirá los widgets). Plan por versiones en `docs/sistema-solar-binario.md`
