@@ -33,6 +33,12 @@ from events import EventBus
 HERE = Path(__file__).resolve().parent
 CFG = tomllib.loads((HERE / "config.toml").read_text())
 
+# Si se vuelve a poner STT/TTS en CPU (config.toml [stt] device = "cpu"), ocultar
+# la GPU antes del primer `import torch` para que no abra un contexto CUDA de
+# ~1 GB que no usaría: en la tarjeta de 6 GB esa VRAM le hace falta al LLM.
+if CFG["stt"]["device"] == "cpu":
+    os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+
 bus = EventBus(CFG["daemon"]["events_socket"])
 
 SR = 16000
@@ -170,6 +176,7 @@ def ollama_chat(messages: list[dict]) -> dict:
         "messages": messages,
         "tools": tools_mod.TOOLS,
         "stream": False,
+        "options": {"num_ctx": CFG["llm"].get("num_ctx", 4096)},
     }).encode()
     req = urllib.request.Request(CFG["llm"]["url"], data=body,
                                  headers={"Content-Type": "application/json"})
@@ -178,8 +185,10 @@ def ollama_chat(messages: list[dict]) -> dict:
 
 
 def _trim_history() -> None:
-    """Acota el historial: Ollama corre con contexto pequeño (-c 4096) y si
-    `_messages` crece sin límite las respuestas se vuelven lentísimas o cuelgan."""
+    """Acota el historial: aunque el contexto de Ollama sea holgado
+    (`llm.num_ctx` en config.toml), si `_messages` crece sin límite las
+    respuestas se vuelven lentísimas y el modelo se despista. `history_msgs`
+    manda sobre el contexto: es cuántos turnos de conversación recuerda Laura."""
     keep = CFG["llm"].get("history_msgs", 12)
     if len(_messages) <= keep + 1:
         return
