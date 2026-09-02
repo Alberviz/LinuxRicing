@@ -161,12 +161,16 @@ def leer_pantalla(zona: str = "ventana") -> dict:
         return {"ok": False, "error": "no pude capturar la pantalla"}
     # --oem 1 (solo LSTM) es más rápido; acotar a la ventana activa reduce
     # mucho el área a procesar, que es lo que más pesa en el OCR.
-    ocr = _run(["tesseract", png, "-", "-l", "spa+eng",
-                "--oem", "1", "--psm", "6"])
+    ocr = _run(["tesseract", png, "-", "-l", "spa+eng", "--oem", "1", "--psm", "6",
+                "-c", "preserve_interword_spaces=1"])
     texto = ocr.stdout.strip()
-    if not texto:
+    if len(texto) < 3:
         return {"ok": False, "error": "no reconocí texto en la pantalla"}
-    return {"ok": True, "texto": texto, "resumen": "Leí la pantalla"}
+    return {"ok": True, "texto": texto, "resumen": "Leí la pantalla",
+            "nota": ("Texto extraído por OCR: puede tener erratas (letras/números "
+                     "sueltos mal, símbolos raros). Interprétalo con sentido "
+                     "común y responde a lo que Alberto pidió; no digas que no "
+                     "puedes leerlo salvo que esté completamente vacío.")}
 
 
 def ventanas_abiertas() -> dict:
