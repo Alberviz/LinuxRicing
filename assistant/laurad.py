@@ -60,14 +60,28 @@ def notify(title: str, body: str = ""):
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-# --------------------------------------------------------------------------- STT
+# --------------------------------------------------------------------------- STT & CUDA setup
+import ctypes
+import glob
+for _p in glob.glob(str(HERE / ".venv/lib/python*/site-packages/nvidia/*/lib/*.so*")):
+    try:
+        ctypes.CDLL(_p, mode=ctypes.RTLD_GLOBAL)
+    except Exception:
+        pass
+
 log("cargando Whisper…")
 from faster_whisper import WhisperModel
+import torch
+
+_device = CFG["stt"]["device"]
+if _device == "cuda" and not torch.cuda.is_available():
+    log("CUDA no disponible, usando CPU")
+    _device = "cpu"
 
 _stt = WhisperModel(CFG["stt"]["model"],
-                    device=CFG["stt"]["device"],
-                    compute_type="int8" if CFG["stt"]["device"] == "cpu"
-                    else "int8_float16")
+                    device=_device,
+                    compute_type="int8" if _device == "cpu"
+                    else "float16")
 
 # --------------------------------------------------------------------------- VAD
 from silero_vad import load_silero_vad, VADIterator
@@ -78,7 +92,7 @@ _vad_model = load_silero_vad()
 log("cargando Kokoro…")
 from kokoro import KPipeline
 
-_kokoro = KPipeline(lang_code="e")
+_kokoro = KPipeline(lang_code="e", device=_device)
 
 # ----------------------------------------------------------------------- estado
 _messages = [{"role": "system", "content": CFG["llm"]["system_prompt"].strip()}]

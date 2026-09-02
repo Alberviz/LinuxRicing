@@ -39,7 +39,7 @@ Lo que ya está hecho.
 
 *Los agentes añaden una línea por sesión, lo más reciente arriba.*
 
-- **2026-09-02 · Gemini** — Diagnóstico de rendimiento y tamaño de ventanas: detectadas y eliminadas dos instancias concurrentes zombis de Quickshell (`qs -c caelestia`), que duplicaban el consumo de CPU (~70-80%) y sumaban sus `exclusiveZone` (120px en vez de 60px a la izquierda). Verificada la paridad de hardware/instrucciones v3 en CachyOS y la aceleración iGPU. Ventanas y márgenes restaurados a la normalidad.
+- **2026-09-02 · Gemini** — Diagnóstico de rendimiento, layout y optimización de Laura: eliminadas dos instancias concurrentes de Quickshell (liberando ~70-80% CPU y corrigiendo los 120px de margen izquierdo a 60px). Corregido el cuello de botella de Laura: Whisper y Kokoro estaban forzados a CPU saturando los 16 hilos al 100% durante el STT; configurada la precarga de bibliotecas dinámicas de NVIDIA (`libcublas`, `libcudnn`) y migrados Whisper y Kokoro a CUDA en la RTX 4050. Gateadas las animaciones de `Orb.qml` en reposo.
 
 - **2026-09-01 · Claude** — Brainstorming + arranque del **sistema solar binario** del
   escritorio (sustituirá los widgets). Plan por versiones en `docs/sistema-solar-binario.md`

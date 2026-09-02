@@ -46,10 +46,10 @@ MaterialShape {
         CAnim {}
     }
 
-    // Respiración lenta permanente
+    // Respiración lenta (solo activa mientras Laura está en uso)
     property real breath: 0
     SequentialAnimation on breath {
-        running: true
+        running: root.state !== "idle"
         loops: Animation.Infinite
         NumberAnimation {
             to: 1
@@ -71,9 +71,9 @@ MaterialShape {
         }
     }
 
-    // Giro lento continuo, más vivo al pensar
+    // Giro lento continuo, más vivo al pensar (solo activo mientras Laura está en uso)
     RotationAnimation on rotation {
-        running: true
+        running: root.state !== "idle"
         from: 0
         to: 360
         loops: Animation.Infinite

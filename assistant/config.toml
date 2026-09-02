@@ -7,7 +7,7 @@ notify = true          # avisos con notify-send (escuchando / respuesta)
 
 [stt]
 model = "small"        # tiny | base | small | medium
-device = "cpu"         # cpu (fiable en esta GPU) | cuda
+device = "cuda"        # cuda (RTX 4050, ultra rápido) | cpu
 language = "es"
 
 [llm]
