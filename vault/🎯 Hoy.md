@@ -39,6 +39,8 @@ Lo que ya está hecho.
 
 *Los agentes añaden una línea por sesión, lo más reciente arriba.*
 
+- **2026-09-02 · Claude** — Análisis del asistente para el portátil (i5-12600HX / RTX 4050 6 GB / 24 GB) y consolidación de ramas. Arreglado el segfault de `laurad.py` al escuchar: el preload de CUDA de `93740b0` cargaba `libnvblas.so` con RTLD_GLOBAL y tumbaba el proceso en la primera llamada BLAS; acotado a solo cuBLAS + cuDNN. `llm.num_ctx` configurable (antes fijo a 4096), a 6144 por presupuesto de VRAM. Mergeados a `main`: overlay nuevo de Laura (`feat/laura-overlay-redesign`), arreglos del portátil y el `ProjectDialog` de Gemini. `~/.config` resincronizado (fuera `Orb`/`OrbWindow`/`BarWindow`).
+
 - **2026-09-02 · Gemini** — Rendimiento, layout, Laura CUDA y selector de pantallas: eliminadas instancias duplicadas de Quickshell y optimizado Laura en CUDA (Whisper/Kokoro en RTX 4050). Implementado el módulo nativo de Caelestia `ProjectDialog` (`Super + P`) con tarjetas interactivas Material Design 3, atajos numéricos 1-4, animación de entrada/salida y llamadas a la API Lua de Hyprland (`hyprctl eval`) para control en caliente de monitores a 144Hz y apagado de panel integrado.
 
 - **2026-09-01 · Claude** — Brainstorming + arranque del **sistema solar binario** del
@@ -49,6 +51,17 @@ Lo que ya está hecho.
   `SolarSystemModel` (adaptadores cava/agentes/tareas) + capa `SolarSystemLayer`. Carga
   limpia. Falta cerrar la disposición con Alberto y adaptadores de batería/LED. Además:
   fix del recorte del anillo orbital de música (`Background.qml`, lienzo 448px).
+
+- **2026-09-01 · Claude** — Overlay de **Laura** rehecho (rama
+  `feat/laura-overlay-redesign`): un solo modo, `LauraOverlay.qml` = borde
+  inferior de la pantalla iluminado (altura + intensidad siguen el estado:
+  amplitud del micro al escuchar, envolvente del TTS al hablar, deriva de tono
+  al pensar) + píldora translúcida de subtítulos (transcript + respuesta
+  completa). Borrados `Orb`/`OrbWindow`/`BarWindow`; `laura-toggle` sin
+  argumento. Shell recargado sin errores. Coordinado con la sesión del
+  [[Sistema solar binario del escritorio]] (fondo): reparto de archivos, merge
+  de `feat/aurora-voice-assistant` a `main`, backlog + roadmap del sistema
+  solar. Pendiente de Alberto: reinstalar el servicio como `laura`, atajo.
 - **2026-09-01 · Claude** — Aurora → **Laura**: rename hecho en el código
   (`assistant/` completo + módulo Quickshell; sockets `laura-events.sock`;
   `laurad.py`, `laura.service`, `laura-toggle`). Daemon: conversación
