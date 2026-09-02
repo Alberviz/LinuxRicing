@@ -18,6 +18,9 @@ num_ctx = 6144         # ventana de contexto de Ollama (antes fija a 4096 en có
                        # ya en CUDA (~1 GB): 4096≈3,1 GB · 6144≈3,4 GB · 8192≈3,7 GB
                        # de LLM. 6144 deja ~1,5 GB de aire; subir a 8192 solo si las
                        # pruebas no dan OOM tras varios turnos (ver §1 nota vault).
+stream = true          # voz por frases: Laura empieza a hablar en cuanto tiene la
+                       # primera frase, sin esperar a toda la respuesta. false =
+                       # sintetizar y reproducir la respuesta entera de una vez.
 max_tool_rounds = 5
 max_turns = 6          # turnos de conversación en modo centro antes de cerrar solo
 timeout = 45           # segundos por llamada a Ollama antes de rendirse

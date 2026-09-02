@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import re
 import socket
 import subprocess
 import sys
@@ -184,18 +185,78 @@ def transcribe(audio: np.ndarray) -> str:
     return text
 
 
-def ollama_chat(messages: list[dict]) -> dict:
-    body = json.dumps({
+def _ollama_body(stream: bool) -> bytes:
+    return json.dumps({
         "model": CFG["llm"]["model"],
-        "messages": messages,
+        "messages": _messages,
         "tools": tools_mod.TOOLS,
-        "stream": False,
+        "stream": stream,
         "options": {"num_ctx": CFG["llm"].get("num_ctx", 4096)},
     }).encode()
-    req = urllib.request.Request(CFG["llm"]["url"], data=body,
+
+
+def ollama_chat(messages: list[dict]) -> dict:
+    req = urllib.request.Request(CFG["llm"]["url"], data=_ollama_body(False),
                                  headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=CFG["llm"].get("timeout", 45)) as resp:
         return json.loads(resp.read())
+
+
+# Fin de frase: puntuación terminal seguida de un espacio (para no cortar en el
+# punto de "3.5"), o un salto de línea. Trocea la respuesta según se genera para
+# mandar cada frase ya a la voz sin esperar al resto.
+_SENT_END = re.compile(r"[.!?…]+[\"'’”)\]]*(?=\s)|\n")
+
+
+def _drain_sentences(buf: str) -> tuple[list[str], str]:
+    """Extrae de `buf` las frases ya completas; devuelve (frases, resto)."""
+    out: list[str] = []
+    while (m := _SENT_END.search(buf)):
+        cut = m.end()
+        frag = buf[:cut].strip()
+        if frag:
+            out.append(frag)
+        buf = buf[cut:].lstrip()
+    return out, buf
+
+
+def _ollama_stream(cancel: threading.Event | None):
+    """Itera la respuesta de Ollama token a token (líneas JSON)."""
+    req = urllib.request.Request(CFG["llm"]["url"], data=_ollama_body(True),
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=CFG["llm"].get("timeout", 45)) as resp:
+        for raw in resp:
+            if cancel is not None and cancel.is_set():
+                return
+            raw = raw.strip()
+            if raw:
+                yield json.loads(raw)
+
+
+def _stream_round(on_sentence, cancel: threading.Event | None) -> tuple[str, list]:
+    """Una ronda del LLM en streaming. Devuelve (texto completo, tool_calls).
+    Mientras no aparezcan tool_calls, cada frase terminada se manda a `on_sentence`
+    (para que la voz empiece ya). Si es una ronda de herramientas, no habla."""
+    parts: list[str] = []
+    calls: list = []
+    buf = ""
+    for chunk in _ollama_stream(cancel):
+        m = chunk.get("message") or {}
+        if m.get("tool_calls"):
+            calls += m["tool_calls"]
+        piece = m.get("content") or ""
+        if piece:
+            parts.append(piece)
+            if on_sentence is not None and not calls:
+                buf += piece
+                sents, buf = _drain_sentences(buf)
+                for s in sents:
+                    on_sentence(s)
+        if chunk.get("done"):
+            break
+    if on_sentence is not None and not calls and buf.strip():
+        on_sentence(buf.strip())
+    return "".join(parts), calls
 
 
 def _trim_history() -> None:
@@ -215,17 +276,26 @@ def _trim_history() -> None:
     _messages[:] = [_messages[0], *tail]
 
 
-def converse(user_text: str) -> tuple[str, list[dict]]:
-    """Devuelve (respuesta, acciones) donde acciones = [{icon, text}, ...]."""
+def converse(user_text: str, on_sentence=None,
+             cancel: threading.Event | None = None) -> tuple[str, list[dict]]:
+    """Devuelve (respuesta, acciones) donde acciones = [{icon, text}, ...].
+
+    Si `on_sentence` no es None, la respuesta final se genera en streaming y
+    cada frase terminada se le pasa según se produce (voz por frases)."""
     _trim_history()
     _messages.append({"role": "user", "content": user_text})
     actions: list[dict] = []
     for _ in range(CFG["llm"]["max_tool_rounds"]):
-        msg = ollama_chat(_messages)["message"]
-        _messages.append(msg)
-        calls = msg.get("tool_calls") or []
+        if on_sentence is not None:
+            content, calls = _stream_round(on_sentence, cancel)
+            _messages.append({"role": "assistant", "content": content,
+                              **({"tool_calls": calls} if calls else {})})
+        else:
+            msg = ollama_chat(_messages)["message"]
+            _messages.append(msg)
+            content, calls = msg.get("content") or "", msg.get("tool_calls") or []
         if not calls:
-            return (msg.get("content") or "").strip(), actions
+            return content.strip(), actions
         for call in calls:
             fn = call["function"]
             args = fn.get("arguments") or {}
@@ -240,26 +310,98 @@ def converse(user_text: str) -> tuple[str, list[dict]]:
     return (_messages[-1].get("content") or "Hecho.").strip(), actions
 
 
-def speak(text: str, cancel: threading.Event | None = None) -> None:
-    if not text or (cancel is not None and cancel.is_set()):
-        return
+def _synth_wav(text: str, tag: str) -> str:
+    """Sintetiza `text` con Kokoro, aplica el efecto y devuelve la ruta del wav."""
     parts = []
     for _, _, a in _kokoro(text, voice=CFG["tts"]["voice"]):
         parts.append(a.detach().cpu().numpy() if hasattr(a, "detach")
                      else np.asarray(a))
-    sf.write("/tmp/laura_raw.wav", np.concatenate(parts), 24000)
+    raw = f"/tmp/laura_{tag}_raw.wav"
+    sf.write(raw, np.concatenate(parts), 24000)
     af = EFFECTS.get(CFG["tts"]["effect"])
-    out = "/tmp/laura_raw.wav"
-    if af:
-        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i",
-                        "/tmp/laura_raw.wav", "-af", af, "/tmp/laura_out.wav"],
-                       check=True)
-        out = "/tmp/laura_out.wav"
-    _play_with_amplitude(out, cancel)
+    if not af:
+        return raw
+    out = f"/tmp/laura_{tag}.wav"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", raw,
+                    "-af", af, out], check=True)
+    return out
+
+
+def speak(text: str, cancel: threading.Event | None = None) -> None:
+    """Sintetiza y reproduce `text` de una vez (camino sin streaming)."""
+    if not text or (cancel is not None and cancel.is_set()):
+        return
+    _play_with_amplitude(_synth_wav(text, "out"), cancel)
+
+
+class Speech:
+    """Tubería de voz por frases. Se le van dando frases (`feed`) según las
+    genera el LLM; un hilo las sintetiza y otro las reproduce en orden, de modo
+    que la primera frase suena mientras la segunda aún se está sintetizando.
+    Emite `state=speaking` al arrancar el primer audio y `reply` acumulado
+    frase a frase (subtítulos que crecen con la voz)."""
+
+    def __init__(self, cancel: threading.Event | None, mode: str) -> None:
+        self.cancel = cancel
+        self.mode = mode
+        self._tts_q: queue.Queue = queue.Queue()
+        self._play_q: queue.Queue = queue.Queue()
+        self._spoken: list[str] = []
+        self._n = 0
+        self._t_tts = threading.Thread(target=self._tts_loop, daemon=True)
+        self._t_play = threading.Thread(target=self._play_loop, daemon=True)
+        self._t_tts.start()
+        self._t_play.start()
+
+    def _stopped(self) -> bool:
+        return self.cancel is not None and self.cancel.is_set()
+
+    def feed(self, sentence: str) -> None:
+        s = sentence.strip()
+        if s and not self._stopped():
+            self._tts_q.put(s)
+
+    def _tts_loop(self) -> None:
+        while True:
+            s = self._tts_q.get()
+            if s is None:
+                self._play_q.put(None)
+                return
+            if self._stopped():
+                continue
+            self._n += 1
+            try:
+                wav = _synth_wav(s, f"s{self._n}")
+            except Exception as e:  # noqa: BLE001
+                log(f"error sintetizando «{s[:40]}…»: {e}")
+                continue
+            self._play_q.put((wav, s))
+
+    def _play_loop(self) -> None:
+        while True:
+            item = self._play_q.get()
+            if item is None:
+                return
+            if self._stopped():
+                continue
+            wav, s = item
+            if not self._spoken:
+                bus.emit(type="state", value="speaking", mode=self.mode)
+            self._spoken.append(s)
+            bus.emit(type="reply", value=" ".join(self._spoken))
+            _play_with_amplitude(wav, self.cancel, reset=False)
+
+    def finish(self) -> str:
+        """Espera a que suene todo y devuelve lo que se ha hablado."""
+        self._tts_q.put(None)
+        self._t_tts.join()
+        self._t_play.join()
+        bus.emit(type="amplitude", value=0.0)
+        return " ".join(self._spoken)
 
 
 def _play_with_amplitude(wav_path: str, cancel: threading.Event | None = None,
-                         hz: float = 25.0) -> None:
+                         hz: float = 25.0, reset: bool = True) -> None:
     """Reproduce el wav y emite su envolvente RMS por ventanas, en sincronía."""
     data, sr = sf.read(wav_path, dtype="float32")
     if data.ndim > 1:
@@ -285,7 +427,8 @@ def _play_with_amplitude(wav_path: str, cancel: threading.Event | None = None,
         target = t0 + (i + 1) * step
         time.sleep(max(0.0, target - time.monotonic()))
     proc.wait()
-    bus.emit(type="amplitude", value=0.0)
+    if reset:
+        bus.emit(type="amplitude", value=0.0)
 
 
 _FAREWELL = ("adios", "adiós", "hasta luego", "hasta pronto", "hasta la vista",
@@ -338,13 +481,26 @@ def cycle(mode: str = "centro", cancel: threading.Event | None = None) -> None:
             notify("Tú", text)
             bus.emit(type="transcript", value=text)
             bye = _is_farewell(text)
-            reply, actions = converse(text)
-            log(f"laura: {reply}  · acciones: {actions}")
-            notify("Laura", reply)
-            bus.emit(type="reply", value=reply)
-            bus.emit(type="result", actions=actions)
-            bus.emit(type="state", value="speaking", mode=mode)
-            speak(reply, cancel)
+
+            speech = Speech(cancel, mode) if CFG["llm"].get("stream", True) else None
+            try:
+                reply, actions = converse(
+                    text, speech.feed if speech else None, cancel)
+                # El LLM ya ha terminado de generar; el audio puede seguir
+                # sonando. Publicar aquí lo demás, no tras la voz.
+                log(f"laura: {reply}  · acciones: {actions}")
+                notify("Laura", reply)
+                bus.emit(type="result", actions=actions)
+            finally:
+                spoken = speech.finish() if speech else ""
+            if cancel.is_set():
+                break
+            # Sin streaming, o si el streaming no llegó a decir nada, se
+            # reproduce la respuesta entera de una vez.
+            if reply and not spoken.strip():
+                bus.emit(type="reply", value=reply)
+                bus.emit(type="state", value="speaking", mode=mode)
+                speak(reply, cancel)
             turns += 1
             if mode != "centro" or bye or turns >= max_turns:
                 break
