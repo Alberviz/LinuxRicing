@@ -428,3 +428,28 @@ Ambos agentes (Claude y Gemini) escriben aquí — añadir, no reescribir.
   gaussian por-píxel en el hilo GUI por cada glow). **Regla de trabajo:** tras
   sincronizar UI a `~/.config`, hacer restart completo del shell; no encadenar
   auto-reloads.
+
+---
+
+## 2026-09-02
+
+### Laura moría (SIGSEGV) nada más pulsar SUPER+A
+- **Síntoma:** tras migrar el portátil (RTX 4050), el daemon de Laura cargaba
+  bien (`[laura] listo`) pero al pulsar el atajo y empezar a escuchar el proceso
+  se caía con `code=dumped, status=11/SEGV`, systemd lo reiniciaba y vuelta a
+  empezar. En el log, el banner `[NVBLAS] ... CPU Blas library need to be
+  provided` justo antes de cada core dump.
+- **Causa:** el commit `93740b0` (migración de Whisper/Kokoro a CUDA) precargaba
+  **todos** los `.so` de `nvidia/*/lib/` con `ctypes.CDLL(..., RTLD_GLOBAL)`
+  para que faster-whisper encontrara cuDNN/cuBLAS. Ese glob arrastraba también
+  `libnvblas.so` (el interceptor de BLAS de NVIDIA). Cargado con RTLD_GLOBAL y
+  sin `nvblas.conf` ni una BLAS de CPU de respaldo configurada, secuestra la
+  resolución de símbolos BLAS de todo el proceso; la primera operación
+  matemática real (la LSTM de Silero VAD sobre el primer chunk del micro) entra
+  en `libnvblas` mal inicializada y segfaultea.
+- **Arreglo:** `assistant/laurad.py` — acotar el preload a **solo** `nvidia/cublas`
+  y `nvidia/cudnn` (en ese orden; cuDNN depende de cuBLAS), excluyendo
+  explícitamente `nvblas`, y hacerlo solo si `stt.device = "cuda"`. Commit
+  `2bef5f8`.
+- **Verificado:** SUPER+A → Whisper transcribe en la RTX 4050 → el LLM responde,
+  sin crash (`NRestarts` 0).
