@@ -453,3 +453,62 @@ Ambos agentes (Claude y Gemini) escriben aquí — añadir, no reescribir.
   `2bef5f8`.
 - **Verificado:** SUPER+A → Whisper transcribe en la RTX 4050 → el LLM responde,
   sin crash (`NRestarts` 0).
+
+### El ratón MCHOSE K7 Ultra no emparejaba por Bluetooth LE (abortaba tras GATT)
+- **Síntoma:** al conectar el ratón por BT LE, BlueZ marcaba `Connected: yes` y
+  resolvía todo el GATT, pero el ratón seguía parpadeando rápido, abortaba el
+  enlace a los 2-3 s y reaparecía con una dirección aleatoria nueva (dejando
+  "fantasmas" en la lista). `bluetoothctl pair` daba `AuthenticationFailed` o
+  `Too small pair device response`.
+- **Causa:** con `ControllerMode = dual` en `/etc/bluetooth/main.conf`, el
+  controlador Intel gestionaba el emparejamiento de forma que el firmware Telink
+  del ratón no podía completar SMP. En el journal de `bluetoothd` la firma exacta
+  era `hog-lib.c:*_read_cb() ... Request attribute has encountered an unlikely
+  error` = **ATT 0x0E** en *todas* las características del servicio HID (Protocol
+  Mode, Report, Report Reference, HID Info, PnP ID). El descubrimiento GATT va
+  bien porque no exige cifrado; al leer las características HID, que sí lo exigen,
+  el firmware debería responder ATT 0x05/0x0F (Insufficient Authentication/
+  Encryption) para que BlueZ dispare SMP — en su lugar devolvía 0x0E genérico,
+  que BlueZ no interpreta como "necesito seguridad", así que nunca escalaba a
+  pairing. El enlace quedaba sin cifrar y el ratón lo tiraba, regenerando su
+  dirección estática aleatoria (comportamiento del SDK Telink cuando no consigue
+  persistir el bond — por eso parecían RPA rotatorias, pero eran `AddressType=
+  static`). Ningún bond llegó a existir nunca (`long_term_keys` /
+  `identity_resolving_keys` vacíos en el kernel).
+- **Arreglo:** `ControllerMode = le` en `/etc/bluetooth/main.conf` (forzar LE
+  puro) + reiniciar `bluetooth`, limpiar los 2 fantasmas (`bluetoothctl remove`)
+  y vaciar la caché de scans. Con LE puro el SMP negocia limpio, se distribuyen
+  2 LTK (key size 16, ambas direcciones), se cifra el enlace y las
+  características HID ya se leen. Alternativa sin tocar BR/EDR globalmente:
+  `sudo btmgmt -i hci0 power off && sudo btmgmt -i hci0 bredr off && sudo btmgmt
+  -i hci0 power on`.
+- **Verificado:** ratón `Paired: yes` / `Bonded: yes` / `Connected: yes`; nodos
+  uhid creados (`MCHOSE K7 Ultra Mouse` event4/mouse1, `...Keyboard` event5);
+  los errores ATT 0x0E desaparecen del journal tras el cambio.
+- **De paso:** `AutoEnable` estaba en `[General]` de `main.conf` (obsoleto →
+  warning `Unknown key AutoEnable`); su sitio es `[Policy]`. El warning
+  `GAS PPCP: Invalid Connection Parameters values` que aparece al conectar es
+  inofensivo — la característica PPCP del ratón tiene valores fuera de spec y
+  BlueZ los ignora.
+
+### El shell de Quickshell arrancaba a ~100 % CPU (un núcleo clavado)
+- **Síntoma:** `qs -c caelestia` consumía ~100 % de un núcleo desde el arranque,
+  en fresco (no era una fuga de hot-reload acumulada). Hilo principal ~38 % +
+  `QSGRender` ~22 % + varios worker threads. El escritorio iba a tirones.
+- **Causa:** `DesktopCircularMedia.qml` (visualizador circular de now-playing en
+  el fondo, rama `refactor/background-modularize`) tenía un
+  `FrameAnimation { running: true }` **incondicional**: a 60 fps recalculaba 48
+  bandas y disparaba `requestPaint()` de un `Canvas` FBO de 448 px con decenas de
+  trazos — para siempre, sin música sonando y aunque el widget no se viera. Es
+  exactamente lo que prohíbe el `CLAUDE.md` («Prohibido `FrameAnimation {
+  running: true }` incondicional»).
+- **Arreglo:** atar `running` a actividad real —
+  `mediaRoot.visible && (Players.active?.isPlaying ?? false)`— y al parar dejar
+  las barras en reposo (`smoothedVals` a 0.02 + un `requestPaint` final).
+  Commit `d76b248` en `refactor/background-modularize`.
+- **Verificado:** CPU del shell **~100 % → ~5 %** en reposo, tanto sin la capa
+  del sistema solar como con ella activa. `INFO: Configuration Loaded` sin
+  errores.
+- **Lección:** cualquier `FrameAnimation`/`Timer` de repintado nuevo en el fondo
+  se revisa contra la regla de gateo del `CLAUDE.md` antes de commitear. Buscar
+  `running: true` a pelo en `modules/background/` es una comprobación barata.
