@@ -39,6 +39,8 @@ Lo que ya está hecho.
 
 *Los agentes añaden una línea por sesión, lo más reciente arriba.*
 
+- **2026-09-02 · Gemini** — Diagnóstico de rendimiento y tamaño de ventanas: detectadas y eliminadas dos instancias concurrentes zombis de Quickshell (`qs -c caelestia`), que duplicaban el consumo de CPU (~70-80%) y sumaban sus `exclusiveZone` (120px en vez de 60px a la izquierda). Verificada la paridad de hardware/instrucciones v3 en CachyOS y la aceleración iGPU. Ventanas y márgenes restaurados a la normalidad.
+
 - **2026-09-01 · Claude** — Brainstorming + arranque del **sistema solar binario** del
   escritorio (sustituirá los widgets). Plan por versiones en `docs/sistema-solar-binario.md`
   + maqueta `artifact 0cf6374a`. Mergeado `feat/aurora-voice-assistant` → `main`; ramas
