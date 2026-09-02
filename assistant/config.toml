@@ -12,10 +12,10 @@ language = "es"
 
 [llm]
 model = "qwen3:4b-instruct"
-model_quality = ""     # modelo mayor para «modo calidad» (di «modo calidad» /
-                       # «modo rápido» por voz). Vacío = desactivado. Para usarlo:
-                       # `ollama pull qwen3:8b` y poner aquí "qwen3:8b" (Ollama
-                       # reparte a CPU lo que no cabe en la RTX 4050; más lento).
+model_quality = "qwen3:8b"   # modelo mayor para «modo calidad» (di «modo calidad»
+                       # / «modo rápido» por voz). Vacío = desactivado. Requiere
+                       # `ollama pull qwen3:8b` (Ollama reparte a CPU lo que no
+                       # cabe en la RTX 4050 de 6 GB: va más lento pero cabe).
 url = "http://localhost:11434/api/chat"
 num_ctx = 6144         # ventana de contexto de Ollama (antes fija a 4096 en código).
                        # Presupuesto VRAM en la RTX 4050 (6 GB) con Whisper+Kokoro
