@@ -118,6 +118,31 @@ _kokoro = KPipeline(lang_code="e", device=_device)
 # ----------------------------------------------------------------------- estado
 _messages = [{"role": "system", "content": CFG["llm"]["system_prompt"].strip()}]
 
+# "Modo calidad": usa un modelo mayor (`llm.model_quality`, p. ej. qwen3:8b) para
+# respuestas más elaboradas / código. Vacío en config = desactivado. Se alterna
+# por voz («modo calidad» / «modo rápido»).
+_quality = [False]
+_MODE_ON = ("modo calidad", "modo potente", "modo experto", "mas potente", "más potente")
+_MODE_OFF = ("modo rapido", "modo rápido", "modo normal", "modo ligero")
+
+
+def _mode_switch(text: str) -> bool | None:
+    """True = pasar a modo calidad, False = volver al rápido, None = no aplica."""
+    if not CFG["llm"].get("model_quality"):
+        return None
+    t = text.lower()
+    if any(k in t for k in _MODE_ON):
+        return True
+    if any(k in t for k in _MODE_OFF):
+        return False
+    return None
+
+
+def _model_now() -> str:
+    if _quality[0] and CFG["llm"].get("model_quality"):
+        return CFG["llm"]["model_quality"]
+    return CFG["llm"]["model"]
+
 
 def listen(max_seconds: float | None = None,
            cancel: threading.Event | None = None,
@@ -187,7 +212,7 @@ def transcribe(audio: np.ndarray) -> str:
 
 def _ollama_body(stream: bool) -> bytes:
     return json.dumps({
-        "model": CFG["llm"]["model"],
+        "model": _model_now(),
         "messages": _messages,
         "tools": tools_mod.TOOLS,
         "stream": stream,
@@ -481,6 +506,21 @@ def cycle(mode: str = "centro", cancel: threading.Event | None = None) -> None:
             notify("Tú", text)
             bus.emit(type="transcript", value=text)
             bye = _is_farewell(text)
+
+            sw = _mode_switch(text)
+            if sw is not None:
+                _quality[0] = sw
+                r = ("Modo calidad activado." if sw
+                     else "Vuelvo al modo rápido.")
+                log(f"laura: {r}  (modelo -> {_model_now()})")
+                notify("Laura", r)
+                bus.emit(type="reply", value=r)
+                bus.emit(type="state", value="speaking", mode=mode)
+                speak(r, cancel)
+                turns += 1
+                if mode != "centro" or turns >= max_turns:
+                    break
+                continue
 
             speech = Speech(cancel, mode) if CFG["llm"].get("stream", True) else None
             try:
