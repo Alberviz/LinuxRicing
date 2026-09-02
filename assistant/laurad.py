@@ -66,14 +66,28 @@ def notify(title: str, body: str = ""):
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-# --------------------------------------------------------------------------- STT & CUDA setup
-import ctypes
-import glob
-for _p in glob.glob(str(HERE / ".venv/lib/python*/site-packages/nvidia/*/lib/*.so*")):
-    try:
-        ctypes.CDLL(_p, mode=ctypes.RTLD_GLOBAL)
-    except Exception:
-        pass
+# ----------------------------------------------------------------- STT & CUDA setup
+# faster-whisper (CTranslate2) en CUDA necesita cuDNN 9 y cuBLAS 12 de los wheels
+# de pip, que no están en el linker path del sistema. Hay que precargarlas a mano.
+#
+# OJO: precargar TODO `nvidia/*/lib/*.so` arrastra también `libnvblas.so`, un
+# interceptor de BLAS que, cargado con RTLD_GLOBAL y sin `nvblas.conf` ni BLAS de
+# CPU de respaldo, tumba el proceso con SIGSEGV en la primera llamada BLAS (justo
+# al empezar a escuchar). Por eso aquí se cargan SOLO cuBLAS y cuDNN, en ese
+# orden (cuDNN depende de cuBLAS), y nada más.
+if CFG["stt"]["device"] == "cuda":
+    import ctypes
+    import glob
+
+    for _sub in ("cublas", "cudnn"):
+        for _p in sorted(glob.glob(str(
+                HERE / f".venv/lib/python*/site-packages/nvidia/{_sub}/lib/*.so*"))):
+            if "nvblas" in _p:
+                continue
+            try:
+                ctypes.CDLL(_p, mode=ctypes.RTLD_GLOBAL)
+            except OSError:
+                pass
 
 log("cargando Whisper…")
 from faster_whisper import WhisperModel
