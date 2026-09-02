@@ -2,6 +2,7 @@ pragma Singleton
 
 import Quickshell
 import Caelestia
+import Caelestia.Models
 import Caelestia.Config
 import qs.utils
 

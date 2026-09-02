@@ -10,6 +10,7 @@ import "modules/background"
 import "modules/areapicker"
 import "modules/rgbcontrol"
 import "modules/rebootdialog"
+import "modules/projectdialog"
 import "modules/assistant"
 import "modules/lock"
 import QtQuick
@@ -35,6 +36,7 @@ ShellRoot {
     AreaPicker {}
     RgbControl {}
     RebootDialog {}
+    ProjectDialog {}
     Assistant {}
     Lock {
         id: lock

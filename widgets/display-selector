@@ -1,28 +1,29 @@
-#!/usr/bin/env python3
-"""
-display-selector — Selector interactivo de proyección de pantallas (Win + P)
-Diseñado para Hyprland (Lua API) y tematizado con Material Design 3 / Caelestia scheme.json.
-"""
+#!/usr/bin/env bash
+# ==============================================================================
+#  🛸 display-selector — Selector nativo de proyección de pantallas (Win + P)
+#  Usa el diálogo nativo Material Design 3 de Quickshell (con fallback a Fuzzel MD3)
+# ==============================================================================
 
-import json
-import os
-import subprocess
-import sys
+# 1. Intentar abrir el diálogo nativo Material Design 3 de Quickshell
+if qs -c caelestia ipc show >/dev/null 2>&1; then
+    qs -c caelestia ipc call projectMenu toggle
+    exit 0
+fi
+
+# 2. Fallback por si Quickshell estuviera cerrado o en reinicio
+pkill -f "fuzzel.*Proyectar" 2>/dev/null && exit 0
+
+python3 - << 'PYEOF'
+import json, os, subprocess
 from pathlib import Path
 
 SCHEME_PATH = Path(os.path.expanduser("~/.local/state/caelestia/scheme.json"))
 
-
 def get_m3_colors():
-    """Carga los colores Material 3 del esquema activo de Caelestia."""
     defaults = {
-        "bg": "130d0af2",
-        "text": "f8e1d6ff",
-        "prompt": "f7b999ff",
-        "placeholder": "847269ff",
-        "selection": "74472fdd",
-        "selection_text": "ffdcccff",
-        "selection_match": "fff6e2ff",
+        "bg": "130d0af2", "text": "f8e1d6ff", "prompt": "f7b999ff",
+        "placeholder": "847269ff", "selection": "74472fdd",
+        "selection_text": "ffdcccff", "selection_match": "fff6e2ff",
         "border": "f7b999bb",
     }
     if not SCHEME_PATH.exists():
@@ -43,9 +44,7 @@ def get_m3_colors():
     except Exception:
         return defaults
 
-
 def get_monitors():
-    """Detecta las pantallas activa e integrada desde hyprctl."""
     try:
         raw = subprocess.check_output(["hyprctl", "monitors", "all", "-j"]).decode()
         mons = json.loads(raw)
@@ -61,98 +60,41 @@ def get_monitors():
     except Exception:
         return "eDP-2", "HDMI-A-1"
 
+internal, external = get_monitors()
+colors = get_m3_colors()
 
-def hypr_eval(lua_code: str):
-    """Ejecuta una llamada Lua en Hyprland usando hyprctl eval."""
-    subprocess.run(["hyprctl", "eval", lua_code], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+options = [
+    "🖥️   Solo monitor externo (Apagar pantalla del portátil)",
+    "🔀  Extender pantallas (Doble monitor a 144Hz)",
+    "🪞   Duplicar / Espejo (144Hz en ambas pantallas)",
+    "💻  Solo pantalla del portátil",
+    "❌  Cancelar",
+]
 
+fuzzel_cmd = [
+    "fuzzel", "--dmenu", "--lines=5", "--width=48", "--horizontal-pad=28",
+    "--vertical-pad=18", "--inner-pad=12", "--line-height=30",
+    "--prompt=󰍹  Proyectar pantalla   ", "--placeholder=Elige cómo proyectar...",
+    f"--background-color={colors['bg']}", f"--text-color={colors['text']}",
+    f"--prompt-color={colors['prompt']}", f"--placeholder-color={colors['placeholder']}",
+    f"--input-color={colors['text']}", f"--selection-color={colors['selection']}",
+    f"--selection-text-color={colors['selection_text']}",
+    f"--selection-match-color={colors['selection_match']}",
+    "--selection-radius=12", f"--border-color={colors['border']}",
+    "--border-width=2", "--border-radius=20",
+]
 
-def notify(title: str, body: str):
-    """Muestra una notificación nativa del sistema."""
-    subprocess.run([
-        "notify-send", "-a", "Pantalla", "-i", "video-display",
-        "-h", "string:x-canonical-private-synchronous:display-mode",
-        title, body
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+try:
+    res = subprocess.check_output(fuzzel_cmd, input="\n".join(options).encode(), stderr=subprocess.DEVNULL).decode().strip()
+except Exception:
+    exit(0)
 
-
-def main():
-    # Evitar múltiples instancias
-    subprocess.run(["pkill", "-f", "fuzzel.*Proyectar"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-    internal, external = get_monitors()
-    colors = get_m3_colors()
-
-    options = [
-        "🖥️   Solo monitor externo (Apagar pantalla del portátil)",
-        "🔀  Extender pantallas (Doble monitor a 144Hz)",
-        "🪞   Duplicar / Espejo (144Hz en ambas pantallas)",
-        "💻  Solo pantalla del portátil",
-        "❌  Cancelar",
-    ]
-    menu_input = "\n".join(options)
-
-    fuzzel_cmd = [
-        "fuzzel", "--dmenu",
-        "--lines=5",
-        "--width=48",
-        "--horizontal-pad=28",
-        "--vertical-pad=18",
-        "--inner-pad=12",
-        "--line-height=30",
-        "--prompt=󰍹  Proyectar pantalla   ",
-        "--placeholder=Elige cómo proyectar las pantallas...",
-        f"--background-color={colors['bg']}",
-        f"--text-color={colors['text']}",
-        f"--prompt-color={colors['prompt']}",
-        f"--placeholder-color={colors['placeholder']}",
-        f"--input-color={colors['text']}",
-        f"--selection-color={colors['selection']}",
-        f"--selection-text-color={colors['selection_text']}",
-        f"--selection-match-color={colors['selection_match']}",
-        "--selection-radius=12",
-        f"--border-color={colors['border']}",
-        "--border-width=2",
-        "--border-radius=20",
-    ]
-
-    try:
-        res = subprocess.check_output(fuzzel_cmd, input=menu_input.encode(), stderr=subprocess.DEVNULL).decode().strip()
-    except subprocess.CalledProcessError:
-        return
-
-    if "Solo monitor externo" in res:
-        lua = (
-            f"hl.monitor({{ output = '{internal}', disabled = true }}); "
-            f"hl.monitor({{ output = '{external}', mode = '1920x1080@144', position = '0x0', scale = 1, disabled = false }})"
-        )
-        hypr_eval(lua)
-        notify("Modo: Solo Monitor Externo", f"Pantalla integrada ({internal}) apagada para ahorro de batería.\nMonitor externo ({external}) a 144Hz.")
-
-    elif "Extender pantallas" in res:
-        lua = (
-            f"hl.monitor({{ output = '{external}', mode = '1920x1080@144', position = '1920x0', scale = 1, disabled = false }}); "
-            f"hl.monitor({{ output = '{internal}', mode = '1920x1080@144', position = '0x0', scale = 1, disabled = false }})"
-        )
-        hypr_eval(lua)
-        notify("Modo: Pantallas Extendidas", f"Doble monitor activo a 144Hz ({internal} + {external}).")
-
-    elif "Duplicar" in res:
-        lua = (
-            f"hl.monitor({{ output = '{internal}', mode = '1920x1080@144', position = 'auto', scale = 1, disabled = false }}); "
-            f"hl.monitor({{ output = '{external}', mode = '1920x1080@144', position = 'auto', scale = 1, mirror = '{internal}', disabled = false }})"
-        )
-        hypr_eval(lua)
-        notify("Modo: Duplicado / Espejo", f"Ambas pantallas mostrando el mismo contenido a 144Hz.")
-
-    elif "Solo pantalla del portátil" in res:
-        lua = (
-            f"hl.monitor({{ output = '{external}', disabled = true }}); "
-            f"hl.monitor({{ output = '{internal}', mode = '1920x1080@144', position = '0x0', scale = 1, disabled = false }})"
-        )
-        hypr_eval(lua)
-        notify("Modo: Solo Portátil", f"Monitor externo ({external}) deshabilitado.\nPanel integrado a 144Hz.")
-
-
-if __name__ == "__main__":
-    main()
+if "Solo monitor externo" in res:
+    subprocess.run(["hyprctl", "eval", f"hl.monitor({{ output = '{internal}', disabled = true }}); hl.monitor({{ output = '{external}', mode = '1920x1080@144', position = '0x0', scale = 1, disabled = false }})"])
+elif "Extender pantallas" in res:
+    subprocess.run(["hyprctl", "eval", f"hl.monitor({{ output = '{external}', mode = '1920x1080@144', position = '1920x0', scale = 1, disabled = false }}); hl.monitor({{ output = '{internal}', mode = '1920x1080@144', position = '0x0', scale = 1, disabled = false }})"])
+elif "Duplicar" in res:
+    subprocess.run(["hyprctl", "eval", f"hl.monitor({{ output = '{internal}', mode = '1920x1080@144', position = 'auto', scale = 1, disabled = false }}); hl.monitor({{ output = '{external}', mode = '1920x1080@144', position = 'auto', scale = 1, mirror = '{internal}', disabled = false }})"])
+elif "Solo pantalla del portátil" in res:
+    subprocess.run(["hyprctl", "eval", f"hl.monitor({{ output = '{external}', disabled = true }}); hl.monitor({{ output = '{internal}', mode = '1920x1080@144', position = '0x0', scale = 1, disabled = false }})"])
+PYEOF
