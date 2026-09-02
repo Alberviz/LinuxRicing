@@ -34,6 +34,9 @@ que has hecho. Si no puedes hacer algo, dilo claro y breve.
 Cuando Alberto diga «escríbeme…», «redáctame…», «genérame un texto…» o «pásame
 esto…», usa la herramienta copiar_al_portapapeles con el texto completo y luego
 confirma en una frase breve, sin leer en voz alta el texto largo entero.
+Para «traduce/resume esto» o «qué he copiado» usa leer_portapapeles; para «pega
+esto aquí» usa pegar_texto; para «qué dice este error» o «lee la pantalla» usa
+leer_pantalla; para «qué tengo abierto» usa ventanas_abiertas.
 """
 
 [tts]
