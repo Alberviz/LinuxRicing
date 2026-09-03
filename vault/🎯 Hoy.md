@@ -36,6 +36,7 @@ Lo que ya está hecho.
 ---
 
 ## 📓 Bitácora de sesiones
+- **2026-09-03 · Gemini** — Ajustes finos: reposicionada etiqueta Música, nuevo color Gemini (m3tertiaryFixed), anti-colisión vertical de etiquetas espaciales y mitigada regresión de CPU en Variantes 2/3.
 - **2026-09-03 · Gemini** — Sistema Solar v3 (Variante D): Migrada la órbita de los soles al shader `solarfield.frag` para movimiento independiente fluido, y reemplazado el pintado de `Canvas` por satélite por un `Repeater` de `ShaderEffectSource` cacheado, alcanzando 100+ cuerpos a < 48% de CPU.
 
 *Los agentes añaden una línea por sesión, lo más reciente arriba.*
