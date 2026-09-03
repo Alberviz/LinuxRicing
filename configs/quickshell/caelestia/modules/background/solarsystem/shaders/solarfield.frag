@@ -159,21 +159,26 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
     // 2. borde lejano lensado sobre el horizonte (halo «Gargantua»): el borde de
     //    atrás del disco, curvado por la lente, se ve como un arco caliente POR
     //    ENCIMA del horizonte negro. Es lo que le da la silueta de agujero (y no
-    //    de cometa) al mirarlo de casi canto.
-    if (pr.y < R*0.06) {
+    //    de cometa) al mirarlo de casi canto. Fundido suave por `pr.y` — sin corte.
+    float aboveH = smoothstep(R*0.16, -R*0.12, pr.y);   // 1 por encima del plano → 0 por debajo
+    if (aboveH > 0.001) {
         vec2 qh = vec2(pr.x, (pr.y + R*0.16) / (FLAT*2.4));
         float rh = length(qh) / R;
         float band  = smoothstep(0.16, 0.0, abs(rh - 1.10));
         float upper = smoothstep(0.0, 0.30, -qh.y / max(length(qh), 1.0));
         // gradiente de temperatura del arco: blanco-caliente dentro → ámbar fuera
         vec3 col = mix(lit(colP, 0.96), P, clamp((rh - 1.02) / 0.20, 0.0, 1.0));
-        over(acc, col, band * upper * 0.85);
+        over(acc, col, band * upper * aboveH * 0.85);
     }
 
     // temperatura del disco por radio normalizado. Gradiente REAL: blanco-caliente
     // (labio interno) → ámbar (m3primary) → rojo profundo (m3error oscurecido).
-    float fN = (rD - 1.27) / (4.0 - 1.27);
-    bool inDisk = (fN > 0.0 && fN < 1.0);
+    // `rD` con un pelín de warp por ruido para que los bordes interior/exterior
+    // no sean elipses geométricas perfectas (que de canto leen como líneas rectas).
+    float edgeWarp = fbm(vec2(rD*2.0, (q.y/max(length(q),1.0))*2.5 - time*0.05)) - 0.5;
+    float rDw = rD + edgeWarp * 0.28;
+    float fN = (rDw - 1.27) / (4.0 - 1.27);
+    bool inDisk = (fN > -0.05 && fN < 1.05);
     vec3 tcol; float talpha;
     {
         float f = clamp(fN, 0.0, 1.0);
@@ -186,30 +191,42 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
         else if (f < 0.88) { float u=(f-0.70)/0.18; tcol=mix(c4,c5,u); talpha=mix(a4,a5,u); }
         else               { float u=(f-0.88)/0.12; tcol=mix(c5,c6,u); talpha=mix(a5,a6,u); }
     }
+    // Azimut del disco en forma CONTINUA (sin/cos), no el ángulo crudo: `atan2`
+    // tiene un salto de rama en pr.y=0, pr.x<0 — justo donde cae el disco
+    // visible — y meterlo en el fbm/bandeado dejaba una raya recta («el corte
+    // feo»). `cos(thetaD-beam)` sí es continuo (el cos absorbe el salto de 2π),
+    // así que el beaming y el labio ISCO pueden seguir con thetaD.
+    float ql   = max(length(q), 1.0);
+    float snAz = q.y / ql;                    // sin(azimut), continuo en todo el disco
+    float csAz = q.x / ql;                    // cos(azimut), continuo
     float approach = 0.5 + 0.5*cos(thetaD - beam);
     float beamMul  = mix(0.45, 2.1, pow(approach, 2.2));            // Doppler beaming ~3-4x
-    float turb     = fbm(vec2(rD*3.4, thetaD*1.6 + time*0.12));
+    float turb     = fbm(vec2(rD*3.4 + csAz*1.6, snAz*3.0 + time*0.12));
     // bandeado concéntrico: aros finos de densidad que fluyen despacio. Es la
     // textura que distingue «disco de acreción» de «mancha»: la referencia
     // (variante D) tiene muchos aros finos. Dos frecuencias: aros principales +
     // una modulación más fina, ambas rotas por el fbm para que no sea un patrón.
-    float bands    = 0.82 + 0.13*sin(rD*23.0 + turb*6.0 + thetaD*0.35 - time*0.30)
+    float bands    = 0.82 + 0.13*sin(rD*23.0 + turb*6.0 + snAz*1.1 - time*0.30)
                           + 0.05*sin(rD*61.0 - turb*4.0 + time*0.5);
     float turbMul  = clamp((1.0 + (0.16 + music*0.34)*(turb - 0.5)*2.0) * bands, 0.30, 1.9);
-    float diskEdge = smoothstep(0.0, 0.04, fN) * smoothstep(1.0, 0.66, fN);
+    // rampa interior ANCHA (fN 0→0.10) para que el labio del disco no sea una
+    // línea recta dura sobre el fondo casi-de-canto; corte exterior largo.
+    float diskEdge = smoothstep(0.0, 0.10, fN) * smoothstep(1.0, 0.58, fN);
     // emisión: color de temperatura + bloom blanco-caliente SÓLO pegado al labio
     // interno (fN < ~0.2), sin lavar el resto del disco hacia blanco.
     vec3  emit  = mix(tcol, lit(colP, 0.96), pow(smoothstep(0.20, 0.0, fN), 1.6) * 0.72);
     float diskA = talpha * diskEdge * beamMul * turbMul * 1.4;
 
-    // 3. disco: mitad de ATRÁS (visible sólo por encima del horizonte)
-    if (inDisk && pr.y <= 0.0) {
-        float vis = smoothstep(0.965, 1.05, dS);
-        over(acc, emit, diskA * vis * 0.9);
+    // 3. disco de acreción — UNA sola pasada. Cualquier peso que dependa de
+    //    `pr.y` (dividir atrás/delante) deja una arruga recta en un disco casi de
+    //    canto: era «el corte feo». El horizonte negro (paso 4) y el anillo de
+    //    fotones (paso 5) se pintan ENCIMA y tapan la parte que va por detrás.
+    if (inDisk) {
+        over(acc, emit, diskA);
     }
 
     // 4. horizonte de sucesos — negro puro (rol de fondo llevado casi a negro).
-    over(acc, colV, smoothstep(1.02, 0.985, dS));
+    over(acc, colV, smoothstep(1.03, 0.985, dS));
 
     // 5. anillo de fotones + Doppler. Fino, muy brillante, casi blanco en el lado
     //    que se acerca. Es el borde que dibuja la silueta del horizonte.
@@ -222,18 +239,13 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
         over(acc, vec3(1.0), smoothstep(0.026, 0.0, abs(dRot - 1.035)) * dop * 0.85);
     }
 
-    // 6. disco: mitad FRONTAL (por delante del horizonte y del anillo, abajo)
-    if (inDisk && pr.y > 0.0) {
-        over(acc, emit, diskA * 1.0);
-    }
-
-    // 7. labio interior caliente (ISCO): aro blanco-caliente justo fuera del
-    //    anillo de fotones, más intenso en el lado beamed.
+    // 6. labio interior caliente (ISCO): aro blanco-caliente justo fuera del
+    //    anillo de fotones, más intenso en el lado beamed. Rampa ancha, sin
+    //    corte por pr.y.
     {
         float hb = 0.5 + 0.5*cos(thetaD - beam);
-        float lipA = (0.24 + 0.5*hb + music*0.22) * smoothstep(0.14, 0.0, abs(rD - 1.34));
-        float vis = (pr.y > 0.0) ? 1.0 : smoothstep(0.98, 1.06, dS);
-        over(acc, mix(lit(P,0.45), lit(colP,0.95), hb), lipA * vis * 1.0);
+        float lipA = (0.24 + 0.5*hb + music*0.22) * smoothstep(0.24, 0.0, abs(rD - 1.33));
+        over(acc, mix(lit(P,0.45), lit(colP,0.95), hb), lipA * 1.0);
     }
 
     // 8. jet relativista muy tenue

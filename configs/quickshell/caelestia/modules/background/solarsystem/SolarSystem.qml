@@ -228,31 +228,35 @@ Item {
     }
 
     // ===================== TIC =====================
-    // `_t` (alimenta el shader del fondo) avanza con un FrameAnimation ligero: solo
-    // asigna `elapsedTime` a una propiedad — sin repintado de Canvas, el shader se
-    // refresca solo por el binding del uniform. GATEADO (visible/no-pausa/no-reduce-
-    // motion/no-foco-Laura), no es incondicional; y siempre hacemos restart limpio.
-    Timer {
+    // Movimiento CONTINUO por frame (vsync). Alberto: «que se vea fluido aunque
+    // cueste rendimiento; órbitas lentas pero fluidas». La lentitud la dan los
+    // períodos largos de Sim.js (binario 220 s, disco 150 s), NO un fps bajo:
+    // pintar a 10 fps un movimiento lento se ve a tirones. Aquí `_t` avanza cada
+    // frame → el shader del fondo (beaming/turbulencia/resplandor) y las
+    // posiciones de los soles se refrescan suave.
+    //
+    // GATEADO (visible / no-pausa / no-reduce-motion) — nunca incondicional
+    // (CLAUDE.md). En foco-Laura sigue avanzando `_t` (monótono) pero se salta el
+    // recálculo: el sistema está congelado (`simTime` latcheado) y el shader no
+    // necesita repintar (su `time` es `simTime`, el latido de Laura va por
+    // `lauraAmp`). Siempre restart limpio del shell, nunca hot-reload.
+    FrameAnimation {
         id: clock
-        // NO se gatea con lauraActive: `_t` sigue avanzando (monótono); el
-        // congelado del sistema lo hace `simTime` (latch en `_tFreeze`).
         running: root.visible && !root.paused && !root.reduceMotion
-        interval: 100
-        repeat: true
-        onTriggered: root._t += 0.1   // ~10 fps para el shader del fondo
-    }
-
-    // Las POSICIONES (Sim.js) y la capa fina en Canvas se refrescan DESPACIO: los
-    // cuerpos orbitan en períodos de 200-360 s, a 4 fps la deriva es imperceptible
-    // y el shader ya da la fluidez del fondo. En foco-Laura se congela.
-    Timer {
-        id: ticker
-        repeat: true
-        running: root.visible && !root.paused && !root.reduceMotion && !root.lauraActive
-        interval: 1000                // ~1 fps: posiciones (períodos de 200-360 s) + capa fina
+        onTriggered: {
+            root._t += frameTime;                // reloj del shader: CADA frame (60 fps, fluido)
+            if (root.lauraActive)
+                return;                          // sistema congelado: nada que recalcular
+            root._accSim += frameTime;
+            if (root._accSim >= 0.028) {          // ~33 fps: posiciones (Sim) + capa fina (Canvas)
+                root._accSim = 0;
+                root._recompute();
+                root._paintDyn();
+            }
+        }
         onRunningChanged: if (!running) { root._recompute(); root._paintDyn(); }
-        onTriggered: { root._recompute(); root._paintDyn(); }
     }
+    property real _accSim: 0
 
     // Transición del foco-Laura: repinta la capa fina mientras `lauraFocus`
     // anima (el shader del fondo dima solo, atado a `lauraFocus` por binding).
