@@ -29,12 +29,18 @@ Item {
     property var smoothedVals2: []
 
     FrameAnimation {
+        id: frameAnim
         // Gatear a actividad real: solo late si el widget se ve y hay música
         // sonando. Un FrameAnimation incondicional repinta un Canvas FBO de
         // 448px a 60fps para siempre y clava un núcleo (ver CLAUDE.md).
         running: mediaRoot.visible && (Players.active?.isPlaying ?? false)
+        
+        property real lastTime: Date.now() / 1000
+        
         onRunningChanged: {
-            if (!running) {
+            if (running) {
+                lastTime = Date.now() / 1000;
+            } else {
                 const len = 48;
                 mediaRoot.smoothedVals = new Array(len).fill(0.02);
                 mediaRoot.smoothedVals2 = new Array(len).fill(0.02);
@@ -42,6 +48,11 @@ Item {
             }
         }
         onTriggered: {
+            const now = Date.now() / 1000;
+            const dt = Math.min(now - frameAnim.lastTime, 0.1);
+            frameAnim.lastTime = now;
+            radialCanvas.orbitPhase += dt;
+            
             const vals = mediaRoot.cavaVals || [];
             const len = 48;
             if (!mediaRoot.smoothedVals || mediaRoot.smoothedVals.length !== len) {
@@ -145,7 +156,7 @@ Item {
                     ctx.setLineDash([]);
 
                     // Orbiting Photons / Satellites
-                    const t = Date.now() / 1000;
+                    const t = radialCanvas.orbitPhase;
                     const ang1 = (t * 1.2) % (2 * Math.PI);
                     const ang2 = (-t * 0.8) % (2 * Math.PI);
                     const ang3 = (t * 1.6 + Math.PI) % (2 * Math.PI);
