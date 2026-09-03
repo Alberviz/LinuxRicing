@@ -1,0 +1,502 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf8">
+<style>
+  html,body{margin:0;padding:0;background:#000;overflow:hidden}
+  #c{display:block}
+</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script>
+"use strict";
+// ============================================================================
+// Harness del Sistema Solar v3 — variante D (spec docs/sistema-solar-v3-DISENO.md)
+// API Canvas 2D calcada a la de QML Canvas para poder portar casi 1:1.
+// La paleta simula Colours.palette (scheme tonalspot cálido, modo oscuro).
+// ============================================================================
+
+const PAL = {
+  m3primary:        "#f7b999",
+  m3secondary:      "#e6beab",
+  m3tertiary:       "#f8e19c",   // uso tertiaryDim: el tertiary "puro" del scheme es casi blanco
+  m3error:          "#f97758",
+  m3outlineVariant: "#54453d",
+  m3surface:        "#130d0a",
+  m3onSurface:      "#f8e1d6",
+};
+
+// --- helpers de color (equivalentes a los _a/_lit/_dk de QML) ---
+function hx(h){ const n=parseInt(h.slice(1),16); return {r:(n>>16&255)/255, g:(n>>8&255)/255, b:(n&255)/255}; }
+function rgba(c,a){ return `rgba(${Math.round(c.r*255)},${Math.round(c.g*255)},${Math.round(c.b*255)},${Math.max(0,Math.min(1,a))})`; }
+function lit(c,k){ return {r:c.r+(1-c.r)*k, g:c.g+(1-c.g)*k, b:c.b+(1-c.b)*k}; }
+function dk(c,k){ return {r:c.r*(1-k), g:c.g*(1-k), b:c.b*(1-k)}; }
+function mix(a,b,t){ return {r:a.r+(b.r-a.r)*t, g:a.g+(b.g-a.g)*t, b:a.b+(b.b-a.b)*t}; }
+
+const COL = {
+  primary:   hx(PAL.m3primary),
+  secondary: hx(PAL.m3secondary),
+  tertiary:  hx(PAL.m3tertiary),
+  error:     hx(PAL.m3error),
+  belt:      hx(PAL.m3outlineVariant),
+  surface:   hx(PAL.m3surface),
+  ink:       hx(PAL.m3onSurface),
+};
+// blanco-caliente derivado del rol, nunca #fff a pelo
+const HOT = lit(COL.primary, 0.86);
+// void = darker(surface, 3)
+const VOID = dk(COL.surface, 0.72);
+
+const c = document.getElementById("c");
+const ctx = c.getContext("2d");
+let W = c.width, H = c.height;
+
+// ------- parametros de escena (leidos de la URL para iterar) -------
+const Q = new URLSearchParams(location.search);
+const OPT = {
+  lauraCol:  Q.get("laura") || "tertiary",   // tertiary | secondary
+  agents:    parseInt(Q.get("agents") || "2"),
+  agentsDone:parseInt(Q.get("done") || "1"),
+  devices:   (Q.get("dev") || "mouse,keyboard").split(",").filter(Boolean),
+  lowBatt:   (Q.get("low") || "").split(",").filter(Boolean),
+  tasks:     parseInt(Q.get("tasks") || "7"),
+  music:     parseFloat(Q.get("music") || "0"),
+  t:         parseFloat(Q.get("t") || "40"),
+};
+
+// ------- campo de estrellas (estatico, cacheado) -------
+let stars = [];
+function seedStars(){
+  stars = [];
+  // rng determinista
+  let s = 1337;
+  const rnd = () => { s = (s*1664525+1013904223) & 0x7fffffff; return s/0x7fffffff; };
+  for (let i=0;i<260;i++) stars.push({ x:rnd(), y:rnd(), b:rnd() });
+}
+seedStars();
+
+// ============================================================================
+// SIM — posiciones (equivalente a Sim.js)
+// ============================================================================
+function computeLayout(t){
+  const bh = { x: 1.02*W, y: -0.04*H, R: 0.24*H };
+  // baricentro del binario ANCLADO. y a 0.47H (no 0.50) para respetar la franja
+  // inferior de ~200px del overlay de Laura con el binario en su punto más bajo.
+  const bary = { x: 0.30*W, y: 0.47*H };
+
+  // periodos (s de pantalla) -> velocidad angular
+  const binPeriod = 105, w_bin = 2*Math.PI/binPeriod;
+  // Laura primario (mayor), Config secundario (menor). Semiejes del binario.
+  const sep = 0.052*H;                       // separacion baricentrica base
+  const massRatio = 0.62;                    // Config/Laura -> Laura mas cerca del bary
+  const aLaura = sep * massRatio;
+  const aConf  = sep * (1-massRatio) + sep*massRatio*0.15;
+  const binEcc = 0.45, binTilt = -0.15;   // eje mayor casi horizontal; vaivén vertical acotado
+  const ang = w_bin * t;
+  function binPos(a, phase){
+    const rx = a, ry = a*(1-binEcc);
+    const lx = Math.cos(ang+phase)*rx, ly = Math.sin(ang+phase)*ry;
+    return {
+      x: bary.x + lx*Math.cos(binTilt) - ly*Math.sin(binTilt),
+      y: bary.y + lx*Math.sin(binTilt) + ly*Math.cos(binTilt),
+    };
+  }
+  const laura = binPos(aLaura*3.6, Math.PI);   // *k para separacion visible
+  const conf  = binPos(aConf*3.6, 0);
+  laura.r = 0.045*H;
+  conf.r  = 0.035*H;
+
+  // agentes alrededor de Laura
+  const agents = [];
+  for (let i=0;i<OPT.agents;i++){
+    const per = 50 + i*6;                     // 40-60 s
+    const orb = laura.r*2.1 + i*laura.r*0.85;
+    const a = 2*Math.PI/per*t + i*2.399;
+    agents.push({
+      x: laura.x + Math.cos(a)*orb,
+      y: laura.y + Math.sin(a)*orb*0.52,
+      r: laura.r*0.16, running:true,
+      host: laura,
+    });
+  }
+  for (let i=0;i<OPT.agentsDone;i++){
+    const per = 120 + i*14;
+    const orb = laura.r*3.4 + i*laura.r*1.1;
+    const a = 2*Math.PI/per*t + i*1.7 + 1.0;
+    agents.push({
+      x: laura.x + Math.cos(a)*orb,
+      y: laura.y + Math.sin(a)*orb*0.52,
+      r: laura.r*0.12, running:false,
+      host: laura,
+    });
+  }
+
+  // dispositivos alrededor de Config
+  const devs = [];
+  const devSpec = { headset:{per:80,k:2.0}, mouse:{per:88,k:2.9}, keyboard:{per:96,k:3.7} };
+  let di=0;
+  for (const id of OPT.devices){
+    const sp = devSpec[id]; if(!sp) continue;
+    const batt = OPT.lowBatt.includes(id) ? 0.14 : (0.55 + 0.1*di);
+    const orb = conf.r*sp.k;
+    const a = 2*Math.PI/sp.per*t + di*2.1;
+    devs.push({
+      x: conf.x + Math.cos(a)*orb,
+      y: conf.y + Math.sin(a)*orb*0.55,
+      r: conf.r*(0.14+0.12*batt),
+      batt, low: batt<0.20,
+      host: conf,
+    });
+    di++;
+  }
+
+  // cinturon circumbinario alrededor del par
+  const beltN = Math.round(30 + Math.min(1, OPT.tasks/12)*70);
+  const belt = { cx:bary.x, cy:bary.y, rx:0.14*W, ry:0.14*W*0.42, tilt:binTilt+0.1, n:beltN, spin: 2*Math.PI/600*t };
+
+  return { t, bh, bary, laura, conf, agents, devs, belt };
+}
+
+// ============================================================================
+// RENDER
+// ============================================================================
+function glow(x,y,inner,outer,col,a0){
+  const g = ctx.createRadialGradient(x,y,inner,x,y,outer);
+  g.addColorStop(0, rgba(col,a0));
+  g.addColorStop(1, rgba(col,0));
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(x,y,outer,0,7); ctx.fill();
+}
+
+function drawBackground(L){
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(0,0,W,H);
+  // leve tinte del disco cerca del agujero
+  const bh = L.bh;
+  const g = ctx.createRadialGradient(bh.x,bh.y,bh.R*0.5, bh.x,bh.y, Math.max(W,H)*0.9);
+  g.addColorStop(0, rgba(dk(COL.primary,0.55), 0.16));
+  g.addColorStop(0.4, rgba(dk(COL.primary,0.8), 0.05));
+  g.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+
+  // estrellas: las cercanas al agujero -> arcos lensados
+  for (const st of stars){
+    const sx = st.x*W, sy = st.y*H;
+    const d = Math.hypot(sx-bh.x, sy-bh.y);
+    if (d < bh.R*1.9 && d > bh.R*0.95){
+      const ang = Math.atan2(sy-bh.y, sx-bh.x);
+      const bend = (bh.R/d)*0.22;
+      ctx.strokeStyle = rgba(lit(COL.ink,0.5), 0.05 + st.b*0.13);
+      ctx.lineWidth = 0.6;
+      ctx.beginPath(); ctx.arc(bh.x,bh.y,d, ang-bend, ang+bend); ctx.stroke();
+    } else {
+      ctx.fillStyle = rgba(lit(COL.ink,0.4), 0.12 + st.b*0.5);
+      const sz = st.b < 0.7 ? 1.0 : 1.8;
+      ctx.fillRect(sx,sy,sz,sz);
+    }
+  }
+}
+
+// Rellena un anillo elíptico (annulus) en "espacio de círculo": se llama dentro
+// de un contexto ya trasladado/rotado/escalado a flat. rInner..rOuter en radio.
+function fillEllipticAnnulus(rInner, rOuter, style){
+  ctx.fillStyle = style;
+  ctx.beginPath();
+  ctx.arc(0, 0, rOuter, 0, 2*Math.PI);
+  ctx.arc(0, 0, rInner, 0, 2*Math.PI, true);
+  ctx.fill();
+}
+
+function drawBlackHole(L){
+  const { x, y, R } = L.bh;
+  const t = L.t;
+  const tilt = -0.489;                 // -28°, disco raking down-left
+  const flat = 0.14;                   // ry/rx casi de canto
+  const beam = 2*Math.PI/30 * t;        // rotación visible ~30s (spin/beaming)
+  const music = OPT.music;
+  const innerR = R*1.30, outerR = R*4.0;
+
+  // ---- 1. resplandor exterior (gradiente radial, jamás shadowBlur) ----
+  const og = ctx.createRadialGradient(x,y,R*0.8, x,y,R*4.8);
+  og.addColorStop(0, rgba(lit(COL.primary,0.30), 0.18));
+  og.addColorStop(0.35, rgba(COL.primary, 0.07));
+  og.addColorStop(1, rgba(COL.primary, 0));
+  ctx.fillStyle = og;
+  ctx.beginPath(); ctx.arc(x,y,R*4.8,0,7); ctx.fill();
+
+  // ---- helper: disco relleno con gradiente de temperatura (hot->ambar->rojo) ----
+  function paintDisk(clipMode){
+    ctx.save();
+    ctx.translate(x,y);
+    ctx.rotate(tilt);
+    if (clipMode === "back")  { ctx.beginPath(); ctx.rect(-outerR*1.4, -outerR*1.4, outerR*2.8, outerR*1.4); ctx.clip(); }
+    if (clipMode === "front") { ctx.beginPath(); ctx.rect(-outerR*1.4, 0, outerR*2.8, outerR*1.4); ctx.clip(); }
+    ctx.scale(1, flat);                // ahora dibujo en espacio de círculo, radio = rx
+    const g = ctx.createRadialGradient(0,0,innerR*0.9, 0,0,outerR);
+    g.addColorStop(0.00, rgba(HOT, 0.0));
+    g.addColorStop(0.06, rgba(HOT, 0.95));
+    g.addColorStop(0.14, rgba(lit(COL.primary,0.35), 0.92));
+    g.addColorStop(0.45, rgba(COL.primary, 0.62));
+    g.addColorStop(0.72, rgba(dk(COL.primary,0.25), 0.42));
+    g.addColorStop(0.88, rgba(dk(COL.error,0.35), 0.22));
+    g.addColorStop(1.00, rgba(dk(COL.error,0.6), 0));
+    fillEllipticAnnulus(innerR*0.98, outerR, g);
+    // bandeado sutil + turbulencia lenta que fluye (textura, no 60 líneas duras).
+    // Se desvanece con el mismo falloff que el relleno para no dejar arcos sueltos.
+    for (let i=0;i<13;i++){
+      const f = 0.06 + i*0.05;
+      if (f > 0.72) break;
+      const rr = innerR + (outerR-innerR)*f;
+      const phase = Math.sin(f*9 + t*0.5 + i*0.7);
+      const dark = (i%2===0);
+      const col = dark ? dk(COL.primary, 0.35) : lit(COL.primary, 0.25);
+      const falloff = Math.pow(1 - f/0.72, 1.3);
+      ctx.strokeStyle = rgba(col, (0.13*falloff + music*0.05) * (0.6+0.4*phase));
+      ctx.lineWidth = R*0.05*(1-f*0.35);
+      ctx.beginPath(); ctx.arc(0,0,rr,0,7); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // ---- helper: Doppler beaming — arco brillante en el lado que se acerca ----
+  function paintBeaming(){
+    ctx.save();
+    ctx.translate(x,y); ctx.rotate(tilt); ctx.scale(1, flat);
+    ctx.beginPath();
+    ctx.arc(0,0, outerR*0.92, beam-1.5, beam+1.5);
+    ctx.arc(0,0, innerR*0.98, beam+1.5, beam-1.5, true);
+    ctx.closePath();
+    const bg = ctx.createRadialGradient(0,0,innerR, 0,0,outerR*0.92);
+    bg.addColorStop(0, rgba(lit(COL.primary,0.5), 0.5 + music*0.2));
+    bg.addColorStop(0.5, rgba(lit(COL.primary,0.15), 0.22));
+    bg.addColorStop(1, rgba(COL.primary, 0));
+    ctx.fillStyle = bg;
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // ---- 2. borde lejano lensado SOBRE el horizonte (el halo "Gargantua"):
+  //         un arco luminoso limpio por encima del horizonte, sólo sector superior ----
+  ctx.save();
+  ctx.translate(x,y); ctx.rotate(tilt);
+  ctx.save();
+  ctx.beginPath(); ctx.rect(-outerR*1.4, -outerR*1.4, outerR*2.8, outerR*1.4 - R*0.05); ctx.clip();
+  for (let b=0;b<3;b++){
+    const rr = R*(1.05 + b*0.06);
+    ctx.strokeStyle = rgba(mix(HOT, COL.primary, b/2), 0.42 - b*0.13);
+    ctx.lineWidth = R*(0.085 - b*0.02);
+    ctx.beginPath();
+    ctx.ellipse(0, -R*0.16, rr, rr*flat*2.4, 0, Math.PI*1.08, Math.PI*1.92);
+    ctx.stroke();
+  }
+  ctx.restore();
+  ctx.restore();
+
+  // ---- 3. disco: mitad de ATRÁS (se ve por encima del horizonte) ----
+  paintDisk("back");
+
+  // ---- 4. horizonte de sucesos (disco negro puro derivado del rol de fondo) ----
+  ctx.fillStyle = rgba(VOID,1);
+  ctx.beginPath(); ctx.arc(x,y,R,0,7); ctx.fill();
+
+  // ---- 5. anillo de fotones (fino y brillante) + halo suave + Doppler ----
+  ctx.save();
+  ctx.translate(x,y); ctx.rotate(tilt);
+  ctx.strokeStyle = rgba(lit(COL.primary,0.7), 0.16);
+  ctx.lineWidth = R*0.09;
+  ctx.beginPath(); ctx.arc(0,0,R*1.09,0,7); ctx.stroke();
+  ctx.strokeStyle = rgba(lit(COL.primary,0.92), 0.55);
+  ctx.lineWidth = Math.max(1.5, R*0.022);
+  ctx.beginPath(); ctx.arc(0,0,R*1.035,0,7); ctx.stroke();
+  ctx.strokeStyle = rgba(lit(COL.primary,0.98), 0.95);
+  ctx.lineWidth = Math.max(1.5, R*0.028);
+  ctx.beginPath(); ctx.arc(0,0,R*1.035, beam-1.6, beam+1.6); ctx.stroke();
+  ctx.restore();
+
+  // ---- 6. disco: mitad FRONTAL (pasa por delante del horizonte, abajo) ----
+  paintDisk("front");
+  paintBeaming();
+
+  // ---- 7. labio interior caliente (ISCO), justo fuera del anillo de fotones ----
+  ctx.save();
+  ctx.translate(x,y); ctx.rotate(tilt); ctx.scale(1, flat);
+  const hb = 0.5+0.5*Math.cos(Math.PI-beam);
+  const lip = ctx.createLinearGradient(-innerR,0,innerR,0);
+  lip.addColorStop(0, rgba(HOT, 0.22 + 0.5*(1-hb) + music*0.2));
+  lip.addColorStop(0.5, rgba(lit(COL.primary,0.3), 0.16));
+  lip.addColorStop(1, rgba(HOT, 0.22 + 0.5*hb + music*0.2));
+  ctx.strokeStyle = lip;
+  ctx.lineWidth = R*0.14;
+  ctx.beginPath(); ctx.arc(0,0,innerR*1.04,0,7); ctx.stroke();
+  ctx.restore();
+
+  // ---- 8. jet relativista muy tenue (perpendicular al plano del disco) ----
+  ctx.save();
+  ctx.translate(x,y); ctx.rotate(tilt);
+  for (const dir of [-1, 1]){
+    const jl = R*3.2;
+    const jg = ctx.createLinearGradient(0,0,0,dir*jl);
+    jg.addColorStop(0, rgba(lit(COL.primary,0.6), 0.12));
+    jg.addColorStop(1, rgba(lit(COL.primary,0.6), 0));
+    ctx.strokeStyle = jg;
+    ctx.lineWidth = R*0.10;
+    ctx.beginPath(); ctx.moveTo(0,dir*R*0.5); ctx.lineTo(0,dir*jl); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawSun(s, col, t, opts){
+  opts = opts||{};
+  const r = s.r;
+  const breath = 1 + 0.04*Math.sin(t*0.7);
+  // 1. corona (más contenida para que el binario no se funda en un solo halo)
+  glow(s.x, s.y, r*0.3, r*3.0*breath, col, 0.11);
+  glow(s.x, s.y, r*0.4, r*1.6*breath, col, 0.30);
+  // 2. fotosfera (gradiente descentrado, luz arriba-izq)
+  const bg = ctx.createRadialGradient(s.x-r*0.35, s.y-r*0.35, r*0.1, s.x, s.y, r);
+  bg.addColorStop(0, rgba(lit(col,0.9),1));
+  bg.addColorStop(0.5, rgba(lit(col,0.22),1));
+  bg.addColorStop(1, rgba(dk(col,0.28),1));
+  ctx.fillStyle = bg;
+  ctx.beginPath(); ctx.arc(s.x,s.y,r,0,7); ctx.fill();
+  // 3. granulación: muchas celdas pequeñas de bajo contraste (no cráteres),
+  //    rotan muy despacio.
+  ctx.save();
+  ctx.beginPath(); ctx.arc(s.x,s.y,r,0,7); ctx.clip();
+  const gsp = t*0.04;
+  for (let i=0;i<80;i++){
+    const a = i*2.399 + gsp;
+    const rr = r*(0.05 + 0.92*Math.sqrt(((i*37)%100)/100));
+    const gx = s.x + Math.cos(a)*rr, gy = s.y + Math.sin(a)*rr;
+    const gs = r*(0.05 + 0.06*((i*53)%100)/100);
+    const shade = ((i%2)? 0.05 : -0.045);
+    ctx.fillStyle = rgba(shade>0 ? lit(col,shade*3) : dk(col,-shade*3), 0.18);
+    ctx.beginPath(); ctx.arc(gx,gy,gs,0,7); ctx.fill();
+  }
+  ctx.restore();
+  // 4. cromosfera / limbo
+  ctx.strokeStyle = rgba(lit(col,0.45), 0.55);
+  ctx.lineWidth = Math.max(1, r*0.05);
+  ctx.beginPath(); ctx.arc(s.x,s.y,r*1.005,0,7); ctx.stroke();
+  // 5. prominencias lentas (solo Laura)
+  if (opts.prominences){
+    for (let i=0;i<3;i++){
+      const base = i*2.1 + t*0.03;
+      const life = 0.5+0.5*Math.sin(t*(2*Math.PI/20) + i*2.0);
+      if (life < 0.1) continue;
+      ctx.strokeStyle = rgba(lit(col,0.5), 0.4*life);
+      ctx.lineWidth = Math.max(1, r*0.04);
+      ctx.beginPath();
+      const a0 = base, a1 = base + 0.5;
+      const x0 = s.x+Math.cos(a0)*r*0.98, y0 = s.y+Math.sin(a0)*r*0.98;
+      const x1 = s.x+Math.cos(a1)*r*0.98, y1 = s.y+Math.sin(a1)*r*0.98;
+      const mx = s.x+Math.cos((a0+a1)/2)*r*(1.35+0.3*life), my = s.y+Math.sin((a0+a1)/2)*r*(1.35+0.3*life);
+      ctx.moveTo(x0,y0); ctx.quadraticCurveTo(mx,my,x1,y1); ctx.stroke();
+    }
+  }
+}
+
+function drawPlanet(b, col, t){
+  const r = b.r;
+  // aro de alerta (bateria < 20%)
+  if (b.low){
+    const p = 0.5+0.5*Math.sin(t*3);
+    ctx.strokeStyle = rgba(COL.error, 0.3+0.5*p);
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(b.x,b.y,r+4,0,7); ctx.stroke();
+  }
+  // anillo de actividad (agente en curso)
+  if (b.running){
+    glow(b.x,b.y,r*0.5,r*2.8,col,0.28 + 0.2*(0.5+0.5*Math.sin(t*1.5)));
+    ctx.strokeStyle = rgba(lit(col,0.3), 0.5);
+    ctx.lineWidth = 1;
+    ctx.save(); ctx.translate(b.x,b.y); ctx.rotate(0.5);
+    ctx.beginPath(); ctx.ellipse(0,0,r*1.9,r*0.8,0,0,7); ctx.stroke();
+    ctx.restore();
+  }
+  // cuerpo con lado iluminado mirando a su ancla
+  const dir = Math.atan2((b.host.y-b.y), (b.host.x-b.x));
+  const lx = b.x + Math.cos(dir)*r*0.45, ly = b.y + Math.sin(dir)*r*0.45;
+  const pg = ctx.createRadialGradient(lx,ly,r*0.1, b.x,b.y,r);
+  const base = b.low ? COL.error : col;
+  pg.addColorStop(0, rgba(lit(base,0.55),1));
+  pg.addColorStop(0.6, rgba(base,1));
+  pg.addColorStop(1, rgba(dk(base,0.55),1));
+  ctx.fillStyle = pg;
+  ctx.beginPath(); ctx.arc(b.x,b.y,r,0,7); ctx.fill();
+  // limbo iluminado
+  ctx.strokeStyle = rgba(lit(base,0.6), 0.45);
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(b.x,b.y,r,dir-1.4,dir+1.4); ctx.stroke();
+}
+
+function drawOrbits(L){
+  ctx.lineWidth = 1;
+  const faint = (cx,cy,rx,ry,rot,col,a)=>{
+    ctx.save(); ctx.translate(cx,cy); ctx.rotate(rot);
+    ctx.strokeStyle = rgba(col, a);
+    ctx.beginPath(); ctx.ellipse(0,0,rx,ry,0,0,7); ctx.stroke();
+    ctx.restore();
+  };
+  // orbitas de agentes / dispositivos (casi invisibles en reposo, spec §4.4)
+  for (const a of L.agents){
+    if (!a.running) continue;
+    const R = Math.hypot(a.x-a.host.x,(a.y-a.host.y)/0.52);
+    faint(a.host.x, a.host.y, R, R*0.52, 0, COL.tertiary, 0.035);
+  }
+  for (const d of L.devs){
+    const R = Math.hypot(d.x-d.host.x,(d.y-d.host.y)/0.55);
+    faint(d.host.x, d.host.y, R, R*0.55, 0, COL.primary, 0.035);
+  }
+}
+
+function drawBelt(L){
+  const B = L.belt;
+  ctx.save(); ctx.translate(B.cx,B.cy); ctx.rotate(B.tilt);
+  for (let i=0;i<B.n;i++){
+    const a = i/B.n*2*Math.PI + B.spin + Math.sin(i*2.7)*0.18;
+    const jj = 1 + Math.sin(i*5.3)*0.09;
+    const x = Math.cos(a)*B.rx*jj, y = Math.sin(a)*B.ry*jj;
+    ctx.fillStyle = rgba(lit(COL.belt,0.35), 0.20 + 0.22*((i*7)%3)/2);
+    const s = (i%5===0)?2.2:1.5;
+    ctx.fillRect(x-s/2,y-s/2,s,s);
+  }
+  ctx.restore();
+}
+
+function drawClock(){
+  ctx.fillStyle = rgba(lit(COL.ink,0.3), 0.9);
+  ctx.font = '600 40px sans-serif';
+  ctx.fillText("21:47", 52, H-64);
+  ctx.font = '13px monospace';
+  ctx.fillStyle = rgba(COL.ink, 0.4);
+  ctx.fillText("miércoles 3 septiembre", 52, H-40);
+}
+
+function draw(t){
+  const L = computeLayout(t);
+  drawBackground(L);
+  drawBlackHole(L);
+  drawOrbits(L);
+  drawBelt(L);
+  const lauraCol = OPT.lauraCol === "secondary" ? COL.secondary : COL.tertiary;
+  drawSun(L.conf, COL.primary, t, { prominences:false });
+  drawSun(L.laura, lauraCol, t, { prominences:true });
+  for (const a of L.agents) drawPlanet(a, lauraCol, t);
+  for (const d of L.devs)   drawPlanet(d, COL.primary, t);
+  drawClock();
+}
+
+// modo screenshot: dibuja un frame fijo; modo live: anima
+if (Q.get("live")){
+  let t0 = performance.now();
+  function loop(now){ draw(OPT.t + (now-t0)/1000); requestAnimationFrame(loop); }
+  requestAnimationFrame(loop);
+} else {
+  draw(OPT.t);
+}
+window.__ready = true;
+</script>
+</body>
+</html>

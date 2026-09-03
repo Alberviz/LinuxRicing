@@ -37,14 +37,39 @@ sitios.**
 - **D-1** · Wallpaper apagado tras flag `showWallpaper: false`, restaurable. La
   paleta sigue saliendo de `Colours.palette` para cuando vuelva. *(El plan
   original decía mantener el wallpaper; se revisa al terminar el diseño.)*
-- **D-3** · Color de Laura a decidir con capturas entre `m3secondary` y
-  `m3tertiary` (contraste con el disco cálido del agujero). Config = `m3primary`.
+- **D-3 → cerrada por D-9** · (Era: color de Laura a decidir entre `m3secondary`
+  y `m3tertiary`.)
 - **D-5** · Las **zonas LED** (MagicHome, tira Akko, anillo base K7) **no se
   dibujan** en esta tanda; el adaptador se queda. Vuelven «más adelante».
 - **D-6** · Componentes `Desktop*`/`Deck*` se **comentan, no se borran**
   (reversibles; patrones reutilizables para la interacción).
 - **D-7** · Interacción y reactividad fuera de alcance; la vista se diseña para
-  poder añadir entrada luego sin reestructurar.
+  poder añadir entrada luego sin reestructurar. Laura no lleva `dimSignal`.
+- **D-8** · `SolarSystemLayer` se instancia como capa propia en `shell.qml` y es
+  **EL fondo**: `WlrLayer.Background`, opaco negro. `Background.qml` (sólo el
+  reloj) baja a `WlrLayer.Bottom` transparente por encima.
+- **D-9** · **Laura = `m3tertiaryFixedDim`** (oro apagado), Config = `m3primary`.
+  En el scheme *tonalspot* cálido, `m3tertiary` es casi blanco y no contrasta con
+  el disco ni con el núcleo blanco-caliente del agujero. El oro además distingue
+  a los agentes de Laura de los dispositivos (peach) de Config. Cierra D-3.
+- **D-10** · Baricentro del binario en `y ≈ 0.47·h` (no `0.50`) y órbita mutua de
+  eje mayor casi horizontal (`ecc 0.45`, `tilt -0.15`), para que en su punto más
+  bajo el binario no invada la franja inferior de ~200 px del overlay de Laura.
+
+## Estado de implementación (2026-09-03)
+
+Diseño **hecho en el harness y portado a QML**. Carga limpia (`Configuration
+Loaded`, sin warnings QML nuevos), 1 instancia de `qs`, ~2.3 % CPU en reposo.
+
+**Verificación en el escritorio real: BLOQUEADA.** El estado GPU↔monitor del
+compositor está roto esta sesión (eDP-2 sin `/dev/dri/cardX` tras un hotplug de
+monitor externo): `grim`/`caelestia screenshot`/`caelestia record` cuelgan **y**
+el `onPaint` de cualquier `Canvas` del shell no dispara (comprobado también con
+`DesktopCircularMedia`; un `qs -p` aislado sí pinta → el código está descartado
+como causa). Necesita a Alberto: re-enchufar/quitar el externo, o resetear el
+estado de monitores de Hyprland. Tras el arreglo: `caelestia shell -k` + `-d` y
+debería aparecer; el ajuste fino se itera en
+`docs/sistema-solar-v3-mockup/harness-v3.html`. Ver §13 de la spec.
 
 ## Historial
 
