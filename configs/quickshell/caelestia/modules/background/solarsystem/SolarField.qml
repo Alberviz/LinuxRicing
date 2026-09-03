@@ -94,8 +94,11 @@ Item {
 
         property size resolution: Qt.size(width, height)
         property point bhCenter: root._bhCenter
-        property point sun0Pos: root.confPos
-        property point sun1Pos: root.lauraPos
+        property point binBary: root._l && root._l.bin ? Qt.point(root._l.bin.bx, root._l.bin.by) : Qt.point(width * 0.30, height * 0.47)
+        property point binSemiAxes: root._l && root._l.bin ? Qt.point(root._l.bin.aConf, root._l.bin.aLaura) : Qt.point(50, 50)
+        property real binEcc: root._l && root._l.bin ? root._l.bin.ecc : 0.45
+        property real binTilt: root._l && root._l.bin ? root._l.bin.tilt : -0.15
+        property real binOmega: root._l && root._l.bin ? root._l.bin.omega : 0.028
 
         property point beltCenter: root._beltCenter
         property size beltRadii: Qt.size(root._beltRadii.width, root._beltRadii.height)

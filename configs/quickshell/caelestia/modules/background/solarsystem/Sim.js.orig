@@ -171,6 +171,22 @@ function computeLayout(state, geom) {
             batt: act
         });
     }
+    
+    // FLAG DE PRUEBA: 100 cuerpos sintéticos para testear rendimiento (se puede comentar)
+    var test100 = true;
+    if (test100) {
+        for (var i = 0; i < 100; i++) {
+            var host = (i % 2 === 0) ? laura : conf;
+            var orb = host.r * (2.0 + (i % 5) * 0.5);
+            var per = 150 + i * 2;
+            var oa = i + (2 * Math.PI / per) * t;
+            bodies.push({
+                id: "test_" + i, kind: (i % 2 === 0) ? "agent" : "device",
+                hostx: host.x, hosty: host.y, x: host.x + Math.cos(oa) * orb, y: host.y + Math.sin(oa) * orb * 0.52,
+                r: host.r * 0.1, running: false, alert: 0, batt: 1
+            });
+        }
+    }
 
     // --- Cinturón circumbinario de tareas ---
     var tasks = clamp01(num(values, "tasks", 0));

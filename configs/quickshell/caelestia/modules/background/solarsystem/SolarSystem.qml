@@ -120,38 +120,15 @@ Item {
             return;
         root._layout = Sim.computeLayout({ t: root.simTime, values: root.values, config: root.config }, root._geom());
     }
-    function _paintDyn() { if (dynCanvas.available) dynCanvas.requestPaint(); }
-
-    // ---------------- Satélites: agentes / dispositivos (spec §4.3) ----------------
-    function _drawPlanet(ctx, b, col, t) {
-        const r = b.r;
-        const base = b.alert > 0.5 ? root.colError : col;
-        if (b.alert > 0.5) {
-            const p = 0.5 + 0.5 * Math.sin(t * 1.4);   // pulso de alerta ~4.5 s
-            ctx.strokeStyle = root._a(root.colError, 0.3 + 0.5 * p);
-            ctx.lineWidth = 1.5;
-            ctx.beginPath(); ctx.arc(b.x, b.y, r + 4 * root._layout.scale, 0, 2 * Math.PI); ctx.stroke();
-        }
-        if (b.running) {
-            root._glow(ctx, b.x, b.y, r * 0.5, r * 2.8, col, 0.28 + 0.2 * (0.5 + 0.5 * Math.sin(t * 0.7)));
-            root._strokeEllipse(ctx, b.x, b.y, r * 1.9, r * 0.8, 0.5, 0, 2 * Math.PI,
-                           root._a(root._lit(col, 0.3), 0.5), 1);
-        }
-        // cuerpo con lado iluminado mirando a su ancla (el sol que orbita)
-        const dir = Math.atan2(b.hosty - b.y, b.hostx - b.x);
-        const lx = b.x + Math.cos(dir) * r * 0.45, ly = b.y + Math.sin(dir) * r * 0.45;
-        const pg = ctx.createRadialGradient(lx, ly, r * 0.1, b.x, b.y, r);
-        pg.addColorStop(0, root._a(root._lit(base, 0.55), 1));
-        pg.addColorStop(0.6, root._a(base, 1));
-        pg.addColorStop(1, root._a(root._dk(base, 0.55), 1));
-        ctx.fillStyle = pg;
-        ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, 2 * Math.PI); ctx.fill();
-        ctx.strokeStyle = root._a(root._lit(base, 0.6), 0.45);
-        ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.arc(b.x, b.y, r, dir - 1.4, dir + 1.4); ctx.stroke();
+    function _paintDyn() {
+        // Repintar orbitsCanvas solo si hay un cambio estructural (opcional, 
+        // actualmente manejado por bindings y onNumBodiesChanged)
     }
 
-    // ---------------- Órbitas (trazas casi invisibles en reposo, spec §4.4) ----------------
+    property int numBodies: root._layout ? root._layout.bodies.length : 0
+    onNumBodiesChanged: if (orbitsCanvas.available) orbitsCanvas.requestPaint()
+
+    // ---------------- Órbitas (trazas casi invisibles en reposo, spec §4.3) ----------------
     function _drawOrbits(ctx, L) {
         for (let i = 0; i < L.bodies.length; i++) {
             const b = L.bodies[i];
@@ -185,34 +162,119 @@ Item {
     }
 
     // ===================== CAPA FINA (cinturón + órbitas + satélites) =====================
+    // Órbitas (estático, se repinta solo al cambiar layout)
     Canvas {
-        id: dynCanvas
-        renderTarget: Canvas.FramebufferObject
+        id: orbitsCanvas
+        renderTarget: Canvas.Image
         antialiasing: true
         onAvailableChanged: if (available) requestPaint()
         Component.onCompleted: if (available) requestPaint()
-
-        // Dimensionado a la caja del binario (estable frame a frame: sale de
-        // constantes de composición, no de posiciones vivas).
         x: root._layout ? root._layout.binBounds.x : 0
         y: root._layout ? root._layout.binBounds.y : 0
         width: root._layout ? root._layout.binBounds.w : root.width
         height: root._layout ? root._layout.binBounds.h : root.height
+        opacity: root._dimK
 
         onPaint: {
             const ctx = getContext("2d");
             ctx.reset();
             const L = root._layout;
             if (!L) return;
-            ctx.translate(-x, -y);          // coords del Item completo
-            ctx.globalAlpha = root._dimK;   // se atenúa entero en foco-Laura
-            // El cinturón ya NO se pinta aquí: lo hace el shader (SolarField),
-            // procedural en la GPU. Era el bucle de ~100 partículas con creación
-            // de strings por partícula lo que saturaba el hilo de la GUI.
+            ctx.translate(-x, -y);
             root._drawOrbits(ctx, L);
-            for (let i = 0; i < L.bodies.length; i++) {
-                const b = L.bodies[i];
-                root._drawPlanet(ctx, b, b.kind === "device" ? root.colPrimary : root.colLaura, L.t);
+        }
+    }
+
+    // Texturas base para planetas (generadas una vez)
+    Canvas {
+        id: texDevice
+        width: 128; height: 128; visible: false
+        renderTarget: Canvas.Image
+        onPaint: {
+            const ctx = getContext("2d");
+            ctx.reset();
+            const r = 64; const base = root.colPrimary;
+            const pg = ctx.createRadialGradient(r + r*0.45, r, r*0.1, r, r, r);
+            pg.addColorStop(0, root._a(root._lit(base, 0.55), 1));
+            pg.addColorStop(0.6, root._a(base, 1));
+            pg.addColorStop(1, root._a(root._dk(base, 0.55), 1));
+            ctx.fillStyle = pg;
+            ctx.beginPath(); ctx.arc(r, r, r, 0, 2*Math.PI); ctx.fill();
+            ctx.strokeStyle = root._a(root._lit(base, 0.6), 0.45);
+            ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.arc(r, r, r, -1.4, 1.4); ctx.stroke();
+        }
+    }
+    Canvas {
+        id: texAgent
+        width: 128; height: 128; visible: false
+        renderTarget: Canvas.Image
+        onPaint: {
+            const ctx = getContext("2d");
+            ctx.reset();
+            const r = 64; const base = root.colLaura;
+            const pg = ctx.createRadialGradient(r + r*0.45, r, r*0.1, r, r, r);
+            pg.addColorStop(0, root._a(root._lit(base, 0.55), 1));
+            pg.addColorStop(0.6, root._a(base, 1));
+            pg.addColorStop(1, root._a(root._dk(base, 0.55), 1));
+            ctx.fillStyle = pg;
+            ctx.beginPath(); ctx.arc(r, r, r, 0, 2*Math.PI); ctx.fill();
+            ctx.strokeStyle = root._a(root._lit(base, 0.6), 0.45);
+            ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.arc(r, r, r, -1.4, 1.4); ctx.stroke();
+        }
+    }
+    // Texturas instanciadas y coloreadas por el Repetidor
+
+    Repeater {
+        model: root._layout ? root._layout.bodies.length : 0
+        Item {
+            property var b: root._layout.bodies[index]
+            x: b.x - b.r
+            y: b.y - b.r
+            width: b.r * 2
+            height: b.r * 2
+            opacity: root._dimK
+
+            // Aro de alerta
+            Rectangle {
+                anchors.centerIn: parent
+                width: parent.width + 8 * root.layout.scale
+                height: width
+                radius: width / 2
+                color: "transparent"
+                border.color: root._a(root.colError, 0.3 + 0.5 * (0.5 + 0.5 * Math.sin(root._t * 1.4)))
+                border.width: 1.5
+                visible: b.alert > 0.5
+            }
+
+            // Anillo de actividad (agente en curso)
+            Item {
+                anchors.centerIn: parent
+                visible: b.running
+                width: parent.width * 2.8
+                height: parent.height * 2.8
+                // QML no tiene radial gradient nativo fácil sin QtGraphicalEffects
+                // Usamos un Canvas muy simple o ShaderEffect
+                Canvas {
+                    anchors.fill: parent
+                    renderTarget: Canvas.Image
+                    onPaint: {
+                        const ctx = getContext("2d");
+                        ctx.reset();
+                        root._glow(ctx, width/2, height/2, width/2 * 0.17, width/2, root.colLaura, 1.0);
+                        root._strokeEllipse(ctx, width/2, height/2, width/2 * 0.67, width/2 * 0.28, 0.5, 0, 2*Math.PI, root._a(root._lit(root.colLaura, 0.3), 0.5), 1);
+                    }
+                    opacity: 0.28 + 0.2 * (0.5 + 0.5 * Math.sin(root._t * 0.7))
+                }
+            }
+
+            // Planeta (textura instanciada y rotada)
+            ShaderEffectSource {
+                anchors.fill: parent
+                sourceItem: b.kind === "device" ? texDevice : texAgent
+                sourceRect: Qt.rect(0, 0, 128, 128)
+                rotation: Math.atan2(b.hosty - b.y, b.hostx - b.x) * 180 / Math.PI
             }
         }
     }
@@ -238,19 +300,18 @@ Item {
             if (root.lauraActive)
                 return;                          // sistema congelado: nada que recalcular
             root._accSim += frameTime;
-            if (root._accSim >= 0.028) {          // ~33 fps: posiciones (Sim) + capa fina (Canvas)
+            if (root._accSim >= 0.028) {          // ~33 fps: posiciones (Sim)
                 root._accSim = 0;
                 root._recompute();
-                root._paintDyn();
             }
         }
-        onRunningChanged: if (!running) { root._recompute(); root._paintDyn(); }
+        onRunningChanged: if (!running) { root._recompute(); }
     }
     property real _accSim: 0
 
     // Transición del foco-Laura: repinta la capa fina mientras `lauraFocus`
     // anima (el shader del fondo dima solo, atado a `lauraFocus` por binding).
-    onLauraFocusChanged: if (Math.abs(lauraFocus - _pf) > 0.015) { _pf = lauraFocus; _paintDyn(); }
+    onLauraFocusChanged: if (Math.abs(lauraFocus - _pf) > 0.015) { _pf = lauraFocus; }
 
     // Al cambiar datos (aparece un agente, cambia la batería) o tamaño/paleta:
     // recalcular y repintar la capa fina, coalescido para no repintar de más
@@ -258,16 +319,16 @@ Item {
     Timer {
         id: settle
         interval: 300
-        onTriggered: { root._recompute(); root._paintDyn(); }
+        onTriggered: { root._recompute(); if (orbitsCanvas.available) orbitsCanvas.requestPaint(); }
     }
     onValuesChanged: settle.restart()
     onConfigChanged: settle.restart()
-    onWidthChanged: { _recompute(); _paintDyn(); }
-    onHeightChanged: { _recompute(); _paintDyn(); }
-    onColPrimaryChanged: { _recompute(); _paintDyn(); }
-    onColLauraChanged: _paintDyn()
-    onColErrorChanged: _paintDyn()
-    onColBeltChanged: _paintDyn()
+    onWidthChanged: { _recompute(); if (orbitsCanvas.available) orbitsCanvas.requestPaint(); }
+    onHeightChanged: { _recompute(); if (orbitsCanvas.available) orbitsCanvas.requestPaint(); }
+    onColPrimaryChanged: { _recompute(); if (orbitsCanvas.available) orbitsCanvas.requestPaint(); texDevice.requestPaint(); }
+    onColLauraChanged: { texAgent.requestPaint(); if (orbitsCanvas.available) orbitsCanvas.requestPaint(); }
+    onColErrorChanged: { } // el aro de alerta reacciona automático
+    onColBeltChanged: { } // el shader reacciona automático
 
-    Component.onCompleted: _recompute()
+    Component.onCompleted: { texDevice.requestPaint(); texAgent.requestPaint(); _recompute(); if (orbitsCanvas.available) orbitsCanvas.requestPaint(); }
 }

@@ -39,8 +39,11 @@ layout(std140, binding = 0) uniform buf {
 
     vec2  resolution;   // px — tamaño del Item (pantalla)
     vec2  bhCenter;     // px — centro del agujero (puede caer fuera de cuadro)
-    vec2  sun0Pos;      // px — Configuración
-    vec2  sun1Pos;      // px — Laura
+    vec2  binBary;      // px — baricentro del binario (fijo)
+    vec2  binSemiAxes;  // px — (aConf, aLaura)
+    float binEcc;       // excentricidad
+    float binTilt;      // rad — inclinación
+    float binOmega;     // 2*PI / periodo
 
     vec2  beltCenter;  // px — baricentro del binario (fijo)
     vec2  beltRadii;   // px — (rx, ry) de la elipse del cinturón de tareas
@@ -384,6 +387,23 @@ vec4 render(vec2 frag)
     float dimK = mix(1.0, 0.18, clamp(focusAmt, 0.0, 1.0));
     acc.rgb *= dimK;
     acc.a   *= mix(1.0, 0.5, clamp(focusAmt, 0.0, 1.0));
+
+    // Calcular posiciones de los soles desde el tiempo (binOmega * time)
+    float ang = binOmega * time;
+    float ct = cos(binTilt);
+    float st = sin(binTilt);
+
+    float rx0 = binSemiAxes.x;
+    float ry0 = rx0 * (1.0 - binEcc);
+    float lx0 = cos(ang) * rx0;
+    float ly0 = sin(ang) * ry0;
+    vec2 sun0Pos = binBary + vec2(lx0 * ct - ly0 * st, lx0 * st + ly0 * ct);
+
+    float rx1 = binSemiAxes.y;
+    float ry1 = rx1 * (1.0 - binEcc);
+    float lx1 = cos(ang + PI) * rx1;
+    float ly1 = sin(ang + PI) * ry1;
+    vec2 sun1Pos = binBary + vec2(lx1 * ct - ly1 * st, lx1 * st + ly1 * ct);
 
     // Configuración (secundario, calmo) — también se oscurece con focusAmt
     vec4 s0 = sun(frag, sun0Pos, sun0Radius, colPrimary.rgb, false, 0.0, time);
