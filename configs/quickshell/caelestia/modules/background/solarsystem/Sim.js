@@ -37,11 +37,50 @@ function bool(values, name, dflt) {
 }
 
 // --- Constantes de composición de la variante D (fracciones de la caja) ---
+//
+// CÓMO CAMBIAR DE DISPOSICIÓN: edita `D.layoutVariant` abajo (1 | 2 | 3) y
+// reinicia el shell (restart limpio, nunca hot-reload). Las tres:
+//   1 — CONSERVADORA.  Mismo baricentro (0.30, 0.46). Soles ~+40 % más separados,
+//       órbitas de satélites ~+25 %, cinturón algo más ancho, trazas visibles.
+//   2 — APROVECHAR EL HUECO.  Baricentro desplazado abajo-izquierda (0.25, 0.51)
+//       al espacio vacío. Soles ~+70 %. El binario equilibra al agujero negro.
+//   3 — DIAGONAL COMPLETA.  Binario empujado a la esquina inferior izquierda
+//       (0.16, 0.52) y su órbita mutua inclinada hacia la diagonal del agujero.
+//
+// REGLA DE MOVIMIENTO: al separar más los soles, los PERÍODOS crecen en la misma
+// proporción (`binPeriod ∝ binK`, `satPeriodMul == orbitMul`) para que la
+// velocidad angular aparente en px/s NO suba. Restricción dura: nada del sistema
+// puede invadir la franja inferior de ~200 px (overlay de voz de Laura) → hay un
+// recorte del semieje vertical de cada satélite en computeLayout().
+var LAYOUTS = {
+    1: {
+        baryFx: 0.30, baryFy: 0.46,
+        binK: 5.0, binPeriod: 306, binTilt: -0.15,
+        orbitMul: 1.25, beltRxFrac: 0.165, orbitAlpha: 0.14
+    },
+    2: {
+        baryFx: 0.25, baryFy: 0.51,
+        binK: 6.1, binPeriod: 373, binTilt: -0.15,
+        orbitMul: 1.35, beltRxFrac: 0.185, orbitAlpha: 0.15
+    },
+    3: {
+        baryFx: 0.17, baryFy: 0.53,
+        binK: 6.5, binPeriod: 397, binTilt: -0.42,
+        orbitMul: 1.40, beltRxFrac: 0.205, orbitAlpha: 0.16
+    }
+};
+
 var D = {
+    // >>> INTERRUPTOR DE DISPOSICIÓN <<<  (1 conservadora · 2 hueco · 3 diagonal)
+    layoutVariant: 1,
+
+    // Cuerpos sintéticos para medir rendimiento (0 = ninguno). Deja 0 en commits.
+    testBodies: 0,
+
     // Agujero negro: centro fuera de cuadro por la esquina superior derecha.
     bhFx: 1.02, bhFy: -0.04, bhRFrac: 0.24,        // R en fracción de h
-    // Baricentro del binario: ANCLADO. y a 0.47h (no 0.50) para respetar la
-    // franja inferior ~200px del overlay de voz de Laura con el binario abajo.
+    // Baricentro del binario: ANCLADO (no traslada). El sitio concreto lo pone
+    // la variante (LAYOUTS); estos son sólo el defecto si la variante no existe.
     baryFx: 0.30, baryFy: 0.47,
     lauraRFrac: 0.045, confRFrac: 0.035,           // radios de los soles (fracción de h)
     // Períodos LARGOS a propósito. El sistema anima siempre pero a ~2 fps, así que
@@ -54,8 +93,18 @@ var D = {
     binK: 3.6,                                     // multiplicador de separación visible
     binEcc: 0.45, binTilt: -0.15,                  // eje mayor casi horizontal; vaivén vertical acotado
     beltPeriodFrac: 1400,                          // s — cinturón de tareas (casi imperceptible)
-    bhSpinPeriod: 150                              // s — giro del disco (Doppler/beaming)
+    bhSpinPeriod: 150,                             // s — giro del disco (Doppler/beaming)
+    orbitMul: 1.0, beltRxFrac: 0.14, orbitAlpha: 0.06
 };
+
+// Devuelve las constantes de composición con la variante activa ya fusionada.
+function layout() {
+    var v = LAYOUTS[D.layoutVariant] || {};
+    var o = {};
+    for (var k in D) o[k] = D[k];
+    for (var j in v) o[j] = v[j];
+    return o;
+}
 
 function pickAnchor(cfg, kind) {
     var a = cfg.anchors || [];
@@ -83,6 +132,10 @@ function computeLayout(state, geom) {
     var w = geom.w, h = geom.h;
     var S = h / 1080;
     var music = clamp01(num(values, "music", 0));
+    var C = layout();               // constantes de composición de la variante activa
+    // Techo vertical: nada del sistema por debajo de esta línea (franja de ~200 px
+    // del overlay de voz de Laura). Restricción dura de la spec (D-10).
+    var yFloor = h - 200;
 
     // Overrides opcionales desde config (fixed motion del ancla blackhole, etc.)
     var bhCfg = pickAnchor(cfg, "blackhole");
@@ -93,10 +146,12 @@ function computeLayout(state, geom) {
         R: (bhCfg && bhCfg.rFrac != null ? bhCfg.rFrac : D.bhRFrac) * h
     };
 
-    var bary = { x: D.baryFx * w, y: D.baryFy * h };
+    var bary = { x: C.baryFx * w, y: C.baryFy * h };
 
     // --- Binario: dos soles orbitando el baricentro FIJO ---
-    var wBin = 2 * Math.PI / D.binPeriod;
+    // Período ∝ separación visible (binK): con los soles más lejos, giran más
+    // despacio → la velocidad angular aparente en px/s no sube.
+    var wBin = 2 * Math.PI / C.binPeriod;
     var ang = wBin * t;
     var sep = D.binSepFrac * h;
     var aLaura = sep * D.binMassRatio;
@@ -104,14 +159,14 @@ function computeLayout(state, geom) {
     function binPos(a, phase) {
         var rx = a, ry = a * (1 - D.binEcc);
         var lx = Math.cos(ang + phase) * rx, ly = Math.sin(ang + phase) * ry;
-        var ct = Math.cos(D.binTilt), st = Math.sin(D.binTilt);
+        var ct = Math.cos(C.binTilt), st = Math.sin(C.binTilt);
         return { x: bary.x + lx * ct - ly * st, y: bary.y + lx * st + ly * ct };
     }
     var lauraCfg = anchorById(cfg, "laura");
     var confCfg = anchorById(cfg, "config");
     var lauraLit = bool(values, lauraCfg ? lauraCfg.dimSignal : null, true);
-    var laura = binPos(aLaura * D.binK, Math.PI);
-    var conf = binPos(aConf * D.binK, 0);
+    var laura = binPos(aLaura * C.binK, Math.PI);
+    var conf = binPos(aConf * C.binK, 0);
     laura.id = "laura"; laura.role = "primary";
     laura.r = (lauraCfg && lauraCfg.rFrac != null ? lauraCfg.rFrac : D.lauraRFrac) * h;
     laura.dim = lauraLit ? 0 : 0.35;
@@ -122,10 +177,10 @@ function computeLayout(state, geom) {
 
     var bin = {
         bx: bary.x, by: bary.y,
-        aLaura: aLaura * D.binK,
-        aConf: aConf * D.binK,
+        aLaura: aLaura * C.binK,
+        aConf: aConf * C.binK,
         ecc: D.binEcc,
-        tilt: D.binTilt,
+        tilt: C.binTilt,
         omega: wBin,
         rLaura: laura.r, rConf: conf.r
     };
@@ -150,7 +205,10 @@ function computeLayout(state, geom) {
         // Radio orbital en fracción del radio del host.
         var orbK = b.orbitK || (isDevice ? (2.0 + (i % 3) * 0.85)
                                          : (running ? (2.1 + (i % 3) * 0.85) : (3.4 + (i % 2) * 1.1)));
-        var orb = host.r * orbK;
+        // Órbita más ancha por variante → período proporcionalmente más largo
+        // (misma velocidad angular aparente).
+        var orb = host.r * orbK * C.orbitMul;
+        per *= C.orbitMul;
         var phase = (b.phase != null ? b.phase : (i * 2.399));
         var speedMul = (b.anchor === "laura" && !lauraLit) ? 0.5 : 1.0;
         var oa = phase + (2 * Math.PI / per) * t * speedMul;
@@ -159,16 +217,46 @@ function computeLayout(state, geom) {
         var baseR = isDevice ? host.r * (0.13 + 0.13 * sizeF)
                              : host.r * (running ? 0.16 : 0.12);
 
+        // Semieje vertical de la órbita, RECORTADO para no invadir la franja
+        // inferior de ~200 px (la órbita se achata por abajo, no se traslada).
+        var orbV = orb * 0.52;
+        var room = (yFloor - baseR) - host.y;
+        if (room > baseR && orbV > room)
+            orbV = room;
+        var by = host.y + Math.sin(oa) * orbV;
+        if (by > yFloor - baseR) by = yFloor - baseR;
+
         bodies.push({
             id: b.id,
             kind: isDevice ? "device" : "agent",
             hostx: host.x, hosty: host.y,
             x: host.x + Math.cos(oa) * orb,
-            y: host.y + Math.sin(oa) * orb * 0.52,
+            y: by,
             r: baseR,
             running: running,
             alert: alert,
-            batt: act
+            batt: act,
+            // Geometría de la órbita para la traza + la estela de cometa (la
+            // dibuja la capa fina en Canvas). orbX/orbV = semiejes; oa = ángulo
+            // actual; el cuerpo avanza en +oa.
+            orbX: orb, orbV: orbV, oa: oa
+        });
+    }
+
+    // --- Cuerpos sintéticos de prueba (D.testBodies > 0) para medir CPU ---
+    for (var ti = 0; ti < (D.testBodies | 0); ti++) {
+        var thost = (ti % 2 === 0) ? laura : conf;
+        var tOrb = thost.r * (2.0 + (ti % 5) * 0.6) * C.orbitMul;
+        var tPer = (150 + ti * 3) * C.orbitMul;
+        var tOa = ti + (2 * Math.PI / tPer) * t;
+        var tR = thost.r * 0.11;
+        var tOrbV = Math.min(tOrb * 0.52, Math.max(tR, (yFloor - tR) - thost.y));
+        bodies.push({
+            id: "test-" + ti, kind: (ti % 2 === 0) ? "agent" : "device",
+            hostx: thost.x, hosty: thost.y,
+            x: thost.x + Math.cos(tOa) * tOrb,
+            y: Math.min(thost.y + Math.sin(tOa) * tOrbV, yFloor - tR),
+            r: tR, running: false, alert: 0, batt: 1
         });
     }
 
@@ -177,13 +265,15 @@ function computeLayout(state, geom) {
     var beltCfg = null;
     for (var j = 0; j < cfgBodies.length; j++)
         if ((cfgBodies[j].kind || "") === "belt") beltCfg = cfgBodies[j];
+    var beltRxFrac = (beltCfg && beltCfg.rxFrac != null ? beltCfg.rxFrac : C.beltRxFrac);
     var belt = {
         cx: bary.x, cy: bary.y,
-        rx: (beltCfg && beltCfg.rxFrac != null ? beltCfg.rxFrac : 0.14) * w,
-        ry: (beltCfg && beltCfg.rxFrac != null ? beltCfg.rxFrac : 0.14) * w * 0.42,
-        tilt: D.binTilt + 0.1,
+        rx: beltRxFrac * w,
+        ry: beltRxFrac * w * 0.42,
+        tilt: C.binTilt + 0.1,
         n: Math.round(28 + tasks * 72),
-        spin: (2 * Math.PI / D.beltPeriodFrac) * t,
+        // Período ∝ radio del cinturón (misma velocidad angular aparente).
+        spin: (2 * Math.PI / (D.beltPeriodFrac * beltRxFrac / 0.14)) * t,
         // Densidad para el shader (el cinturón lo pinta la GPU desde v3.1). Suelo
         // decorativo bajo para que la composición no quede vacía sin tareas;
         // crece con la señal real `tasks`.
@@ -209,9 +299,9 @@ function computeLayout(state, geom) {
     // Caja del binario alrededor del baricentro FIJO. Radio estable = máxima
     // excursión orbital + alcance de los satélites + el cinturón. No usa
     // posiciones vivas (si no, el Canvas se redimensionaría cada frame).
-    var binExc = sep * D.binK;
-    var binHalfX = Math.max(belt.rx, binExc + laura.r * 5) + pad;
-    var binHalfY = Math.max(belt.ry, binExc + laura.r * 5) + pad;
+    var binExc = sep * C.binK;
+    var binHalfX = Math.max(belt.rx, binExc + laura.r * 6) + pad;
+    var binHalfY = Math.max(belt.ry, binExc + laura.r * 6) + pad;
     var binBounds = clampBox(bary.x - binHalfX, bary.y - binHalfY,
                              bary.x + binHalfX, bary.y + binHalfY, 0);
     // Unión (para la región de input de la tanda de interacción, D-7).
@@ -222,6 +312,7 @@ function computeLayout(state, geom) {
 
     return {
         t: t, scale: S, music: music,
+        variant: D.layoutVariant, orbitAlpha: C.orbitAlpha,
         bh: bh, bary: bary, bhSpin: (2 * Math.PI / D.bhSpinPeriod) * t,
         suns: suns, bodies: bodies, belt: belt, bin: bin,
         bhBounds: bhBounds, binBounds: binBounds, bounds: bounds
