@@ -108,7 +108,20 @@ Singleton {
     }
 
     // --- Señales que consumen anclas y cuerpos (0..1 o bool) ---
+    // Música: cuatro señales derivadas del array de bandas FFT de cava.
+    //  _music       energía global (media de todas las bandas). NO tocar: ya la
+    //               consume el shader con este nombre y comportamiento.
+    //  _musicBass   energía del primer 25 % del array (graves).
+    //  _musicTreble energía del último 30 % del array (agudos).
+    //  _musicPulse  detector de golpe: 1 de golpe cuando la energía instantánea
+    //               supera su media móvil lenta por un margen, luego decae expo.
+    //  _musicAvgSlow media móvil lenta de la energía instantánea (interna, base
+    //               del detector de golpe; no se expone).
     property real _music: 0.0
+    property real _musicBass: 0.0
+    property real _musicTreble: 0.0
+    property real _musicPulse: 0.0
+    property real _musicAvgSlow: 0.0
     property int _pendingTasks: 0
     readonly property bool _lauraActive: (Agents.runningAgents || []).length > 0
 
@@ -124,7 +137,9 @@ Singleton {
     readonly property bool anyActivity: root.enabled
         && (root.musicPlaying || root._lauraActive || (Agents.runningAgents || []).length > 0)
 
-    readonly property var values: root._buildValues(root._music, root._pendingTasks, root._lauraActive,
+    readonly property var values: root._buildValues(root._music, root._musicBass, root._musicTreble,
+                                                    root._musicPulse,
+                                                    root._pendingTasks, root._lauraActive,
                                                     root._batt,
                                                     RgbConfig.devices,
                                                     Agents.runningAgents, Agents.completedAgents)
@@ -133,11 +148,14 @@ Singleton {
         return (typeof v === "number" && isFinite(v)) ? Math.max(0, Math.min(1, v / 100)) : 0;
     }
 
-    function _buildValues(music, pending, lauraActive, batt, ledDevices, running, done) {
+    function _buildValues(music, musicBass, musicTreble, musicPulse, pending, lauraActive, batt, ledDevices, running, done) {
         const b = batt || {};
         const led = ledDevices || {};
         const v = {
             music: music,
+            musicBass: musicBass,
+            musicTreble: musicTreble,
+            musicPulse: musicPulse,
             lauraActive: lauraActive,
             tasks: Math.min(1, pending / 12),
 
@@ -169,14 +187,68 @@ Singleton {
     Timer {
         interval: 40; repeat: true
         running: root.enabled && root.musicPlaying
-        onRunningChanged: if (!running) root._music = 0
+        onRunningChanged: {
+            if (!running) {
+                // Sin música: las cuatro señales a 0, nada clavado.
+                root._music = 0;
+                root._musicBass = 0;
+                root._musicTreble = 0;
+                root._musicPulse = 0;
+                root._musicAvgSlow = 0;
+            }
+        }
         onTriggered: {
             const v = Audio.cava.values || [];
-            if (!v.length) { root._music *= 0.9; return; }
+            if (!v.length) {
+                // cava sin datos: decaimiento, nunca dato inventado (principio 5).
+                root._music *= 0.9;
+                root._musicBass *= 0.9;
+                root._musicTreble *= 0.9;
+                root._musicPulse *= 0.6;
+                root._musicAvgSlow *= 0.95;
+                return;
+            }
+            const n = v.length;
+
+            // --- energía global (idéntico al comportamiento previo) ---
             let s = 0;
-            for (let i = 0; i < v.length; i++) s += v[i];
-            const target = Math.min(1, (s / v.length) * 1.6);
+            for (let i = 0; i < n; i++) s += v[i];
+            const mean = s / n;
+            const target = Math.min(1, mean * 1.6);
             root._music += (target - root._music) * 0.28;
+
+            // --- graves: primer 25 % del array ---
+            // Los graves suelen ser la parte más caliente del espectro, así que
+            // el factor va por debajo del de la energía global para no saturar.
+            const bassEnd = Math.max(1, Math.round(n * 0.25));
+            let bs = 0;
+            for (let i = 0; i < bassEnd; i++) bs += v[i];
+            const bassTarget = Math.min(1, (bs / bassEnd) * 1.3);
+            root._musicBass += (bassTarget - root._musicBass) * 0.28;
+
+            // --- agudos: último 30 % del array ---
+            // Los agudos vienen bastante bajos; factor más alto para que el
+            // rango útil sea amplio y no quede pegado a 0.
+            const trebStart = Math.min(n - 1, Math.round(n * 0.70));
+            const trebCount = n - trebStart;
+            let ts = 0;
+            for (let i = trebStart; i < n; i++) ts += v[i];
+            const trebTarget = Math.min(1, (ts / trebCount) * 2.8);
+            root._musicTreble += (trebTarget - root._musicTreble) * 0.28;
+
+            // --- detector de golpe (musicPulse) ---
+            // Media móvil lenta de la energía instantánea SIN suavizar (mean),
+            // constante de tiempo ~0.6 s (0.06 por tick de 40 ms). Cuando la
+            // energía instantánea supera esa media por un margen del 35 %,
+            // dispara el pulso a 1; si no, decae expo (0.6/tick → ~0 en ~200 ms).
+            // El margen relativo hace que un pasaje sostenido y fuerte levante la
+            // media y deje de disparar: sólo los picos reales cuentan.
+            root._musicAvgSlow += (mean - root._musicAvgSlow) * 0.06;
+            const thresh = root._musicAvgSlow * 1.35 + 0.02;
+            if (mean > thresh && root._musicAvgSlow > 0.015)
+                root._musicPulse = 1.0;
+            else
+                root._musicPulse *= 0.6;
         }
     }
 
