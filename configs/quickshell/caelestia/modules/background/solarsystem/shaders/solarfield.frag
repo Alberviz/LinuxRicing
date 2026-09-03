@@ -69,8 +69,10 @@ float vnoise(vec2 p){
     return mix(mix(a,b,u.x), mix(c,d,u.x), u.y);
 }
 float fbm(vec2 p){
+    // 3 octavas: turbulencia del disco / granulación de los soles. Una cuarta
+    // octava no se distingue a este tamaño y cuesta un tercio más de ruido.
     float s = 0.0, a = 0.5;
-    for(int i=0;i<4;i++){ s += a*vnoise(p); p = p*2.03 + 7.1; a *= 0.5; }
+    for(int i=0;i<3;i++){ s += a*vnoise(p); p = p*2.03 + 7.1; a *= 0.5; }
     return s;
 }
 
@@ -86,19 +88,24 @@ void over(inout vec4 acc, vec3 lc, float la){
 // se dibujan como arcos cortos centrados en él (lente), no como puntos.
 void starfield(inout vec4 acc, vec2 frag, vec2 bhC, float R, vec3 ink){
     vec3 sc = lit(ink, 0.45);
-    float cell = 46.0;
+    float cell = 54.0;
     vec2 g = frag / cell;
     vec2 id = floor(g);
+    // ¿Está este píxel en la zona donde la lente curva las estrellas? Fuera de
+    // ella todas las estrellas van por la rama barata (un punto), sin los dos
+    // atan por estrella. Cerca del agujero apenas hay estrellas de fondo, así
+    // que esto no se nota.
+    bool nearBH = distance(frag, bhC) < R*2.1;
     // 3x3 vecindario para no cortar estrellas en el borde de celda
     for (int oy=-1; oy<=1; oy++)
     for (int ox=-1; ox<=1; ox++){
         vec2 cid = id + vec2(ox, oy);
         vec2 rnd = hash22(cid);
-        if (rnd.x > 0.42) continue;                  // densidad
+        if (rnd.x > 0.40) continue;                  // densidad
         vec2 spos = (cid + hash22(cid+3.7)) * cell;  // posición de la estrella
         float b = fract(rnd.y * 91.7);               // brillo
         float d = distance(spos, bhC);
-        if (d > R*0.95 && d < R*1.9) {
+        if (nearBH && d > R*0.95 && d < R*1.9) {
             // arco lensado
             float ang = atan(spos.y - bhC.y, spos.x - bhC.x);
             float bend = (R / d) * 0.22;
@@ -127,20 +134,27 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
     vec2 rel = frag - bhC;
     float dS = length(rel) / R;
 
-    float ct = cos(-tilt), st = sin(-tilt);
-    vec2 pr = vec2(rel.x*ct - rel.y*st, rel.x*st + rel.y*ct);   // marco rotado
-    vec2 q  = vec2(pr.x, pr.y / FLAT);                          // espacio-círculo
-    float rD = length(q) / R;
-    float thetaD = atan(q.y, q.x);
-
     vec4 acc = vec4(0.0);
 
-    // 1. resplandor exterior
+    // 1. resplandor exterior (barato — se calcula para todo píxel)
     {
         float g = pow(smoothstep(4.4, 0.75, dS), 1.6) * 0.20;
         vec3 gc = mix(P, lit(P, 0.30), smoothstep(2.4, 0.8, dS));
         over(acc, gc, g);
     }
+
+    // Corte temprano: más allá de ~4.6R no hay disco ni anillo ni jet — solo el
+    // resplandor de arriba. Nos ahorra el fbm de turbulencia + una docena de
+    // smoothstep/atan en la mayoría de la pantalla (el agujero vive en una
+    // esquina). El disco raking se sale de esta caja por abajo-izquierda, pero
+    // ahí su alpha ya es ~0.
+    if (dS > 4.6) return acc;
+
+    float ct = cos(-tilt), st = sin(-tilt);
+    vec2 pr = vec2(rel.x*ct - rel.y*st, rel.x*st + rel.y*ct);   // marco rotado
+    vec2 q  = vec2(pr.x, pr.y / FLAT);                          // espacio-círculo
+    float rD = length(q) / R;
+    float thetaD = atan(q.y, q.x);
 
     // 2. borde lejano lensado sobre el horizonte (halo «Gargantua»)
     if (pr.y < -R*0.05) {
@@ -224,12 +238,19 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
 // (sólo Laura). `boost` sube el brillo (modo foco-Laura + voz).
 vec4 sun(vec2 frag, vec2 c, float r, vec3 col, bool promin, float boost, float tm)
 {
-    vec3 HOT = lit(col, 0.85);
     vec2 rel = frag - c;
     float d  = length(rel);
     float rn = d / r;
-    float ang = atan(rel.y, rel.x);
     vec4 acc = vec4(0.0);
+
+    // Corte temprano: los soles son diminutos (r ≈ 40-50 px) y su corona muere
+    // a ~3.2r. Fuera de eso NADA de este sol contribuye — pero sin este return
+    // el bucle de prominencias + los pow de corona se ejecutaban para CADA píxel
+    // de la pantalla, dos veces (un sol cada uno). Es el mayor ahorro del shader.
+    if (rn > 3.4) return acc;
+
+    vec3 HOT = lit(col, 0.85);
+    float ang = atan(rel.y, rel.x);
 
     // corona (dos capas radiales)
     float breath = 1.0 + 0.03*sin(tm*0.35);

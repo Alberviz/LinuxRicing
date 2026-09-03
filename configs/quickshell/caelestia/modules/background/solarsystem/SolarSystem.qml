@@ -237,9 +237,9 @@ Item {
         // NO se gatea con lauraActive: `_t` sigue avanzando (monótono); el
         // congelado del sistema lo hace `simTime` (latch en `_tFreeze`).
         running: root.visible && !root.paused && !root.reduceMotion
-        interval: 50
+        interval: 100
         repeat: true
-        onTriggered: root._t += 0.05   // ~20 fps para el shader del fondo
+        onTriggered: root._t += 0.1   // ~10 fps para el shader del fondo
     }
 
     // Las POSICIONES (Sim.js) y la capa fina en Canvas se refrescan DESPACIO: los
@@ -249,7 +249,7 @@ Item {
         id: ticker
         repeat: true
         running: root.visible && !root.paused && !root.reduceMotion && !root.lauraActive
-        interval: 500                 // ~2 fps: posiciones (períodos de 200-360 s) + capa fina
+        interval: 1000                // ~1 fps: posiciones (períodos de 200-360 s) + capa fina
         onRunningChanged: if (!running) { root._recompute(); root._paintDyn(); }
         onTriggered: { root._recompute(); root._paintDyn(); }
     }
