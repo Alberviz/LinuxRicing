@@ -113,6 +113,47 @@ Singleton {
         return (root.wsMap[n] || []).filter(a => !a.seen).length;
     }
 
+    // Deriva el PROVEEDOR de IA de una entrada de agente. Campo NUEVO y opcional:
+    // nada de lo que ya consume Agents.qml depende de él (solo lo lee el sistema
+    // solar para colorear cada satélite).
+    //
+    // Valores posibles: "claude" | "gemini" | "codex" | "otro".
+    // NUNCA se inventa un proveedor: sin señal clara -> "otro".
+    //
+    // Fuentes reales de `name` (verificadas en el repo, sept-2026):
+    //   · Claude Code -> name "Claude"
+    //       hooks UserPromptSubmit/Stop -> ~/.local/bin/agent-notify hook
+    //       prompt|stop -> start_agent/finish_agent(name="Claude") -> IPC start/complete.
+    //   · Antigravity -> name "Antigravity"
+    //       services/Notifs.qml intercepta la notificación nativa (app "antigravity"
+    //       / "agy") -> triggerAgentNotify("Antigravity", …) -> agent-notify notify
+    //       -n Antigravity -> IPC notify. Antigravity es el IDE de Google que
+    //       ejecuta Gemini, así que su proveedor es "gemini".
+    //   · agent-notify notify -n Gemini      (ejemplo documentado en docs/) -> "gemini".
+    //   · agent-notify run -- <binario>      -> name = basename capitalizado del binario.
+    //   · Por defecto en start()/_addCompleted() cuando no llega name: "Agente" -> "otro".
+    //
+    // `dir` es el nombre del repo git (p.ej. "LinuxRicing"): NO identifica al
+    // proveedor, por eso no se usa aquí.
+    function _providerOf(data: var, name: string): string {
+        // 1. Campo explícito en el JSON entrante (emisores futuros). A minúsculas.
+        const explicit = data && (data.provider || data.agent || data.tool || data.vendor);
+        const src = explicit ? String(explicit) : String(name || "");
+        const s = src.toLowerCase().trim();
+
+        // 2. Coincidencia tolerante a mayúsculas y variantes.
+        if (s.indexOf("claude") !== -1 || s.indexOf("anthropic") !== -1)
+            return "claude";
+        if (s.indexOf("gemini") !== -1 || s.indexOf("antigravity") !== -1
+            || s.indexOf("agy") !== -1 || s.indexOf("bard") !== -1 || s === "google")
+            return "gemini";
+        if (s.indexOf("codex") !== -1 || s.indexOf("openai") !== -1 || s.indexOf("gpt") !== -1)
+            return "codex";
+
+        // 3. Sin señal fiable.
+        return "otro";
+    }
+
     function _parse(dataStr) {
         try {
             return typeof dataStr === "string" ? JSON.parse(dataStr) : dataStr;
@@ -130,9 +171,11 @@ Singleton {
 
         const address = data.address || "";
         const na = root._normAddr(address);
+        const nm = data.name || "Agente";
         const entry = {
             id: data.id || `agent-${Date.now()}`,
-            name: data.name || "Agente",
+            name: nm,
+            provider: root._providerOf(data, nm),
             task: data.task || "Trabajando…",
             status: "running",
             dir: data.dir || "",
@@ -169,9 +212,11 @@ Singleton {
     function _addCompleted(data): void {
         const address = data.address || "";
         const na = root._normAddr(address);
+        const nm = data.name || "Agente";
         const entry = {
             id: data.id || `agent-${Date.now()}`,
-            name: data.name || "Agente",
+            name: nm,
+            provider: root._providerOf(data, nm),
             task: data.task || data.status || "Completado",
             status: data.status || "Completado",
             dir: data.dir || "",

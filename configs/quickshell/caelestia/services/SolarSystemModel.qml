@@ -174,10 +174,19 @@ Singleton {
             "led:akko": led.akko_keyboard ? 1.0 : 0.0,
             "led:base": led.mchose_base ? 1.0 : 0.0
         };
-        for (let i = 0; i < (running || []).length; i++)
-            v["term:" + (running[i].id || "?")] = 1.0;
-        for (let j = 0; j < (done || []).length; j++)
-            v["term:" + (done[j].id || "?")] = 0.35;
+        for (let i = 0; i < (running || []).length; i++) {
+            const rid = running[i].id || "?";
+            v["term:" + rid] = 1.0;
+            // Señal por cuerpo con el proveedor (mismo patrón que activitySignal):
+            // la vista lee v["provider:<id>"] y lo traduce a un rol de paleta con
+            // root.providerPaletteRole. Valor: "claude"|"gemini"|"codex"|"otro".
+            v["provider:" + rid] = running[i].provider || "otro";
+        }
+        for (let j = 0; j < (done || []).length; j++) {
+            const did = done[j].id || "?";
+            v["term:" + did] = 0.35;
+            v["provider:" + did] = done[j].provider || "otro";
+        }
         return v;
     }
 
@@ -281,6 +290,29 @@ Singleton {
         onTriggered: battProbe.running = true
     }
 
+    // --- Mapeo PROVEEDOR → ROL de paleta -------------------------------------
+    // La VISTA (SolarSystem.qml) aplica el color; aquí SOLO se nombra el rol,
+    // nunca un hex (regla dura del proyecto: todo color sale de
+    // Colours.palette.m3*).
+    //
+    // Contexto de color ya en uso: Laura = m3tertiaryFixedDim (oro/melocotón);
+    // sol "Configuración" y periféricos = m3primary (melocotón). Los satélites de
+    // agente tienen que separarse de ese oro y distinguirse entre sí sobre fondo
+    // negro. Reparto (el split clásico de Material 3 secundario/terciario, como
+    // sugería el encargo):
+    //   claude → m3secondary  (cálido apagado; se despega del oro de Laura)
+    //   gemini → m3tertiary   (matiz rotado; el tono más "frío" de esta paleta)
+    //   codex  → m3primary    (melocotón saturado; reservado a un 3.er proveedor)
+    //   otro   → m3outline    (gris neutro: "sin identificar", baja prominencia)
+    // Alternativa anotada para codex: m3success (verde, más cerca de la marca de
+    // OpenAI) — no elegida por su carga semántica de "éxito" en el resto del shell.
+    readonly property var providerPaletteRole: ({
+        "claude": "m3secondary",
+        "gemini": "m3tertiary",
+        "codex": "m3primary",
+        "otro": "m3outline"
+    })
+
     // ---------- Adaptador: agentes / terminales (Agents.qml) ----------
     // Un satélite por sesión de Claude/Antigravity, séquito de Laura. En curso →
     // brillante, con anillo de actividad, órbita más rápida y cerrada.
@@ -292,15 +324,22 @@ Singleton {
         let idx = 0;
         const add = (a, isRunning) => {
             const lane = idx % 3;
+            const bid = a.id || ("t" + idx);
+            // Proveedor de IA del satélite ("claude"|"gemini"|"codex"|"otro").
+            // Viene de Agents.qml (_providerOf). La vista lo colorea con
+            // root.providerPaletteRole[provider]. Nunca inventado: por defecto "otro".
+            const provider = a.provider || "otro";
             out.push({
-                id: "term:" + (a.id || ("t" + idx)),
+                id: "term:" + bid,
                 kind: "planet",
                 anchor: "laura",
                 phase: (idx * 2.399) % (2 * Math.PI),
                 orbitK: isRunning ? (2.1 + lane * 0.85) : (3.4 + lane * 1.0),
                 period: isRunning ? (46 + lane * 7) : (118 + lane * 12),
                 ring: isRunning,
-                activitySignal: "term:" + (a.id || ("t" + idx))
+                provider: provider,
+                activitySignal: "term:" + bid,
+                providerSignal: "provider:" + bid
             });
             idx++;
         };
