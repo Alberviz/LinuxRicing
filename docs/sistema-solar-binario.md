@@ -73,8 +73,8 @@ fijo, así que cambiar de fondo re-colorea todo el sistema.
 |-----|--------|-----------|----------|
 | **v1** | Estrella binaria de solo lectura | 5/10 | El sistema existe en el escritorio, movido por señales reales baratas. Sin interacción. Widgets intactos. |
 | **v1.5** | Disposición completa + cambio de ratón | 3/10 | ✅ 2026-09-02. Adaptadores reales de batería (3 periféricos) y LED (3 zonas); cuerpos del K7 Ultra; 5 bugs de la v1 corregidos; `SolarSystemLayer` cableada al shell. Disposición música-sol-vs-agujero-negro **pendiente de Alberto** (ver artifact 6935dde1). |
-| **v2** | Interacción: hover, clic, congelar | 5/10 | Panel de detalle al pasar el ratón; clic para encender la LED / abrir tareas / enfocar un terminal (`Agents.focus`). Entrada real en la capa Background. |
-| **v3** | El gran refactor: fuera los widgets | 4/10 · punto de no retorno | Ni un widget salvo el reloj. El dashboard conmutable se elimina y se reconvierte en el sistema a pantalla completa. |
+| **v3** | El gran refactor: fuera los widgets + rediseño a pantalla completa | 6/10 · punto de no retorno | 🔵 En curso 2026-09-03. Alberto adelantó la v3: escritorio vacío salvo el reloj, sobre fondo negro. **Variante D**: agujero negro «música» masivo y detallado en la esquina superior derecha; binario Laura↔Configuración anclado abajo-izquierda; agentes orbitan Laura, dispositivos orbitan Config; cinturón de tareas circumbinario. Spec: `docs/sistema-solar-v3-DISENO.md`. **Esta tanda = solo el diseño visual** (calidad y detalle), en la rama `feat/sistema-solar-v3`. |
+| **v2** (ahora post-v3) | Interacción: hover, clic, congelar | 5/10 | Panel de detalle al pasar el ratón; clic para encender la LED / abrir tareas / enfocar un terminal (`Agents.focus`). Entrada real en la capa Background. Se hace **después** de cerrar el diseño de la v3. |
 | **v4** | Astros-terminal con vida propia | 6/10 | Sub-lunas = subagentes; anillo = actividad del turno; conjunción / eclipses por git. |
 | **v5** | Momentos y pulido | 4/10 · opcional | Modo conjunción de Laura, cometa de build, modo "sábado". |
 
