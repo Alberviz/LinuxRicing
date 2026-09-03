@@ -55,6 +55,20 @@ Item {
     // Atenuación de la capa fina: focus 0 → 1 (sin cambio), focus 1 → 0.18.
     readonly property real _dimK: 1 - 0.82 * lauraFocus
 
+    // `_t` avanza siempre (NumberAnimation). `simTime` es el tiempo del SISTEMA:
+    // igual a `_t` menos el rato acumulado en modo Laura, así que se CONGELA
+    // mientras Laura habla y REANUDA sin salto al terminar. Lo usan el shader y
+    // Sim.js. Una sola fuente de verdad.
+    property real _frozenAccum: 0
+    property real _tFreeze: 0
+    readonly property real simTime: lauraActive ? _tFreeze : (_t - _frozenAccum)
+    onLauraActiveChanged: {
+        if (lauraActive)
+            _tFreeze = _t - _frozenAccum;                 // dónde congelamos
+        else
+            _frozenAccum += (_t - _frozenAccum) - _tFreeze; // suma el rato congelado
+    }
+
     // --- Estado ---
     property real _t: 0                         // tiempo de simulación (s); se congela con focus
     property int _tick: 0
@@ -104,7 +118,7 @@ Item {
     function _recompute() {
         if (width <= 0 || height <= 0)
             return;
-        root._layout = Sim.computeLayout({ t: root._t, values: root.values, config: root.config }, root._geom());
+        root._layout = Sim.computeLayout({ t: root.simTime, values: root.values, config: root.config }, root._geom());
     }
     function _paintDyn() { if (dynCanvas.available) dynCanvas.requestPaint(); }
 
@@ -165,17 +179,22 @@ Item {
         ctx.restore();
     }
 
-    // ===========================================================================
-    // El shader del fondo (SolarField) va AQUÍ, como primer hijo — lo instancia
-    // el integrador:
-    //   SolarField {
-    //       anchors.fill: parent
-    //       time: root._t;  music: root.music;  focus: root.lauraFocus
-    //       lauraAmplitude: root.lauraAmplitude;  layout: root.layout
-    //       colPrimary: root.colPrimary; colLaura: root.colLaura
-    //       colError: root.colError;  colVoid: root.colVoid;  colInk: root.colInk
-    //   }
-    // ===========================================================================
+    // ===================== FONDO (shader GPU, D-13) =====================
+    // Agujero negro + los dos soles + campo de estrellas + lente, per-píxel en
+    // la GPU. Coste de CPU ~0: solo actualizar uniforms. Primer hijo → al fondo.
+    SolarField {
+        anchors.fill: parent
+        time: root.simTime
+        music: root.music
+        lauraFocus: root.lauraFocus
+        lauraAmp: root.lauraAmplitude
+        layout: root._layout
+        colPrimary: root.colPrimary
+        colLaura: root.colLaura
+        colError: root.colError
+        colVoid: root.colVoid
+        colInk: root.colInk
+    }
 
     // ===================== CAPA FINA (cinturón + órbitas + satélites) =====================
     Canvas {
@@ -208,30 +227,31 @@ Item {
         }
     }
 
-    // ===================== TIC DE POSICIONES =====================
-    // Prohibido FrameAnimation { running: true }. El Sim va por Timer gateado a
-    // visible/no-pausa. Solo calcula POSICIONES a ~2 fps; el shader del fondo
-    // interpola visualmente a la tasa de refresco. La capa fina se repinta con
-    // este mismo tic (es barata: cinturón + un par de satélites).
-    //   · escritorio quieto  → ~1.4 fps      · agente en curso → ~2 fps
-    //   · música             → ~7 fps        · foco-Laura      → tiempo congelado
+    // ===================== TIC =====================
+    // `_t` (alimenta el shader del fondo) avanza con un FrameAnimation ligero: solo
+    // asigna `elapsedTime` a una propiedad — sin repintado de Canvas, el shader se
+    // refresca solo por el binding del uniform. GATEADO (visible/no-pausa/no-reduce-
+    // motion/no-foco-Laura), no es incondicional; y siempre hacemos restart limpio.
+    Timer {
+        id: clock
+        // NO se gatea con lauraActive: `_t` sigue avanzando (monótono); el
+        // congelado del sistema lo hace `simTime` (latch en `_tFreeze`).
+        running: root.visible && !root.paused && !root.reduceMotion
+        interval: 50
+        repeat: true
+        onTriggered: root._t += 0.05   // ~20 fps para el shader del fondo
+    }
+
+    // Las POSICIONES (Sim.js) y la capa fina en Canvas se refrescan DESPACIO: los
+    // cuerpos orbitan en períodos de 200-360 s, a 4 fps la deriva es imperceptible
+    // y el shader ya da la fluidez del fondo. En foco-Laura se congela.
     Timer {
         id: ticker
         repeat: true
-        running: root.visible && !root.paused && !root.reduceMotion
-        interval: root.fastRate ? 140 : (root.active ? 480 : 700)
+        running: root.visible && !root.paused && !root.reduceMotion && !root.lauraActive
+        interval: 500                 // ~2 fps: posiciones (períodos de 200-360 s) + capa fina
         onRunningChanged: if (!running) { root._recompute(); root._paintDyn(); }
-        onTriggered: {
-            root._tick++;
-            // Foco-Laura: el tiempo se CONGELA (todo el sistema quieto). En ese
-            // estado el ticker no hace nada; la transición del atenuado la
-            // repinta onLauraFocusChanged.
-            if (root.lauraFocus < 0.02) {
-                root._t += interval / 1000;
-                root._recompute();
-                root._paintDyn();
-            }
-        }
+        onTriggered: { root._recompute(); root._paintDyn(); }
     }
 
     // Transición del foco-Laura: repinta la capa fina mientras `lauraFocus`

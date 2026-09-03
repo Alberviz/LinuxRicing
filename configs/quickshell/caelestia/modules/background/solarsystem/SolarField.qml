@@ -56,8 +56,10 @@ Item {
     readonly property point _bhCenter: _l ? Qt.point(_l.bh.x, _l.bh.y)
                                           : Qt.point(width * 1.02, height * -0.04)
     readonly property real _bhRadius: _l ? _l.bh.R : height * 0.24
-    readonly property real _bhSpin: _l && _l.bhSpin !== undefined ? _l.bhSpin
-                                                                  : (2 * Math.PI / 150) * time
+    // El giro se deriva del `time` continuo (que avanza a ~30 fps), NO del
+    // layout de Sim (que se recalcula a ~10 fps): así el beaming/Doppler del
+    // disco es fluido aunque las posiciones de los soles se refresquen despacio.
+    readonly property real _bhSpin: (2 * Math.PI / 150) * time
 
     ShaderEffect {
         anchors.fill: parent
