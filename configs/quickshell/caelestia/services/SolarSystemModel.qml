@@ -308,7 +308,7 @@ Singleton {
     // OpenAI) — no elegida por su carga semántica de "éxito" en el resto del shell.
     readonly property var providerPaletteRole: ({
         "claude": "m3secondary",
-        "gemini": "m3tertiary",
+        "gemini": "m3tertiaryFixed",
         "codex": "m3primary",
         "otro": "m3outline"
     })

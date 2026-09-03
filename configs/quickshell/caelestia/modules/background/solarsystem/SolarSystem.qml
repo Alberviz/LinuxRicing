@@ -471,8 +471,12 @@ Item {
                 basePixelSize: 13
                 showReticle: true
                 visible: bhWrap.bh !== null
-                targetX: bhWrap.bh ? bhWrap.bh.x - bhWrap.bh.R * 1.7 : 0
-                targetY: bhWrap.bh ? bhWrap.bh.y + bhWrap.bh.R * 1.9 : 0
+                // El agujero está fuera de cuadro por la derecha. Apuntamos al lado
+                // izquierdo del disco de acreción (punto más brillante por beaming).
+                // Con tilt ≈ -0.489 rad, el disco se extiende horizontalmente inclinado.
+                // Coordenadas calculadas geométricamente (1.17 y 0.62) sobre `rD = 1.33`.
+                targetX: bhWrap.bh ? bhWrap.bh.x - bhWrap.bh.R * 1.17 : 0
+                targetY: bhWrap.bh ? bhWrap.bh.y + bhWrap.bh.R * 0.62 : 0
                 targetRadius: 12
                 title: "Música"
                 subtitle: ""
@@ -501,6 +505,7 @@ Item {
                     visible: satWrap.b !== null
                     targetX: satWrap.b ? satWrap.b.x : 0
                     targetY: satWrap.b ? satWrap.b.y : 0
+                    labelY: satWrap.b ? satWrap.b.ly : 0
                     targetRadius: satWrap.b ? satWrap.b.r : 0
                     title: root._bodyName(satWrap.b)
                     subtitle: root._bodySubtitle(satWrap.b)
@@ -541,7 +546,10 @@ Item {
             }
             // Trazas de órbita + estela: siguen a los cuerpos, a ~9 fps y sólo
             // si hay cuerpos (pocos). Sin cuerpos el Canvas no se toca.
-            if (root.numBodies > 0 && root.numBodies <= 14) {
+            // Para las variantes 2 y 3 (o si hay mucha excursión orbital), el
+            // área del Canvas crece demasiado y repintar a 9 fps dispara la CPU.
+            // Solución: si el canvas pasa de ~700x700 px, deshabilitamos las estelas.
+            if (root.numBodies > 0 && root.numBodies <= 14 && orbitsCanvas.width * orbitsCanvas.height < 600000) {
                 root._accOrb += frameTime;
                 if (root._accOrb >= 0.11) {
                     root._accOrb = 0;

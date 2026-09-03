@@ -33,6 +33,9 @@ Item {
     property real targetX: 0
     property real targetY: 0
     property real targetRadius: 0
+    // Y-coordinate used for the text block placement (to prevent collisions).
+    // The guide line starts at targetY and ends at labelY.
+    property real labelY: targetY
 
     // ---- Contenido ----
     property string title: ""
@@ -91,9 +94,9 @@ Item {
     readonly property real _contentY: _side
         ? Math.max(_margin,
             Math.min(fieldHeight - content.implicitHeight - _margin,
-                     targetY - content.implicitHeight / 2))
-        : (_placeBelow ? targetY + _gap
-                       : targetY - _gap - content.implicitHeight)
+                     labelY - content.implicitHeight / 2))
+        : (_placeBelow ? labelY + _gap
+                       : labelY - _gap - content.implicitHeight)
 
     // ================= Marca de observatorio (variante C) =================
     // Círculo de puntos alrededor del cuerpo. Estático: un Repeater, sin animar.

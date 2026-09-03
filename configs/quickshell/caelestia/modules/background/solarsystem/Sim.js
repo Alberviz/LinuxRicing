@@ -72,7 +72,7 @@ var LAYOUTS = {
 
 var D = {
     // >>> INTERRUPTOR DE DISPOSICIÓN <<<  (1 conservadora · 2 hueco · 3 diagonal)
-    layoutVariant: 1,
+    layoutVariant: 2,
 
     // Cuerpos sintéticos para medir rendimiento (0 = ninguno). Deja 0 en commits.
     testBodies: 0,
@@ -264,6 +264,33 @@ function computeLayout(state, geom) {
         });
     }
 
+    // --- Lógica anti-colisión vertical para etiquetas ---
+    // Inicializar ly (label Y)
+    for (var i = 0; i < bodies.length; i++) {
+        bodies[i].ly = bodies[i].y;
+    }
+    // Índices ordenados por y para no alterar el array original (importante para Repeater)
+    var idxs = [];
+    for (var i = 0; i < bodies.length; i++) idxs.push(i);
+    
+    for (var iter = 0; iter < 4; iter++) {
+        idxs.sort(function(i, j) { return bodies[i].ly - bodies[j].ly; });
+        var moved = false;
+        for (var k = 0; k < idxs.length - 1; k++) {
+            var a = bodies[idxs[k]], b = bodies[idxs[k+1]];
+            // Si están en el mismo lado de la pantalla (x similar)
+            if ((a.x < w/2) === (b.x < w/2)) {
+                var diff = Math.abs(a.ly - b.ly);
+                if (diff < 32) { // 32 px es una buena separación vertical para las etiquetas
+                    a.ly -= (32 - diff) / 2;
+                    b.ly += (32 - diff) / 2;
+                    moved = true;
+                }
+            }
+        }
+        if (!moved) break;
+    }
+
     // --- Cinturón circumbinario de tareas ---
     var tasks = clamp01(num(values, "tasks", 0));
     var beltCfg = null;
@@ -304,8 +331,9 @@ function computeLayout(state, geom) {
     // excursión orbital + alcance de los satélites + el cinturón. No usa
     // posiciones vivas (si no, el Canvas se redimensionaría cada frame).
     var binExc = sep * C.binK;
-    var binHalfX = Math.max(belt.rx, binExc + laura.r * 6) + pad;
-    var binHalfY = Math.max(belt.ry, binExc + laura.r * 6) + pad;
+    var maxSatOrbit = 20 * 6 * 1.2 * C.orbitMul * S; // margen holgado para satélites
+    var binHalfX = Math.max(belt.rx, binExc + maxSatOrbit + laura.r) + pad;
+    var binHalfY = Math.max(belt.ry, binExc + maxSatOrbit + laura.r) + pad;
     var binBounds = clampBox(bary.x - binHalfX, bary.y - binHalfY,
                              bary.x + binHalfX, bary.y + binHalfY, 0);
     // Unión (para la región de input de la tanda de interacción, D-7).
