@@ -207,7 +207,7 @@ Item {
             const t = L.t;
             const tilt = -0.489;                 // -28° — disco raking down-left
             const flat = 0.14;                   // ry/rx casi de canto
-            const beam = 2 * Math.PI / 30 * t;    // rotación visible ~30 s (spin/beaming)
+            const beam = L.bhSpin;               // giro del disco (período largo, Sim.js)
             const music = L.music;
             const innerR = R * 1.30, outerR = R * 4.0;
             const HOT = root._hot, P = root.colPrimary, ERR = root.colError, VOID = root.colVoid;
@@ -373,7 +373,7 @@ Item {
         function _drawSun(ctx, s, col, t, prominences) {
             const r = s.r;
             const op = 1 - (s.dim || 0);
-            const breath = 1 + 0.04 * Math.sin(t * 0.7);
+            const breath = 1 + 0.03 * Math.sin(t * 0.35);   // latido lento (~18 s)
             // 1. corona (contenida para que el binario no se funda en un solo halo)
             root._glow(ctx, s.x, s.y, r * 0.3, r * 3.0 * breath, col, 0.11 * op);
             root._glow(ctx, s.x, s.y, r * 0.4, r * 1.6 * breath, col, 0.30 * op);
@@ -402,11 +402,11 @@ Item {
             ctx.strokeStyle = root._a(root._lit(col, 0.45), 0.55 * op);
             ctx.lineWidth = Math.max(1, r * 0.05);
             ctx.beginPath(); ctx.arc(s.x, s.y, r * 1.005, 0, 2 * Math.PI); ctx.stroke();
-            // 5. prominencias lentas (sólo Laura; aparecen y se desvanecen en ~20 s)
+            // 5. prominencias lentas (sólo Laura; aparecen y se desvanecen en ~40 s)
             if (prominences) {
                 for (let i = 0; i < 3; i++) {
-                    const base = i * 2.1 + t * 0.03;
-                    const life = 0.5 + 0.5 * Math.sin(t * (2 * Math.PI / 20) + i * 2.0);
+                    const base = i * 2.1 + t * 0.015;
+                    const life = 0.5 + 0.5 * Math.sin(t * (2 * Math.PI / 40) + i * 2.0);
                     if (life < 0.1) continue;
                     ctx.strokeStyle = root._a(root._lit(col, 0.5), 0.4 * life * op);
                     ctx.lineWidth = Math.max(1, r * 0.04);
@@ -428,13 +428,13 @@ Item {
             const r = b.r;
             const base = b.alert > 0.5 ? root.colError : col;
             if (b.alert > 0.5) {
-                const p = 0.5 + 0.5 * Math.sin(t * 3);
+                const p = 0.5 + 0.5 * Math.sin(t * 1.4);   // pulso de alerta ~4.5 s
                 ctx.strokeStyle = root._a(root.colError, 0.3 + 0.5 * p);
                 ctx.lineWidth = 1.5;
                 ctx.beginPath(); ctx.arc(b.x, b.y, r + 4 * root._layout.scale, 0, 2 * Math.PI); ctx.stroke();
             }
             if (b.running) {
-                root._glow(ctx, b.x, b.y, r * 0.5, r * 2.8, col, 0.28 + 0.2 * (0.5 + 0.5 * Math.sin(t * 1.5)));
+                root._glow(ctx, b.x, b.y, r * 0.5, r * 2.8, col, 0.28 + 0.2 * (0.5 + 0.5 * Math.sin(t * 0.7)));
                 root._strokeEllipse(ctx, b.x, b.y, r * 1.9, r * 0.8, 0.5, 0, 2 * Math.PI,
                                root._a(root._lit(col, 0.3), 0.5), 1);
             }
@@ -493,11 +493,18 @@ Item {
     // El agujero negro (bhCanvas) se repinta 1 de cada 3 tics siempre: su giro
     // tiene período ~30 s y el disco es lo más caro de pintar. La mitad del coste
     // por frame se va en él.
+    // El sistema anima SIEMPRE (Alberto: que no se pare nunca), pero muy lento:
+    // los períodos orbitales son de 220-360 s → a estas cadencias cada frame
+    // mueve ~1-1.5°. No es un `FrameAnimation` incondicional: es un Timer
+    // gateado a visible/no-pausa. Coste en reposo ~1.5-2 % de un núcleo.
+    //   · escritorio quieto  → ~1.3 fps (basta y gasta menos)
+    //   · agente en curso    → ~2 fps
+    //   · música             → ~7 fps (turbulencia del disco)
     Timer {
         id: ticker
         repeat: true
-        running: root.active && root.visible && !root.paused && !root.reduceMotion
-        interval: root.fastRate ? 140 : 480      // ~7 fps con música, ~2 fps con agente
+        running: root.visible && !root.paused && !root.reduceMotion
+        interval: root.fastRate ? 140 : (root.active ? 500 : 780)
         onRunningChanged: if (!running) { root._recompute(); root._paintDyn(); root._paintBH(); }
         onTriggered: {
             root._t += interval / 1000;

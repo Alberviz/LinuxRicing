@@ -44,12 +44,17 @@ var D = {
     // franja inferior ~200px del overlay de voz de Laura con el binario abajo.
     baryFx: 0.30, baryFy: 0.47,
     lauraRFrac: 0.045, confRFrac: 0.035,           // radios de los soles (fracción de h)
-    binPeriod: 105,                                // s de pantalla — uno alrededor del otro
+    // Períodos LARGOS a propósito. El sistema anima siempre pero a ~2 fps, así que
+    // cada frame debe mover un cuerpo un pelín: nada por debajo de ~180 s de
+    // período orbital (a 2 fps son ~1°/frame). Es un sistema informativo, no un
+    // salvapantallas — la atención se gana con brillo, no con velocidad.
+    binPeriod: 220,                               // s — los dos soles, uno alrededor del otro
     binSepFrac: 0.052,                             // separación baricentrica base
     binMassRatio: 0.62,                            // Config/Laura → Laura más cerca del baricentro
     binK: 3.6,                                     // multiplicador de separación visible
     binEcc: 0.45, binTilt: -0.15,                  // eje mayor casi horizontal; vaivén vertical acotado
-    beltPeriodFrac: 600                            // s — cinturón de tareas
+    beltPeriodFrac: 1400,                          // s — cinturón de tareas (casi imperceptible)
+    bhSpinPeriod: 150                              // s — giro del disco (Doppler/beaming)
 };
 
 function pickAnchor(cfg, kind) {
@@ -128,8 +133,10 @@ function computeLayout(state, geom) {
         var sizeF = b.sizeSignal ? clamp01(num(values, b.sizeSignal, 1)) : 1;
         var running = !!b.ring && act > 0.35;
 
-        // Período: agentes en curso 40-60s, completados ~120s; dispositivos 70-100s.
-        var per = b.period || (isDevice ? 88 : (running ? 50 : 120));
+        // Períodos largos (ver nota en D): en curso ~200s, completados ~360s,
+        // dispositivos ~260s. A 2 fps son ~1-1.5°/frame — movimiento apenas
+        // perceptible, que es lo que se quiere en un sistema informativo.
+        var per = b.period || (isDevice ? 260 : (running ? 200 : 360));
         // Radio orbital en fracción del radio del host.
         var orbK = b.orbitK || (isDevice ? (2.0 + (i % 3) * 0.85)
                                          : (running ? (2.1 + (i % 3) * 0.85) : (3.4 + (i % 2) * 1.1)));
@@ -201,7 +208,7 @@ function computeLayout(state, geom) {
 
     return {
         t: t, scale: S, music: music,
-        bh: bh, bary: bary,
+        bh: bh, bary: bary, bhSpin: (2 * Math.PI / D.bhSpinPeriod) * t,
         suns: suns, bodies: bodies, belt: belt,
         bhBounds: bhBounds, binBounds: binBounds, bounds: bounds
     };
