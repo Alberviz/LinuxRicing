@@ -1,16 +1,18 @@
 pragma ComponentBehavior: Bound
 
-// SolarSystemLayer — la capa del escritorio. Un layershell transparente y
-// click-through (v1: solo lectura, sin interacción) por pantalla, con la vista
-// del sistema solar en la zona libre, dejando despejada la franja inferior para
-// el overlay de Laura. La disposición y las señales vienen de SolarSystemModel;
-// los colores, de la paleta del wallpaper (Colours.palette).
+// SolarSystemLayer — la capa de fondo del escritorio en la v3. Es EL fondo:
+// layershell opaco negro a pantalla completa en WlrLayer.Background, con el
+// sistema solar (variante D) pintado encima. Click-through completo (la
+// interacción llega en una tanda posterior — D-7). El reloj de Caelestia vive
+// en su propia capa (Background.qml, en Bottom) por encima de ésta.
+//
+// La disposición y las señales vienen de SolarSystemModel; los colores, de la
+// paleta del wallpaper (Colours.palette) — cero hex fijos.
 
 import QtQuick
 import Quickshell
 import Quickshell.Wayland
 import qs.components
-import qs.components.containers
 import qs.services
 
 Variants {
@@ -23,9 +25,9 @@ Variants {
 
         screen: modelData
         name: "solar-system"
-        color: "transparent"
+        color: "black"                       // fondo negro puro garantizado (spec §2.6)
 
-        WlrLayershell.layer: WlrLayer.Bottom
+        WlrLayershell.layer: WlrLayer.Background
         WlrLayershell.exclusionMode: ExclusionMode.Ignore
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 
@@ -34,17 +36,13 @@ Variants {
         anchors.left: true
         anchors.right: true
 
-        // Click-through completo en v1 (la interacción llega en v2).
+        // Click-through completo (sin interacción en esta tanda — D-7).
         mask: Region {}
 
         visible: SolarSystemModel.enabled
 
         SolarSystem {
             anchors.fill: parent
-            // El baricentro cae en la zona libre (centro-derecha, un poco
-            // arriba) para no pisar la franja inferior de Laura ni el reloj.
-            centerFracX: 0.62
-            centerFracY: 0.44
 
             config: SolarSystemModel.config
             values: SolarSystemModel.values
@@ -54,13 +52,15 @@ Variants {
             // hace lo mismo para no competir por GPU.
             paused: GameMode.enabled
 
-            colAnchorPrimary: Colours.palette.m3primary
-            colAnchorSecondary: Colours.palette.m3secondary
-            colBody: Colours.palette.m3tertiary
-            colBodyAlt: Colours.palette.m3primary
-            colAlert: Colours.palette.m3error
+            colPrimary: Colours.palette.m3primary
+            // Laura = m3tertiaryFixedDim (oro apagado). El m3tertiary del scheme
+            // tonalspot es casi blanco y no contrasta con el disco cálido ni con
+            // el núcleo blanco-caliente del agujero (decisión D-3).
+            colLaura: Colours.palette.m3tertiaryFixedDim
+            colError: Colours.palette.m3error
             colBelt: Colours.palette.m3outlineVariant
-            colVoid: Qt.darker(Colours.palette.m3surface, 2)
+            colInk: Colours.palette.m3onSurface
+            colVoid: Qt.darker(Colours.palette.m3surface, 3)
         }
     }
 }

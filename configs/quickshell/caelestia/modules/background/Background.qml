@@ -50,8 +50,11 @@ Variants {
         screen: modelData
         name: "background"
         WlrLayershell.exclusionMode: ExclusionMode.Ignore
-        WlrLayershell.layer: contentItem.Config.background.wallpaperEnabled ? WlrLayer.Background : WlrLayer.Bottom
-        color: contentItem.Config.background.wallpaperEnabled ? "black" : "transparent"
+        // v3: esta capa sólo lleva el reloj. El fondo (negro + sistema solar) es
+        // SolarSystemLayer, en WlrLayer.Background. El reloj flota encima, en
+        // Bottom y transparente (decisión D-8).
+        WlrLayershell.layer: WlrLayer.Bottom
+        color: "transparent"
         surfaceFormat.opaque: false
 
         anchors.top: true
@@ -76,16 +79,19 @@ Variants {
                 asynchronous: true
 
                 anchors.fill: parent
-                active: Config.background.wallpaperEnabled
+                // v3 (D-1): wallpaper apagado por defecto; fondo negro. Restaurable
+                // con SolarSystemModel.showWallpaper = true. No se borra Wallpaper.qml.
+                active: Config.background.wallpaperEnabled && SolarSystemModel.showWallpaper
 
                 sourceComponent: Wallpaper {}
             }
 
-            DesktopCircularMedia {
-                anchors.right: parent.right
-                anchors.rightMargin: Math.max(80, Math.round((parent.width - 640 - width) / 2))
-                anchors.verticalCenter: parent.verticalCenter
-            }
+            // v3 (D-6): fuera del árbol, .qml conservados para reactivar/reaprovechar.
+            // DesktopCircularMedia {
+            //     anchors.right: parent.right
+            //     anchors.rightMargin: Math.max(80, Math.round((parent.width - 640 - width) / 2))
+            //     anchors.verticalCenter: parent.verticalCenter
+            // }
         }
 
         Loader {
@@ -195,56 +201,52 @@ Variants {
             }
         }
 
-        Loader {
-            id: peripheralsLoader
-
-            asynchronous: false
-            active: Config.background.desktopClock.enabled
-            width: 640
-            height: item ? (item as Item).implicitHeight : 0
-
-            sourceComponent: DesktopPeripherals {
-                transparentWidgets: win.transparentWidgets
-                onToggleTransparencyRequested: win.toggleTransparency()
-            }
-
-            anchors.top: clockLoader.bottom
-            anchors.topMargin: Tokens.spacing.extraLarge
-            anchors.left: clockLoader.left
-        }
-
-        Loader {
-            id: deckLoader
-
-            asynchronous: false
-            active: Config.background.desktopClock.enabled
-            width: 640
-            height: item ? (item as Item).implicitHeight : 0
-
-            sourceComponent: DesktopWidgetDeck {
-                transparentWidgets: win.transparentWidgets
-            }
-
-            anchors.top: peripheralsLoader.bottom
-            anchors.topMargin: Tokens.spacing.large
-            anchors.left: clockLoader.left
-        }
-
-        Loader {
-            id: ledStripLoader
-
-            asynchronous: false
-            active: Config.background.desktopClock.enabled
-            width: 640
-            height: item ? (item as Item).implicitHeight : 0
-
-            sourceComponent: DesktopLedStrip {
-                transparentWidgets: win.transparentWidgets
-            }
-
-            anchors.top: deckLoader.bottom
-            anchors.topMargin: Tokens.spacing.large
-            anchors.left: clockLoader.left
-        }
+        // v3 (D-6): la columna de widgets (periféricos, deck de tareas/clima/
+        // hardware/foco, tira LED) se retira del árbol. Los .qml (DesktopPeripherals,
+        // DesktopWidgetDeck, DesktopLedStrip y sus componentes) se conservan en
+        // disco para reactivarlos o reaprovechar patrones en la tanda de interacción.
+        //
+        // Loader {
+        //     id: peripheralsLoader
+        //     asynchronous: false
+        //     active: Config.background.desktopClock.enabled
+        //     width: 640
+        //     height: item ? (item as Item).implicitHeight : 0
+        //     sourceComponent: DesktopPeripherals {
+        //         transparentWidgets: win.transparentWidgets
+        //         onToggleTransparencyRequested: win.toggleTransparency()
+        //     }
+        //     anchors.top: clockLoader.bottom
+        //     anchors.topMargin: Tokens.spacing.extraLarge
+        //     anchors.left: clockLoader.left
+        // }
+        //
+        // Loader {
+        //     id: deckLoader
+        //     asynchronous: false
+        //     active: Config.background.desktopClock.enabled
+        //     width: 640
+        //     height: item ? (item as Item).implicitHeight : 0
+        //     sourceComponent: DesktopWidgetDeck {
+        //         transparentWidgets: win.transparentWidgets
+        //     }
+        //     anchors.top: peripheralsLoader.bottom
+        //     anchors.topMargin: Tokens.spacing.large
+        //     anchors.left: clockLoader.left
+        // }
+        //
+        // Loader {
+        //     id: ledStripLoader
+        //     asynchronous: false
+        //     active: Config.background.desktopClock.enabled
+        //     width: 640
+        //     height: item ? (item as Item).implicitHeight : 0
+        //     sourceComponent: DesktopLedStrip {
+        //         transparentWidgets: win.transparentWidgets
+        //     }
+        //     anchors.top: deckLoader.bottom
+        //     anchors.topMargin: Tokens.spacing.large
+        //     anchors.left: clockLoader.left
+        // }
     }
 }

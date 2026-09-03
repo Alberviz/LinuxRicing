@@ -31,6 +31,7 @@ ShellRoot {
     GSFLoader {}
     ServiceLoader {}
 
+    SolarSystemLayer {}
     Background {}
     Drawers {}
     AreaPicker {}

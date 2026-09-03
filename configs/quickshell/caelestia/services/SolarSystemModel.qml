@@ -22,64 +22,49 @@ Singleton {
     // Interruptor global (v1: siempre on; en v3 sustituye a los widgets).
     property bool enabled: true
 
-    // Disposición por defecto. Alberto la reorganiza por JSON en
+    // v3: el wallpaper se apaga y el escritorio queda sobre fondo negro
+    // (decisión D-1, restaurable). Poner a true devuelve el wallpaper; la paleta
+    // sigue saliendo de Colours.palette en cualquier caso.
+    property bool showWallpaper: false
+
+    // Disposición por defecto de la v3 (variante D). Alberto la afina por JSON en
     // ~/.config/caelestia/solarsystem.json (mismo formato).
     //
-    //  - "config": el sol de configuración. Al clicar (v2) lleva a los ajustes
-    //    de dispositivos / LEDs. Las tres zonas LED orbitan a su alrededor.
-    //  - "laura": la IA de voz. Siempre en el cielo, tenue y lenta en reposo.
-    //  - "music": la música como AGUJERO NEGRO, lejos de todo. Los tres
-    //    periféricos con batería real orbitan aquí (séquito tipo-S).
+    //  - "music": la música como AGUJERO NEGRO masivo, clavado en la esquina
+    //    superior derecha, saliéndose de cuadro. No traslada; sólo rota.
+    //  - "config": sol SECUNDARIO del binario. Ancla y (futuro) objetivo de clic
+    //    para los ajustes de dispositivos. Los dispositivos conectados lo orbitan.
+    //  - "laura": sol PRIMARIO del binario (mayor, con prominencias). Los agentes
+    //    la orbitan. El baricentro Laura↔Config está ANCLADO en pantalla (no
+    //    deriva alrededor del agujero — decisión D-2).
     //
-    //  NOTA DE DISEÑO (pendiente de Alberto, ver artifact 6935dde1): la v1.5
-    //  propone devolver la música a sol dominante y bajar "config" a planeta
-    //  interior. Mientras no lo confirme, se mantiene la disposición actual y
-    //  solo se completan los cuerpos.
+    //  Las zonas LED NO se dibujan en esta tanda (D-5); el adaptador se queda.
+    //  La reactividad (Laura se aviva al estar activa) es de una tanda posterior
+    //  (D-7): Laura no lleva dimSignal.
     readonly property var defaultConfig: ({
         anchors: [
             {
-                id: "config", label: "Configuración", kind: "sun", color: "primary",
-                motion: { kind: "orbit", around: "barycenter", orbit: 28, ecc: 0.45, phase: 0, speed: 0.18 },
-                baseSize: 17, baseGlow: 24
+                id: "music", label: "Música", kind: "blackhole",
+                motion: { kind: "fixed", fx: 1.02, fy: -0.04 }, rFrac: 0.24
             },
             {
-                id: "laura", label: "Laura", kind: "sun", color: "secondary",
-                motion: { kind: "orbit", around: "barycenter", orbit: 54, ecc: 0.45, phase: 3.14159, speed: 0.18 },
-                baseSize: 12, baseGlow: 12,
-                dimSignal: "lauraActive"
+                id: "config", label: "Configuración", kind: "sun", role: "secondary",
+                rFrac: 0.035
             },
             {
-                id: "music", label: "Música", kind: "blackhole", color: "primary",
-                motion: { kind: "fixed", fx: 0.88, fy: 0.26 },
-                baseSize: 15,
-                sizeSignal: "music"
+                id: "laura", label: "Laura", kind: "sun", role: "primary",
+                rFrac: 0.045
             }
         ],
         bodies: [
-            // --- tres zonas LED, séquito de "config" ---
-            {
-                id: "led-magichome", kind: "planet", anchor: "config", color: "secondary",
-                orbit: 30, ecc: 0.35, phase: 1.0, speed: 0.7, baseSize: 4.5,
-                activitySignal: "led:magichome"
-            },
-            {
-                id: "led-akko", kind: "planet", anchor: "config", color: "alt",
-                orbit: 38, ecc: 0.35, phase: 3.1, speed: 0.55, baseSize: 4,
-                activitySignal: "led:akko"
-            },
-            {
-                id: "led-base", kind: "planet", anchor: "config", color: "belt",
-                orbit: 46, ecc: 0.35, phase: 5.0, speed: 0.45, baseSize: 4,
-                activitySignal: "led:base"
-            },
-            // Los tres periféricos con batería real son cuerpos dinámicos: solo
-            // aparecen si están conectados (ver _deviceBodies). Un periférico sin
-            // señal real se omite, no se pinta un punto gris (principio 5).
+            // Agentes (séquito de Laura) y dispositivos con batería real (séquito
+            // de Config) son cuerpos DINÁMICOS: sólo aparecen si hay señal real
+            // (ver _terminalBodies / _deviceBodies). Un cuerpo sin señal no se
+            // pinta (principio 5).
 
             // --- cinturón circumbinario de tareas ---
             {
-                id: "tasks", kind: "belt", anchor: "barycenter", color: "belt",
-                orbit: 124, ecc: 0.5, phase: 0, speed: 0.05, baseSize: 2,
+                id: "tasks", kind: "belt", anchor: "barycenter", rxFrac: 0.14,
                 activitySignal: "tasks"
             }
         ]
@@ -97,14 +82,14 @@ Singleton {
         return { anchors: base.anchors || [], bodies: bodies };
     }
 
-    // Periféricos: un cuerpo por dispositivo CONECTADO, séquito del ancla
-    // "music". El nivel real llega por la señal batt:<id>.
+    // Dispositivos: un cuerpo por periférico CONECTADO, séquito del sol de
+    // Configuración. Tamaño y brillo = % de batería real; aro rojo si < 20 %.
     function _deviceBodies() {
         const b = root._batt || {};
         const specs = [
-            { id: "headset", orbit: 26, phase: 0.4, speed: 0.9 },
-            { id: "mouse", orbit: 38, phase: 2.6, speed: 0.7 },
-            { id: "keyboard", orbit: 50, phase: 4.6, speed: 0.55 }
+            { id: "headset", orbitK: 2.0, phase: 0.4, period: 80 },
+            { id: "mouse", orbitK: 2.9, phase: 2.6, period: 88 },
+            { id: "keyboard", orbitK: 3.7, phase: 4.6, period: 96 }
         ];
         const out = [];
         for (let i = 0; i < specs.length; i++) {
@@ -112,8 +97,8 @@ Singleton {
             if (typeof b[s.id] !== "number")
                 continue; // desconectado: se omite
             out.push({
-                id: "dev-" + s.id, kind: "planet", anchor: "music", color: "alt",
-                orbit: s.orbit, ecc: 0.4, phase: s.phase, speed: s.speed, baseSize: 5,
+                id: "dev-" + s.id, kind: "planet", anchor: "config",
+                orbitK: s.orbitK, phase: s.phase, period: s.period,
                 activitySignal: "batt:" + s.id,
                 alertSignal: "battLow:" + s.id,
                 sizeSignal: "batt:" + s.id
@@ -225,23 +210,23 @@ Singleton {
     }
 
     // ---------- Adaptador: agentes / terminales (Agents.qml) ----------
+    // Un satélite por sesión de Claude/Antigravity, séquito de Laura. En curso →
+    // brillante, con anillo de actividad, órbita más rápida y cerrada.
+    // Completado → tenue, órbita más lenta y más abierta. 0 agentes → 0 cuerpos.
     function _terminalBodies() {
         const running = Agents.runningAgents || [];
         const done = Agents.completedAgents || [];
         const out = [];
         let idx = 0;
         const add = (a, isRunning) => {
-            const lane = idx % 2;
+            const lane = idx % 3;
             out.push({
                 id: "term:" + (a.id || ("t" + idx)),
                 kind: "planet",
                 anchor: "laura",
-                color: /antigrav/i.test(a.name || "") ? "belt" : "alt",
-                orbit: 24 + lane * 16,
-                ecc: 0.42,
                 phase: (idx * 2.399) % (2 * Math.PI),
-                speed: (lane ? 1.2 : 1.9) * (isRunning ? 1 : 0.6),
-                baseSize: isRunning ? 3.2 : 2.4,
+                orbitK: isRunning ? (2.1 + lane * 0.85) : (3.4 + lane * 1.0),
+                period: isRunning ? (46 + lane * 7) : (118 + lane * 12),
                 ring: isRunning,
                 activitySignal: "term:" + (a.id || ("t" + idx))
             });
