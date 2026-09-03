@@ -117,6 +117,29 @@ final de `QQuickItem`). El uniform en el shader es `focusAmt`.
 
 ## 3. Qué falta / qué está mal (EN ORDEN DE PRIORIDAD)
 
+### 3.0 Regresión de CPU del Repeater de satélites ✅ RESUELTO (2026-09-03, commit `74a988a`)
+
+Tras el Frente A (satélites como `Repeater` de `ShaderEffectSource`) el shell
+subió de ~48 % a ~57 % de un núcleo **con 100 cuerpos de prueba**. Causa: cada
+`ShaderEffectSource` iba con `live: true` (defecto) → repintaba su render-target
+CADA frame aunque la textura de origen es fija (100 FBO/frame); y cada delegado
+tenía 2 bindings por frame con `Math.sin(root._t*…)` + string `rgba()` (aro de
+alerta, anillo de actividad) que corrían 60×/s por cuerpo aunque invisibles.
+Arreglo: `live: false` + `scheduleUpdate()` puntual; aro y anillo detrás de
+`Loader { active }`; los pulsos a propiedades de root a ~20 fps y sólo si hay
+cuerpo que los use. **Medido: 100 cuerpos 57 %→12 %; reposo real (0 agentes)
+7.6 %; con 4 agentes 9.7 %. Ya no sube al añadir cuerpos.**
+
+### 3.0b Disposición seleccionable — 3 variantes (2026-09-03, commit `f5ba2cc`)
+
+`Sim.js` → `D.layoutVariant` (1|2|3). 1 conservadora (activa por defecto), 2
+aprovecha el hueco (baricentro abajo-izquierda), 3 diagonal completa. Períodos
+escalados con la separación (velocidad angular px/s constante). Trazas de órbita
+con estela de cometa. **Capturas de las 3 PENDIENTES**: `grim` cuelga por el
+gotcha #1 (eDP-2 en x=-3840); tras reiniciar/re-enchufar el monitor, ejecutar
+`scratchpad/capturar-variantes.sh` (o el equivalente de §4.7) para generar
+`composicion-v{1,2,3}.png` y que Alberto elija.
+
 ### 3.1 «Se ve petado» / va lento — RENDIMIENTO ✅ RESUELTO (2026-09-03, commit `ba7a4fa`)
 
 **Medido en limpio tras el reinicio: 15.1 % → 4.7 % de un núcleo** (objetivo del
