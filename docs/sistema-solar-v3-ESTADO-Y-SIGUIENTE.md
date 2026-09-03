@@ -117,12 +117,28 @@ final de `QQuickItem`). El uniform en el shader es `focusAmt`.
 
 ## 3. Qué falta / qué está mal (EN ORDEN DE PRIORIDAD)
 
-### 3.1 «Se ve petado» / va lento — RENDIMIENTO (bloqueante)
+### 3.1 «Se ve petado» / va lento — RENDIMIENTO ✅ RESUELTO (2026-09-03, commit `ba7a4fa`)
 
-Alberto lo nota lento incluso con el shader. Medido (con la máquina MUY cargada
-por otros agentes + spotify + vesktop, así que la cifra no es limpia):
+**Medido en limpio tras el reinicio: 15.1 % → 4.7 % de un núcleo** (objetivo del
+diseño §6.8: ≤ ~5 %). El sistema solar ya no añade nada medible sobre la base
+del shell. Qué se hizo:
+- `sun()`: corte temprano `if (rn > 3.4) return`. Los soles miden ~40-50 px; sin
+  el return, el bucle de prominencias + los `pow` de corona corrían para CADA
+  píxel de la pantalla, dos veces. **El mayor ahorro.**
+- `blackHole()`: corte temprano `if (dS > 4.6) return` tras el resplandor
+  exterior — salta fbm + anillo + labio + jet en la mayoría de la pantalla.
+- `starfield()`: la rama de lente (2 `atan`/estrella) sólo si el píxel está a
+  < 2.1R del agujero. Celda 46 → 54 px.
+- `fbm` 4 → 3 octavas. Tic del shader 20 → 10 fps. Ticker de posiciones 2 → 1 fps.
+- Se probó bajar la resolución del shader con `layer.textureSize` (0.62x): **no
+  compensó** (el RTT+blit costaba más que lo ahorrado con el shader ya recortado).
+  Revertido.
+
+<details><summary>Cifras históricas (máquina cargada, antes del fix)</summary>
+
 - línea base del shell: ~8-12 %
-- con el sistema solar: ~15-19 %  → **añade ~5-8 %** de un núcleo.
+- con el sistema solar: ~15-19 %  → añadía ~5-8 % de un núcleo.
+</details>
 
 El `ShaderEffect` a pantalla completa (1920×1080) refrescándose a ~20 fps cuesta
 más de lo esperado en esta máquina **multi-GPU** — probablemente el hilo de
@@ -145,16 +161,29 @@ ya costaba ~12-18 %.
    Canvas otra vez (pero con caché offscreen para que no cuesten).
 6. Comprobar `QSG_RENDER_LOOP` — el shell fuerza `threaded`. Probar `basic`.
 
-### 3.2 El agujero negro del shader perdió detalle (alto)
+### 3.2 El agujero negro del shader perdió detalle ✅ MEJORADO (2026-09-03, commit `4b23c35`)
 
-Comparado con la versión Canvas (`docs/sistema-solar-v3-mockup/harness-v3.html`
-y el commit `d0b5d44`, función `_drawBlackHole` en `SolarSystem.qml` de entonces),
-el shader lo pinta **plano**: un «chorro» salmón sin **horizonte de sucesos
-visible**, sin **anillo de fotones brillante**, sin **gradiente de temperatura**
-del disco (blanco caliente → ámbar → rojo profundo), sin bandeado. Lee como un
-cometa, no como un agujero negro.
+Antes: un «chorro» salmón plano. Ahora el `solarfield.frag` (parte del agujero):
+- **Bandeado concéntrico** del disco: dos frecuencias de aros (`rD·23` + `rD·61`)
+  rotas por el fbm. Es lo que lo hace leer como disco de acreción y no mancha.
+- **Gradiente de temperatura real**: labio interno blanco-caliente → ámbar
+  (`m3primary`) → rojo profundo (`m3error` oscurecido), con las alfas del tramo
+  medio/exterior subidas para que el rojo se vea.
+- **Anillo de fotones** fino, alpha .95, casi blanco puro en el lado que se
+  acerca (Doppler). Dibuja la silueta del horizonte (que aquí cae casi entero
+  fuera de cuadro por la composición D — centro en `(1.02W, -0.04H)`).
+- Halo lensado «Gargantua» más marcado, labio ISCO más intenso.
 
-**Qué hacer:** otra pasada al `solarfield.frag` SOLO en la parte del agujero.
+Captura de referencia: `docs/sistema-solar-v3-mockup/` (regenerar) o
+`scratchpad/bh-v3.png` de la sesión.
+
+**Si se quiere seguir puliendo** (menor prioridad): el horizonte negro se ve
+poco porque la composición lo saca de cuadro; se podría acercar el centro a
+`~(0.96W, 0.02H)` para que se vea el disco negro elíptico como en la variante D.
+Es cambio de composición → decisión de Alberto. Pasada original de referencia:
+`git show d0b5d44:.../SolarSystem.qml` (`_drawBlackHole`).
+
+**Qué hacer si hace falta otra pasada:** al `solarfield.frag` SOLO en la parte del agujero.
 Referencia de calidad: la versión Canvas (git `d0b5d44:configs/quickshell/caelestia/modules/background/solarsystem/SolarSystem.qml`,
 función `_drawBlackHole`) y el harness. Capas de la spec §4.1: resplandor
 exterior, halo lensado SOBRE el horizonte, horizonte negro puro, anillo de
@@ -243,6 +272,22 @@ Períodos actuales en `Sim.js` (constante `D`): binario 220 s, agentes en curso
    repo. `git fetch` a menudo, commitear pronto (`git add -A` del otro puede
    barrer tu working tree). Reparto: Claude = `rgb/`, `configs/quickshell/`,
    `docs/`, etc.
+
+9. **Arrancar el shell desde un agente: `qs -c caelestia -n -d` TIENE QUE IR
+   SOLO en su propia llamada de shell**, con la salida al terminal (no a un
+   fichero, no por una tubería), seguido sólo de `sleep 6; pgrep -xc qs`. Si se
+   encadena tras `cd`/`cp`/`pkill` en el mismo comando, o se redirige/pipea su
+   salida, el daemon arranca, carga la config («Configuration Loaded») y **muere
+   al instante** (el grupo de procesos se limpia al volver el comando en
+   primer plano). Patrón que funciona, en DOS llamadas:
+   ```
+   # llamada 1: limpiar
+   pkill -9 -x qs; pkill -9 -f quickshell; sleep 2.5; rm -rf ~/.cache/quickshell/qmlcache
+   # llamada 2, ella sola:
+   qs -c caelestia -n -d 2>&1; sleep 6; pgrep -xc qs
+   ```
+   `caelestia shell -d` hace exactamente ese `qs ... -d` por dentro (ver
+   `/usr/lib/python3.14/site-packages/caelestia/subcommands/shell.py`).
 
 ---
 
