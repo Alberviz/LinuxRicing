@@ -77,23 +77,34 @@ sitios.**
   (§6.9); y como el modo Laura congela/oscurece todo, la GPU queda libre para la
   inferencia de Laura justo cuando hace falta.
 
-## Estado de implementación (2026-09-03) — HECHO Y VERIFICADO
+## Estado de implementación (2026-09-03) — EN CURSO, traspaso a sesión limpia
 
-Diseño **hecho en el harness, portado a QML y verificado en el escritorio real**
-(`docs/sistema-solar-v3-mockup/real-escritorio.png`). Renderiza idéntico al
-harness. Carga limpia (`Configuration Loaded`, sin warnings QML nuevos), 1
-instancia de `qs`. Coste sobre la línea base del shell: **+~0.4 % en reposo**,
-**+~4 % con un agente en curso** (~2 fps), **+~5 % con música** (~7 fps).
+**Traspaso completo: `docs/sistema-solar-v3-ESTADO-Y-SIGUIENTE.md`.**
 
-> Hubo un bloqueo largo: el compositor perdió la asociación monitor↔GPU tras un
-> hotplug de monitor externo (`grim` colgaba, ningún `Canvas` del shell pintaba).
-> **Alberto reenchufó el equipo y se recuperó.** Si reaparece el síntoma
-> (capturas cuelgan / Canvas no pinta con el shell por lo demás funcionando), es
-> el estado de monitores de Hyprland, no el código.
+1. **Canvas 2D** (variante D, agujero + soles + estrellas + capa fina): hecho,
+   portado a QML, **verificado en el escritorio real** tras el reenchufe del
+   monitor (`real-escritorio.png`). Coste ~+4 % con un agente. Commits hasta `86fdae4`.
+2. **Movimiento**: Alberto lo veía «a tirones» y «recorre demasiado espacio». Se
+   pasó a animar SIEMPRE (no gateado a actividad) y ~2-3× más lento (`d0b5d44`).
+3. **Modo Laura activa** (D-12): cableado (`b81e5b5`). Congela + oscurece + Laura
+   brilla latiendo con la voz. Sin probar en vivo.
+4. **Fondo entero a shader GPU** (D-13, `SolarField` + `solarfield.frag`):
+   integrado (`e055cfd` + `954c08e`). **Renderiza** (`real-shader-fondo.png`),
+   composición correcta, soles bien.
+
+**Pendiente (bloqueante) — el equipo se reinicia para ver si ayuda:**
+- **Sigue «petado»/lento.** El `ShaderEffect` a pantalla completa cuesta ~+5-8 %
+  de CPU en esta máquina multi-GPU (el hilo de render se bloquea esperando GPU,
+  misma familia de fallo que tumbaba `grim`). Medir en limpio tras el reinicio;
+  bajar fps del shader / recortar el `.frag` / dimensionarlo solo a la caja del
+  agujero.
+- **El agujero negro del shader perdió detalle** vs la versión Canvas: plano, sin
+  horizonte visible ni anillo de fotones ni gradiente de temperatura. Otra pasada
+  al `solarfield.frag`.
 
 Fuera de esta tanda (van después): zonas LED como cuerpos (D-5), interacción
-(hover/clic/congelar), reactividad (Laura se aviva al hablarle), visualizador de
-música en tiempo real. La vista ya expone `contentBounds` para la región de input.
+(hover/clic/congelar), visualizador de música en tiempo real. La vista ya expone
+`contentBounds` para la región de input.
 
 ## Historial
 
