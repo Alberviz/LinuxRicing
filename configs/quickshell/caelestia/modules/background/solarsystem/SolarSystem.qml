@@ -162,22 +162,9 @@ Item {
         }
     }
 
-    // ---------------- Cinturón circumbinario (spec §2.4 — muy tenue) ----------------
-    function _drawBelt(ctx, L) {
-        const B = L.belt;
-        ctx.save();
-        ctx.translate(B.cx, B.cy);
-        ctx.rotate(B.tilt);
-        for (let i = 0; i < B.n; i++) {
-            const a = i / B.n * 2 * Math.PI + B.spin + Math.sin(i * 2.7) * 0.18;
-            const jj = 1 + Math.sin(i * 5.3) * 0.09;
-            const px = Math.cos(a) * B.rx * jj, py = Math.sin(a) * B.ry * jj;
-            ctx.fillStyle = root._a(root._lit(root.colBelt, 0.35), 0.20 + 0.22 * ((i * 7) % 3) / 2);
-            const sz = (i % 5 === 0) ? 2.2 : 1.5;
-            ctx.fillRect(px - sz / 2, py - sz / 2, sz, sz);
-        }
-        ctx.restore();
-    }
+    // El cinturón circumbinario (spec §2.4) lo pinta el shader desde v3.1 —
+    // procedural en la GPU. Antes era un bucle Canvas de hasta 100 partículas
+    // (con string de color por partícula) que saturaba el hilo de la GUI.
 
     // ===================== FONDO (shader GPU, D-13) =====================
     // Agujero negro + los dos soles + campo de estrellas + lente, per-píxel en
@@ -194,6 +181,7 @@ Item {
         colError: root.colError
         colVoid: root.colVoid
         colInk: root.colInk
+        colBelt: root.colBelt
     }
 
     // ===================== CAPA FINA (cinturón + órbitas + satélites) =====================
@@ -218,7 +206,9 @@ Item {
             if (!L) return;
             ctx.translate(-x, -y);          // coords del Item completo
             ctx.globalAlpha = root._dimK;   // se atenúa entero en foco-Laura
-            root._drawBelt(ctx, L);
+            // El cinturón ya NO se pinta aquí: lo hace el shader (SolarField),
+            // procedural en la GPU. Era el bucle de ~100 partículas con creación
+            // de strings por partícula lo que saturaba el hilo de la GUI.
             root._drawOrbits(ctx, L);
             for (let i = 0; i < L.bodies.length; i++) {
                 const b = L.bodies[i];

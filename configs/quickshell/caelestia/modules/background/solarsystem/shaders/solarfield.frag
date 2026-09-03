@@ -42,11 +42,18 @@ layout(std140, binding = 0) uniform buf {
     vec2  sun0Pos;      // px — Configuración
     vec2  sun1Pos;      // px — Laura
 
+    vec2  beltCenter;  // px — baricentro del binario (fijo)
+    vec2  beltRadii;   // px — (rx, ry) de la elipse del cinturón de tareas
+    float beltTilt;    // rad
+    float beltSpin;    // rad — giro acumulado (derivado de time)
+    float beltDensity; // 0..1 — crece con el nº de tareas
+
     vec4  colPrimary;   // rol m3primary  (disco, Configuración)
     vec4  colLaura;     // rol m3tertiaryFixedDim (Laura)
     vec4  colError;     // rol m3error    (borde exterior del disco)
     vec4  colVoid;      // horizonte de sucesos (darker(m3surface,3))
     vec4  colInk;       // rol m3onSurface (estrellas)
+    vec4  colBelt;      // rol m3outlineVariant (cinturón)
 };
 
 // ===SHADER BODY===
@@ -121,6 +128,34 @@ void starfield(inout vec4 acc, vec2 frag, vec2 bhC, float R, vec3 ink){
             over(acc, sc, pt * (0.14 + b*0.55));
         }
     }
+}
+
+// ------------------------------------------------------------------ cinturón de tareas
+// Anillo de polvo circumbinario alrededor del baricentro FIJO (spec §2.4 — muy
+// tenue). Procedural, sin bucle de partículas: banda elíptica con grumos de
+// ruido que gira lento. Coordenadas continuas (cos/sin del azimut girado), nada
+// de `atan` crudo — dejaría un radio-costura. Gateado: fuera de la banda, sale.
+void belt(inout vec4 acc, vec2 frag, vec2 c, vec2 rad, float tilt, float spin,
+          float density, vec3 col)
+{
+    if (density <= 0.001) return;
+    vec2 rel = frag - c;
+    float ct = cos(-tilt), st = sin(-tilt);
+    vec2 p  = vec2(rel.x*ct - rel.y*st, rel.x*st + rel.y*ct);
+    vec2 q  = vec2(p.x / max(rad.x, 1.0), p.y / max(rad.y, 1.0));
+    float rr = length(q);
+    float bandv = smoothstep(0.34, 0.02, abs(rr - 1.0));    // hilo fino alrededor de rr≈1
+    if (bandv <= 0.001) return;
+    // dirección unitaria GIRADA por el spin → al recorrer el anillo traza un
+    // círculo en el espacio de ruido: variación suave, sin púas ni costura.
+    float cs = cos(spin), sn = sin(spin);
+    vec2 d = vec2(q.x*cs - q.y*sn, q.x*sn + q.y*cs) / max(rr, 1e-3);
+    float n1 = fbm(vec2(d.x*6.0, d.y*6.0));
+    float n2 = fbm(vec2(d.x*17.0 + 3.1, d.y*17.0 - 1.7));
+    // perfil radial suave (más denso en el centro del hilo) + grumos de polvo
+    float radial = exp(-pow((rr - 1.0) / 0.16, 2.0));
+    float dust = radial * (0.30 + 0.70*n1) * (0.35 + 0.65*n2);
+    over(acc, lit(col, 0.42), dust * density * 0.085);
 }
 
 // ------------------------------------------------------------------ agujero negro
@@ -200,22 +235,21 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
     float snAz = q.y / ql;                    // sin(azimut), continuo en todo el disco
     float csAz = q.x / ql;                    // cos(azimut), continuo
     float approach = 0.5 + 0.5*cos(thetaD - beam);
-    float beamMul  = mix(0.45, 2.1, pow(approach, 2.2));            // Doppler beaming ~3-4x
+    float beamMul  = mix(0.60, 1.65, pow(approach, 2.0));          // Doppler beaming — más contenido
     float turb     = fbm(vec2(rD*3.4 + csAz*1.6, snAz*3.0 + time*0.12));
-    // bandeado concéntrico: aros finos de densidad que fluyen despacio. Es la
-    // textura que distingue «disco de acreción» de «mancha»: la referencia
-    // (variante D) tiene muchos aros finos. Dos frecuencias: aros principales +
-    // una modulación más fina, ambas rotas por el fbm para que no sea un patrón.
-    float bands    = 0.82 + 0.13*sin(rD*23.0 + turb*6.0 + snAz*1.1 - time*0.30)
-                          + 0.05*sin(rD*61.0 - turb*4.0 + time*0.5);
-    float turbMul  = clamp((1.0 + (0.16 + music*0.34)*(turb - 0.5)*2.0) * bands, 0.30, 1.9);
+    // bandeado concéntrico: aros finos de densidad que fluyen despacio. Amplitud
+    // BAJA — Alberto: «los aros están extra saturados». Dos frecuencias rotas
+    // por el fbm para que no sea un patrón.
+    float bands    = 0.88 + 0.08*sin(rD*23.0 + turb*6.0 + snAz*1.1 - time*0.30)
+                          + 0.03*sin(rD*61.0 - turb*4.0 + time*0.5);
+    float turbMul  = clamp((1.0 + (0.11 + music*0.28)*(turb - 0.5)*2.0) * bands, 0.45, 1.45);
     // rampa interior ANCHA (fN 0→0.10) para que el labio del disco no sea una
     // línea recta dura sobre el fondo casi-de-canto; corte exterior largo.
     float diskEdge = smoothstep(0.0, 0.10, fN) * smoothstep(1.0, 0.58, fN);
-    // emisión: color de temperatura + bloom blanco-caliente SÓLO pegado al labio
-    // interno (fN < ~0.2), sin lavar el resto del disco hacia blanco.
-    vec3  emit  = mix(tcol, lit(colP, 0.96), pow(smoothstep(0.20, 0.0, fN), 1.6) * 0.72);
-    float diskA = talpha * diskEdge * beamMul * turbMul * 1.4;
+    // emisión: color de temperatura + un bloom blanco-caliente CONTENIDO pegado
+    // al labio interno (fN < ~0.18), sin lavar el disco hacia blanco.
+    vec3  emit  = mix(tcol, lit(colP, 0.92), pow(smoothstep(0.18, 0.0, fN), 1.8) * 0.5);
+    float diskA = talpha * diskEdge * beamMul * turbMul * 1.02;
 
     // 3. disco de acreción — UNA sola pasada. Cualquier peso que dependa de
     //    `pr.y` (dividir atrás/delante) deja una arruga recta en un disco casi de
@@ -337,6 +371,9 @@ vec4 render(vec2 frag)
 
     // estrellas
     starfield(acc, frag, bhCenter, bhRadius, colInk.rgb);
+
+    // cinturón de tareas circumbinario
+    belt(acc, frag, beltCenter, beltRadii, beltTilt, beltSpin, beltDensity, colBelt.rgb);
 
     // agujero negro
     vec4 bh = blackHole(frag, bhCenter, bhRadius, bhTilt, bhSpin,

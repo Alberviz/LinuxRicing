@@ -42,6 +42,7 @@ Item {
     property color colError: "#f97758"
     property color colVoid: "#060403"
     property color colInk: "#f8e1d6"
+    property color colBelt: "#54453d"
 
     // Posiciones de los soles en px del Item — expuestas para la capa fina de
     // satélites/cinturón que va encima (así no recalcula la órbita del binario).
@@ -60,6 +61,17 @@ Item {
     // layout de Sim (que se recalcula a ~10 fps): así el beaming/Doppler del
     // disco es fluido aunque las posiciones de los soles se refresquen despacio.
     readonly property real _bhSpin: (2 * Math.PI / 150) * time
+
+    // Cinturón de tareas: geometría del layout de Sim (baricentro FIJO, radios),
+    // pero el GIRO se deriva del `time` continuo → rota fluido a 60 fps aunque
+    // Sim se recalcule despacio. Período 1400 s (constante D.beltPeriodFrac).
+    readonly property point _beltCenter: _l && _l.belt ? Qt.point(_l.belt.cx, _l.belt.cy)
+                                                       : Qt.point(width * 0.30, height * 0.47)
+    readonly property size _beltRadii: _l && _l.belt ? Qt.size(_l.belt.rx, _l.belt.ry)
+                                                     : Qt.size(width * 0.14, width * 0.14 * 0.42)
+    readonly property real _beltTilt: _l && _l.belt ? _l.belt.tilt : -0.05
+    readonly property real _beltSpin: (2 * Math.PI / 1400) * time
+    readonly property real _beltDensity: _l && _l.belt && _l.belt.density !== undefined ? _l.belt.density : 0.28
 
     ShaderEffect {
         anchors.fill: parent
@@ -85,10 +97,17 @@ Item {
         property point sun0Pos: root.confPos
         property point sun1Pos: root.lauraPos
 
+        property point beltCenter: root._beltCenter
+        property size beltRadii: Qt.size(root._beltRadii.width, root._beltRadii.height)
+        property real beltTilt: root._beltTilt
+        property real beltSpin: root._beltSpin
+        property real beltDensity: root._beltDensity
+
         property color colPrimary: root.colPrimary
         property color colLaura: root.colLaura
         property color colError: root.colError
         property color colVoid: root.colVoid
         property color colInk: root.colInk
+        property color colBelt: root.colBelt
     }
 }

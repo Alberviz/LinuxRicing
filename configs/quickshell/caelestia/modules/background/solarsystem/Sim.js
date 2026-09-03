@@ -173,7 +173,11 @@ function computeLayout(state, geom) {
         ry: (beltCfg && beltCfg.rxFrac != null ? beltCfg.rxFrac : 0.14) * w * 0.42,
         tilt: D.binTilt + 0.1,
         n: Math.round(28 + tasks * 72),
-        spin: (2 * Math.PI / D.beltPeriodFrac) * t
+        spin: (2 * Math.PI / D.beltPeriodFrac) * t,
+        // Densidad para el shader (el cinturón lo pinta la GPU desde v3.1). Suelo
+        // decorativo bajo para que la composición no quede vacía sin tareas;
+        // crece con la señal real `tasks`.
+        density: 0.10 + 0.90 * tasks
     };
 
     // --- Cajas del contenido, estables frame a frame (salen de constantes) ---
