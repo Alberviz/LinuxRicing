@@ -46,7 +46,13 @@ Item {
     property real _t: 0
 
     // ---- helpers de color (todo deriva de la paleta inyectada) ----
-    function _a(c, a) { return Qt.rgba(c.r, c.g, c.b, Math.max(0, Math.min(1, a))); }
+    // _a() produce el string "rgba(...)" que consume el Canvas (forma más
+    // compatible para fillStyle/strokeStyle/addColorStop). _lit/_dk/_mix operan
+    // sobre `color` para poder encadenarse.
+    function _a(c, a) {
+        return "rgba(" + Math.round(c.r * 255) + "," + Math.round(c.g * 255) + ","
+             + Math.round(c.b * 255) + "," + Math.max(0, Math.min(1, a)) + ")";
+    }
     function _lit(c, k) { return Qt.rgba(c.r + (1 - c.r) * k, c.g + (1 - c.g) * k, c.b + (1 - c.b) * k, 1); }
     function _dk(c, k) { return Qt.rgba(c.r * (1 - k), c.g * (1 - k), c.b * (1 - k), 1); }
     function _mix(a, b, t) { return Qt.rgba(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t, 1); }
@@ -69,7 +75,10 @@ Item {
         if (width <= 0 || height <= 0)
             return;
         root._layout = Sim.computeLayout({ t: root._t, values: root.values, config: root.config }, root._geom());
-        dynCanvas.requestPaint();
+        if (dynCanvas.available)
+            dynCanvas.requestPaint();
+        if (staticCanvas.available)
+            staticCanvas.requestPaint();
     }
 
     // ===================== CANVAS ESTÁTICO =====================
@@ -79,7 +88,13 @@ Item {
         renderTarget: Canvas.FramebufferObject
         antialiasing: true
 
-        function _repaintStatic() { requestPaint() }
+        // El Canvas puede volverse pintable DESPUÉS de que _recompute pida un
+        // pintado (durante el layout inicial available es false y la petición se
+        // pierde). Repintar en cuanto esté listo.
+        onAvailableChanged: if (available) requestPaint()
+        Component.onCompleted: if (available) requestPaint()
+
+        function _repaintStatic() { if (available) requestPaint() }
 
         onPaint: {
             const ctx = getContext("2d");
@@ -138,6 +153,9 @@ Item {
         id: dynCanvas
         renderTarget: Canvas.FramebufferObject
         antialiasing: true
+
+        onAvailableChanged: if (available) requestPaint()
+        Component.onCompleted: if (available) requestPaint()
 
         // Dimensionado a la caja del contenido (estable frame a frame porque sale
         // de constantes de composición, no de posiciones vivas).

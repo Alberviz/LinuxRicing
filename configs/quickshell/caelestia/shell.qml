@@ -7,6 +7,7 @@
 import "modules"
 import "modules/drawers"
 import "modules/background"
+import "modules/background/solarsystem"
 import "modules/areapicker"
 import "modules/rgbcontrol"
 import "modules/rebootdialog"
