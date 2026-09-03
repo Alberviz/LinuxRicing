@@ -1,18 +1,20 @@
 pragma ComponentBehavior: Bound
 
-// SolarSystem.qml — la VISTA de la v3 (variante D). Dos Canvas:
+// SolarSystem.qml — la VISTA de la v3 (variante D). TRES Canvas, cada uno con su
+// ritmo, para no tirar fill (spec §6.6-6.7):
 //
-//  · staticCanvas  — se pinta UNA vez (y sólo al cambiar tamaño o paleta):
-//    fondo negro, campo de estrellas, estrellas lensadas en arcos y el
-//    resplandor exterior del agujero negro. Son capas estáticas (spec §6.6).
-//  · dynCanvas     — se repinta cada tic (Timer gateado, 2-4 fps en reposo):
-//    disco de acreción, horizonte, anillo de fotones, jet, los dos soles con
-//    granulación y prominencias, los satélites y el cinturón. Dimensionado a la
-//    caja del contenido, no a 1920×1080 (spec §6.7).
+//  · staticCanvas — se pinta UNA vez (y sólo al cambiar tamaño o paleta): fondo
+//    negro, campo de estrellas, estrellas lensadas en arcos, resplandor exterior
+//    del agujero. Capas estáticas.
+//  · bhCanvas — el agujero negro (disco, horizonte, anillo de fotones, jet).
+//    Su giro tiene período ~30 s: se repinta a ~1 fps con actividad (cada 3er
+//    tic), no cada tic. Dimensionado a la caja del agujero.
+//  · dynCanvas — los dos soles, los satélites y el cinturón. Se repinta cada tic
+//    (Timer gateado, ~2 fps en reposo). Dimensionado a la caja del binario.
 //
-// Ningún color fijo: la paleta entra como propiedad y se ata a Colours.palette
-// (extraída del wallpaper). Los blancos calientes se derivan aclarando el rol.
-// El motor puro (Sim.js) calcula posiciones. Ver docs/sistema-solar-v3-DISENO.md.
+// Ningún color fijo: la paleta entra como propiedad y se ata a Colours.palette.
+// Los blancos calientes se derivan aclarando el rol. El motor puro (Sim.js)
+// calcula posiciones. Ver docs/sistema-solar-v3-DISENO.md.
 
 import QtQuick
 import "Sim.js" as Sim
@@ -26,7 +28,7 @@ Item {
 
     // Paleta (roles de Colours.palette.m3*). El motor nunca ve un hex.
     property color colPrimary: "#f7b999"       // disco del agujero, sol Configuración
-    property color colLaura: "#f8e19c"         // sol Laura (m3tertiary — decidido D-3)
+    property color colLaura: "#efd994"         // sol Laura (m3tertiaryFixedDim — D-9)
     property color colError: "#f97758"         // alerta de batería < 20 %
     property color colBelt: "#54453d"          // cinturón de tareas
     property color colInk: "#f8e1d6"           // estrellas
@@ -37,13 +39,15 @@ Item {
     property bool active: false                // ¿hay algo que animar? (música / agente en curso)
     property bool fastRate: false              // ~30 fps sólo con música
 
-    // Bounding box del contenido dinámico (para la tanda de interacción, D-7).
+    // Bounding box del contenido (para la región de input de la tanda de
+    // interacción, D-7).
     readonly property rect contentBounds: _layout
         ? Qt.rect(_layout.bounds.x, _layout.bounds.y, _layout.bounds.w, _layout.bounds.h)
         : Qt.rect(0, 0, width, height)
 
     property var _layout: null
     property real _t: 0
+    property int _tick: 0
 
     // ---- helpers de color (todo deriva de la paleta inyectada) ----
     // _a() produce el string "rgba(...)" que consume el Canvas (forma más
@@ -58,13 +62,36 @@ Item {
     function _mix(a, b, t) { return Qt.rgba(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t, 1); }
     readonly property color _hot: _lit(colPrimary, 0.86)
 
+    function _glow(ctx, x, y, inner, outer, col, a0) {
+        const g = ctx.createRadialGradient(x, y, inner, x, y, outer);
+        g.addColorStop(0, _a(col, a0));
+        g.addColorStop(1, _a(col, 0));
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(x, y, outer, 0, 2 * Math.PI);
+        ctx.fill();
+    }
+    // elipse por scale+arc (QML Canvas no tiene el ellipse de HTML5)
+    function _strokeEllipse(ctx, cx, cy, rx, ry, rot, a0, a1, style, lw) {
+        ctx.save();
+        ctx.translate(cx, cy);
+        if (rot) ctx.rotate(rot);
+        ctx.scale(1, ry / rx);
+        ctx.strokeStyle = style;
+        ctx.lineWidth = lw;
+        ctx.beginPath();
+        ctx.arc(0, 0, rx, a0, a1);
+        ctx.stroke();
+        ctx.restore();
+    }
+
     // ---- campo de estrellas determinista (se regenera sólo al cambiar tamaño) ----
     property var _stars: []
     function _seedStars() {
         const out = [];
         let s = 1337;
         const rnd = () => { s = (s * 1664525 + 1013904223) & 0x7fffffff; return s / 0x7fffffff; };
-        const n = Math.round(220 * Math.max(0.5, (width * height) / (1920 * 1080)));
+        const n = Math.round(200 * Math.max(0.5, (width * height) / (1920 * 1080)));
         for (let i = 0; i < n; i++) out.push({ x: rnd(), y: rnd(), b: rnd() });
         root._stars = out;
     }
@@ -75,11 +102,11 @@ Item {
         if (width <= 0 || height <= 0)
             return;
         root._layout = Sim.computeLayout({ t: root._t, values: root.values, config: root.config }, root._geom());
-        if (dynCanvas.available)
-            dynCanvas.requestPaint();
-        if (staticCanvas.available)
-            staticCanvas.requestPaint();
     }
+    function _paintStatic() { if (staticCanvas.available) staticCanvas.requestPaint(); }
+    function _paintBH()     { if (bhCanvas.available) bhCanvas.requestPaint(); }
+    function _paintDyn()    { if (dynCanvas.available) dynCanvas.requestPaint(); }
+    function _paintAll()    { _paintStatic(); _paintBH(); _paintDyn(); }
 
     // ===================== CANVAS ESTÁTICO =====================
     Canvas {
@@ -88,21 +115,17 @@ Item {
         renderTarget: Canvas.FramebufferObject
         antialiasing: true
 
-        // El Canvas puede volverse pintable DESPUÉS de que _recompute pida un
-        // pintado (durante el layout inicial available es false y la petición se
-        // pierde). Repintar en cuanto esté listo.
+        // El Canvas puede volverse pintable DESPUÉS de que se pida un pintado
+        // (durante el layout inicial available es false y la petición se pierde).
         onAvailableChanged: if (available) requestPaint()
         Component.onCompleted: if (available) requestPaint()
-
-        function _repaintStatic() { if (available) requestPaint() }
 
         onPaint: {
             const ctx = getContext("2d");
             ctx.reset();
             const w = width, h = height;
             const L = root._layout;
-            // fondo negro puro
-            ctx.fillStyle = "#000000";
+            ctx.fillStyle = "#000000";      // fondo negro puro (spec §2.6)
             ctx.fillRect(0, 0, w, h);
             if (!L) return;
             const bh = L.bh;
@@ -148,64 +171,26 @@ Item {
         }
     }
 
-    // ===================== CANVAS DINÁMICO =====================
+    // ===================== CANVAS DEL AGUJERO NEGRO =====================
     Canvas {
-        id: dynCanvas
+        id: bhCanvas
         renderTarget: Canvas.FramebufferObject
         antialiasing: true
-
         onAvailableChanged: if (available) requestPaint()
         Component.onCompleted: if (available) requestPaint()
 
-        // Dimensionado a la caja del contenido (estable frame a frame porque sale
-        // de constantes de composición, no de posiciones vivas).
-        x: root._layout ? root._layout.bounds.x : 0
-        y: root._layout ? root._layout.bounds.y : 0
-        width: root._layout ? root._layout.bounds.w : root.width
-        height: root._layout ? root._layout.bounds.h : root.height
-
-        // ---- helpers geométricos: elipse por scale+arc (QML no tiene el ellipse HTML5) ----
-        function _strokeEllipse(ctx, cx, cy, rx, ry, rot, a0, a1, style, lw) {
-            ctx.save();
-            ctx.translate(cx, cy);
-            if (rot) ctx.rotate(rot);
-            ctx.scale(1, ry / rx);
-            ctx.strokeStyle = style;
-            ctx.lineWidth = lw;
-            ctx.beginPath();
-            ctx.arc(0, 0, rx, a0, a1);
-            ctx.stroke();
-            ctx.restore();
-        }
+        x: root._layout ? root._layout.bhBounds.x : 0
+        y: root._layout ? root._layout.bhBounds.y : 0
+        width: root._layout ? root._layout.bhBounds.w : root.width
+        height: root._layout ? root._layout.bhBounds.h : root.height
 
         onPaint: {
             const ctx = getContext("2d");
             ctx.reset();
             const L = root._layout;
             if (!L) return;
-            // trabajamos en coordenadas del Item completo, pero el canvas está
-            // desplazado a la caja del contenido:
-            ctx.translate(-x, -y);
-
-            _drawBelt(ctx, L);
-            _drawOrbits(ctx, L);
+            ctx.translate(-x, -y);          // coords del Item completo
             _drawBlackHole(ctx, L);
-            _drawSun(ctx, L.suns[0], root.colPrimary, L.t, false);   // Config detrás
-            _drawSun(ctx, L.suns[1], root.colLaura, L.t, true);      // Laura encima
-            for (let i = 0; i < L.bodies.length; i++) {
-                const b = L.bodies[i];
-                _drawPlanet(ctx, b, b.kind === "device" ? root.colPrimary : root.colLaura, L.t);
-            }
-        }
-
-        function _glow(ctx, x, y, inner, outer, col, a0) {
-            const g = ctx.createRadialGradient(x, y, inner, x, y, outer);
-            g.addColorStop(0, root._a(col, a0));
-            g.addColorStop(1, root._a(col, 0));
-            ctx.fillStyle = g;
-            ctx.beginPath();
-            ctx.arc(x, y, outer, 0, 2 * Math.PI);
-            ctx.fill();
         }
 
         function _fillEllipticAnnulus(ctx, rInner, rOuter, style) {
@@ -287,7 +272,7 @@ Item {
             ctx.clip();
             for (let b = 0; b < 3; b++) {
                 const rr = R * (1.05 + b * 0.06);
-                _strokeEllipse(ctx, 0, -R * 0.16, rr, rr * flat * 2.4, 0,
+                root._strokeEllipse(ctx, 0, -R * 0.16, rr, rr * flat * 2.4, 0,
                                Math.PI * 1.08, Math.PI * 1.92,
                                root._a(root._mix(HOT, P, b / 2), 0.42 - b * 0.13),
                                R * (0.085 - b * 0.02));
@@ -352,6 +337,37 @@ Item {
             }
             ctx.restore();
         }
+    }
+
+    // ===================== CANVAS DEL BINARIO =====================
+    Canvas {
+        id: dynCanvas
+        renderTarget: Canvas.FramebufferObject
+        antialiasing: true
+        onAvailableChanged: if (available) requestPaint()
+        Component.onCompleted: if (available) requestPaint()
+
+        x: root._layout ? root._layout.binBounds.x : 0
+        y: root._layout ? root._layout.binBounds.y : 0
+        width: root._layout ? root._layout.binBounds.w : root.width
+        height: root._layout ? root._layout.binBounds.h : root.height
+
+        onPaint: {
+            const ctx = getContext("2d");
+            ctx.reset();
+            const L = root._layout;
+            if (!L) return;
+            ctx.translate(-x, -y);
+
+            _drawBelt(ctx, L);
+            _drawOrbits(ctx, L);
+            _drawSun(ctx, L.suns[0], root.colPrimary, L.t, false);   // Config detrás
+            _drawSun(ctx, L.suns[1], root.colLaura, L.t, true);      // Laura encima
+            for (let i = 0; i < L.bodies.length; i++) {
+                const b = L.bodies[i];
+                _drawPlanet(ctx, b, b.kind === "device" ? root.colPrimary : root.colLaura, L.t);
+            }
+        }
 
         // ---------------- Soles (spec §4.2) ----------------
         function _drawSun(ctx, s, col, t, prominences) {
@@ -359,8 +375,8 @@ Item {
             const op = 1 - (s.dim || 0);
             const breath = 1 + 0.04 * Math.sin(t * 0.7);
             // 1. corona (contenida para que el binario no se funda en un solo halo)
-            _glow(ctx, s.x, s.y, r * 0.3, r * 3.0 * breath, col, 0.11 * op);
-            _glow(ctx, s.x, s.y, r * 0.4, r * 1.6 * breath, col, 0.30 * op);
+            root._glow(ctx, s.x, s.y, r * 0.3, r * 3.0 * breath, col, 0.11 * op);
+            root._glow(ctx, s.x, s.y, r * 0.4, r * 1.6 * breath, col, 0.30 * op);
             // 2. fotosfera (gradiente radial descentrado — luz arriba-izquierda)
             const bg = ctx.createRadialGradient(s.x - r * 0.35, s.y - r * 0.35, r * 0.1, s.x, s.y, r);
             bg.addColorStop(0, root._a(root._lit(col, 0.9), op));
@@ -368,15 +384,15 @@ Item {
             bg.addColorStop(1, root._a(root._dk(col, 0.28), op));
             ctx.fillStyle = bg;
             ctx.beginPath(); ctx.arc(s.x, s.y, r, 0, 2 * Math.PI); ctx.fill();
-            // 3. granulación: muchas celdas pequeñas de bajo contraste, rotan muy despacio
+            // 3. granulación: celdas pequeñas de bajo contraste, rotan muy despacio
             ctx.save();
             ctx.beginPath(); ctx.arc(s.x, s.y, r, 0, 2 * Math.PI); ctx.clip();
             const gsp = t * 0.04;
-            for (let i = 0; i < 80; i++) {
+            for (let i = 0; i < 44; i++) {
                 const a = i * 2.399 + gsp;
                 const rr = r * (0.05 + 0.92 * Math.sqrt(((i * 37) % 100) / 100));
                 const gx = s.x + Math.cos(a) * rr, gy = s.y + Math.sin(a) * rr;
-                const gs = r * (0.05 + 0.06 * ((i * 53) % 100) / 100);
+                const gs = r * (0.06 + 0.07 * ((i * 53) % 100) / 100);
                 const shade = (i % 2) ? 0.05 : -0.045;
                 ctx.fillStyle = root._a(shade > 0 ? root._lit(col, shade * 3) : root._dk(col, -shade * 3), 0.18 * op);
                 ctx.beginPath(); ctx.arc(gx, gy, gs, 0, 2 * Math.PI); ctx.fill();
@@ -411,17 +427,15 @@ Item {
         function _drawPlanet(ctx, b, col, t) {
             const r = b.r;
             const base = b.alert > 0.5 ? root.colError : col;
-            // aro de alerta (batería < 20 %)
             if (b.alert > 0.5) {
                 const p = 0.5 + 0.5 * Math.sin(t * 3);
                 ctx.strokeStyle = root._a(root.colError, 0.3 + 0.5 * p);
                 ctx.lineWidth = 1.5;
                 ctx.beginPath(); ctx.arc(b.x, b.y, r + 4 * root._layout.scale, 0, 2 * Math.PI); ctx.stroke();
             }
-            // anillo de actividad (agente en curso)
             if (b.running) {
-                _glow(ctx, b.x, b.y, r * 0.5, r * 2.8, col, 0.28 + 0.2 * (0.5 + 0.5 * Math.sin(t * 1.5)));
-                _strokeEllipse(ctx, b.x, b.y, r * 1.9, r * 0.8, 0.5, 0, 2 * Math.PI,
+                root._glow(ctx, b.x, b.y, r * 0.5, r * 2.8, col, 0.28 + 0.2 * (0.5 + 0.5 * Math.sin(t * 1.5)));
+                root._strokeEllipse(ctx, b.x, b.y, r * 1.9, r * 0.8, 0.5, 0, 2 * Math.PI,
                                root._a(root._lit(col, 0.3), 0.5), 1);
             }
             // cuerpo con lado iluminado mirando a su ancla
@@ -433,7 +447,6 @@ Item {
             pg.addColorStop(1, root._a(root._dk(base, 0.55), 1));
             ctx.fillStyle = pg;
             ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, 2 * Math.PI); ctx.fill();
-            // limbo iluminado (dispersión en el lado que mira al sol)
             ctx.strokeStyle = root._a(root._lit(base, 0.6), 0.45);
             ctx.lineWidth = 1;
             ctx.beginPath(); ctx.arc(b.x, b.y, r, dir - 1.4, dir + 1.4); ctx.stroke();
@@ -445,7 +458,7 @@ Item {
                 const b = L.bodies[i];
                 if (b.kind === "agent" && !b.running) continue;
                 const rr = Math.hypot(b.x - b.hostx, (b.y - b.hosty) / 0.52);
-                _strokeEllipse(ctx, b.hostx, b.hosty, rr, rr * 0.52, 0, 0, 2 * Math.PI,
+                root._strokeEllipse(ctx, b.hostx, b.hosty, rr, rr * 0.52, 0, 0, 2 * Math.PI,
                                root._a(b.kind === "device" ? root.colPrimary : root.colLaura, 0.035), 1);
             }
         }
@@ -471,27 +484,53 @@ Item {
     // ===================== TIC =====================
     // Prohibido FrameAnimation { running: true }. El tic va por Timer gateado a
     // actividad real; en reposo PARA del todo y sólo se repinta al cambiar datos.
+    //
+    // Esta tanda es SÓLO el diseño: nada se anima rápido (spec §3, §6.4). Con
+    // actividad (agente en curso) el sistema va a ~2 fps; con música sube a ~7
+    // fps para que la turbulencia del disco reaccione, pero no a 30 — el
+    // visualizador en tiempo real es de una tanda posterior.
+    //
+    // El agujero negro (bhCanvas) se repinta 1 de cada 3 tics siempre: su giro
+    // tiene período ~30 s y el disco es lo más caro de pintar. La mitad del coste
+    // por frame se va en él.
     Timer {
         id: ticker
         repeat: true
         running: root.active && root.visible && !root.paused && !root.reduceMotion
-        interval: root.fastRate ? 33 : 320       // ~30 fps con música, ~3 fps en reposo
-        onRunningChanged: if (!running) root._recompute()   // asienta el último fotograma
+        interval: root.fastRate ? 140 : 480      // ~7 fps con música, ~2 fps con agente
+        onRunningChanged: if (!running) { root._recompute(); root._paintDyn(); root._paintBH(); }
         onTriggered: {
             root._t += interval / 1000;
+            root._tick++;
             root._recompute();
+            root._paintDyn();
+            // Con agente en curso el disco basta a ~0.7 fps (giro de período 30 s);
+            // con música sube a cada tic para que la turbulencia fluya.
+            if (root.fastRate || root._tick % 3 === 0)
+                root._paintBH();
         }
     }
 
-    // En reposo: un repintado único al cambiar datos, tamaño o paleta.
-    onValuesChanged: if (!ticker.running) _recompute()
-    onConfigChanged: if (!ticker.running) _recompute()
-    onWidthChanged: { _seedStars(); _recompute(); staticCanvas._repaintStatic(); }
-    onHeightChanged: { _seedStars(); _recompute(); staticCanvas._repaintStatic(); }
-    onColPrimaryChanged: { _recompute(); staticCanvas._repaintStatic(); }
-    onColLauraChanged: _recompute()
-    onColVoidChanged: _recompute()
-    onColInkChanged: staticCanvas._repaintStatic()
+    // En reposo: un repintado único al cambiar datos (coalescido). `values` y
+    // `config` son `var` computadas: producen una referencia NUEVA en cada cambio
+    // de dependencia aunque el contenido sea idéntico (p. ej. RgbConfig.devices
+    // re-emitiendo). Sin coalescer, eso repinta el sistema varias veces por
+    // segundo en reposo. El debounce lo baja a un repintado cuando se asienta.
+    Timer {
+        id: idleRepaint
+        interval: 350
+        onTriggered: if (!ticker.running) { root._recompute(); root._paintDyn(); root._paintBH(); }
+    }
+    onValuesChanged: if (!ticker.running) idleRepaint.restart()
+    onConfigChanged: if (!ticker.running) idleRepaint.restart()
+    onWidthChanged: { _seedStars(); _recompute(); _paintAll(); }
+    onHeightChanged: { _seedStars(); _recompute(); _paintAll(); }
+    onColPrimaryChanged: { _recompute(); _paintAll(); }
+    onColLauraChanged: { _recompute(); _paintDyn(); }
+    onColErrorChanged: { _recompute(); _paintDyn(); }
+    onColBeltChanged: _paintDyn()
+    onColVoidChanged: _paintBH()
+    onColInkChanged: _paintStatic()
 
     Component.onCompleted: { _seedStars(); _recompute(); }
 }

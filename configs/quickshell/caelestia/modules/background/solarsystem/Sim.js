@@ -169,22 +169,40 @@ function computeLayout(state, geom) {
         spin: (2 * Math.PI / D.beltPeriodFrac) * t
     };
 
-    // --- Bounding box del contenido dinámico (para la tanda de interacción, D-7) ---
+    // --- Cajas del contenido, estables frame a frame (salen de constantes) ---
+    // Se separan la del AGUJERO NEGRO y la del BINARIO: cada una va a su propio
+    // Canvas con su propio ritmo de repintado (el agujero, mucho más lento — su
+    // giro tiene período ~30 s). Pintar 1920×1080 de FBO por tic es tirar fill
+    // (spec §6.7); pintar el disco entero por tic siendo casi estático, también.
+    function clampBox(x0, y0, x1, y1, pad) {
+        var ax = Math.max(0, x0 - pad), ay = Math.max(0, y0 - pad);
+        return {
+            x: ax, y: ay,
+            w: Math.min(w, x1 + pad) - ax,
+            h: Math.min(h, y1 + pad) - ay
+        };
+    }
     var pad = 40 * S;
-    var minX = Math.min(bh.x - bh.R * 4.2, belt.cx - belt.rx - laura.r * 4);
-    var maxX = w;
-    var minY = 0;
-    var maxY = Math.max(bh.y + bh.R * 3.5, belt.cy + belt.ry + laura.r * 4);
-    var bounds = {
-        x: Math.max(0, minX - pad), y: Math.max(0, minY),
-        w: Math.min(w, maxX) - Math.max(0, minX - pad),
-        h: Math.min(h, maxY + pad) - Math.max(0, minY)
-    };
+    // El disco raking hacia abajo-izquierda: eje mayor a -28°, radio exterior 4·R.
+    var bhBounds = clampBox(bh.x - bh.R * 4.2, 0, w, bh.y + bh.R * 3.6, pad);
+    // Caja del binario alrededor del baricentro FIJO. Radio estable = máxima
+    // excursión orbital + alcance de los satélites + el cinturón. No usa
+    // posiciones vivas (si no, el Canvas se redimensionaría cada frame).
+    var binExc = sep * D.binK;
+    var binHalfX = Math.max(belt.rx, binExc + laura.r * 5) + pad;
+    var binHalfY = Math.max(belt.ry, binExc + laura.r * 5) + pad;
+    var binBounds = clampBox(bary.x - binHalfX, bary.y - binHalfY,
+                             bary.x + binHalfX, bary.y + binHalfY, 0);
+    // Unión (para la región de input de la tanda de interacción, D-7).
+    var bounds = clampBox(
+        Math.min(bhBounds.x, binBounds.x), Math.min(bhBounds.y, binBounds.y),
+        Math.max(bhBounds.x + bhBounds.w, binBounds.x + binBounds.w),
+        Math.max(bhBounds.y + bhBounds.h, binBounds.y + binBounds.h), 0);
 
     return {
         t: t, scale: S, music: music,
         bh: bh, bary: bary,
         suns: suns, bodies: bodies, belt: belt,
-        bounds: bounds
+        bhBounds: bhBounds, binBounds: binBounds, bounds: bounds
     };
 }
