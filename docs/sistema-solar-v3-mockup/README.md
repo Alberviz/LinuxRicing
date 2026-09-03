@@ -48,6 +48,7 @@ tareas pendientes → densidad del cinturón), `music` (0..1), `laura`
 - **`v3-harness-reposo.png`** — sin agentes ni dispositivos (0 satélites).
 - **`v3-harness-activo.png`** — 2 agentes + 1 completado, ratón+teclado, ratón con
   batería baja.
+- **`real-escritorio.png`** — captura del **escritorio real** (workspace vacío,
+  `grim`) con la v3 ya desplegada. Renderiza idéntico al harness.
 
-Se itera aquí y se re-porta a QML mientras la verificación en el escritorio real
-siga bloqueada (ver `docs/sistema-solar-v3-DISENO.md` §13).
+Para ajustes se itera aquí y se re-porta a QML (mismo API de Canvas).

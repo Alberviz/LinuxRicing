@@ -339,6 +339,7 @@ Config de disposición sigue siendo un JSON editable en
 | **D-8** | `SolarSystemLayer` se instancia como capa propia en `shell.qml` (no dentro de `Background`), y es **EL fondo**: `WlrLayer.Background`, opaco negro. `Background.qml` (sólo el reloj) baja a `WlrLayer.Bottom` transparente por encima. | La opción de la spec §5. Capa separada = menos acoplamiento; el reloj flota limpio sobre el sistema solar; el negro puro queda garantizado por la ventana, no por el compositor. |
 | **D-9** | Laura = `Colours.palette.m3tertiaryFixedDim` (oro apagado), no `m3tertiary`. Config = `m3primary`. | En el scheme *tonalspot* cálido actual, `m3tertiary` es casi blanco: no contrasta ni con el disco cálido ni con el núcleo blanco-caliente del agujero. `m3tertiaryFixedDim` da un oro que sí diferencia a Laura y colorea sus agentes frente a los dispositivos (peach) de Config. Cierra la duda abierta en D-3. |
 | **D-10** | El baricentro del binario cae en `y ≈ 0.47·h` (no `0.50`) y la órbita mutua tiene el eje mayor casi horizontal (`ecc 0.45`, `tilt -0.15`) para acotar el vaivén vertical. | Con `0.50·h` y órbita poco excéntrica, en su punto más bajo el binario invadía la franja inferior de ~200 px del overlay de Laura. |
+| **D-11** | La vista se parte en **3 Canvas** (estático / agujero negro / binario), cada uno a su caja (`bhBounds`, `binBounds`) y su ritmo: estático 1 vez; agujero 1 de cada 3 tics; binario cada tic. `fastRate` (música) = ~7 fps, no ~30. | Con el agujero repintándose entero cada tic (era lo más caro: relleno de anillo elíptico + gradiente + bandas + beaming + clips), el shell costaba ~22 % CPU con un agente en curso. Partido → +~4 % sobre la línea base. El visualizador en tiempo real es de una tanda posterior (§3, §6.4). |
 
 Si tomas más decisiones, **añádelas a esta tabla** y a la nota del vault.
 
@@ -392,9 +393,9 @@ Si tomas más decisiones, **añádelas a esta tabla** y a la nota del vault.
 
 ## 11. Criterio de «hecho»
 
-Estado 2026-09-03 (sesión de implementación): **diseño hecho en el harness y
-portado a QML; verificación en el escritorio real BLOQUEADA por el estado
-GPU↔monitor del compositor** (ver §13). Marcas:
+Estado 2026-09-03 (sesión de implementación): **diseño hecho, portado a QML y
+verificado en el escritorio real** (Alberto reenchufó el equipo y se recuperó el
+compositor — ver §13). Marcas:
 
 - [x] Escritorio a pantalla completa: solo reloj + sistema solar sobre fondo negro. Sin widgets. *(código: `Background.qml` wallpaper apagado tras flag `showWallpaper`, `Desktop*` loaders comentados, `SolarSystemLayer` opaco negro en `WlrLayer.Background`.)*
 - [x] Agujero negro en la esquina superior derecha, masivo, con **todas** las capas de la sección 4.1. No parece un halo. *(harness `v3-harness-activo.png`; disco relleno con gradiente de temperatura + bandeado + beaming + halo lensado + jet + estrellas en arcos.)*
@@ -403,37 +404,30 @@ GPU↔monitor del compositor** (ver §13). Marcas:
 - [x] Cinturón de tareas circumbinario, tenue, densidad = backlog.
 - [x] Todo se mueve **lento** (sección 3). *(períodos de la tabla §3 en `Sim.js`.)*
 - [x] Colores 100 % de `Colours.palette.m3*`. Cero hex fijos. *(paleta inyectada como propiedad; `_a/_lit/_dk/_mix` derivan de los roles; `#000000` del fondo negro es el único literal y es negro puro, no un rol de color.)*
-- [x] Shell en reposo ≤ ~5-7 % de un núcleo (**~2.3 %** medido). Una sola instancia (verificado `pgrep -xc qs` = 1). Sin `FrameAnimation` incondicionales (tic por `Timer` gateado a `anyActivity`). Capas estáticas cacheadas (Canvas estático aparte). Canvas dinámico dimensionado a la caja del contenido, no a 1920×1080.
+- [x] Rendimiento. Una sola instancia (`pgrep -xc qs` = 1). Sin `FrameAnimation` incondicionales (tic por `Timer` gateado a `anyActivity`). **Tres** Canvas: estático (fondo/estrellas/resplandor, se pinta 1 vez), agujero negro (repinta 1 de cada 3 tics), binario; cada uno dimensionado a SU caja, no a 1920×1080. `onValuesChanged/onConfigChanged` coalescidos (Timer 350 ms). Coste medido **sobre la línea base del shell**: reposo **+~0.4 %**, agente en curso (~2 fps) **+~4 %**, música (~7 fps) **+~5 %**. *(La línea base del shell en el momento de medir estaba en ~8 % por otros agentes corriendo en la máquina; con el equipo tranquilo la base es ~2.5 %.)*
 - [x] `INFO: Configuration Loaded` sin errores ni warnings nuevos de QML.
-- [ ] **Capturas del resultado real** — BLOQUEADO (§13). Adjuntas las del harness.
+- [x] **Capturas del resultado real** — `docs/sistema-solar-v3-mockup/real-escritorio.png` (más las del harness).
 - [x] Decisiones nuevas anotadas (sección 8: D-8, D-9, D-10 + vault).
 - [x] Bitácora + tabla de versiones actualizadas.
 
 ---
 
-## 13. Bloqueo de verificación (2026-09-03)
+## 13. Nota: el bloqueo de verificación (resuelto)
 
-No se pudo comprobar el dibujo en el escritorio real. El estado GPU↔monitor del
-compositor está roto en esta sesión: eDP-2 quedó en `x=-3840,y=440` (restos de un
-layout multimonitor tras enchufar/quitar un monitor externo) y el compositor
-**perdió la asociación del monitor con su GPU** (`gsr`: «failed to find the gpu
-that the monitor eDP-2 is connected to / no /dev/dri/cardX device found»).
+Durante casi toda la sesión NO se pudo comprobar el dibujo en el escritorio real.
+El compositor había perdido la asociación monitor↔GPU tras enchufar/quitar un
+monitor externo (eDP-2 en `x=-3840`, `gsr`: «failed to find the gpu ... no
+/dev/dri/cardX»): `grim` colgaba **y** el `onPaint` de *cualquier* `Canvas` del
+shell no disparaba (comprobado también con `DesktopCircularMedia`; un `qs -p`
+aislado sí pintaba → el código quedó descartado como causa).
 
-Consecuencias observadas:
-- `grim`, `caelestia screenshot` (envuelve grim) y `caelestia record` (gsr) **cuelgan** — necesitan readback de GPU.
-- El `onPaint` de **cualquier `Canvas`** dentro del shell **no dispara** (comprobado también reactivando `DesktopCircularMedia` con log + `FrameAnimation` forzado). La ventana en eDP-2 no recibe frame callbacks / su FBO GL no renderiza. Un `qs -p` con un Canvas aislado **sí** pinta → **el código del sistema solar está descartado como causa**.
-- El shell «normal» (bar, drawers) se ve porque va por otra ruta de composición.
+**Alberto reenchufó el equipo y se recuperó.** Con eso: `grim` funciona, el
+sistema solar renderiza (idéntico al harness) y se pudo perfilar la CPU — de ahí
+salió el refactor a 3 Canvas (ver §11, punto de rendimiento).
 
-Arreglo: cosa de Alberto. Candidatos (que decida él): (a) re-enchufar/quitar el
-monitor externo — lo más fiable; (b) forzar re-init del output vía DPMS o su API
-Lua de Hyprland (`hyprctl keyword monitor` está deshabilitado aquí por el parser
-Lua); (c) reiniciar la sesión de Hyprland. `grim` **funcionaba hoy antes** (con
-eDP-2 en `0x0`), así que se recupera al arreglar el estado del monitor.
-
-Tras el arreglo: `caelestia shell -k 2>/dev/null; sleep 1; caelestia shell -d`,
-verificar `INFO: Configuration Loaded`, capturar (§9) y medir CPU. Si algún
-visual necesita ajuste, se itera en `docs/sistema-solar-v3-mockup/harness-v3.html`
-(mismo API de Canvas) y se vuelve a portar.
+Si en el futuro se ve el mismo síntoma (capturas cuelgan / Canvas no pinta con el
+shell «normal» funcionando), la causa es el estado de monitores del compositor,
+no el código: reenchufar el externo o resetear los monitores de Hyprland.
 
 ---
 
