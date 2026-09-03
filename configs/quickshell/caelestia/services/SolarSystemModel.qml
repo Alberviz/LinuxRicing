@@ -333,6 +333,9 @@ Singleton {
                 id: "term:" + bid,
                 kind: "planet",
                 anchor: "laura",
+                // Nombre real del agente (de Agents.qml). La vista lo usa como
+                // título de la etiqueta del satélite. Nunca inventado.
+                name: a.name || "Agente",
                 phase: (idx * 2.399) % (2 * Math.PI),
                 orbitK: isRunning ? (2.1 + lane * 0.85) : (3.4 + lane * 1.0),
                 period: isRunning ? (46 + lane * 7) : (118 + lane * 12),

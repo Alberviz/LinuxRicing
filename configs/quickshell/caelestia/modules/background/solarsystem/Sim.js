@@ -228,6 +228,10 @@ function computeLayout(state, geom) {
 
         bodies.push({
             id: b.id,
+            // Nombre legible y proveedor de IA: pasan tal cual desde `config`
+            // (los pone SolarSystemModel). Sólo se copian; Sim.js no los inventa.
+            name: b.name,
+            provider: b.provider,
             kind: isDevice ? "device" : "agent",
             hostx: host.x, hosty: host.y,
             x: host.x + Math.cos(oa) * orb,

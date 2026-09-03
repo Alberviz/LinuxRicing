@@ -46,6 +46,11 @@ Item {
     property real emphasis: 0.5
     // `variant`: "A" mínima · "B" con guía · "C" ficha de catálogo.
     property string variant: "A"
+    // `showReticle`: el círculo de puntos de la variante C. Se apaga desde la
+    // integración en los cuerpos que ya llevan un anillo pintado encima (agente
+    // en curso, alerta de batería < 20 %) para que no se apilen dos círculos.
+    // El nombre, la regla y el dato se conservan.
+    property bool showReticle: true
 
     // ---- Fuente ----
     // Familia por defecto: la mono con la que ya viene configurado el shell
@@ -93,7 +98,7 @@ Item {
     // ================= Marca de observatorio (variante C) =================
     // Círculo de puntos alrededor del cuerpo. Estático: un Repeater, sin animar.
     Repeater {
-        model: root.variant === "C" ? 16 : 0
+        model: (root.variant === "C" && root.showReticle) ? 16 : 0
         delegate: Rectangle {
             id: dot
             required property int index

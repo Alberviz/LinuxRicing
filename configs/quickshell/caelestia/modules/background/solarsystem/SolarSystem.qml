@@ -38,6 +38,14 @@ Item {
     property color colVoid: "#050302"          // horizonte de sucesos (darker(m3surface, 3))
     readonly property color _hot: _lit(colPrimary, 0.86)
 
+    // --- Etiquetas de cuerpos (BodyLabel, variante C) ---
+    // La tipografía y los colores por proveedor de IA entran como propiedad
+    // (mismo patrón que la paleta): la vista no importa Config ni servicios.
+    property string labelFont: "JetBrainsMono NF"   // fallback; lo cablea la capa
+    // provider ("claude"|"gemini"|"codex"|"otro") → color ya resuelto por
+    // SolarSystemLayer desde SolarSystemModel.providerPaletteRole. Vacío = usa colLaura.
+    property var agentProviderColours: ({})
+
     property bool paused: false
     property bool reduceMotion: false
     property bool active: false                // ¿hay un agente en curso? (sube el ritmo del Sim)
@@ -114,6 +122,49 @@ Item {
     }
 
     function _geom() { return { w: width, h: height }; }
+
+    // ---- Etiquetas: nombre legible, dato real y color por rol ----
+    // Diccionario id → nombre. Los ids de agente ("term:<algo>") traen su propio
+    // `name` desde el modelo; aquí sólo se nombran anclas y dispositivos fijos.
+    readonly property var _labelNames: ({
+        "laura": "Laura",
+        "config": "Configuración",
+        "music": "Música",
+        "dev-headset": "Auriculares",
+        "dev-mouse": "Ratón",
+        "dev-keyboard": "Teclado"
+    })
+    function _bodyName(b) {
+        if (!b) return "";
+        if (b.name && b.name.length) return b.name;          // agentes (del modelo)
+        return root._labelNames[b.id] || "";
+    }
+    // Subtítulo: SÓLO dato real. Dispositivo → batería; agente → estado. Nada más.
+    function _bodySubtitle(b) {
+        if (!b) return "";
+        if (b.kind === "device")
+            return (typeof b.batt === "number") ? (Math.round(b.batt * 100) + "%") : "";
+        if (b.kind === "agent")
+            return b.running ? "en curso" : "hecho";
+        return "";
+    }
+    // Color de la etiqueta por rol de paleta (cero hex). Alerta manda; luego el
+    // proveedor de IA para agentes; si no, el rol del ancla que orbita.
+    function _bodyCol(b) {
+        if (!b) return root.colInk;
+        if (b.alert > 0.5) return root.colError;
+        if (b.kind === "agent") {
+            const pc = root.agentProviderColours[b.provider];
+            return (pc !== undefined && pc !== null) ? pc : root.colLaura;
+        }
+        return root.colPrimary;   // dispositivo → sol Configuración
+    }
+    // Énfasis del satélite, derivado de su radio (acotado). Anclas van a 1.0.
+    function _bodyEmphasis(b) {
+        if (!b) return 0.35;
+        const k = Math.max(0, Math.min(1, (b.r - 4) / 14));
+        return 0.30 + 0.22 * k;
+    }
 
     function _recompute() {
         if (width <= 0 || height <= 0)
@@ -358,6 +409,107 @@ Item {
                 property int rev: root._texRev
                 onRevChanged: scheduleUpdate()
                 Component.onCompleted: scheduleUpdate()
+            }
+        }
+    }
+
+    // ===================== ETIQUETAS (BodyLabel, variante C) =====================
+    // Último hijo → por encima del shader y de los cuerpos. Una etiqueta por sol,
+    // una por el agujero negro y una por satélite. Bindings puros: se recolocan
+    // solas al cambiar `_layout` (NO hay temporizador nuevo). Cada etiqueta hace
+    // un único fundido de aparición al crearse; nada en bucle.
+    //
+    // MODO LAURA (D-12): la capa se atenúa como el resto (`_dimK`) SALVO la
+    // etiqueta de Laura, que es quien habla — se queda a opacidad plena.
+    Item {
+        id: labelLayer
+        anchors.fill: parent
+
+        // Anclas: los dos soles del binario.
+        Repeater {
+            model: root._layout ? root._layout.suns.length : 0
+            delegate: Item {
+                id: sunWrap
+                required property int index
+                readonly property var s: root._layout ? root._layout.suns[index] : null
+                anchors.fill: parent
+                opacity: (root.lauraActive && sunWrap.s && sunWrap.s.id === "laura")
+                    ? 1 : root._dimK
+                Behavior on opacity { NumberAnimation { duration: 380; easing.type: Easing.OutCubic } }
+
+                BodyLabel {
+                    variant: "C"
+                    fontFamily: root.labelFont
+                    basePixelSize: 13
+                    showReticle: true
+                    visible: sunWrap.s !== null
+                    targetX: sunWrap.s ? sunWrap.s.x : 0
+                    targetY: sunWrap.s ? sunWrap.s.y : 0
+                    targetRadius: sunWrap.s ? sunWrap.s.r : 0
+                    title: sunWrap.s ? (root._labelNames[sunWrap.s.id] || "") : ""
+                    subtitle: ""
+                    emphasis: 1.0
+                    col: sunWrap.s
+                        ? (sunWrap.s.id === "laura" ? root.colLaura : root.colPrimary)
+                        : root.colInk
+                }
+            }
+        }
+
+        // Agujero negro «Música»: su centro cae fuera de cuadro (~1.02W, -0.04H),
+        // así que la etiqueta apunta a un punto VISIBLE del borde inferior-izq.
+        // del disco, no al centro.
+        Item {
+            id: bhWrap
+            readonly property var bh: root._layout ? root._layout.bh : null
+            anchors.fill: parent
+            opacity: root._dimK
+
+            BodyLabel {
+                variant: "C"
+                fontFamily: root.labelFont
+                basePixelSize: 13
+                showReticle: true
+                visible: bhWrap.bh !== null
+                targetX: bhWrap.bh ? bhWrap.bh.x - bhWrap.bh.R * 1.7 : 0
+                targetY: bhWrap.bh ? bhWrap.bh.y + bhWrap.bh.R * 1.9 : 0
+                targetRadius: 12
+                title: "Música"
+                subtitle: ""
+                emphasis: 1.0
+                col: root.colPrimary
+            }
+        }
+
+        // Satélites: agentes (séquito de Laura) y dispositivos (séquito de
+        // Configuración). Sin retículo si el cuerpo ya lleva anillo de actividad
+        // o aro de alerta (no apilar dos círculos).
+        Repeater {
+            model: root._layout ? root._layout.bodies.length : 0
+            delegate: Item {
+                id: satWrap
+                required property int index
+                readonly property var b: root._layout ? root._layout.bodies[index] : null
+                anchors.fill: parent
+                opacity: root._dimK
+                visible: satWrap.b !== null && root._bodyName(satWrap.b).length > 0
+
+                BodyLabel {
+                    variant: "C"
+                    fontFamily: root.labelFont
+                    basePixelSize: 12
+                    visible: satWrap.b !== null
+                    targetX: satWrap.b ? satWrap.b.x : 0
+                    targetY: satWrap.b ? satWrap.b.y : 0
+                    targetRadius: satWrap.b ? satWrap.b.r : 0
+                    title: root._bodyName(satWrap.b)
+                    subtitle: root._bodySubtitle(satWrap.b)
+                    emphasis: root._bodyEmphasis(satWrap.b)
+                    col: root._bodyCol(satWrap.b)
+                    showReticle: satWrap.b
+                        ? !(satWrap.b.running || satWrap.b.alert > 0.5)
+                        : true
+                }
             }
         }
     }

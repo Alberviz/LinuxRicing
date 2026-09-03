@@ -12,6 +12,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell
 import Quickshell.Wayland
+import Caelestia.Config
 import qs.components
 import qs.components.containers
 import qs.services
@@ -58,6 +59,16 @@ Variants {
             // congela y oscurece y Laura brilla latiendo con su voz.
             lauraActive: Laura.active
             lauraAmplitude: Laura.amplitude
+
+            // Etiquetas de cuerpos (BodyLabel): tipografía mono del shell y
+            // color por proveedor de IA (rol resuelto en SolarSystemModel).
+            labelFont: Tokens.font.mono.small.family
+            agentProviderColours: ({
+                "claude": Colours.palette[SolarSystemModel.providerPaletteRole["claude"]],
+                "gemini": Colours.palette[SolarSystemModel.providerPaletteRole["gemini"]],
+                "codex": Colours.palette[SolarSystemModel.providerPaletteRole["codex"]],
+                "otro": Colours.palette[SolarSystemModel.providerPaletteRole["otro"]]
+            })
 
             colPrimary: Colours.palette.m3primary
             // Laura = m3tertiaryFixedDim (oro apagado). El m3tertiary del scheme
