@@ -92,15 +92,25 @@ sitios.**
    integrado (`e055cfd` + `954c08e`). **Renderiza** (`real-shader-fondo.png`),
    composición correcta, soles bien.
 
-**Pendiente (bloqueante) — el equipo se reinicia para ver si ayuda:**
-- **Sigue «petado»/lento.** El `ShaderEffect` a pantalla completa cuesta ~+5-8 %
-  de CPU en esta máquina multi-GPU (el hilo de render se bloquea esperando GPU,
-  misma familia de fallo que tumbaba `grim`). Medir en limpio tras el reinicio;
-  bajar fps del shader / recortar el `.frag` / dimensionarlo solo a la caja del
-  agujero.
-- **El agujero negro del shader perdió detalle** vs la versión Canvas: plano, sin
-  horizonte visible ni anillo de fotones ni gradiente de temperatura. Otra pasada
-  al `solarfield.frag`.
+**D-14 · Rendimiento del shader — RESUELTO (2026-09-03).** 15,1 % → **4,7 % de un
+núcleo** en limpio (objetivo ≤5 %). El `ShaderEffect` a pantalla completa clavaba
+~10 % de más porque cada píxel corría el bucle de prominencias de los dos soles +
+el fbm de turbulencia del disco, contribuyeran o no. Fix: cortes tempranos por
+distancia (`sun()` > 3,4r; `blackHole()` > 4,6R; `starfield()` lente sólo cerca
+del agujero); fbm 4→3 octavas; tic del shader 20→10 fps; posiciones 2→1 fps.
+Bajar la resolución del shader (`layer.textureSize`) se probó y **no compensó**.
+
+**D-15 · El agujero negro recupera detalle (2026-09-03).** El shader lo pintaba
+plano. Añadido: bandeado concéntrico de dos frecuencias, gradiente de temperatura
+real (blanco-caliente → ámbar → rojo profundo, con las alfas medias/exteriores
+subidas), anillo de fotones casi blanco en el lado Doppler, halo lensado más
+marcado. El horizonte negro se ve poco porque la composición D lo saca de cuadro
+(centro en `(1.02W, -0.04H)`); verlo como disco elíptico negro pediría acercar el
+centro → decisión de composición pendiente de Alberto.
+
+**Fuera de esta tanda** (van después): zonas LED como cuerpos (D-5), interacción
+(hover/clic/congelar), visualizador de música en tiempo real, modo Laura probado
+en vivo. La vista ya expone `contentBounds` para la región de input.
 
 Fuera de esta tanda (van después): zonas LED como cuerpos (D-5), interacción
 (hover/clic/congelar), visualizador de música en tiempo real. La vista ya expone
