@@ -62,6 +62,20 @@ sitios.**
   visualizador en tiempo real es de una tanda posterior (spec §3/§6.4). Motivo:
   con el agujero repintándose entero cada tic el shell costaba ~22 % CPU con un
   agente en curso; partido baja a +~4 % sobre la línea base.
+- **D-12** · **Modo Laura activa** (revoca la exclusión de D-7 para este caso).
+  Al activarse Laura, el sistema **se congela**, todo **se oscurece** a ~18 % y el
+  sol de Laura **brilla latiendo con la voz** (`Laura.amplitude`). Transición de
+  380 ms. `SolarSystemLayer` importa el singleton `Laura` y pasa
+  `lauraActive`/`lauraAmplitude`; `SolarSystem` deriva `lauraFocus` (no `focus` —
+  colisiona con el `focus` final de `QQuickItem`) y `_dimK`. Alberto: «cuando
+  llamen a Laura, todo se para y se oscurece y Laura brilla con fuerza».
+- **D-13** · **El fondo entero pasa a un shader GLSL en GPU** (`SolarField`).
+  `SolarSystem.qml` queda: Sim.js a ~2 fps (posiciones) + capa fina en Canvas
+  (cinturón, órbitas, satélites) + modo Laura. El shader (agujero + 2 soles +
+  estrellas + lente) recibe `_t`, `music`, `lauraFocus`, `lauraAmplitude`,
+  `layout` y la paleta. Motivo: Canvas 2D no llega a §4.1 sin pasarse de CPU
+  (§6.9); y como el modo Laura congela/oscurece todo, la GPU queda libre para la
+  inferencia de Laura justo cuando hace falta.
 
 ## Estado de implementación (2026-09-03) — HECHO Y VERIFICADO
 

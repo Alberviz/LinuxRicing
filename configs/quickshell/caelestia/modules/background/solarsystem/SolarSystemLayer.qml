@@ -15,6 +15,7 @@ import Quickshell.Wayland
 import qs.components
 import qs.components.containers
 import qs.services
+import qs.modules.assistant
 
 Variants {
     model: Quickshell.screens
@@ -52,6 +53,11 @@ Variants {
             // En modo juego el shell congela sus animaciones; el sistema solar
             // hace lo mismo para no competir por GPU.
             paused: GameMode.enabled
+
+            // Modo Laura activa (D-12): al hablarle a Laura, el sistema se
+            // congela y oscurece y Laura brilla latiendo con su voz.
+            lauraActive: Laura.active
+            lauraAmplitude: Laura.amplitude
 
             colPrimary: Colours.palette.m3primary
             // Laura = m3tertiaryFixedDim (oro apagado). El m3tertiary del scheme
