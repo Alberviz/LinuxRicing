@@ -1,0 +1,501 @@
+<title>Agujero Negro Binario</title>
+<meta name="description" content="Dónde vive el agujero negro masivo en el escritorio a pantalla completa: cuatro posibilidades de composición para el sistema binario música–Laura.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+  :root {
+    --bg: #f4f1ec; --surface: #fffdfa; --surface-2: #efe9e1;
+    --line: #e2d9ce; --line-strong: #d0c4b5;
+    --ink: #1e1813; --ink-soft: #6a5f54; --ink-faint: #978a7c;
+    --accent: #b6642a; --laura: #9a7b12;
+    --shadow: 0 1px 2px rgba(30,24,19,.05), 0 10px 30px rgba(30,24,19,.07);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14100c; --surface: #1d1711; --surface-2: #241d16;
+      --line: #33291f; --line-strong: #443728;
+      --ink: #f1e7dd; --ink-soft: #b6a596; --ink-faint: #7f7264;
+      --accent: #f7b999; --laura: #f6df9a;
+      --shadow: 0 1px 2px rgba(0,0,0,.45), 0 14px 38px rgba(0,0,0,.5);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14100c; --surface: #1d1711; --surface-2: #241d16;
+    --line: #33291f; --line-strong: #443728;
+    --ink: #f1e7dd; --ink-soft: #b6a596; --ink-faint: #7f7264;
+    --accent: #f7b999; --laura: #f6df9a;
+    --shadow: 0 1px 2px rgba(0,0,0,.45), 0 14px 38px rgba(0,0,0,.5);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: "IBM Plex Sans", system-ui, sans-serif; line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: clamp(1.5rem,4vw,3.25rem) clamp(1rem,4vw,2rem) 4.5rem; }
+  .eyebrow {
+    font-family: "IBM Plex Mono", monospace; font-size: .72rem; letter-spacing: .2em;
+    text-transform: uppercase; color: var(--accent); margin: 0 0 1rem;
+  }
+  h1 {
+    font-family: "Bricolage Grotesque","IBM Plex Sans",sans-serif; font-weight: 700;
+    font-size: clamp(2rem,5.4vw,3.1rem); line-height: 1.04; letter-spacing: -.022em;
+    text-wrap: balance; margin: 0 0 1rem;
+  }
+  .lede { font-size: 1.06rem; color: var(--ink-soft); margin: 0 0 2rem; max-width: 62ch; }
+  .lede strong { color: var(--ink); font-weight: 600; }
+
+  .stage {
+    position: relative; background: #060404; border: 1px solid var(--line-strong);
+    border-radius: 16px; overflow: hidden; box-shadow: var(--shadow); margin-bottom: .9rem;
+  }
+  .stage canvas { display: block; width: 100%; height: auto; aspect-ratio: 16/9; }
+  .stage .flabel {
+    position: absolute; left: 14px; top: 12px; font-family: "IBM Plex Mono", monospace;
+    font-size: .7rem; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,246,236,.5);
+  }
+  .switch { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px; padding: 3px; border-radius: 12px;
+    background: var(--surface-2); border: 1px solid var(--line); margin-bottom: 1.4rem; }
+  @media (min-width: 720px) { .switch { grid-template-columns: repeat(4, 1fr); } }
+  .switch button {
+    font: 500 .78rem/1.3 "IBM Plex Mono", monospace;
+    padding: .55rem .7rem; border: 0; border-radius: 9px; cursor: pointer;
+    background: transparent; color: var(--ink-soft); text-align: left;
+  }
+  .switch button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+  .switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .switch button b { display: block; font-family: "Bricolage Grotesque", sans-serif; font-weight: 700; font-size: .9rem; margin-bottom: .1rem; }
+
+  .note {
+    background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    border-radius: 12px; padding: 1rem 1.2rem; margin-bottom: 2.6rem; min-height: 120px;
+  }
+  .note h3 { margin: 0 0 .3rem; font-family: "Bricolage Grotesque", sans-serif; font-size: 1.08rem; }
+  .note p { margin: 0 0 .5rem; font-size: .93rem; color: var(--ink-soft); max-width: 72ch; }
+  .note .kv { font-family: "IBM Plex Mono", monospace; font-size: .8rem; color: var(--ink-faint); }
+  .note .kv b { color: var(--ink-soft); font-weight: 500; }
+
+  h2 { font-family: "Bricolage Grotesque", sans-serif; font-weight: 700;
+    font-size: clamp(1.3rem,3vw,1.62rem); letter-spacing: -.015em; margin: 2.6rem 0 .8rem; }
+  p.body { max-width: 70ch; color: var(--ink-soft); }
+  .cols { display: grid; gap: .8rem; }
+  @media (min-width: 620px) { .cols { grid-template-columns: 1fr 1fr; } }
+  .col { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 1rem 1.15rem; }
+  .col h4 { margin: 0 0 .5rem; font-family: "IBM Plex Mono", monospace; font-size: .72rem;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint); }
+  .col ul { margin: 0; padding-left: 1.1rem; display: grid; gap: .3rem; }
+  .col li { font-size: .9rem; color: var(--ink-soft); }
+  .col li b { color: var(--ink); font-weight: 600; }
+  code { font-family: "IBM Plex Mono", monospace; font-size: .84em; background: var(--surface-2);
+    border: 1px solid var(--line); padding: .03rem .32rem; border-radius: 5px; color: var(--ink); }
+  footer { margin-top: 3rem; padding-top: 1.2rem; border-top: 1px solid var(--line);
+    font-size: .8rem; color: var(--ink-faint); font-family: "IBM Plex Mono", monospace; line-height: 1.8; }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">Caelestia · sistema solar · v3 · brainstorming de composición</p>
+  <h1>¿Dónde vive el agujero negro?</h1>
+  <p class="lede">
+    Acordado: escritorio vacío salvo el reloj, sistema binario <strong>música (agujero negro) ↔
+    Laura</strong>, el agujero <strong>no se mueve</strong> (pesa ~100× lo que Laura, el baricentro
+    cae dentro de su horizonte). Lo que falta decidir es <strong>la colocación</strong> — tú dijiste
+    esquina, luego dudaste, luego centro. Cuatro posibilidades:
+  </p>
+
+  <div class="stage">
+    <canvas id="c" width="1280" height="720" aria-label="Escritorio a pantalla completa con un agujero negro masivo como uno de los dos cuerpos del sistema binario"></canvas>
+    <span class="flabel" id="flabel"></span>
+  </div>
+  <div class="switch" role="group" aria-label="Elegir posibilidad">
+    <button id="p1" aria-pressed="true"><b>A · Núcleo central</b>centrado, Laura lo orbita</button>
+    <button id="p2" aria-pressed="false"><b>B · Punto de fuerza</b>tercio dcho, Laura contrapeso</button>
+    <button id="p3" aria-pressed="false"><b>C · Disco de fondo</b>casi de frente, llena la pantalla</button>
+    <button id="p4" aria-pressed="false"><b>D · Esquina asumida</b>se sale por la esquina, disco en diagonal</button>
+  </div>
+  <div class="note" id="note" aria-live="polite"></div>
+
+  <h2>Cómo pensar la decisión</h2>
+  <p class="body">
+    El sistema vive en la capa <code>Background</code>, casi siempre <strong>tapado por ventanas</strong>.
+    Se ve entero al hacer login, al despejar el escritorio, y de reojo por los bordes. Así que
+    «estorba en el centro» pesa menos de lo que parece — las ventanas ya tapan el centro. Lo que
+    importa: <strong>cuando SÍ se ve, que sea una imagen que impresione</strong>. Eso empuja hacia
+    grande y central. En contra: si trabajas mucho con ventanas a medias o transparencias, un vacío
+    negro justo detrás cansa.
+  </p>
+
+  <h2>Lo que cambia entre A–D</h2>
+  <div class="cols">
+    <div class="col">
+      <h4>Constante en las cuatro</h4>
+      <ul>
+        <li><b>Agujero negro detallado</b> — horizonte, anillo de fotones, disco de acreción con gradiente de temperatura y Doppler, lente sobre el horizonte.</li>
+        <li><b>Laura</b> = segundo cuerpo del binario, sol tenue que se aviva al hablarle.</li>
+        <li><b>Séquito real</b> — periféricos (batería), 3 zonas LED, astros-terminal, cinturón de tareas.</li>
+        <li><b>Reloj</b> abajo a la izquierda, intacto.</li>
+      </ul>
+    </div>
+    <div class="col">
+      <h4>Lo que decide cada una</h4>
+      <ul>
+        <li><b>Dónde miras primero</b> — al centro (A, C) o a un lado dejando el centro despejado (B, D).</li>
+        <li><b>Rol de Laura</b> — satélite pequeño del agujero (A, C, D) o segundo sol de peso propio (B).</li>
+        <li><b>Los periféricos</b> — orbitan el agujero (A, C), a Laura (B), o cabalgan el disco en diagonal (D).</li>
+        <li><b>Riesgo</b> — C es la más ambiciosa de dibujar bien; A la más segura.</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer>
+    Caelestia · sistema solar v3 · brainstorming · paleta real del wallpaper (tonalspot cálido)<br>
+    Dime cuál te tira más (o una mezcla) y cierro el spec antes de tocar código.
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var REDUCE = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var C = {
+    hot: "#fff4dc", warm: "#f7b999", ember: "#ef8a44", deep: "#b8431c",
+    laura: "#f6df9a", belt: "#bca79d", term: "#febc73", alert: "#f97758"
+  };
+  function hexA(hex, a) {
+    var n = parseInt(hex.slice(1), 16);
+    return "rgba(" + (n>>16&255) + "," + (n>>8&255) + "," + (n&255) + "," + Math.max(0,Math.min(1,a)) + ")";
+  }
+  function mix(h1, h2, t) {
+    var a = parseInt(h1.slice(1),16), b = parseInt(h2.slice(1),16);
+    var r = Math.round((a>>16&255)+((b>>16&255)-(a>>16&255))*t);
+    var g = Math.round((a>>8&255)+((b>>8&255)-(a>>8&255))*t);
+    var bl = Math.round((a&255)+((b&255)-(a&255))*t);
+    return "rgba(" + r + "," + g + "," + bl + ",";
+  }
+
+  var notes = {
+    A: ["Núcleo central", "El agujero negro en el centro exacto, grande (~1/3 de la altura). Laura lo orbita en una elipse media, siempre visible. Los periféricos y los LEDs orbitan directamente el agujero a radios distintos; tareas y terminales, más lejos. Jerarquía limpísima: agujero &gt; Laura &gt; planetas &gt; cinturón. El disco de acreción corta una diagonal brillante por el centro.",
+        "mejor si · quieres impacto máximo y no te molesta el vacío detrás de ventanas · más seguro de implementar"],
+    B: ["Punto de fuerza", "El agujero en el tercio derecho, un poco alto (punto de fuerza de la regla de los tercios), no en la esquina ni en el centro. Laura es un segundo sol de verdad en el tercio izquierdo, abajo. El centro de la pantalla es el «puente gravitatorio»: los circumbinarios lo cruzan, pero no hay ningún objeto masivo aparcado ahí. La zona de trabajo queda tranquila.",
+        "mejor si · trabajas mucho con ventanas a medias · quieres que Laura tenga presencia real"],
+    C: ["Disco de fondo", "El agujero centrado, pero el disco de acreción casi de frente y ENORME: llena media pantalla como un anillo luminoso inclinado, con el vacío en medio. Todo el sistema vive dentro del plano del disco. Laura es un nudo brillante en el disco. Inmersivo, tipo wallpaper vivo. La más bonita si sale bien, la más difícil de que no quede como una sopa.",
+        "mejor si · quieres que el escritorio sea una pieza · aceptas que es la más arriesgada"],
+    D: ["Esquina asumida", "En la esquina superior derecha, pero asumida: el agujero se sale de cuadro (se ve ~70%) y el disco baja en perspectiva pronunciada cruzando toda la pantalla en diagonal hacia abajo-izquierda, como una galaxia vista de canto. La esquina deja de ser un descuido y pasa a ser un ancla dinámica. Laura y el séquito cabalgan el disco hacia abajo-izquierda.",
+        "mejor si · te gustaba la esquina pero no «pegada» · quieres dinamismo diagonal sin objeto en el centro"]
+  };
+
+  var c = document.getElementById("c"), ctx = c.getContext("2d");
+  var W = c.width, H = c.height;
+  var P = "A", t = 0;
+  var stars = [];
+  for (var i = 0; i < 240; i++) stars.push({ x: Math.random(), y: Math.random(), s: Math.random() });
+
+  function setP(p) {
+    P = p;
+    ["A","B","C","D"].forEach(function(k, i){
+      document.getElementById("p" + (i+1)).setAttribute("aria-pressed", k === p ? "true" : "false");
+    });
+    document.getElementById("flabel").textContent = "posibilidad " + p;
+    var n = notes[p];
+    document.getElementById("note").innerHTML =
+      "<h3>" + n[0] + "</h3><p>" + n[1] + "</p><p class='kv'><b>" + n[2] + "</b></p>";
+    if (REDUCE) draw();
+  }
+  ["p1","p2","p3","p4"].forEach(function(id, i){
+    document.getElementById(id).addEventListener("click", function(){ setP(["A","B","C","D"][i]); });
+  });
+
+  function background(bhx, bhy, bhR) {
+    var g = ctx.createRadialGradient(bhx, bhy, 0, bhx, bhy, Math.max(W, H) * 1.1);
+    g.addColorStop(0, "#181009"); g.addColorStop(0.5, "#0c0705"); g.addColorStop(1, "#060404");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    for (var i = 0; i < stars.length; i++) {
+      var sx = stars[i].x * W, sy = stars[i].y * H;
+      var d = Math.hypot(sx - bhx, sy - bhy);
+      ctx.globalAlpha = 0.05 + stars[i].s * 0.34;
+      if (d < bhR * 3 && d > bhR * 0.7) {
+        var ang = Math.atan2(sy - bhy, sx - bhx);
+        var bend = (bhR / d) * 0.7;
+        ctx.strokeStyle = "rgba(255,244,224,.55)";
+        ctx.lineWidth = stars[i].s < 0.6 ? 0.7 : 1.2;
+        ctx.beginPath(); ctx.arc(bhx, bhy, d, ang - bend, ang + bend); ctx.stroke();
+      } else {
+        ctx.fillStyle = "rgba(255,244,224,.6)";
+        var sz = stars[i].s < 0.7 ? 1 : 1.7;
+        ctx.fillRect(sx, sy, sz, sz);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // faceOn 0 = edge-on (thin ellipse), 1 = near face-on (round)
+  function blackHole(x, y, R, tilt, spin, faceOn) {
+    faceOn = faceOn || 0;
+    var flat = 0.16 + faceOn * 0.62;           // ry/rx of the disk
+    var beam = spin;
+
+    // outer glow
+    var og = ctx.createRadialGradient(x, y, R * 0.8, x, y, R * 4.6);
+    og.addColorStop(0, hexA(C.warm, 0.18));
+    og.addColorStop(0.35, hexA(C.ember, 0.09));
+    og.addColorStop(1, hexA(C.deep, 0));
+    ctx.fillStyle = og;
+    ctx.beginPath(); ctx.arc(x, y, R * 4.6, 0, 7); ctx.fill();
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(tilt);
+
+    var innerR = R * 1.32, outerR = R * 3.7;
+    var bands = 60;
+
+    // 1. BACK rim, lensed up and OVER the horizon — a clean bright halo
+    ctx.save();
+    ctx.beginPath(); ctx.rect(-outerR * 1.2, -outerR * 1.2, outerR * 2.4, outerR * 1.2); ctx.clip();
+    for (var b = 0; b < 22; b++) {
+      var f = b / 21;
+      var rx = innerR + (outerR - innerR) * f;
+      var ry = rx * flat;
+      var col = mix(C.hot, C.ember, f);
+      ctx.strokeStyle = col + (0.5 - f * 0.4) + ")";
+      ctx.lineWidth = Math.max(1, R * 0.05 * (1 - f * 0.4));
+      ctx.beginPath();
+      ctx.ellipse(0, -ry * 0.55, rx, ry, 0, Math.PI * 1.06, Math.PI * 1.94);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // 2. event horizon
+    ctx.fillStyle = "#050302";
+    ctx.beginPath(); ctx.arc(0, 0, R, 0, 7); ctx.fill();
+
+    // 3. photon ring
+    ctx.strokeStyle = hexA(C.hot, 0.95);
+    ctx.lineWidth = Math.max(1.5, R * 0.03);
+    ctx.beginPath(); ctx.arc(0, 0, R * 1.03, 0, 7); ctx.stroke();
+    ctx.strokeStyle = hexA(C.hot, 0.3);
+    ctx.lineWidth = Math.max(1, R * 0.06);
+    ctx.beginPath(); ctx.arc(0, 0, R * 1.08, 0, 7); ctx.stroke();
+
+    // 4. the disk itself — many thin ellipse bands, temp gradient + Doppler beaming
+    for (var i = 0; i < bands; i++) {
+      var f2 = i / (bands - 1);
+      var rx2 = innerR + (outerR - innerR) * f2;
+      var ry2 = rx2 * flat;
+      var temp = mix(C.hot, C.deep, Math.pow(f2, 0.8));
+      // sample the ellipse in arcs so brightness can vary with angle (Doppler)
+      var seg = 48;
+      for (var k = 0; k < seg; k++) {
+        var a0 = (k / seg) * 2 * Math.PI;
+        var a1 = ((k + 1) / seg) * 2 * Math.PI;
+        var midA = (a0 + a1) / 2;
+        var approach = 0.5 + 0.5 * Math.cos(midA - beam);
+        var bright = Math.pow(approach, 2.4);
+        // the top half is "behind": fade it where the horizon would occlude (near midA ~ -PI/2)
+        var behindFade = (Math.sin(midA) < 0) ? (0.35 + 0.65 * Math.abs(Math.cos(midA))) : 1;
+        var alpha = (0.6 - f2 * 0.5) * (0.12 + 1.05 * bright) * behindFade;
+        var turb = 0.85 + 0.15 * Math.sin(midA * 7 + f2 * 30 + t * 1.5);
+        ctx.strokeStyle = temp + (alpha * turb) + ")";
+        ctx.lineWidth = Math.max(0.8, R * 0.11 * (1 - f2 * 0.4));
+        ctx.beginPath();
+        ctx.ellipse(0, 0, rx2, ry2, 0, a0, a1);
+        ctx.stroke();
+      }
+    }
+
+    // 5. hot inner lip (ISCO) right outside the photon ring
+    var lip = ctx.createLinearGradient(-innerR, 0, innerR, 0);
+    var hb = 0.5 + 0.5 * Math.cos(Math.PI - beam);
+    lip.addColorStop(0, hexA(C.hot, 0.2 + 0.55 * (1 - hb)));
+    lip.addColorStop(0.5, hexA(C.warm, 0.14));
+    lip.addColorStop(1, hexA(C.hot, 0.2 + 0.55 * hb));
+    ctx.strokeStyle = lip;
+    ctx.lineWidth = R * 0.14;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, innerR * 1.02, innerR * flat * 1.02, 0, 0, 7);
+    ctx.stroke();
+
+    // 6. re-lay the FRONT arc of the inner disk over the horizon's lower edge
+    for (var j = 0; j < 10; j++) {
+      var f3 = j / 9;
+      var rx3 = innerR + (innerR * 0.9) * f3;
+      var ry3 = rx3 * flat;
+      ctx.strokeStyle = mix(C.hot, C.ember, f3) + (0.5 - f3 * 0.4) + ")";
+      ctx.lineWidth = Math.max(1, R * 0.09 * (1 - f3 * 0.4));
+      ctx.beginPath();
+      ctx.ellipse(0, ry3 * 0.15, rx3, ry3, 0, Math.PI * 0.06, Math.PI * 0.94);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  function sun(x, y, r, hex, pulse, calm) {
+    var g = ctx.createRadialGradient(x, y, r * 0.3, x, y, r * 3.6 * (1 + 0.06 * pulse));
+    g.addColorStop(0, hexA(hex, 0.5)); g.addColorStop(1, hexA(hex, 0));
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r * 3.6, 0, 7); ctx.fill();
+    if (!calm) {
+      ctx.strokeStyle = hexA(hex, 0.3); ctx.lineWidth = 1;
+      for (var i = 0; i < 8; i++) {
+        var an = i * 0.785 + t * 0.05, l0 = r * 1.3, l1 = r * (2 + (i % 2 ? 0.6 : 0));
+        ctx.beginPath();
+        ctx.moveTo(x + Math.cos(an) * l0, y + Math.sin(an) * l0);
+        ctx.lineTo(x + Math.cos(an) * l1, y + Math.sin(an) * l1);
+        ctx.stroke();
+      }
+    }
+    var bg = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, r * 0.1, x, y, r);
+    bg.addColorStop(0, "#fff7ef"); bg.addColorStop(0.6, hexA(hex, 0.92)); bg.addColorStop(1, hexA(hex, 0.5));
+    ctx.fillStyle = bg; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+  }
+  function planet(x, y, r, hex, opts) {
+    opts = opts || {};
+    if (opts.ring) {
+      var g = ctx.createRadialGradient(x, y, r * 0.5, x, y, r * 2.6);
+      g.addColorStop(0, hexA(hex, 0.34)); g.addColorStop(1, hexA(hex, 0));
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r * 2.6, 0, 7); ctx.fill();
+      ctx.strokeStyle = hexA(hex, 0.5); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.ellipse(x, y, r * 1.9, r * 0.8, 0.5, 0, 7); ctx.stroke();
+    }
+    if (opts.alert) { hex = C.alert; ctx.strokeStyle = hexA(hex, 0.4 + 0.4 * Math.sin(t * 5));
+      ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, r + 4, 0, 7); ctx.stroke(); }
+    var pg = ctx.createRadialGradient(x - r * 0.4, y - r * 0.4, r * 0.1, x, y, r);
+    pg.addColorStop(0, "#fff7ef"); pg.addColorStop(0.6, hex); pg.addColorStop(1, hexA(hex, 0.3));
+    ctx.fillStyle = pg; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+  }
+  function orbit(x, y, rx, ry, rot, a) {
+    ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
+    ctx.strokeStyle = "rgba(255,240,228," + a + ")"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.ellipse(0, 0, rx, ry, 0, 0, 7); ctx.stroke();
+    ctx.restore();
+  }
+  function belt(x, y, rx, ry, rot, n) {
+    ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
+    for (var i = 0; i < n; i++) {
+      var an = (i / n) * 6.283 + t * 0.03 + Math.sin(i * 2.7) * 0.1;
+      var jj = 1 + Math.sin(i * 5.3) * 0.05;
+      ctx.fillStyle = hexA(C.belt, 0.14 + 0.26 * ((i * 7) % 3) / 2);
+      var s = i % 4 === 0 ? 2 : 1.2;
+      ctx.fillRect(Math.cos(an) * rx * jj - s / 2, Math.sin(an) * ry * jj - s / 2, s, s);
+    }
+    ctx.restore();
+  }
+  function label(x, y, txt, hex, big) {
+    ctx.font = (big ? '13px' : '11px') + ' "IBM Plex Mono", monospace';
+    ctx.fillStyle = hexA(hex, 0.85); ctx.fillText(txt, x + 10, y + 3);
+  }
+  function clock() {
+    ctx.fillStyle = "rgba(255,244,224,.85)";
+    ctx.font = '600 34px "Bricolage Grotesque", sans-serif';
+    ctx.fillText("21:47", 40, H - 52);
+    ctx.font = '12px "IBM Plex Mono", monospace';
+    ctx.fillStyle = "rgba(255,244,224,.4)";
+    ctx.fillText("miércoles 3 septiembre", 40, H - 32);
+  }
+  function satellitesAround(cx, cy, scale, hostR) {
+    // LEDs tight, peripherals wider — generic type-S cluster
+    for (var k = 0; k < 3; k++) {
+      var la = t * 0.8 + k * 2.1, rr = hostR * 1.8 + k * 8 * scale;
+      planet(cx + Math.cos(la) * rr, cy + Math.sin(la) * rr * 0.6, 3 * scale, [C.warm, C.laura, C.belt][k], {});
+    }
+    var perif = [[hostR * 2.6, 0.55, 0, false], [hostR * 3.4, 0.4, 2.2, true], [hostR * 4.2, 0.32, 4.3, false]];
+    for (var i = 0; i < perif.length; i++) {
+      var Pp = perif[i], a = t * Pp[1] + Pp[2];
+      planet(cx + Math.cos(a) * Pp[0], cy + Math.sin(a) * Pp[0] * 0.62, 3.6 * scale, C.warm, { alert: Pp[3] });
+    }
+  }
+
+  function draw() {
+    var bhx, bhy, bhR, tilt, faceOn, S, lx, ly, lr;
+    var bt = t * 0.14;
+
+    if (P === "A") {
+      bhx = W * 0.5; bhy = H * 0.47; bhR = H * 0.15; tilt = -0.36; faceOn = 0.12; S = 1.2;
+      background(bhx, bhy, bhR);
+      lx = bhx + Math.cos(bt) * W * 0.30; ly = bhy + Math.sin(bt) * H * 0.30;
+      lr = 13 * S;
+      orbit(bhx, bhy, W * 0.30, H * 0.30, 0, 0.07);
+      belt(bhx, bhy, W * 0.42, H * 0.40, 0.06, 60);
+      for (var i = 0; i < 3; i++) {
+        var ta = t * (0.4 + i * 0.14) + i * 2;
+        planet(bhx + Math.cos(ta) * W * (0.20 + i * 0.06), bhy + Math.sin(ta) * H * (0.19 + i * 0.05),
+          i < 2 ? 3.4 * S : 2.6 * S, i === 1 ? C.belt : C.term, { ring: i < 2 });
+      }
+      blackHole(bhx, bhy, bhR, tilt, t * 0.5, faceOn);
+      sun(lx, ly, lr, C.laura, 0.5 + 0.5 * Math.sin(t * 1.4), true);
+      satellitesAround(lx, ly, S, lr);
+      label(lx, ly - 22 * S, "Laura", C.laura);
+      label(bhx + bhR * 1.3, bhy + bhR * 1.5, "música", C.warm, true);
+
+    } else if (P === "B") {
+      bhx = W * 0.70; bhy = H * 0.34; bhR = H * 0.125; tilt = -0.4; faceOn = 0.14; S = 1.05;
+      background(bhx, bhy, bhR);
+      lx = W * 0.26; ly = H * 0.64; lr = 17 * S;
+      // circumbinary belt around the pair's midpoint
+      var mxp = (bhx + lx) / 2, myp = (bhy + ly) / 2;
+      orbit(mxp, myp, W * 0.34, H * 0.34, 0.1, 0.06);
+      belt(mxp, myp, W * 0.34, H * 0.34, 0.1, 56);
+      for (var j = 0; j < 3; j++) {
+        var tb = t * (0.35 + j * 0.12) + j * 2.3;
+        planet(mxp + Math.cos(tb) * W * 0.30, myp + Math.sin(tb) * H * 0.28,
+          j < 2 ? 3.2 * S : 2.4 * S, j === 1 ? C.belt : C.term, { ring: j < 2 });
+      }
+      blackHole(bhx, bhy, bhR, tilt, t * 0.5, faceOn);
+      sun(lx, ly, lr, C.laura, 0.5 + 0.5 * Math.sin(t * 1.4), false);
+      satellitesAround(lx, ly, S, lr);
+      label(lx, ly - 26 * S, "Laura", C.laura, true);
+      label(bhx - bhR * 2.2, bhy + bhR * 1.5, "música", C.warm, true);
+
+    } else if (P === "C") {
+      bhx = W * 0.5; bhy = H * 0.46; bhR = H * 0.115; tilt = -0.2; faceOn = 0.8; S = 1.0;
+      background(bhx, bhy, bhR);
+      blackHole(bhx, bhy, bhR, tilt, t * 0.35, faceOn);
+      // everything lives in the disk plane — wide flat ellipses
+      lx = bhx + Math.cos(bt) * W * 0.22; ly = bhy + Math.sin(bt) * W * 0.22 * 0.5 - H * 0.02;
+      lr = 10 * S;
+      belt(bhx, bhy + H * 0.02, W * 0.44, W * 0.44 * 0.42, tilt, 80);
+      for (var m = 0; m < 5; m++) {
+        var tm = t * (0.3 + m * 0.09) + m * 1.5, rr = W * (0.16 + m * 0.06);
+        planet(bhx + Math.cos(tm) * rr, bhy + Math.sin(tm) * rr * 0.42, m < 2 ? 3.4 * S : 2.6 * S,
+          m === 1 ? C.belt : (m < 2 ? C.term : C.warm), { ring: m < 2, alert: m === 4 });
+      }
+      sun(lx, ly, lr, C.laura, 0.5 + 0.5 * Math.sin(t * 2), false);
+      label(lx - 20 * S, ly - 14 * S, "Laura", C.laura);
+      label(bhx + bhR * 2, bhy + bhR * 2.4, "música", C.warm, true);
+
+    } else {
+      bhx = W * 0.96; bhy = H * 0.06; bhR = H * 0.24; tilt = -0.62; faceOn = 0.1; S = 1.0;
+      background(bhx, bhy, bhR * 0.7);
+      // steep-perspective disk raking down-left
+      blackHole(bhx, bhy, bhR, tilt, t * 0.4, faceOn);
+      var dcx = bhx, dcy = bhy;
+      for (var r = 0; r < 4; r++)
+        orbit(dcx, dcy, W * (0.4 + r * 0.16), H * (0.34 + r * 0.14), tilt + 0.15, 0.07 - r * 0.01);
+      belt(dcx, dcy, W * 0.66, H * 0.58, tilt + 0.15, 72);
+      lx = W * 0.28; ly = H * 0.70; lr = 11 * S;
+      for (var q = 0; q < 4; q++) {
+        var tq = t * (0.3 + q * 0.1) + q * 1.7, rq = 0.34 + q * 0.13;
+        planet(dcx + Math.cos(tq + Math.PI) * W * rq, dcy + Math.sin(tq + Math.PI) * H * rq * 0.9,
+          q < 2 ? 3.4 * S : 2.6 * S, q === 1 ? C.belt : (q < 2 ? C.term : C.warm), { ring: q < 2, alert: q === 3 });
+      }
+      sun(lx, ly, lr, C.laura, 0.5 + 0.5 * Math.sin(t * 1.6), false);
+      satellitesAround(lx, ly, S, lr);
+      label(lx, ly - 16 * S, "Laura", C.laura);
+      label(bhx - bhR * 1.4, bhy + bhR * 1.2, "música", C.warm, true);
+    }
+    clock();
+  }
+
+  var _q = (new URLSearchParams(location.search).get("p") || "A").toUpperCase();
+  setP(["A","B","C","D"].indexOf(_q) >= 0 ? _q : "A");
+  var last = performance.now();
+  function loop(now) {
+    var dt = Math.min((now - last) / 1000, 0.05); last = now;
+    if (!REDUCE) { t += dt; draw(); }
+    requestAnimationFrame(loop);
+  }
+  if (REDUCE) { t = 4; draw(); } else requestAnimationFrame(loop);
+})();
+</script>

@@ -15,9 +15,11 @@ falta y anótalas. Estás en una rama aislada, no puedes romper nada de `main`.
 1. Lee **`docs/sistema-solar-v3-DISENO.md`** entero. Es la spec. Este prompt solo
    la resume.
 2. Lee `docs/sistema-solar-binario.md` (contexto y principios del proyecto).
-3. Abre la maqueta de referencia: artifact `0951108d-14ed-46df-8a48-9264b32df0ab`
-   («Agujero Negro Binario»), **posibilidad D**. Es el norte de composición. La
-   calidad de render hay que **superarla**.
+3. Mira la maqueta de referencia en el repo: `docs/sistema-solar-v3-mockup/` —
+   `variante-D.png` (captura) y `variantes.html` (interactivo, ábrelo con
+   `chromium --headless ... "file://.../variantes.html?p=D"` y captura, o en un
+   navegador). Es el norte de composición; la calidad de render hay que
+   **superarla**.
 4. Mira `vault/Rice LinuxRicing/01 - Linux/Widgets/Sistema Solar — visión B (reserva).md`
    (contexto de una alternativa descartada por ahora; no la implementes).
 

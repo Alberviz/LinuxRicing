@@ -49,7 +49,8 @@ sitios.**
 ## Historial
 
 - **2026-09-03** — Brainstorming de composición (Claude). 4 posibilidades
-  ([artifact `0951108d`](https://claude.ai/code/artifact/0951108d-14ed-46df-8a48-9264b32df0ab)).
+  (maqueta en el repo `docs/sistema-solar-v3-mockup/`; también
+  [artifact `0951108d`](https://claude.ai/code/artifact/0951108d-14ed-46df-8a48-9264b32df0ab)).
   Alberto elige D. Se guarda B como reserva. Se prepara la rama
   `feat/sistema-solar-v3` y el traspaso (`docs/sistema-solar-v3-DISENO.md` +
   `-PROMPT.md`). Revisada D-2: el binario no deriva.

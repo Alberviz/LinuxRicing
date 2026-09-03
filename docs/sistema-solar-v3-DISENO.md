@@ -25,9 +25,12 @@
   - `configs/quickshell/caelestia/services/SolarSystemModel.qml` — el modelo + adaptadores (batería, agentes, tareas, LED)
 - **Plan histórico por versiones:** `docs/sistema-solar-binario.md` (contexto,
   principios, adaptadores). Este documento es la spec concreta de la v3.
-- **Maqueta visual (norte):** artifact `0951108d-14ed-46df-8a48-9264b32df0ab`
-  («Agujero Negro Binario»), **posibilidad D**. La D del mockup es la referencia
-  de composición; la calidad de render hay que **superarla**, no igualarla.
+- **Maqueta visual (norte):** `docs/sistema-solar-v3-mockup/` en el repo —
+  `variantes.html` (interactivo; ábrelo con un navegador o pásale `?p=D`) y
+  `variante-{A,B,C,D}.png` (capturas). **La D es la referencia de composición**;
+  la calidad de render hay que **superarla**, no igualarla. (También hay un
+  artifact `0951108d`, pero una sesión nueva no puede leerlo — usa los archivos
+  del repo.)
 - **Maqueta de reserva (visión B):** guardada en
   `vault/Rice LinuxRicing/01 - Linux/Widgets/Sistema Solar — visión B (reserva).md`.
   No se implementa ahora; se conserva por si más adelante se quiere el centro

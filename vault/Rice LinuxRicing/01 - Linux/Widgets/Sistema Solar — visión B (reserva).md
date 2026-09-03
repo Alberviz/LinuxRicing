@@ -12,8 +12,9 @@ se pierda de vista la visión B»*.
 
 ## Qué es
 
-De las cuatro posibilidades del brainstorming de colocación
-([artifact `0951108d`](https://claude.ai/code/artifact/0951108d-14ed-46df-8a48-9264b32df0ab)),
+De las cuatro posibilidades del brainstorming de colocación (maqueta en el repo:
+`docs/sistema-solar-v3-mockup/variantes.html` + `variante-B.png`; también
+[artifact `0951108d`](https://claude.ai/code/artifact/0951108d-14ed-46df-8a48-9264b32df0ab)),
 la **B · Punto de fuerza**:
 
 - El agujero negro «música» en el **tercio derecho**, un poco alto — el punto de
