@@ -232,12 +232,37 @@ Períodos actuales en `Sim.js` (constante `D`): binario 220 s, agentes en curso
 200 s, completados 360 s, dispositivos 260 s, cinturón 1400 s, giro del disco
 150 s. Alberto quiere ~1°/frame — si algo se ve rápido, alargar su período.
 
-### 3.5 Pendiente antiguo (baja / tandas posteriores)
+### 3.5 Integración del reproductor de música en el agujero negro ✅ HECHO (2026-09-04, commit `e832643`)
+
+Se eliminó la etiqueta lateral clásica "Música" y se creó el componente dedicado `MusicHole.qml` anclado al horizonte de sucesos:
+- **6 variantes visuales completas:**
+  1. *Órbita de Acreción + Espectro:* Título y artista orbitan el perímetro a ritmo constante con rotación derivada de `time: root._t` y mini-ecualizador central de 5 barras.
+  2. *Minimalista Clásico + Anillo GPU:* Arco de progreso circular de la canción renderizado en GPU con `Shape` y `PathAngleArc` (terminaciones redondeadas), tiempo `mm:ss` e info centrada.
+  3. *Ondas Gravitacionales / Vinilo:* 4 anillos concéntricos que respiran con graves/agudos + etiqueta de vinilo central.
+  4. *Reloj de Púlsares Binarios:* Dos nodos opuestos que orbitan a toda velocidad unidos por un haz diametral que cruza la singularidad y destella con `musicPulse`.
+  5. *Espiral de Singularidad:* Dos brazos espirales en GPU que se contraen en los golpes de bombo.
+  6. *Radar HUD / Lente Gravitacional:* 12 marcas de graduación alrededor del horizonte, título en mayúsculas con espaciado reactivo a graves y mini-analizador de espectro.
+- **Control IPC al vuelo:** Se expuso el target `solarSystem` en `SolarSystemModel` con `setMusicVariant(1..6)` y `nextMusicVariant()` (`qs -c caelestia ipc call solarSystem nextMusicVariant`).
+- **Paleta M3 pura:** Todo usa `colPrimary`, `colInk`, `colVoid`, `colError` y `fontFamily`.
+- **Rendimiento:** CPU del shell en ~19-26 % (muy por debajo del límite de 48 %).
+
+### 3.6 Reubicación real del agujero negro y nota estética de Alberto ⚠️ EN PROGRESO (2026-09-04, commit `c2bcfc6`)
+
+- **Causa raíz del bug:** `Sim.js` tiene `var bhCfg = pickAnchor(cfg, "blackhole");`. La configuración `cfg` proviene de `defaultConfig` en `SolarSystemModel.qml`, donde el ancla `"music"` tenía forzado `motion: { kind: "fixed", fx: 1.02, fy: -0.04 }, rFrac: 0.24`. Debido a esto, cualquier cambio previo en `D.bhFx` de `Sim.js` era ignorado.
+- **Ajuste aplicado:** Se corrigió en `defaultConfig` de `SolarSystemModel.qml`, `Sim.js` y `SolarField.qml` a `fx: 0.84, fy: 0.12, rFrac: 0.28`. El horizonte de sucesos (302 px de radio) entra ahora al completo dentro del ancho de 1920 px y baja hasta `y = 432 px`.
+- **Nota pendiente de Alberto para la siguiente tanda:**
+  > *"yo lo subiria un poco mas pero no hagas nada aun"*
+  El centro actual está en `fy: 0.12` (~130 px de altura). Cuando se retome el ajuste fino de composición, probar a subirlo ligeramente (p. ej. `fy: 0.08` o `0.09` manteniendo `fx: 0.84-0.86` o afinando `rFrac: 0.26-0.28`) para que no coma demasiado espacio vertical pero conserve la negrura pura dentro de pantalla.
+
+### 3.7 Mapeo orbital por Workspaces de Hyprland y estelas en GPU ✅ HECHO (2026-09-04, commit `b8ce894` y `53f5ad7`)
+
+- **Órbitas en GPU:** Reemplazado el Canvas de 1.15 Mpx por un `Repeater` de `Shape` con `PathAngleArc`, eliminando los cuellos de botella de repintado a 9 FPS.
+- **Carriles por Workspace:** Cada Workspace de Hyprland (1 a 6) tiene su propio carril orbital alrededor de Laura (`baseOrbitK = 1.9 + (ws - 1) * 0.70`). Múltiples agentes en el mismo workspace comparten anillo con un micro-desfase radial de ±7 px para pasar en paralelo sin colisionar.
+
+### 3.8 Pendiente antiguo (baja / tandas posteriores)
 
 - Zonas LED como cuerpos (D-5) — adaptador está, no se dibuja.
-- Interacción: hover/clic/congelar-al-acercarse. La vista ya expone
-  `contentBounds` para la región de input.
-- Visualizador de música en tiempo real.
+- Interacción: hover/clic/congelar-al-acercarse.
 - Decidir si el wallpaper vuelve (D-1).
 
 ---
