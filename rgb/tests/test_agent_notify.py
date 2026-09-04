@@ -221,3 +221,55 @@ def test_finish_agent_refreshes_session(an, tmp_path, monkeypatch):
     assert session_calls[0]["name"] == "Claude"
 
 
+def test_get_claude_context_window_resolves_model_sizes(an):
+    # Modelos de 1M
+    assert an.get_claude_context_window("claude-sonnet-5") == 1_000_000
+    assert an.get_claude_context_window("claude-opus-5") == 1_000_000
+    assert an.get_claude_context_window("claude-opus-4-7") == 1_000_000
+    assert an.get_claude_context_window("claude-opus-4-6[1m]") == 1_000_000
+
+    # Modelos de 200k
+    assert an.get_claude_context_window("claude-haiku-4-5-20251001") == 200_000
+    assert an.get_claude_context_window("claude-sonnet-4-5-20250929") == 200_000
+
+    # Adaptación dinámica si los tokens exceden 200k
+    assert an.get_claude_context_window("unknown-model", current_tokens=350_000) == 1_000_000
+
+
+def test_claude_context_calculation_does_not_clamp_to_100_percent_on_sonnet_5(an, tmp_path, monkeypatch):
+    import json
+    # Crear estructura simulada de sesión y proyecto Claude
+    sess_dir = tmp_path / ".claude/sessions"
+    sess_dir.mkdir(parents=True)
+    proj_dir = tmp_path / ".claude/projects/-tmp-proj"
+    proj_dir.mkdir(parents=True)
+
+    sess_file = sess_dir / "1234.json"
+    sess_file.write_text(json.dumps({
+        "sessionId": "test-uuid",
+        "cwd": "/tmp/proj"
+    }))
+
+    transcript = proj_dir / "test-uuid.jsonl"
+    line = json.dumps({
+        "type": "assistant",
+        "message": {
+            "model": "claude-sonnet-5",
+            "usage": {
+                "input_tokens": 100,
+                "cache_creation_input_tokens": 2000,
+                "cache_read_input_tokens": 498000
+            }
+        }
+    })
+    transcript.write_text(line + "\n")
+
+    monkeypatch.setattr(an.Path, "home", lambda: tmp_path)
+    ratio, tokens = an.get_agent_context_info("Claude", target_pid=1234, cwd="/tmp/proj")
+
+    assert tokens == 500100
+    # 500,100 / 1,000,000 = ~0.500 (50%), NO 1.0 (100%)
+    assert 0.49 <= ratio <= 0.51
+
+
+
