@@ -273,10 +273,102 @@ def send_desktop_notification(agent_data):
         pass
 
 
+def get_agent_context_info(agent_name, target_pid=None, cwd=None, conv_id=None):
+    """Calcula el ratio de uso de la ventana de contexto (0.05 a 1.0) y tokens aproximados."""
+    pids_to_check = [int(target_pid)] if target_pid else []
+    if target_pid:
+        try:
+            res = subprocess.run(["pgrep", "-P", str(target_pid)], capture_output=True, text=True)
+            if res.returncode == 0:
+                pids_to_check.extend([int(p) for p in res.stdout.splitlines() if p.strip()])
+        except Exception:
+            pass
+
+    name_lower = (agent_name or "").lower()
+
+    # 1. Claude Code: tokens exactos desde ~/.claude/projects/*/<sessionId>.jsonl
+    if "claude" in name_lower:
+        sess_file = None
+        for p in pids_to_check:
+            cand = Path.home() / f".claude/sessions/{p}.json"
+            if cand.exists():
+                sess_file = cand
+                break
+        if not sess_file:
+            all_sess = list(Path.home().glob(".claude/sessions/*.json"))
+            if all_sess:
+                all_sess.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+                sess_file = all_sess[0]
+
+        if sess_file and sess_file.exists():
+            try:
+                data = json.loads(sess_file.read_text())
+                sess_id = data.get("sessionId")
+                sess_cwd = data.get("cwd", cwd or "")
+                proj_dir = sess_cwd.replace("/", "-")
+                transcript = Path.home() / f".claude/projects/{proj_dir}/{sess_id}.jsonl"
+                if transcript.exists():
+                    res = subprocess.run(["tac", str(transcript)], capture_output=True, text=True)
+                    for line in res.stdout.splitlines()[:60]:
+                        try:
+                            d = json.loads(line)
+                            u = d.get("message", {}).get("usage") or d.get("usage")
+                            if u:
+                                tokens = u.get("input_tokens", 0) + u.get("cache_creation_input_tokens", 0) + u.get("cache_read_input_tokens", 0)
+                                ratio = round(min(1.0, max(0.05, tokens / 200000.0)), 3)
+                                return ratio, tokens
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+    # 2. Antigravity: tamaño de conversación en SQLite o transcript.jsonl
+    if any(k in name_lower for k in ("agy", "anti", "gemini")):
+        if not conv_id:
+            for p in pids_to_check:
+                fd_dir = Path(f"/proc/{p}/fd")
+                if fd_dir.exists():
+                    try:
+                        for fd in fd_dir.iterdir():
+                            try:
+                                target = os.readlink(str(fd))
+                                if ("conversations/" in target and target.endswith(".db")) or ("presence/" in target and target.endswith(".lock")):
+                                    conv_id = Path(target).stem
+                                    break
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+                    if conv_id:
+                        break
+        if not conv_id:
+            dbs = list((Path.home() / ".gemini/antigravity-cli/conversations").glob("*.db"))
+            if dbs:
+                dbs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+                conv_id = dbs[0].stem
+
+        if conv_id:
+            tpath = Path.home() / f".gemini/antigravity-cli/brain/{conv_id}/.system_generated/logs/transcript.jsonl"
+            if tpath.exists():
+                try:
+                    size = tpath.stat().st_size
+                    est_tokens = int(size / 5.5)
+                    # ~1.1MB de transcript.jsonl equivale a la saturación de contexto antes de compactación (~200k tokens)
+                    ratio = round(min(1.0, max(0.05, size / 1100000.0)), 3)
+                    return ratio, est_tokens
+                except Exception:
+                    pass
+
+    return 0.20, 0
+
+
 def build_agent_data(name="Agente", status="Completado", task=None, duration="",
                      address="", ws=1, terminal="Terminal", target_pid=None, cwd=None,
-                     start_time=None):
+                     start_time=None, context_ratio=None, context_tokens=None, conv_id=None):
     """Construye el diccionario de datos del agente según el contrato de datos."""
+    if context_ratio is None:
+        context_ratio, context_tokens = get_agent_context_info(name, target_pid=target_pid, cwd=cwd, conv_id=conv_id)
+
     return {
         "id": f"agent-{int(time.time() * 1000)}",
         "name": name,
@@ -288,10 +380,12 @@ def build_agent_data(name="Agente", status="Completado", task=None, duration="",
         "duration": duration,
         "terminal": terminal,
         "startTime": start_time,
+        "contextRatio": context_ratio,
+        "contextTokens": context_tokens,
     }
 
 
-def start_agent(name="Claude", task=None, target_pid=None, cwd=None):
+def start_agent(name="Claude", task=None, target_pid=None, cwd=None, conv_id=None):
     """Marca un agente como en ejecución (pulso en el pip)."""
     win = get_hyprland_window(target_pid=target_pid, agent_name=name)
     address = win["address"]
@@ -326,7 +420,7 @@ def start_agent(name="Claude", task=None, target_pid=None, cwd=None):
     print(f"✓ En curso: {name} en Workspace {ws} ({data['dir']})", file=sys.stderr)
 
 
-def finish_agent(name="Claude", task=None, status="Completado", target_pid=None, cwd=None):
+def finish_agent(name="Claude", task=None, status="Completado", target_pid=None, cwd=None, conv_id=None):
     """Marca un agente como finalizado (halo sólido + badge + toast)."""
     win = get_hyprland_window(target_pid=target_pid, agent_name=name)
     address = win["address"]
@@ -351,7 +445,7 @@ def finish_agent(name="Claude", task=None, status="Completado", target_pid=None,
 
     data = build_agent_data(name=name, status=status, task=task, duration=duration,
                             address=address, ws=ws, terminal=win["class"],
-                            target_pid=target_pid, cwd=cwd)
+                            target_pid=target_pid, cwd=cwd, conv_id=conv_id)
 
     quickshell_ipc("complete", data)
     send_desktop_notification(data)
@@ -359,18 +453,19 @@ def finish_agent(name="Claude", task=None, status="Completado", target_pid=None,
 
     # Si la ventana sigue viva, asegurar que queda registrada como sesión abierta en reposo
     if address:
-        start_session(name=name, target_pid=target_pid, cwd=cwd, win=win)
+        start_session(name=name, target_pid=target_pid, cwd=cwd, win=win, conv_id=conv_id)
 
 
 def notify_agent(name="Agente", status="Completado", task=None, duration="",
-                 custom_address=None, custom_ws=None, target_pid=None):
+                 custom_address=None, custom_ws=None, target_pid=None, conv_id=None):
     """Registra y notifica la finalización de un agente (compat: interceptación de Antigravity)."""
     win = get_hyprland_window(target_pid=target_pid, agent_name=name)
     address = custom_address if custom_address else win["address"]
     ws = custom_ws if custom_ws is not None else win["ws_id"]
 
     agent_data = build_agent_data(name=name, status=status, task=task, duration=duration,
-                                  address=address, ws=ws, terminal=win["class"], target_pid=target_pid)
+                                  address=address, ws=ws, terminal=win["class"], target_pid=target_pid,
+                                  conv_id=conv_id)
 
     quickshell_ipc("notify", agent_data)
     send_desktop_notification(agent_data)
@@ -378,7 +473,7 @@ def notify_agent(name="Agente", status="Completado", task=None, duration="",
     print(f"✓ Notificación enviada: {name} en Workspace {ws} ({agent_data['dir']})")
 
 
-def start_session(name="Agente", target_pid=None, cwd=None, win=None):
+def start_session(name="Agente", target_pid=None, cwd=None, win=None, conv_id=None):
     """Registra una sesión abierta de agente (aparece en el sistema solar en reposo sin parpadear el pip)."""
     if not win:
         win = get_hyprland_window(target_pid=target_pid, agent_name=name)
@@ -388,7 +483,7 @@ def start_session(name="Agente", target_pid=None, cwd=None, win=None):
 
     data = build_agent_data(name=name, status="session", task="Sesión abierta",
                             address=address, ws=ws, terminal=win["class"],
-                            target_pid=target_pid, cwd=cwd, start_time=now)
+                            target_pid=target_pid, cwd=cwd, start_time=now, conv_id=conv_id)
     data["id"] = f"session-{_norm_addr(address) or now}"
 
     try:
@@ -468,12 +563,13 @@ def sync_sessions():
         addr = _norm_addr(win.get("address"))
         if not addr or addr not in active_addrs:
             continue
-        if addr not in found:
-            found[addr] = (agent_name, pid, win)
+        # Preferir el PID del binario real (agy / claude) sobre el wrapper de python
+        if addr not in found or "agent-notify" in found[addr][3]:
+            found[addr] = (agent_name, pid, win, cmd)
 
     synced_count = 0
     # 3. Registrar o refrescar sesiones encontradas
-    for addr, (agent_name, pid, win) in found.items():
+    for addr, (agent_name, pid, win, _cmd) in found.items():
         data = start_session(name=agent_name, target_pid=pid, win=win)
         synced_count += 1
 
@@ -483,6 +579,10 @@ def sync_sessions():
         if addr in active_addrs and addr not in found:
             try:
                 d = json.loads(f.read_text())
+                ratio, tokens = get_agent_context_info(d.get("name"), cwd=d.get("dir"))
+                d["contextRatio"] = ratio
+                d["contextTokens"] = tokens
+                f.write_text(json.dumps(d))
                 quickshell_ipc("sessionStart", d)
                 synced_count += 1
             except Exception:
@@ -565,6 +665,7 @@ def cmd_hook(event, agent_name=None):
         hook = {}
 
     cwd = hook.get("cwd") or None
+    conv_id = hook.get("conversationId") or None
     is_antigravity = "conversationId" in hook or "workspacePaths" in hook or (agent_name and any(k in agent_name.lower() for k in ("anti", "agy", "gemini")))
     if not agent_name:
         agent_name = "Antigravity" if is_antigravity else "Claude"
@@ -582,10 +683,10 @@ def cmd_hook(event, agent_name=None):
                 prompt = (hook.get("prompt") or "").strip().replace("\n", " ")
             if len(prompt) > 80:
                 prompt = prompt[:79] + "…"
-            start_session(name=agent_name, cwd=cwd)
-            start_agent(name=agent_name, task=prompt or "Pensando…", cwd=cwd)
+            start_session(name=agent_name, cwd=cwd, conv_id=conv_id)
+            start_agent(name=agent_name, task=prompt or "Pensando…", cwd=cwd, conv_id=conv_id)
     elif event == "stop":
-        finish_agent(name=agent_name, cwd=cwd)
+        finish_agent(name=agent_name, cwd=cwd, conv_id=conv_id)
 
     # Si fue invocado por Antigravity, stdout DEBE ser JSON válido
     if is_antigravity:
