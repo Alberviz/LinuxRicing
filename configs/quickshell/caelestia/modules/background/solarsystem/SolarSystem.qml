@@ -146,10 +146,11 @@ Item {
         if (b.kind === "device")
             return (typeof b.batt === "number") ? (Math.round(b.batt * 100) + "%") : "";
         if (b.kind === "agent") {
-            if (b.running) return "en curso";
-            if (b.status === "done") return "hecho";
-            if (b.status === "session") return "sesión";
-            return "sesión";
+            const prefix = b.ws ? ("ws " + b.ws + " · ") : "";
+            if (b.running) return prefix + "en curso";
+            if (b.status === "done") return prefix + "hecho";
+            if (b.status === "session") return prefix + "sesión";
+            return prefix + "sesión";
         }
         return "";
     }

@@ -74,6 +74,7 @@ Singleton {
 
     // config = disposición + periféricos conectados + terminales en vivo.
     readonly property var config: {
+        const _deps = [Agents.runningAgents, Agents.completedAgents, Agents.sessions, Agents.wsMap];
         const base = root.userConfig || root.defaultConfig;
         const bodies = (base.bodies || []).slice();
         const extra = root._deviceBodies().concat(root._terminalBodies());
@@ -135,20 +136,22 @@ Singleton {
     // `enabled` a secas.
     readonly property bool musicPlaying: Players.list.some(p => p.isPlaying)
     readonly property bool anyActivity: root.enabled
-        && (root.musicPlaying || root._lauraActive || (Agents.runningAgents || []).length > 0)
+        && (root.musicPlaying || root._lauraActive || (Agents.runningAgents || []).length > 0
+            || (Agents.sessions || []).length > 0 || (Agents.completedAgents || []).length > 0)
 
     readonly property var values: root._buildValues(root._music, root._musicBass, root._musicTreble,
                                                     root._musicPulse,
                                                     root._pendingTasks, root._lauraActive,
                                                     root._batt,
                                                     RgbConfig.devices,
-                                                    Agents.runningAgents, Agents.completedAgents)
+                                                    Agents.runningAgents, Agents.completedAgents,
+                                                    Agents.sessions)
 
     function _battFrac(v) {
         return (typeof v === "number" && isFinite(v)) ? Math.max(0, Math.min(1, v / 100)) : 0;
     }
 
-    function _buildValues(music, musicBass, musicTreble, musicPulse, pending, lauraActive, batt, ledDevices, running, done) {
+    function _buildValues(music, musicBass, musicTreble, musicPulse, pending, lauraActive, batt, ledDevices, running, done, sessions) {
         const b = batt || {};
         const led = ledDevices || {};
         const v = {
@@ -186,6 +189,11 @@ Singleton {
             const did = done[j].id || "?";
             v["term:" + did] = 0.35;
             v["provider:" + did] = done[j].provider || "otro";
+        }
+        for (let k = 0; k < (sessions || []).length; k++) {
+            const sid = sessions[k].id || "?";
+            v["term:" + sid] = 0.55;
+            v["provider:" + sid] = sessions[k].provider || "otro";
         }
         return v;
     }
@@ -313,41 +321,113 @@ Singleton {
         "otro": "m3outline"
     })
 
+    function _normAddr(addr) {
+        if (!addr) return "";
+        let s = String(addr).toLowerCase();
+        return s.startsWith("0x") ? s.slice(2) : s;
+    }
+
     // ---------- Adaptador: agentes / terminales (Agents.qml) ----------
-    // Un satélite por sesión de Claude/Antigravity, séquito de Laura. En curso →
-    // brillante, con anillo de actividad, órbita más rápida y cerrada.
-    // Completado → tenue, órbita más lenta y más abierta. 0 agentes → 0 cuerpos.
+    // Cada Workspace de Hyprland tiene su propio anillo orbital fijo alrededor de Laura:
+    //   WS 1 -> carril 1 (más cerrado), WS 2 -> carril 2, etc.
+    // Múltiples agentes en el mismo workspace comparten anillo con un micro-desfase (±7px)
+    // para adelantarse en paralelo sin colisionar.
     function _terminalBodies() {
         const running = Agents.runningAgents || [];
         const done = Agents.completedAgents || [];
+        const sessions = Agents.sessions || [];
+        const seenAddrs = new Set();
+        const all = [];
+
+        // 1. Agentes en ejecución (prioridad máxima: procesando)
+        for (let i = 0; i < running.length; i++) {
+            const a = running[i];
+            const na = root._normAddr(a.address);
+            if (na) seenAddrs.add(na);
+            all.push({ agent: a, state: "running" });
+        }
+
+        // 2. Agentes con tarea completada pendiente de ver
+        for (let j = 0; j < done.length; j++) {
+            const a = done[j];
+            const na = root._normAddr(a.address);
+            if (na && seenAddrs.has(na)) continue;
+            if (na) seenAddrs.add(na);
+            all.push({ agent: a, state: "done" });
+        }
+
+        // 3. Sesiones abiertas en reposo (esperando prompt)
+        for (let k = 0; k < sessions.length; k++) {
+            const a = sessions[k];
+            const na = root._normAddr(a.address);
+            if (na && seenAddrs.has(na)) continue;
+            if (na) seenAddrs.add(na);
+            all.push({ agent: a, state: "session" });
+        }
+
+        // 4. Agrupar por workspace real del agente
+        const byWs = {};
+        for (let idx = 0; idx < all.length; idx++) {
+            const item = all[idx];
+            const rawWs = Agents.liveWs(item.agent.address, item.agent.ws || 1);
+            const ws = (typeof rawWs === "number" && rawWs >= 1) ? Math.min(rawWs, 6) : 1;
+            item.ws = ws;
+            if (!byWs[ws]) byWs[ws] = [];
+            byWs[ws].push(item);
+        }
+
         const out = [];
-        let idx = 0;
-        const add = (a, isRunning) => {
-            const lane = idx % 3;
-            const bid = a.id || ("t" + idx);
-            // Proveedor de IA del satélite ("claude"|"gemini"|"codex"|"otro").
-            // Viene de Agents.qml (_providerOf). La vista lo colorea con
-            // root.providerPaletteRole[provider]. Nunca inventado: por defecto "otro".
-            const provider = a.provider || "otro";
-            out.push({
-                id: "term:" + bid,
-                kind: "planet",
-                anchor: "laura",
-                // Nombre real del agente (de Agents.qml). La vista lo usa como
-                // título de la etiqueta del satélite. Nunca inventado.
-                name: a.name || "Agente",
-                phase: (idx * 2.399) % (2 * Math.PI),
-                orbitK: isRunning ? (2.1 + lane * 0.85) : (3.4 + lane * 1.0),
-                period: isRunning ? (46 + lane * 7) : (118 + lane * 12),
-                ring: isRunning,
-                provider: provider,
-                activitySignal: "term:" + bid,
-                providerSignal: "provider:" + bid
-            });
-            idx++;
-        };
-        for (let i = 0; i < running.length; i++) add(running[i], true);
-        for (let j = 0; j < done.length; j++) add(done[j], false);
+        let globalIdx = 0;
+
+        // 5. Generar cuerpos celestes por cada grupo de workspace
+        for (const wsKey in byWs) {
+            const ws = parseInt(wsKey, 10);
+            const group = byWs[wsKey];
+            const count = group.length;
+
+            for (let slot = 0; slot < count; slot++) {
+                const item = group[slot];
+                const a = item.agent;
+                const state = item.state;
+                const bid = a.id || ("t" + globalIdx);
+                const provider = a.provider || "otro";
+                const isRunning = state === "running";
+
+                // Base orbital según el número de workspace:
+                // ws 1 -> 1.9, ws 2 -> 2.6, ws 3 -> 3.3, ws 4 -> 4.0, ws 5 -> 4.7, ws 6 -> 5.4
+                const baseOrbitK = 1.9 + (ws - 1) * 0.70;
+
+                // Micro-desfase radial de carril si hay múltiples agentes en el mismo workspace
+                // (slot - (count - 1) / 2) * 0.12 (aprox ±7 px en 1080p para pasar en paralelo)
+                const offsetK = count > 1 ? (slot - (count - 1) / 2) * 0.12 : 0;
+                const finalOrbitK = Math.max(1.5, baseOrbitK + offsetK);
+
+                // Período: en curso gira más rápido (~42s) que en reposo (~110s)
+                const period = isRunning ? (42 + (ws % 3) * 6) : (110 + (ws % 3) * 15);
+
+                // Fase inicial distribuida en el círculo para los agentes del mismo workspace
+                const phase = ((slot / count) * 2 * Math.PI + (ws * 1.3)) % (2 * Math.PI);
+
+                out.push({
+                    id: "term:" + bid,
+                    kind: "planet",
+                    anchor: "laura",
+                    name: a.name || "Agente",
+                    status: state,
+                    ws: ws,
+                    phase: phase,
+                    orbitK: finalOrbitK,
+                    period: period,
+                    ring: isRunning,
+                    provider: provider,
+                    activitySignal: "term:" + bid,
+                    providerSignal: "provider:" + bid
+                });
+
+                globalIdx++;
+            }
+        }
+
         return out;
     }
 

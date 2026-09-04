@@ -244,6 +244,7 @@ function computeLayout(state, geom) {
             // (los pone SolarSystemModel). Sólo se copian; Sim.js no los inventa.
             name: b.name,
             provider: b.provider,
+            ws: b.ws,
             status: b.status || (running ? "running" : "done"),
             kind: isDevice ? "device" : "agent",
             hostx: host.x, hosty: host.y,

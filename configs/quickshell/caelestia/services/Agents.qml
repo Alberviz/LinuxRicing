@@ -12,6 +12,7 @@ Singleton {
 
     property list<var> completedAgents: []
     property list<var> runningAgents: []
+    property list<var> sessions: []
     readonly property int count: completedAgents.length
 
     // Un pulso "en curso" caduca si nadie lo refresca. Los hooks per-turno de
@@ -172,6 +173,8 @@ Singleton {
         const address = data.address || "";
         const na = root._normAddr(address);
         const nm = data.name || "Agente";
+        const alreadyRunning = na !== "" && root.runningAgents.some(a => root._normAddr(a.address) === na);
+
         const entry = {
             id: data.id || `agent-${Date.now()}`,
             name: nm,
@@ -190,7 +193,9 @@ Singleton {
             entry
         ];
 
-        root._playSound(root.soundStart);
+        if (!alreadyRunning) {
+            root._playSound(root.soundStart);
+        }
     }
 
     // El agente terminó: pasa de runningAgents a completedAgents.
@@ -315,9 +320,52 @@ Singleton {
         root.runningAgents = root.runningAgents.filter(a => root._normAddr(a.address) !== norm);
     }
 
+    function sessionStart(dataStr: string): void {
+        const data = root._parse(dataStr);
+        if (!data || typeof data !== "object")
+            return;
+
+        const address = data.address || "";
+        const na = root._normAddr(address);
+        const nm = data.name || "Agente";
+        const entry = {
+            id: data.id || `session-${na || Date.now()}`,
+            name: nm,
+            provider: root._providerOf(data, nm),
+            status: "session",
+            task: data.task || "Sesión abierta",
+            dir: data.dir || "",
+            ws: data.ws || 1,
+            address: address,
+            pid: data.pid || 0,
+            startTime: data.startTime || Date.now(),
+            time: new Date()
+        };
+
+        root.sessions = [
+            ...root.sessions.filter(s => (na === "" || root._normAddr(s.address) !== na) && s.id !== entry.id),
+            entry
+        ];
+    }
+
+    function sessionStop(dataStr: string): void {
+        const data = root._parse(dataStr);
+        const address = (data && data.address) || (typeof dataStr === "string" ? dataStr : "");
+        const na = root._normAddr(address);
+        const id = data && data.id;
+        root.sessions = root.sessions.filter(s => {
+            if (id && s.id === id)
+                return false;
+            if (na && root._normAddr(s.address) === na)
+                return false;
+            return true;
+        });
+    }
+
     function clearAll(): void {
         root.completedAgents = [];
         root.runningAgents = [];
+        root.sessions = [];
     }
 
     // Al enfocar la ventana del agente -> descartar (solo lo completado; el pulso
@@ -345,6 +393,7 @@ Singleton {
             };
             root.completedAgents = root.completedAgents.filter(a => !gone(a));
             root.runningAgents = root.runningAgents.filter(a => !gone(a));
+            root.sessions = root.sessions.filter(s => !gone(s));
         }
     }
 
@@ -382,6 +431,8 @@ Singleton {
         function start(data: string): void { root.start(data); }
         function complete(data: string): void { root.complete(data); }
         function notify(data: string): void { root.notify(data); }
+        function sessionStart(data: string): void { root.sessionStart(data); }
+        function sessionStop(data: string): void { root.sessionStop(data); }
         function clearRunning(data: string): void { root.clearRunningByAddress(data); }
         function focus(address: string): void { root.focus(address); }
         function dismiss(id: string): void { root.dismiss(id); }
@@ -389,5 +440,6 @@ Singleton {
         function clearAll(): void { root.clearAll(); }
         function list(): string { return JSON.stringify(root.completedAgents); }
         function listRunning(): string { return JSON.stringify(root.runningAgents); }
+        function listSessions(): string { return JSON.stringify(root.sessions); }
     }
 }
