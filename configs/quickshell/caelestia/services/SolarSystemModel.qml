@@ -46,7 +46,7 @@ Singleton {
         anchors: [
             {
                 id: "music", label: "Música", kind: "blackhole",
-                motion: { kind: "fixed", fx: 1.02, fy: -0.04 }, rFrac: 0.24
+                motion: { kind: "fixed", fx: 0.84, fy: 0.12 }, rFrac: 0.28
             },
             {
                 id: "config", label: "Configuración", kind: "sun", role: "secondary",
