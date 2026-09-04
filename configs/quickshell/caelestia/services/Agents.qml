@@ -12,6 +12,7 @@ Singleton {
 
     property list<var> completedAgents: []
     property list<var> runningAgents: []
+    property list<var> sessions: []
     readonly property int count: completedAgents.length
 
     // Un pulso "en curso" caduca si nadie lo refresca. Los hooks per-turno de
@@ -72,6 +73,25 @@ Singleton {
         }
     }
 
+    // Sincronización y descubrimiento de sesiones de agentes abiertas (reposo/idle).
+    // Se ejecuta al iniciar Quickshell (running: true) y periódicamente cada 15 s.
+    Process {
+        id: syncSessionsProc
+        command: ["agent-notify", "sync-sessions"]
+        running: true
+    }
+
+    Timer {
+        id: syncSessionsTimer
+        interval: 15000
+        running: true
+        repeat: true
+        onTriggered: {
+            if (!syncSessionsProc.running)
+                syncSessionsProc.running = true;
+        }
+    }
+
     function _normAddr(addr: string): string {
         if (!addr)
             return "";
@@ -113,6 +133,47 @@ Singleton {
         return (root.wsMap[n] || []).filter(a => !a.seen).length;
     }
 
+    // Deriva el PROVEEDOR de IA de una entrada de agente. Campo NUEVO y opcional:
+    // nada de lo que ya consume Agents.qml depende de él (solo lo lee el sistema
+    // solar para colorear cada satélite).
+    //
+    // Valores posibles: "claude" | "gemini" | "codex" | "otro".
+    // NUNCA se inventa un proveedor: sin señal clara -> "otro".
+    //
+    // Fuentes reales de `name` (verificadas en el repo, sept-2026):
+    //   · Claude Code -> name "Claude"
+    //       hooks UserPromptSubmit/Stop -> ~/.local/bin/agent-notify hook
+    //       prompt|stop -> start_agent/finish_agent(name="Claude") -> IPC start/complete.
+    //   · Antigravity -> name "Antigravity"
+    //       services/Notifs.qml intercepta la notificación nativa (app "antigravity"
+    //       / "agy") -> triggerAgentNotify("Antigravity", …) -> agent-notify notify
+    //       -n Antigravity -> IPC notify. Antigravity es el IDE de Google que
+    //       ejecuta Gemini, así que su proveedor es "gemini".
+    //   · agent-notify notify -n Gemini      (ejemplo documentado en docs/) -> "gemini".
+    //   · agent-notify run -- <binario>      -> name = basename capitalizado del binario.
+    //   · Por defecto en start()/_addCompleted() cuando no llega name: "Agente" -> "otro".
+    //
+    // `dir` es el nombre del repo git (p.ej. "LinuxRicing"): NO identifica al
+    // proveedor, por eso no se usa aquí.
+    function _providerOf(data: var, name: string): string {
+        // 1. Campo explícito en el JSON entrante (emisores futuros). A minúsculas.
+        const explicit = data && (data.provider || data.agent || data.tool || data.vendor);
+        const src = explicit ? String(explicit) : String(name || "");
+        const s = src.toLowerCase().trim();
+
+        // 2. Coincidencia tolerante a mayúsculas y variantes.
+        if (s.indexOf("claude") !== -1 || s.indexOf("anthropic") !== -1)
+            return "claude";
+        if (s.indexOf("gemini") !== -1 || s.indexOf("antigravity") !== -1
+            || s.indexOf("agy") !== -1 || s.indexOf("bard") !== -1 || s === "google")
+            return "gemini";
+        if (s.indexOf("codex") !== -1 || s.indexOf("openai") !== -1 || s.indexOf("gpt") !== -1)
+            return "codex";
+
+        // 3. Sin señal fiable.
+        return "otro";
+    }
+
     function _parse(dataStr) {
         try {
             return typeof dataStr === "string" ? JSON.parse(dataStr) : dataStr;
@@ -130,9 +191,13 @@ Singleton {
 
         const address = data.address || "";
         const na = root._normAddr(address);
+        const nm = data.name || "Agente";
+        const alreadyRunning = na !== "" && root.runningAgents.some(a => root._normAddr(a.address) === na);
+
         const entry = {
             id: data.id || `agent-${Date.now()}`,
-            name: data.name || "Agente",
+            name: nm,
+            provider: root._providerOf(data, nm),
             task: data.task || "Trabajando…",
             status: "running",
             dir: data.dir || "",
@@ -147,7 +212,9 @@ Singleton {
             entry
         ];
 
-        root._playSound(root.soundStart);
+        if (!alreadyRunning) {
+            root._playSound(root.soundStart);
+        }
     }
 
     // El agente terminó: pasa de runningAgents a completedAgents.
@@ -169,9 +236,11 @@ Singleton {
     function _addCompleted(data): void {
         const address = data.address || "";
         const na = root._normAddr(address);
+        const nm = data.name || "Agente";
         const entry = {
             id: data.id || `agent-${Date.now()}`,
-            name: data.name || "Agente",
+            name: nm,
+            provider: root._providerOf(data, nm),
             task: data.task || data.status || "Completado",
             status: data.status || "Completado",
             dir: data.dir || "",
@@ -270,9 +339,52 @@ Singleton {
         root.runningAgents = root.runningAgents.filter(a => root._normAddr(a.address) !== norm);
     }
 
+    function sessionStart(dataStr: string): void {
+        const data = root._parse(dataStr);
+        if (!data || typeof data !== "object")
+            return;
+
+        const address = data.address || "";
+        const na = root._normAddr(address);
+        const nm = data.name || "Agente";
+        const entry = {
+            id: data.id || `session-${na || Date.now()}`,
+            name: nm,
+            provider: root._providerOf(data, nm),
+            status: "session",
+            task: data.task || "Sesión abierta",
+            dir: data.dir || "",
+            ws: data.ws || 1,
+            address: address,
+            pid: data.pid || 0,
+            startTime: data.startTime || Date.now(),
+            time: new Date()
+        };
+
+        root.sessions = [
+            ...root.sessions.filter(s => (na === "" || root._normAddr(s.address) !== na) && s.id !== entry.id),
+            entry
+        ];
+    }
+
+    function sessionStop(dataStr: string): void {
+        const data = root._parse(dataStr);
+        const address = (data && data.address) || (typeof dataStr === "string" ? dataStr : "");
+        const na = root._normAddr(address);
+        const id = data && data.id;
+        root.sessions = root.sessions.filter(s => {
+            if (id && s.id === id)
+                return false;
+            if (na && root._normAddr(s.address) === na)
+                return false;
+            return true;
+        });
+    }
+
     function clearAll(): void {
         root.completedAgents = [];
         root.runningAgents = [];
+        root.sessions = [];
     }
 
     // Al enfocar la ventana del agente -> descartar (solo lo completado; el pulso
@@ -300,6 +412,7 @@ Singleton {
             };
             root.completedAgents = root.completedAgents.filter(a => !gone(a));
             root.runningAgents = root.runningAgents.filter(a => !gone(a));
+            root.sessions = root.sessions.filter(s => !gone(s));
         }
     }
 
@@ -337,6 +450,8 @@ Singleton {
         function start(data: string): void { root.start(data); }
         function complete(data: string): void { root.complete(data); }
         function notify(data: string): void { root.notify(data); }
+        function sessionStart(data: string): void { root.sessionStart(data); }
+        function sessionStop(data: string): void { root.sessionStop(data); }
         function clearRunning(data: string): void { root.clearRunningByAddress(data); }
         function focus(address: string): void { root.focus(address); }
         function dismiss(id: string): void { root.dismiss(id); }
@@ -344,5 +459,6 @@ Singleton {
         function clearAll(): void { root.clearAll(); }
         function list(): string { return JSON.stringify(root.completedAgents); }
         function listRunning(): string { return JSON.stringify(root.runningAgents); }
+        function listSessions(): string { return JSON.stringify(root.sessions); }
     }
 }
