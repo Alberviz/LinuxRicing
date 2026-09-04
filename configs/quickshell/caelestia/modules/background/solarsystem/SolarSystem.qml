@@ -51,6 +51,7 @@ Item {
     property bool reduceMotion: false
     property bool active: false                // ¿hay un agente en curso? (sube el ritmo del Sim)
     property bool fastRate: false              // ¿música sonando? (sube el ritmo del Sim)
+    property int musicVariant: 2               // Variante de visualizador en agujero negro (1..6)
 
     // --- Modo Laura activa (D-12) ---
     // Lo cablea SolarSystemLayer desde el singleton Laura. La vista solo ve dos
@@ -502,10 +503,17 @@ Item {
             MusicHole {
                 center: bhWrap.bh ? Qt.point(bhWrap.bh.x, bhWrap.bh.y) : Qt.point(0,0)
                 radius: bhWrap.bh ? bhWrap.bh.R : 100
+                time: root._t
                 musicBass: root._layout && root._layout.musicBass !== undefined ? root._layout.musicBass : 0
                 musicPulse: root._layout && root._layout.musicPulse !== undefined ? root._layout.musicPulse : 0
                 musicTreble: root._layout && root._layout.musicTreble !== undefined ? root._layout.musicTreble : 0
-                variant: 2 // Por defecto a Minimalista Clásico para que lo vea, se puede cambiar
+                colPrimary: root.colPrimary
+                colInk: root.colInk
+                colVoid: root.colVoid
+                colError: root.colError
+                fontFamily: root.labelFont
+                variant: root.musicVariant
+                onVariantChanged: root.musicVariant = variant
             }
         }
 

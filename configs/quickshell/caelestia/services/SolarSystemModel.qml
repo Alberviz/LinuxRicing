@@ -21,6 +21,7 @@ Singleton {
 
     // Interruptor global (v1: siempre on; en v3 sustituye a los widgets).
     property bool enabled: true
+    property int musicVariant: 2
 
     // v3: el wallpaper se apaga y el escritorio queda sobre fondo negro
     // (decisión D-1, restaurable). Poner a true devuelve el wallpaper; la paleta
@@ -463,6 +464,25 @@ Singleton {
                 console.warn("SolarSystemModel: solarsystem.json inválido:", e);
                 root.userConfig = null;
             }
+        }
+    }
+
+    // ---------- Control IPC: variantes de visualización de música ----------
+    IpcHandler {
+        target: "solarSystem"
+
+        function getMusicVariant(): int {
+            return root.musicVariant;
+        }
+
+        function setMusicVariant(v: int): void {
+            if (v >= 1 && v <= 6)
+                root.musicVariant = v;
+        }
+
+        function nextMusicVariant(): int {
+            root.musicVariant = (root.musicVariant % 6) + 1;
+            return root.musicVariant;
         }
     }
 }

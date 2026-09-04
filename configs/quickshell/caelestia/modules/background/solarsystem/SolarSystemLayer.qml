@@ -51,6 +51,7 @@ Variants {
             values: SolarSystemModel.values
             active: SolarSystemModel.anyActivity
             fastRate: SolarSystemModel.musicPlaying
+            musicVariant: SolarSystemModel.musicVariant
             // En modo juego el shell congela sus animaciones; el sistema solar
             // hace lo mismo para no competir por GPU.
             paused: GameMode.enabled

@@ -82,8 +82,8 @@ var D = {
     testBodies: 0,
 
     // Agujero negro: asomando más hacia el interior de la pantalla para que el
-    // horizonte de sucesos (la parte negra pura) sea visible.
-    bhFx: 0.94, bhFy: 0.06, bhRFrac: 0.24,        // R en fracción de h
+    // horizonte de sucesos (la parte negra pura) sea visible y aloje la UI de música.
+    bhFx: 0.88, bhFy: 0.09, bhRFrac: 0.25,        // R en fracción de h
     // Baricentro del binario: ANCLADO (no traslada). El sitio concreto lo pone
     // la variante (LAYOUTS); estos son sólo el defecto si la variante no existe.
     baryFx: 0.30, baryFy: 0.47,
