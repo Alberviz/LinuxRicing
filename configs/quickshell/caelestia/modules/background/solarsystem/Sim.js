@@ -225,9 +225,11 @@ function computeLayout(state, geom) {
         _bodyPhases[b.id] += (2 * Math.PI / per) * dt * speedMul;
         var oa = _bodyPhases[b.id];
 
-        // Tamaño del cuerpo. Dispositivo: tamaño/brillo = batería. Agente: fijo.
+        // Tamaño del cuerpo.
+        // Dispositivo: tamaño según % de batería.
+        // Agente: masa estelar según ventana de contexto acumulada (sizeF: 0.05 planeta enano .. 1.0 gigante).
         var baseR = isDevice ? host.r * (0.13 + 0.13 * sizeF)
-                             : host.r * (running ? 0.16 : 0.12);
+                             : host.r * ((running ? 0.13 : 0.10) + 0.09 * sizeF);
 
         // Semieje vertical de la órbita, RECORTADO para no invadir la franja
         // inferior de ~200 px (la órbita se achata por abajo, no se traslada).
@@ -247,6 +249,7 @@ function computeLayout(state, geom) {
             ws: b.ws,
             status: b.status || (running ? "running" : "done"),
             kind: isDevice ? "device" : "agent",
+            contextRatio: isDevice ? undefined : sizeF,
             hostx: host.x, hosty: host.y,
             x: host.x + Math.cos(oa) * orb,
             y: by,

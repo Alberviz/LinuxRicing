@@ -194,6 +194,7 @@ Singleton {
         const nm = data.name || "Agente";
         const alreadyRunning = na !== "" && root.runningAgents.some(a => root._normAddr(a.address) === na);
 
+        const existingRatio = (root.sessions.find(s => root._normAddr(s.address) === na) || {}).contextRatio;
         const entry = {
             id: data.id || `agent-${Date.now()}`,
             name: nm,
@@ -203,6 +204,8 @@ Singleton {
             dir: data.dir || "",
             ws: data.ws || 1,
             address: address,
+            contextRatio: (typeof data.contextRatio === "number") ? data.contextRatio : (existingRatio !== undefined ? existingRatio : 0.25),
+            contextTokens: data.contextTokens || 0,
             startTime: data.startTime || Date.now(),
             time: new Date()
         };
@@ -237,6 +240,7 @@ Singleton {
         const address = data.address || "";
         const na = root._normAddr(address);
         const nm = data.name || "Agente";
+        const existingRatio = (root.sessions.find(s => root._normAddr(s.address) === na) || {}).contextRatio;
         const entry = {
             id: data.id || `agent-${Date.now()}`,
             name: nm,
@@ -246,6 +250,8 @@ Singleton {
             dir: data.dir || "",
             ws: data.ws || 1,
             address: address,
+            contextRatio: (typeof data.contextRatio === "number") ? data.contextRatio : (existingRatio !== undefined ? existingRatio : 0.25),
+            contextTokens: data.contextTokens || 0,
             duration: data.duration || "",
             time: new Date(),
             seen: false
@@ -357,6 +363,8 @@ Singleton {
             ws: data.ws || 1,
             address: address,
             pid: data.pid || 0,
+            contextRatio: (typeof data.contextRatio === "number") ? data.contextRatio : 0.25,
+            contextTokens: data.contextTokens || 0,
             startTime: data.startTime || Date.now(),
             time: new Date()
         };

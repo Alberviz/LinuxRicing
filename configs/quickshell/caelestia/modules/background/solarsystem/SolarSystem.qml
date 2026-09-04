@@ -148,10 +148,12 @@ Item {
             return (typeof b.batt === "number") ? (Math.round(b.batt * 100) + "%") : "";
         if (b.kind === "agent") {
             const prefix = b.ws ? ("ws " + b.ws + " · ") : "";
-            if (b.running) return prefix + "en curso";
-            if (b.status === "done") return prefix + "hecho";
-            if (b.status === "session") return prefix + "sesión";
-            return prefix + "sesión";
+            const pct = (typeof b.contextRatio === "number") ? Math.round(b.contextRatio * 100) : 0;
+            const ctxText = (pct > 0) ? (" · " + pct + "% ctx") : "";
+            if (b.running) return prefix + "en curso" + ctxText;
+            if (b.status === "done") return prefix + "hecho" + ctxText;
+            if (b.status === "session") return prefix + "sesión" + ctxText;
+            return prefix + "sesión" + ctxText;
         }
         return "";
     }

@@ -182,17 +182,20 @@ Singleton {
             const rid = running[i].id || "?";
             v["term:" + rid] = 1.0;
             v["provider:" + rid] = running[i].provider || "otro";
+            v["size:" + rid] = (typeof running[i].contextRatio === "number") ? running[i].contextRatio : 0.25;
         }
         for (let j = 0; j < (done || []).length; j++) {
             const did = done[j].id || "?";
             v["term:" + did] = 0.80;
             v["alert:" + did] = 1.0;
             v["provider:" + did] = done[j].provider || "otro";
+            v["size:" + did] = (typeof done[j].contextRatio === "number") ? done[j].contextRatio : 0.25;
         }
         for (let k = 0; k < (sessions || []).length; k++) {
             const sid = sessions[k].id || "?";
             v["term:" + sid] = 0.25;
             v["provider:" + sid] = sessions[k].provider || "otro";
+            v["size:" + sid] = (typeof sessions[k].contextRatio === "number") ? sessions[k].contextRatio : 0.25;
         }
         return v;
     }
@@ -429,7 +432,8 @@ Singleton {
                     alertSignal: isDone ? ("alert:" + bid) : undefined,
                     provider: provider,
                     activitySignal: "term:" + bid,
-                    providerSignal: "provider:" + bid
+                    providerSignal: "provider:" + bid,
+                    sizeSignal: "size:" + bid
                 });
 
                 globalIdx++;
