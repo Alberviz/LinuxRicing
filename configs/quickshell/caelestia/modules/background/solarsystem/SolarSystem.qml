@@ -20,6 +20,7 @@ pragma ComponentBehavior: Bound
 // Ningún color fijo: la paleta entra como propiedad. Ver docs/sistema-solar-v3-DISENO.md.
 
 import QtQuick
+import QtQuick.Shapes
 import "Sim.js" as Sim
 
 Item {
@@ -144,8 +145,12 @@ Item {
         if (!b) return "";
         if (b.kind === "device")
             return (typeof b.batt === "number") ? (Math.round(b.batt * 100) + "%") : "";
-        if (b.kind === "agent")
-            return b.running ? "en curso" : "hecho";
+        if (b.kind === "agent") {
+            if (b.running) return "en curso";
+            if (b.status === "done") return "hecho";
+            if (b.status === "session") return "sesión";
+            return "sesión";
+        }
         return "";
     }
     // Color de la etiqueta por rol de paleta (cero hex). Alerta manda; luego el
@@ -178,7 +183,6 @@ Item {
     }
 
     property int numBodies: root._layout ? root._layout.bodies.length : 0
-    onNumBodiesChanged: if (orbitsCanvas.available) orbitsCanvas.requestPaint()
 
     // Revisión de las texturas base de los satélites: sube cada vez que
     // texDevice/texAgent se repintan (cambio de tamaño o de paleta). Los
@@ -209,48 +213,7 @@ Item {
         root._anyRunning = ar;
     }
 
-    // ---------------- Órbitas: elipse discreta + estela de cometa (spec §4.4) ----------------
-    // La elipse marca dónde va cada cuerpo; la estela (trazo brillante justo por
-    // detrás, desvaneciéndose hacia atrás) dice de un vistazo HACIA DÓNDE va. Los
-    // agentes EN CURSO llevan la órbita algo más marcada que los completados.
-    // Con muchísimos cuerpos (modo prueba) no se dibujan trazas: no aportan y
-    // saturarían el Canvas.
-    function _drawOrbits(ctx, L) {
-        if (!L.bodies.length || L.bodies.length > 14)
-            return;
-        const baseA = L.orbitAlpha !== undefined ? L.orbitAlpha : 0.12;
-        const S = L.scale;
-        for (let i = 0; i < L.bodies.length; i++) {
-            const b = L.bodies[i];
-            if (b.orbX === undefined)
-                continue;
-            const dev = b.kind === "device";
-            const col = dev ? root.colPrimary : root.colLaura;
-            const strong = dev || b.running;
-            const rx = b.orbX, ry = b.orbV;
-
-            // 1 · elipse completa, discreta
-            root._strokeEllipse(ctx, b.hostx, b.hosty, rx, ry, 0, 0, 2 * Math.PI,
-                                root._a(col, baseA * (strong ? 1.35 : 0.75)), (strong ? 1.4 : 1.0) * S);
-
-            // 2 · estela: arcos por detrás del cuerpo (ángulos decrecientes desde oa)
-            const segs = 15;
-            const span = strong ? 1.25 : 0.8;
-            const headA = Math.min(0.85, baseA * (strong ? 6.0 : 3.2));
-            ctx.lineCap = "round";
-            for (let k = 0; k < segs; k++) {
-                const f0 = k / segs, f1 = (k + 1) / segs;
-                const a0 = b.oa - span * f0, a1 = b.oa - span * f1;
-                const fade = Math.pow(1 - f0, 1.7);
-                ctx.strokeStyle = root._a(root._lit(col, 0.25), headA * fade);
-                ctx.lineWidth = (2.4 * (1 - f0 * 0.7)) * S;
-                ctx.beginPath();
-                ctx.moveTo(b.hostx + Math.cos(a0) * rx, b.hosty + Math.sin(a0) * ry);
-                ctx.lineTo(b.hostx + Math.cos(a1) * rx, b.hosty + Math.sin(a1) * ry);
-                ctx.stroke();
-            }
-        }
-    }
+    // ---------------- Órbitas y estelas: ahora en GPU vía QtQuick.Shapes ----------------
 
     // El cinturón circumbinario (spec §2.4) lo pinta el shader desde v3.1 —
     // procedural en la GPU. Antes era un bucle Canvas de hasta 100 partículas
@@ -274,27 +237,97 @@ Item {
         colBelt: root.colBelt
     }
 
-    // ===================== CAPA FINA (cinturón + órbitas + satélites) =====================
-    // Órbitas (estático, se repinta solo al cambiar layout)
-    Canvas {
-        id: orbitsCanvas
-        renderTarget: Canvas.Image
-        antialiasing: true
-        onAvailableChanged: if (available) requestPaint()
-        Component.onCompleted: if (available) requestPaint()
-        x: root._layout ? root._layout.binBounds.x : 0
-        y: root._layout ? root._layout.binBounds.y : 0
-        width: root._layout ? root._layout.binBounds.w : root.width
-        height: root._layout ? root._layout.binBounds.h : root.height
+    // ===================== CAPA FINA (órbitas + estelas en GPU) =====================
+    Item {
+        id: orbitsLayer
+        anchors.fill: parent
         opacity: root._dimK
 
-        onPaint: {
-            const ctx = getContext("2d");
-            ctx.reset();
-            const L = root._layout;
-            if (!L) return;
-            ctx.translate(-x, -y);
-            root._drawOrbits(ctx, L);
+        Repeater {
+            model: root._layout ? root._layout.bodies.length : 0
+            delegate: Item {
+                id: orbitItem
+                required property int index
+                readonly property var b: root._layout ? root._layout.bodies[index] : null
+                visible: b !== null && b.orbX !== undefined
+                anchors.fill: parent
+
+                readonly property bool dev: b ? b.kind === "device" : false
+                readonly property color col: dev ? root.colPrimary : root.colLaura
+                readonly property bool strong: dev || (b && b.running)
+                readonly property real baseA: (root._layout && root._layout.orbitAlpha !== undefined) ? root._layout.orbitAlpha : 0.12
+                readonly property real headA: Math.min(0.85, baseA * (strong ? 6.0 : 3.2))
+                readonly property real deg: b ? (b.oa * 180 / Math.PI) : 0
+                readonly property real spanDeg: (strong ? 1.25 : 0.8) * 180 / Math.PI
+                readonly property real scaleFactor: root._layout ? root._layout.scale : 1.0
+
+                Shape {
+                    anchors.fill: parent
+
+                    // 1 · Elipse orbital completa
+                    ShapePath {
+                        strokeColor: Qt.rgba(orbitItem.col.r, orbitItem.col.g, orbitItem.col.b, orbitItem.baseA * (orbitItem.strong ? 1.35 : 0.75))
+                        strokeWidth: (orbitItem.strong ? 1.4 : 1.0) * orbitItem.scaleFactor
+                        fillColor: "transparent"
+                        PathAngleArc {
+                            centerX: orbitItem.b ? orbitItem.b.hostx : 0
+                            centerY: orbitItem.b ? orbitItem.b.hosty : 0
+                            radiusX: orbitItem.b ? orbitItem.b.orbX : 0
+                            radiusY: orbitItem.b ? orbitItem.b.orbV : 0
+                            startAngle: 0
+                            sweepAngle: 360
+                        }
+                    }
+
+                    // 2 · Estela de cometa (cola lejana)
+                    ShapePath {
+                        strokeColor: Qt.rgba(orbitItem.col.r, orbitItem.col.g, orbitItem.col.b, orbitItem.headA * 0.20)
+                        strokeWidth: (2.4 * 0.5) * orbitItem.scaleFactor
+                        fillColor: "transparent"
+                        capStyle: ShapePath.RoundCap
+                        PathAngleArc {
+                            centerX: orbitItem.b ? orbitItem.b.hostx : 0
+                            centerY: orbitItem.b ? orbitItem.b.hosty : 0
+                            radiusX: orbitItem.b ? orbitItem.b.orbX : 0
+                            radiusY: orbitItem.b ? orbitItem.b.orbV : 0
+                            startAngle: orbitItem.deg - orbitItem.spanDeg
+                            sweepAngle: orbitItem.spanDeg * 0.45
+                        }
+                    }
+
+                    // 3 · Estela de cometa (cola media)
+                    ShapePath {
+                        strokeColor: Qt.rgba(orbitItem.col.r, orbitItem.col.g, orbitItem.col.b, orbitItem.headA * 0.50)
+                        strokeWidth: (2.4 * 0.75) * orbitItem.scaleFactor
+                        fillColor: "transparent"
+                        capStyle: ShapePath.RoundCap
+                        PathAngleArc {
+                            centerX: orbitItem.b ? orbitItem.b.hostx : 0
+                            centerY: orbitItem.b ? orbitItem.b.hosty : 0
+                            radiusX: orbitItem.b ? orbitItem.b.orbX : 0
+                            radiusY: orbitItem.b ? orbitItem.b.orbV : 0
+                            startAngle: orbitItem.deg - orbitItem.spanDeg * 0.60
+                            sweepAngle: orbitItem.spanDeg * 0.40
+                        }
+                    }
+
+                    // 4 · Estela de cometa (cabeza luminosa junto al planeta)
+                    ShapePath {
+                        strokeColor: Qt.rgba(orbitItem.col.r, orbitItem.col.g, orbitItem.col.b, orbitItem.headA * 0.95)
+                        strokeWidth: 2.4 * orbitItem.scaleFactor
+                        fillColor: "transparent"
+                        capStyle: ShapePath.RoundCap
+                        PathAngleArc {
+                            centerX: orbitItem.b ? orbitItem.b.hostx : 0
+                            centerY: orbitItem.b ? orbitItem.b.hosty : 0
+                            radiusX: orbitItem.b ? orbitItem.b.orbX : 0
+                            radiusY: orbitItem.b ? orbitItem.b.orbV : 0
+                            startAngle: orbitItem.deg - orbitItem.spanDeg * 0.25
+                            sweepAngle: orbitItem.spanDeg * 0.25
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -438,17 +471,17 @@ Item {
                 Behavior on opacity { NumberAnimation { duration: 380; easing.type: Easing.OutCubic } }
 
                 BodyLabel {
-                    variant: "C"
+                    variant: "B"
                     fontFamily: root.labelFont
                     basePixelSize: 13
-                    showReticle: true
+                    showReticle: false
                     visible: sunWrap.s !== null
                     targetX: sunWrap.s ? sunWrap.s.x : 0
                     targetY: sunWrap.s ? sunWrap.s.y : 0
                     targetRadius: sunWrap.s ? sunWrap.s.r : 0
                     title: sunWrap.s ? (root._labelNames[sunWrap.s.id] || "") : ""
                     subtitle: ""
-                    emphasis: 1.0
+                    emphasis: 0.55
                     col: sunWrap.s
                         ? (sunWrap.s.id === "laura" ? root.colLaura : root.colPrimary)
                         : root.colInk
@@ -465,23 +498,13 @@ Item {
             anchors.fill: parent
             opacity: root._dimK
 
-            BodyLabel {
-                variant: "C"
-                fontFamily: root.labelFont
-                basePixelSize: 13
-                showReticle: true
-                visible: bhWrap.bh !== null
-                // El agujero está fuera de cuadro por la derecha. Apuntamos al lado
-                // izquierdo del disco de acreción (punto más brillante por beaming).
-                // Con tilt ≈ -0.489 rad, el disco se extiende horizontalmente inclinado.
-                // Coordenadas calculadas geométricamente (1.17 y 0.62) sobre `rD = 1.33`.
-                targetX: bhWrap.bh ? bhWrap.bh.x - bhWrap.bh.R * 1.17 : 0
-                targetY: bhWrap.bh ? bhWrap.bh.y + bhWrap.bh.R * 0.62 : 0
-                targetRadius: 12
-                title: "Música"
-                subtitle: ""
-                emphasis: 1.0
-                col: root.colPrimary
+            MusicHole {
+                center: bhWrap.bh ? Qt.point(bhWrap.bh.x, bhWrap.bh.y) : Qt.point(0,0)
+                radius: bhWrap.bh ? bhWrap.bh.R : 100
+                musicBass: root._layout && root._layout.musicBass !== undefined ? root._layout.musicBass : 0
+                musicPulse: root._layout && root._layout.musicPulse !== undefined ? root._layout.musicPulse : 0
+                musicTreble: root._layout && root._layout.musicTreble !== undefined ? root._layout.musicTreble : 0
+                variant: 2 // Por defecto a Minimalista Clásico para que lo vea, se puede cambiar
             }
         }
 
@@ -499,7 +522,7 @@ Item {
                 visible: satWrap.b !== null && root._bodyName(satWrap.b).length > 0
 
                 BodyLabel {
-                    variant: "C"
+                    variant: "B"
                     fontFamily: root.labelFont
                     basePixelSize: 12
                     visible: satWrap.b !== null
@@ -511,9 +534,7 @@ Item {
                     subtitle: root._bodySubtitle(satWrap.b)
                     emphasis: root._bodyEmphasis(satWrap.b)
                     col: root._bodyCol(satWrap.b)
-                    showReticle: satWrap.b
-                        ? !(satWrap.b.running || satWrap.b.alert > 0.5)
-                        : true
+                    showReticle: false
                 }
             }
         }
@@ -544,19 +565,6 @@ Item {
                 root._accSim = 0;
                 root._recompute();
             }
-            // Trazas de órbita + estela: siguen a los cuerpos, a ~9 fps y sólo
-            // si hay cuerpos (pocos). Sin cuerpos el Canvas no se toca.
-            // Para las variantes 2 y 3 (o si hay mucha excursión orbital), el
-            // área del Canvas crece demasiado y repintar a 9 fps dispara la CPU.
-            // Solución: si el canvas pasa de ~700x700 px, deshabilitamos las estelas.
-            if (root.numBodies > 0 && root.numBodies <= 14 && orbitsCanvas.width * orbitsCanvas.height < 600000) {
-                root._accOrb += frameTime;
-                if (root._accOrb >= 0.11) {
-                    root._accOrb = 0;
-                    if (orbitsCanvas.available)
-                        orbitsCanvas.requestPaint();
-                }
-            }
             // Pulsos de UI: sólo si hay algún cuerpo que los use, y a ~20 fps.
             if (root._anyAlert || root._anyRunning) {
                 root._accPulse += frameTime;
@@ -572,28 +580,26 @@ Item {
         onRunningChanged: if (!running) { root._recompute(); }
     }
     property real _accSim: 0
-    property real _accOrb: 0
 
     // Transición del foco-Laura: repinta la capa fina mientras `lauraFocus`
     // anima (el shader del fondo dima solo, atado a `lauraFocus` por binding).
     onLauraFocusChanged: if (Math.abs(lauraFocus - _pf) > 0.015) { _pf = lauraFocus; }
 
     // Al cambiar datos (aparece un agente, cambia la batería) o tamaño/paleta:
-    // recalcular y repintar la capa fina, coalescido para no repintar de más
-    // (`values`/`config` son var computadas y re-emiten con referencia nueva).
+    // recalcular posiciones de los cuerpos.
     Timer {
         id: settle
         interval: 300
-        onTriggered: { root._recompute(); if (orbitsCanvas.available) orbitsCanvas.requestPaint(); }
+        onTriggered: { root._recompute(); }
     }
     onValuesChanged: settle.restart()
     onConfigChanged: settle.restart()
-    onWidthChanged: { _recompute(); if (orbitsCanvas.available) orbitsCanvas.requestPaint(); }
-    onHeightChanged: { _recompute(); if (orbitsCanvas.available) orbitsCanvas.requestPaint(); }
-    onColPrimaryChanged: { _recompute(); if (orbitsCanvas.available) orbitsCanvas.requestPaint(); texDevice.requestPaint(); }
-    onColLauraChanged: { texAgent.requestPaint(); if (orbitsCanvas.available) orbitsCanvas.requestPaint(); }
+    onWidthChanged: { _recompute(); }
+    onHeightChanged: { _recompute(); }
+    onColPrimaryChanged: { _recompute(); texDevice.requestPaint(); }
+    onColLauraChanged: { texAgent.requestPaint(); }
     onColErrorChanged: { } // el aro de alerta reacciona automático
     onColBeltChanged: { } // el shader reacciona automático
 
-    Component.onCompleted: { texDevice.requestPaint(); texAgent.requestPaint(); _recompute(); if (orbitsCanvas.available) orbitsCanvas.requestPaint(); }
+    Component.onCompleted: { texDevice.requestPaint(); texAgent.requestPaint(); _recompute(); }
 }

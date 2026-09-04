@@ -22,6 +22,10 @@
 // puede afinar posiciones/tamaños por ~/.config/caelestia/solarsystem.json.
 .pragma library
 
+var _lastT = 0;
+var _bodyPhases = {};
+var _init = false;
+
 function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
 function num(values, name, dflt) {
     if (!name) return dflt;
@@ -72,13 +76,14 @@ var LAYOUTS = {
 
 var D = {
     // >>> INTERRUPTOR DE DISPOSICIÓN <<<  (1 conservadora · 2 hueco · 3 diagonal)
-    layoutVariant: 2,
+    layoutVariant: 1,
 
     // Cuerpos sintéticos para medir rendimiento (0 = ninguno). Deja 0 en commits.
     testBodies: 0,
 
-    // Agujero negro: centro fuera de cuadro por la esquina superior derecha.
-    bhFx: 1.02, bhFy: -0.04, bhRFrac: 0.24,        // R en fracción de h
+    // Agujero negro: asomando más hacia el interior de la pantalla para que el
+    // horizonte de sucesos (la parte negra pura) sea visible.
+    bhFx: 0.94, bhFy: 0.06, bhRFrac: 0.24,        // R en fracción de h
     // Baricentro del binario: ANCLADO (no traslada). El sitio concreto lo pone
     // la variante (LAYOUTS); estos son sólo el defecto si la variante no existe.
     baryFx: 0.30, baryFy: 0.47,
@@ -127,6 +132,11 @@ function bodyCfg(cfg, id) {
 
 function computeLayout(state, geom) {
     var t = state.t || 0;
+    var dt = t - _lastT;
+    if (dt < 0 || !_init) dt = 0;
+    _lastT = t;
+    _init = true;
+
     var values = state.values || {};
     var cfg = state.config || { anchors: [], bodies: [] };
     var w = geom.w, h = geom.h;
@@ -211,7 +221,9 @@ function computeLayout(state, geom) {
         per *= C.orbitMul;
         var phase = (b.phase != null ? b.phase : (i * 2.399));
         var speedMul = (b.anchor === "laura" && !lauraLit) ? 0.5 : 1.0;
-        var oa = phase + (2 * Math.PI / per) * t * speedMul;
+        if (_bodyPhases[b.id] === undefined) _bodyPhases[b.id] = phase;
+        _bodyPhases[b.id] += (2 * Math.PI / per) * dt * speedMul;
+        var oa = _bodyPhases[b.id];
 
         // Tamaño del cuerpo. Dispositivo: tamaño/brillo = batería. Agente: fijo.
         var baseR = isDevice ? host.r * (0.13 + 0.13 * sizeF)
@@ -232,6 +244,7 @@ function computeLayout(state, geom) {
             // (los pone SolarSystemModel). Sólo se copian; Sim.js no los inventa.
             name: b.name,
             provider: b.provider,
+            status: b.status || (running ? "running" : "done"),
             kind: isDevice ? "device" : "agent",
             hostx: host.x, hosty: host.y,
             x: host.x + Math.cos(oa) * orb,
@@ -344,6 +357,9 @@ function computeLayout(state, geom) {
 
     return {
         t: t, scale: S, music: music,
+        musicBass: num(values, "musicBass", 0),
+        musicTreble: num(values, "musicTreble", 0),
+        musicPulse: num(values, "musicPulse", 0),
         variant: D.layoutVariant, orbitAlpha: C.orbitAlpha,
         bh: bh, bary: bary, bhSpin: (2 * Math.PI / D.bhSpinPeriod) * t,
         suns: suns, bodies: bodies, belt: belt, bin: bin,
