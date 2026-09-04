@@ -73,6 +73,25 @@ Singleton {
         }
     }
 
+    // Sincronización y descubrimiento de sesiones de agentes abiertas (reposo/idle).
+    // Se ejecuta al iniciar Quickshell (running: true) y periódicamente cada 15 s.
+    Process {
+        id: syncSessionsProc
+        command: ["agent-notify", "sync-sessions"]
+        running: true
+    }
+
+    Timer {
+        id: syncSessionsTimer
+        interval: 15000
+        running: true
+        repeat: true
+        onTriggered: {
+            if (!syncSessionsProc.running)
+                syncSessionsProc.running = true;
+        }
+    }
+
     function _normAddr(addr: string): string {
         if (!addr)
             return "";
