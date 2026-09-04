@@ -169,6 +169,9 @@ Item {
     // Énfasis del satélite, derivado de su radio (acotado). Anclas van a 1.0.
     function _bodyEmphasis(b) {
         if (!b) return 0.35;
+        if (b.status === "done") return 1.0;
+        if (b.running) return 0.85;
+        if (b.status === "session") return 0.28;
         const k = Math.max(0, Math.min(1, (b.r - 4) / 14));
         return 0.30 + 0.22 * k;
     }
@@ -193,26 +196,27 @@ Item {
     // ningún render-target por frame (regresión de CPU del Repeater, sept-2026).
     property int _texRev: 0
 
-    // Pulsos de UI (aro de alerta, anillo de actividad). Sólo se recalculan si
-    // hay AL MENOS un cuerpo que los use, y a ~20 fps, no por frame ni por
-    // delegado. Antes cada delegado tenía su propio `Math.sin(root._t*…)` en un
-    // binding de color/opacidad → 200 sin + 100 strings por frame con 100
-    // cuerpos, aunque estuvieran invisibles.
+    // Pulsos de UI (aro de alerta, anillo de actividad, parpadeo de terminado).
+    // Sólo se recalculan si hay AL MENOS un cuerpo que los use.
     property bool _anyAlert: false
     property bool _anyRunning: false
+    property bool _anyDone: false
     property real _alertPulse: 0.75
     property real _ringPulse: 0.5
+    property real _donePulse: 0.5
     property real _accPulse: 0
     function _rescanPulseFlags() {
-        let aa = false, ar = false;
+        let aa = false, ar = false, ad = false;
         const L = root._layout;
         if (L)
             for (let i = 0; i < L.bodies.length; i++) {
                 if (L.bodies[i].alert > 0.5) aa = true;
                 if (L.bodies[i].running) ar = true;
+                if (L.bodies[i].status === "done") ad = true;
             }
         root._anyAlert = aa;
         root._anyRunning = ar;
+        root._anyDone = ad;
     }
 
     // ---------------- Órbitas y estelas: ahora en GPU vía QtQuick.Shapes ----------------
@@ -256,11 +260,26 @@ Item {
 
                 readonly property bool dev: b ? b.kind === "device" : false
                 readonly property color col: dev ? root.colPrimary : root.colLaura
-                readonly property bool strong: dev || (b && b.running)
+                readonly property bool isSession: b ? b.status === "session" : false
+                readonly property bool isRunning: b ? b.running : false
+                readonly property bool isDone: b ? b.status === "done" : false
                 readonly property real baseA: (root._layout && root._layout.orbitAlpha !== undefined) ? root._layout.orbitAlpha : 0.12
-                readonly property real headA: Math.min(0.85, baseA * (strong ? 6.0 : 3.2))
+
+                // Opacidad y longitud de la estela por estado:
+                // - running: brillante (baseA * 6.5) y larga (~75°)
+                // - done: media (baseA * 3.8) y media (~42°)
+                // - session (idle): tenue/apagada (baseA * 0.9) y corta (~18°)
+                // - device: sólida (baseA * 4.5) y estándar (~45°)
+                readonly property real headA: isRunning
+                    ? Math.min(0.85, baseA * 6.5)
+                    : (dev ? Math.min(0.75, baseA * 4.5)
+                           : (isDone ? Math.min(0.70, baseA * 3.8) : Math.min(0.18, baseA * 0.9)))
+
                 readonly property real deg: b ? (b.oa * 180 / Math.PI) : 0
-                readonly property real spanDeg: (strong ? 1.25 : 0.8) * 180 / Math.PI
+                readonly property real spanDeg: isRunning
+                    ? (1.30 * 180 / Math.PI)
+                    : (dev ? (0.80 * 180 / Math.PI)
+                           : (isDone ? (0.75 * 180 / Math.PI) : (0.32 * 180 / Math.PI)))
                 readonly property real scaleFactor: root._layout ? root._layout.scale : 1.0
 
                 Shape {
@@ -268,8 +287,9 @@ Item {
 
                     // 1 · Elipse orbital completa
                     ShapePath {
-                        strokeColor: Qt.rgba(orbitItem.col.r, orbitItem.col.g, orbitItem.col.b, orbitItem.baseA * (orbitItem.strong ? 1.35 : 0.75))
-                        strokeWidth: (orbitItem.strong ? 1.4 : 1.0) * orbitItem.scaleFactor
+                        strokeColor: Qt.rgba(orbitItem.col.r, orbitItem.col.g, orbitItem.col.b,
+                                             orbitItem.baseA * (orbitItem.isRunning ? 1.35 : (orbitItem.dev ? 1.0 : (orbitItem.isDone ? 0.90 : 0.35))))
+                        strokeWidth: (orbitItem.isRunning ? 1.4 : (orbitItem.isSession ? 0.75 : 1.0)) * orbitItem.scaleFactor
                         fillColor: "transparent"
                         PathAngleArc {
                             centerX: orbitItem.b ? orbitItem.b.hostx : 0
@@ -391,15 +411,24 @@ Item {
             y: b ? b.y - b.r : 0
             width: b ? b.r * 2 : 0
             height: width
-            opacity: root._dimK
+
+            readonly property bool isSession: bodyItem.b ? bodyItem.b.status === "session" : false
+            readonly property bool isDone: bodyItem.b ? bodyItem.b.status === "done" : false
+            readonly property bool isRunning: bodyItem.b ? bodyItem.b.running : false
+
+            // Opacidad del cuerpo:
+            // - session (idle): atenuado/apagado (0.42)
+            // - done (terminado): parpadea con _donePulse (0.60 .. 1.0)
+            // - running / device: brillo pleno (1.0)
+            opacity: root._dimK * (isSession ? 0.42 : (isDone ? (0.60 + 0.40 * root._donePulse) : 1.0))
 
             // Aro de alerta (batería < 20 %). Loader: si el cuerpo no está en
             // alerta el binding del pulso NI EXISTE.
             Loader {
                 anchors.centerIn: parent
-                active: bodyItem.b !== null && bodyItem.b.alert > 0.5
+                active: bodyItem.b !== null && bodyItem.b.alert > 0.5 && bodyItem.b.kind === "device"
                 sourceComponent: Rectangle {
-                    width: bodyItem.width + 8 * root.layout.scale
+                    width: bodyItem.width + 8 * (root._layout ? root._layout.scale : 1.0)
                     height: width
                     radius: width / 2
                     color: "transparent"
@@ -408,11 +437,26 @@ Item {
                 }
             }
 
+            // Halo parpadeante para agentes terminados pendientes de ver ("¡hecho!")
+            Loader {
+                anchors.centerIn: parent
+                active: bodyItem.isDone
+                sourceComponent: Rectangle {
+                    width: bodyItem.width + 12 * (root._layout ? root._layout.scale : 1.0)
+                    height: width
+                    radius: width / 2
+                    color: Qt.rgba(bodyCol.r, bodyCol.g, bodyCol.b, 0.15 * root._donePulse)
+                    border.color: Qt.rgba(bodyCol.r, bodyCol.g, bodyCol.b, 0.40 + 0.60 * root._donePulse)
+                    border.width: 1.8
+                    readonly property color bodyCol: root._bodyCol(bodyItem.b)
+                }
+            }
+
             // Anillo de actividad (agente en curso). Igual: sin cuerpo en curso,
             // sin Canvas y sin binding de opacidad animado.
             Loader {
                 anchors.centerIn: parent
-                active: bodyItem.b !== null && bodyItem.b.running
+                active: bodyItem.isRunning
                 sourceComponent: Canvas {
                     width: bodyItem.width * 2.8
                     height: width
@@ -574,15 +618,17 @@ Item {
                 root._accSim = 0;
                 root._recompute();
             }
-            // Pulsos de UI: sólo si hay algún cuerpo que los use, y a ~20 fps.
-            if (root._anyAlert || root._anyRunning) {
+            // Pulsos de UI: sólo si hay algún cuerpo que los use, y a ~25 fps.
+            if (root._anyAlert || root._anyRunning || root._anyDone) {
                 root._accPulse += frameTime;
-                if (root._accPulse >= 0.05) {
+                if (root._accPulse >= 0.04) {
                     root._accPulse = 0;
                     if (root._anyAlert)
                         root._alertPulse = 0.5 + 0.5 * Math.sin(root._t * 1.4);
                     if (root._anyRunning)
                         root._ringPulse = 0.5 + 0.5 * Math.sin(root._t * 0.7);
+                    if (root._anyDone)
+                        root._donePulse = 0.5 + 0.5 * Math.sin(root._t * 4.2);
                 }
             }
         }

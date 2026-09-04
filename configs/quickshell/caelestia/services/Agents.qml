@@ -400,11 +400,14 @@ Singleton {
             }
         }
 
-        // Al entrar a un workspace cuya ventana de agente ya no existe -> descartar.
+        // Al entrar a un workspace: marcar agentes completados como vistos (vuelven a idle en el sistema solar)
+        // y descartar entradas de ventanas que ya no existen.
         function onFocusedWorkspaceChanged(): void {
             const wsId = Hyprland.focusedWorkspace?.id;
             if (!wsId)
                 return;
+            root.markSeen(wsId);
+
             const gone = a => {
                 const onThisWs = root.liveWs(a.address, a.ws) === wsId;
                 const stillOpen = Hyprland.toplevels.values.some(t => root._normAddr(t.address) === root._normAddr(a.address));

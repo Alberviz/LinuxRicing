@@ -181,19 +181,17 @@ Singleton {
         for (let i = 0; i < (running || []).length; i++) {
             const rid = running[i].id || "?";
             v["term:" + rid] = 1.0;
-            // Señal por cuerpo con el proveedor (mismo patrón que activitySignal):
-            // la vista lee v["provider:<id>"] y lo traduce a un rol de paleta con
-            // root.providerPaletteRole. Valor: "claude"|"gemini"|"codex"|"otro".
             v["provider:" + rid] = running[i].provider || "otro";
         }
         for (let j = 0; j < (done || []).length; j++) {
             const did = done[j].id || "?";
-            v["term:" + did] = 0.35;
+            v["term:" + did] = 0.80;
+            v["alert:" + did] = 1.0;
             v["provider:" + did] = done[j].provider || "otro";
         }
         for (let k = 0; k < (sessions || []).length; k++) {
             const sid = sessions[k].id || "?";
-            v["term:" + sid] = 0.55;
+            v["term:" + sid] = 0.25;
             v["provider:" + sid] = sessions[k].provider || "otro";
         }
         return v;
@@ -348,16 +346,17 @@ Singleton {
             all.push({ agent: a, state: "running" });
         }
 
-        // 2. Agentes con tarea completada pendiente de ver
+        // 2. Agentes con tarea completada pendiente de ver (!seen)
         for (let j = 0; j < done.length; j++) {
             const a = done[j];
+            if (a.seen) continue;
             const na = root._normAddr(a.address);
             if (na && seenAddrs.has(na)) continue;
             if (na) seenAddrs.add(na);
             all.push({ agent: a, state: "done" });
         }
 
-        // 3. Sesiones abiertas en reposo (esperando prompt)
+        // 3. Sesiones abiertas en reposo (esperando prompt / idle)
         for (let k = 0; k < sessions.length; k++) {
             const a = sessions[k];
             const na = root._normAddr(a.address);
@@ -393,6 +392,8 @@ Singleton {
                 const bid = a.id || ("t" + globalIdx);
                 const provider = a.provider || "otro";
                 const isRunning = state === "running";
+                const isDone = state === "done";
+                const isSession = state === "session";
 
                 // Base orbital según el número de workspace:
                 // ws 1 -> 1.9, ws 2 -> 2.6, ws 3 -> 3.3, ws 4 -> 4.0, ws 5 -> 4.7, ws 6 -> 5.4
@@ -403,8 +404,13 @@ Singleton {
                 const offsetK = count > 1 ? (slot - (count - 1) / 2) * 0.12 : 0;
                 const finalOrbitK = Math.max(1.5, baseOrbitK + offsetK);
 
-                // Período: en curso gira más rápido (~42s) que en reposo (~110s)
-                const period = isRunning ? (42 + (ws % 3) * 6) : (110 + (ws % 3) * 15);
+                // Período:
+                // - pensando (running): gira rápido (~36s - 46s)
+                // - terminado (done): velocidad media (~60s - 76s)
+                // - reposo (idle/session): gira muy pausado y lento (~160s - 196s)
+                const period = isRunning
+                    ? (36 + (ws % 3) * 5)
+                    : (isDone ? (60 + (ws % 3) * 8) : (160 + (ws % 3) * 18));
 
                 // Fase inicial distribuida en el círculo para los agentes del mismo workspace
                 const phase = ((slot / count) * 2 * Math.PI + (ws * 1.3)) % (2 * Math.PI);
@@ -420,6 +426,7 @@ Singleton {
                     orbitK: finalOrbitK,
                     period: period,
                     ring: isRunning,
+                    alertSignal: isDone ? ("alert:" + bid) : undefined,
                     provider: provider,
                     activitySignal: "term:" + bid,
                     providerSignal: "provider:" + bid
