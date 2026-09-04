@@ -36,7 +36,7 @@ Lo que ya está hecho.
 ---
 
 ## 📓 Bitácora de sesiones
-- **2026-09-04 · Gemini** — Corrección e integración del visualizador de música en el agujero negro (`MusicHole.qml`): 6 variantes reactivas en GPU con `QtQuick.Shapes`, reubicación del horizonte (`bhFx: 0.88, bhFy: 0.09`), reloj de animación a 60fps desacoplado y nuevo target IPC `solarSystem` (`setMusicVariant`, `nextMusicVariant`) para probar en vivo.
+- **2026-09-04 · Gemini** — Corrección e integración del visualizador de música en el agujero negro (`MusicHole.qml`): 6 variantes reactivas en GPU con `QtQuick.Shapes`, reubicación real del horizonte (`bhFx: 0.84, bhFy: 0.12, rFrac: 0.28` desatascando el hardcodeo en `defaultConfig`), reloj de animación a 60fps desacoplado y nuevo target IPC `solarSystem` (`setMusicVariant`, `nextMusicVariant`) para probar en vivo.
 - **2026-09-03 · Gemini** — Ajustes finos: reposicionada etiqueta Música, nuevo color Gemini (m3tertiaryFixed), anti-colisión vertical de etiquetas espaciales y mitigada regresión de CPU en Variantes 2/3.
 - **2026-09-03 · Gemini** — Sistema Solar v3 (Variante D): Migrada la órbita de los soles al shader `solarfield.frag` para movimiento independiente fluido, y reemplazado el pintado de `Canvas` por satélite por un `Repeater` de `ShaderEffectSource` cacheado, alcanzando 100+ cuerpos a < 48% de CPU.
 
