@@ -25,6 +25,30 @@ StyledClippingRect {
     }
     readonly property int groupOffset: Math.floor((activeWsId - 1) / Config.bar.workspaces.shown) * Config.bar.workspaces.shown
 
+    // Ids de workspace con un agente en curso, o con una notificación completada
+    // sin ver, dentro o fuera del grupo paginado visible.
+    function agentWsIdsWithActivity(): var {
+        const _deps = [Agents.completedAgents.length, Agents.runningAgents.length, Hypr.activeWsId];
+        const s = new Set();
+        for (const k of Object.keys(Agents.wsMap))
+            if (Agents.unseenCountForWs(parseInt(k, 10)) > 0)
+                s.add(parseInt(k, 10));
+        for (const k of Object.keys(Agents.runningWsMap))
+            if (Agents.hasRunningForWs(parseInt(k, 10)))
+                s.add(parseInt(k, 10));
+        return Array.from(s);
+    }
+
+    // Actividad de agente en workspaces fuera del grupo paginado visible: si
+    // el workspace oculto queda "por delante" (número mayor) parpadea el borde
+    // de abajo de la cápsula; si queda "por detrás" (número menor), el de arriba.
+    readonly property var hiddenBelowIds: agentWsIdsWithActivity().filter(id => id > groupOffset + Config.bar.workspaces.shown)
+    readonly property var hiddenAboveIds: agentWsIdsWithActivity().filter(id => id <= groupOffset)
+    readonly property bool hiddenActivityBelow: hiddenBelowIds.length > 0
+    readonly property bool hiddenActivityAbove: hiddenAboveIds.length > 0
+    readonly property int nearestHiddenBelowWs: hiddenBelowIds.length > 0 ? Math.min(...hiddenBelowIds) : -1
+    readonly property int nearestHiddenAboveWs: hiddenAboveIds.length > 0 ? Math.max(...hiddenAboveIds) : -1
+
     property real blur: onSpecial ? 1 : 0
 
     function wsAt(yInRoot: real): var {
@@ -138,6 +162,18 @@ StyledClippingRect {
             Anim {
                 type: Anim.DefaultEffects
             }
+        }
+
+        HiddenActivityEdge {
+            atBottom: false
+            active: root.hiddenActivityAbove
+            targetWs: root.nearestHiddenAboveWs
+        }
+
+        HiddenActivityEdge {
+            atBottom: true
+            active: root.hiddenActivityBelow
+            targetWs: root.nearestHiddenBelowWs
         }
     }
 
