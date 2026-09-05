@@ -46,7 +46,13 @@ Singleton {
         anchors: [
             {
                 id: "music", label: "Música", kind: "blackhole",
-                motion: { kind: "fixed", fx: 0.87, fy: 0.22 }, rFrac: 0.28
+                // rFrac bajado de 0.28: la sombra real del agujero (física de
+                // Schwarzschild, b_crit=2.6R) ocupa mucho más pantalla que la
+                // aproximación anterior (~1.03R) a igual R — con 0.28 salía
+                // enorme. Este valor (no D.bhRFrac en Sim.js) es el que
+                // realmente manda: pickAnchor(cfg,"blackhole") lo encuentra
+                // aquí y pisa el default de Sim.js.
+                motion: { kind: "fixed", fx: 0.87, fy: 0.22 }, rFrac: 0.075
             },
             {
                 id: "config", label: "Configuración", kind: "sun", role: "secondary",
