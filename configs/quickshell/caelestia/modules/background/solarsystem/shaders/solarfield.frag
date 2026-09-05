@@ -362,33 +362,35 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
     // ORDEN FRONT-TO-BACK: El primer elemento en llamar a over() va DELANTE
     // ==================================================================
 
-    // ------------------------------------------------------------------
-    // 1. IMAGEN ENVOLVENTE (orden 1 — la luz da una vuelta extra alrededor
-    // del horizonte antes de llegar a la cámara). Va DETRÁS de la directa.
-    // ------------------------------------------------------------------
+    // NOTA sobre "sombra": b<b_crit implica que un rayo VENIDO DE INFINITO
+    // acaba capturado — pero el disco no está en infinito. Un rayo puede
+    // cruzar el plano ecuatorial (una vez, orden 0, o dos, orden 1) ANTES de
+    // completar la captura, incluso con rho<b_crit — es exactamente la franja
+    // del disco que en Interstellar cruza por delante de la sombra (a lo
+    // largo del eje mayor, xi=90°, hay cruces válidos de sobra por debajo de
+    // b_crit). Por eso la sombra NO puede pintarse como un disco opaco fijo
+    // en b_crit: solo debe rellenar lo que quede tras la imagen directa y la
+    // envolvente, así que va DETRÁS de ambas en el orden front-to-back.
     vec2 lutUV = pr / (R * 2.0 * LUT_RHO_MAX) + 0.5;
     vec4 lut0 = texture(lensLUT0, lutUV);
     vec4 lut1 = texture(lensLUT1, lutUV);
 
-    if (lut1.r > 0.0) {
-        float rD  = mix(LUT_R_HORIZ, LUT_R_OUTER, lut1.r);
-        float phi = lutDecode16(lut1.g, lut1.b) * TAU - PI;
+    // ------------------------------------------------------------------
+    // 1. IMAGEN DIRECTA (orden 0 — cruce más cercano al observador, la
+    // franja que cruza por delante de la sombra). La más al frente.
+    // ------------------------------------------------------------------
+    if (lut0.r > 0.0) {
+        float rD  = mix(LUT_R_HORIZ, LUT_R_OUTER, lut0.r);
+        float phi = lutDecode16(lut0.g, lut0.b) * TAU - PI;
         float approach = 0.5 - 0.5 * cos(phi);
-        vec4 col1 = sampleDisk(rD, phi, approach, time, music, musicProgress,
+        vec4 col0 = sampleDisk(rD, phi, approach, time, music, musicProgress,
                                musicPulse, musicBass, musicTreble, musicBurstAge, P, ERR,
                                0.35);
-        over(acc, col1.rgb, col1.a * 0.85); // imagen secundaria, ~0.85 de intensidad física
+        over(acc, col0.rgb, col0.a);
     }
 
     // ------------------------------------------------------------------
-    // 2. HORIZONTE DE SUCESOS (sombra real: cualquier rayo con rho<b_crit
-    // cae sin remedio al horizonte — b_crit=3*sqrt(3)*M, ~2.6x el horizonte)
-    // ------------------------------------------------------------------
-    float shadowMask = smoothstep(B_CRIT + 0.010, B_CRIT - 0.010, rho);
-    over(acc, colV, shadowMask);
-
-    // ------------------------------------------------------------------
-    // 3. ANILLO DE FOTONES — acumulación de infinitas imágenes de orden
+    // 2. ANILLO DE FOTONES — acumulación de infinitas imágenes de orden
     // creciente exactamente en rho=b_crit (no se puede pintar cada una, se
     // aproxima como un anillo fino hiperbrillante con boosting Doppler).
     // ------------------------------------------------------------------
@@ -403,18 +405,25 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
     }
 
     // ------------------------------------------------------------------
-    // 4. IMAGEN DIRECTA (orden 0 — cruce más cercano al observador). Va
-    // DELANTE de la sombra y de la envolvente.
+    // 3. IMAGEN ENVOLVENTE (orden 1 — un giro extra alrededor del horizonte,
+    // más "profunda" que la directa). Detrás de la directa y del anillo.
     // ------------------------------------------------------------------
-    if (lut0.r > 0.0) {
-        float rD  = mix(LUT_R_HORIZ, LUT_R_OUTER, lut0.r);
-        float phi = lutDecode16(lut0.g, lut0.b) * TAU - PI;
+    if (lut1.r > 0.0) {
+        float rD  = mix(LUT_R_HORIZ, LUT_R_OUTER, lut1.r);
+        float phi = lutDecode16(lut1.g, lut1.b) * TAU - PI;
         float approach = 0.5 - 0.5 * cos(phi);
-        vec4 col0 = sampleDisk(rD, phi, approach, time, music, musicProgress,
+        vec4 col1 = sampleDisk(rD, phi, approach, time, music, musicProgress,
                                musicPulse, musicBass, musicTreble, musicBurstAge, P, ERR,
                                0.35);
-        over(acc, col0.rgb, col0.a);
+        over(acc, col1.rgb, col1.a * 0.85); // imagen secundaria, ~0.85 de intensidad física
     }
+
+    // ------------------------------------------------------------------
+    // 4. HORIZONTE DE SUCESOS — rellena de negro solo lo que ninguna de las
+    // dos imágenes ni el anillo hayan cubierto ya (ver nota más arriba).
+    // ------------------------------------------------------------------
+    float shadowMask = smoothstep(B_CRIT + 0.010, B_CRIT - 0.010, rho);
+    over(acc, colV, shadowMask);
 
     // ------------------------------------------------------------------
     // 5. CORONA DIFUSA SEDOSA DEL DISCO (Interstellar Corona)
