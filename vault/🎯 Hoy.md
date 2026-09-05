@@ -39,6 +39,40 @@ Lo que ya está hecho.
 
 *Los agentes añaden una línea por sesión, lo más reciente arriba.*
 
+- **2026-09-05 · Claude** — Laura escala a Gemini lo que no sabe hacer (rama
+  `feat/laura-gemini-escalation`). `[escalation]` nuevo en `config.toml`: Modo A
+  (auto, casos rutinarios por keywords en `auto_cases` → Gemini ligero
+  `gemini-3.8-flash-low`/`low`, sin pasar por el LLM local) y Modo B (confirma
+  primero: tool nueva `escalar_a_gemini` en `tools.py`, el LLM local la llama
+  cuando la petición toca código/config del ecosistema; `converse()` devuelve la
+  escalada pendiente en vez de resolver, `cycle()` pregunta por voz, y si Alberto
+  dice que sí lanza `agy` con `gemini-3.1-pro-high`/`high` + `--add-dir
+  ~/LinuxRicing` y un prompt con contexto del repo, luego resume el resultado
+  con el LLM local y lo lee integrado). Ver
+  [[Laura puede abrir sesiones de gemini para todo lo que no sabe hacer]].
+  Nota: el worktree de este agente estaba varias decenas de commits detrás de
+  `main` (no tenía `assistant/` en absoluto) — la rama se creó desde `main`
+  local, no desde el punto de partida del worktree. Pendiente de Alberto: la
+  cuota de Antigravity estaba agotada durante la sesión, así que el round-trip
+  real de `agy` no se pudo confirmar end-to-end — probarlo a mano antes de
+  fiarse del todo.
+
+- **2026-09-05 · Claude** — Indicador de actividad oculta en workspaces ≥6 (rama
+  `feat/workspace-hidden-activity-indicator`, ya integrada): flecha parpadeante
+  pegada al borde inferior/superior de la cápsula de workspaces cuando hay un
+  agente en curso o una notificación sin ver en un workspace fuera del grupo
+  paginado visible; clic salta al workspace oculto más cercano. Verificado en
+  vivo inyectando una notificación de prueba en ws6 estando enfocado en ws2.
+
+- **2026-09-05 · Claude** — Planeta de configuración renombrado a "Prisma" y
+  clicable (rama `feat/config-planet-led-panel`, sobre `feat/sistema-solar-v3`
+  @ `445d4bc`): al hacer clic se abre el panel de LEDs (`ShellState.rgbControl
+  ?.open()`, mismo punto de entrada que ya usan `DesktopLedStrip`/
+  `DesktopPeripherals`). Antes toda la capa del sistema solar era click-through
+  puro; ahora solo el hotspot de Prisma capta el clic. Pendiente de fusionar en
+  `feat/sistema-solar-v3` cuando esa rama esté estable, y de que Alberto
+  confirme a mano que el tamaño del hotspot se siente bien.
+
 - **2026-09-05 · Gemini** — Corrección del contexto de agentes en el sistema solar y escala visual ampliada: corregido el cálculo erróneo de la ventana de contexto de Gemini/Antigravity en `agent-notify` (dividía el tamaño del transcript entre 1,1 MB asumiendo un límite de 200k tokens, arrojando falsos 95% para sesiones normales de ~190k tokens; implementada la función `get_gemini_context_window` con resolución de modelos Flash de 1M y Pro de 2M, situando la sesión en su 19% real). En `Sim.js`, ampliado drásticamente el rango dinámico de radio para satélites según su contexto (coeficiente aumentado de `0.09` a `0.28`, de modo que a 95% de contexto el diámetro se triplica con creces, pasando de 12 px a ~38 px), logrando que los agentes con alto contexto se manifiesten como imponentes gigantes en órbita con mayor presencia y énfasis visual.
 
 - **2026-09-05 · Gemini** — Agujero negro estilo Gargantua (relatividad general fiel): rediseñado e implementado el modelo analítico de lente gravitacional en `solarfield.frag` para recrear con exactitud el agujero negro de *Interstellar* (Kip Thorne). El disco frontal de acreción ahora corta limpiamente por delante de la sombra del horizonte de sucesos; el sector trasero genera de forma continua el doble arco gravitacional (arco superior envolvente y arco inferior secundario bajo la sombra); el horizonte central preserva el vacío negro absoluto con su anillo de fotones y labio ISCO incandescente; y el plasma continuo abandona los surcos rígidos sustituyéndolos por un gradiente de radiación térmica (núcleo blanco puro con bloom estelar hacia ámbar y fuego) con beaming relativista asimétrico (~0.5c) orientado hacia el interior de la pantalla.

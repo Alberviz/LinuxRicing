@@ -177,6 +177,16 @@ def leer_pantalla(zona: str = "ventana") -> dict:
                      "puedes leerlo salvo que esté completamente vacío.")}
 
 
+def escalar_a_gemini(peticion: str, motivo: str = "") -> dict:
+    """Señaliza que esta petición se escapa de lo que Laura sabe/puede hacer
+    ella misma y haría falta mandarla a Gemini (Antigravity). NO ejecuta nada:
+    solo marca la intención. El daemon (laurad.py) intercepta esta llamada
+    antes de seguir el bucle normal de herramientas, pregunta a Alberto si
+    quiere que se mande de verdad, y solo entonces lanza `agy`."""
+    return {"ok": True, "escalate": True, "peticion": peticion, "motivo": motivo,
+            "resumen": "Necesito ayuda de Gemini para esto"}
+
+
 def ventanas_abiertas() -> dict:
     """Lista las ventanas abiertas (título, aplicación y espacio de trabajo),
     sin capturar nada. Para 'a qué he dejado abierto' o dar contexto a Laura."""
@@ -207,6 +217,7 @@ TOOL_ICONS = {
     "pegar_texto": "content_paste_go",
     "leer_pantalla": "document_scanner",
     "ventanas_abiertas": "select_window",
+    "escalar_a_gemini": "auto_awesome",
 }
 
 
@@ -231,6 +242,7 @@ DISPATCH = {
     "pegar_texto": pegar_texto,
     "leer_pantalla": leer_pantalla,
     "ventanas_abiertas": ventanas_abiertas,
+    "escalar_a_gemini": escalar_a_gemini,
 }
 
 TOOLS = [
@@ -391,6 +403,35 @@ TOOLS = [
             "name": "ventanas_abiertas",
             "description": "Lista las ventanas abiertas (título, aplicación, espacio). Sin capturar nada. Para «qué tengo abierto», «en qué estaba».",
             "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "escalar_a_gemini",
+            "description": (
+                "Úsala cuando la petición de Alberto sea demasiado compleja, "
+                "implique modificar código o configuración del ecosistema "
+                "(por ejemplo cambiar cómo se ve un reloj, un widget, un script), "
+                "o esté claramente fuera de tus otras herramientas. NO la uses "
+                "para preguntas simples o búsquedas rápidas de un dato — esas ya "
+                "se gestionan aparte, antes de que tú intervengas. No resuelvas "
+                "tú misma estas peticiones con una respuesta improvisada."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "peticion": {
+                        "type": "string",
+                        "description": "la petición de Alberto, resumida en una frase clara",
+                    },
+                    "motivo": {
+                        "type": "string",
+                        "description": "por qué no puedes hacerlo tú misma (breve)",
+                    },
+                },
+                "required": ["peticion"],
+            },
         },
     },
 ]

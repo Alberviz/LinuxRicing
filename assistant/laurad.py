@@ -241,6 +241,251 @@ def ollama_chat(messages: list[dict]) -> dict:
         return json.loads(resp.read())
 
 
+# ---------------------------------------------------------- escalada a Gemini
+# Todo lo que Laura no sabe/puede resolver ella misma se lo pide a Gemini
+# (Antigravity, CLI `agy`) y devuelve la respuesta como si fuera suya. Dos
+# modos, ver `[escalation]` en config.toml:
+#   Modo A (auto)     -> _match_auto_case() + _handle_auto_escalation()
+#   Modo B (confirma) -> tool `escalar_a_gemini` (tools.py) + converse()
+#                        devuelve una `escalada` pendiente que gestiona
+#                        _confirm_and_run_escalation().
+
+def _run_agy(prompt: str, model: str, effort: str, timeout: float,
+             add_dir: str | None = None,
+             cancel: threading.Event | None = None) -> dict:
+    """Lanza `agy -p <prompt> --model ... --effort ...` y devuelve
+    {"ok": True, "texto": ...} o {"ok": False, "error": ...}. No lanza
+    excepciones: cualquier fallo (binario ausente, timeout, cancelado, exit
+    code != 0) se traduce a un resultado con ok=False para que quien llama
+    pueda decírselo a Alberto en voz."""
+    ecfg = CFG.get("escalation", {})
+    agy_bin = os.path.expanduser(ecfg.get("agy_bin", "agy"))
+    cmd = [agy_bin, "-p", prompt, "--model", model, "--effort", effort,
+           "--dangerously-skip-permissions"]
+    if add_dir:
+        cmd += ["--add-dir", os.path.expanduser(add_dir)]
+    log(f"agy: {model}/{effort} -> {prompt[:80]!r}…")
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True)
+    except FileNotFoundError:
+        return {"ok": False, "error": f"no encuentro el binario '{agy_bin}' (¿está en el PATH?)"}
+    t0 = time.monotonic()
+    while proc.poll() is None:
+        if cancel is not None and cancel.is_set():
+            proc.terminate()
+            return {"ok": False, "error": "cancelado"}
+        if time.monotonic() - t0 > timeout:
+            proc.terminate()
+            return {"ok": False, "error": f"Gemini no respondió en {timeout:.0f} s"}
+        time.sleep(0.2)
+    out, err = proc.communicate()
+    if proc.returncode != 0:
+        return {"ok": False, "error": (err or out or "agy falló").strip()[:400]}
+    out = out.strip()
+    if not out:
+        return {"ok": False, "error": "Gemini no devolvió nada"}
+    return {"ok": True, "texto": out}
+
+
+def _match_auto_case(text: str) -> dict | None:
+    """Modo A: ¿el texto encaja con algún caso rutinario pre-programado en
+    `[escalation] auto_cases` de config.toml? Si sí, se manda a Gemini sin
+    pasar por el LLM local ni pedir confirmación."""
+    ecfg = CFG.get("escalation", {})
+    if not ecfg.get("enabled", True):
+        return None
+    t = text.lower()
+    for case in ecfg.get("auto_cases", []):
+        for kw in case.get("keywords", []):
+            if kw.lower() in t:
+                return case
+    return None
+
+
+def _handle_auto_escalation(text: str, case: dict, mode: str,
+                            cancel: threading.Event) -> None:
+    """Modo A: manda `text` tal cual a un Gemini ligero y habla la respuesta."""
+    ecfg = CFG.get("escalation", {})
+    log(f"Modo A ({case.get('nombre')}) -> Gemini ligero")
+    bus.emit(type="state", value="thinking", mode=mode)
+    prompt = ("Responde de forma breve y directa, en español, en una o dos "
+              "frases pensadas para leerse en voz alta (nada de markdown, "
+              "listas ni emojis):\n\n" + text)
+    result = _run_agy(prompt,
+                      model=ecfg.get("model_auto", "gemini-3.8-flash-low"),
+                      effort=ecfg.get("effort_auto", "low"),
+                      timeout=ecfg.get("timeout_auto", 25),
+                      cancel=cancel)
+    if cancel.is_set():
+        return
+    if result.get("ok"):
+        reply = result["texto"].strip()
+    else:
+        reply = f"No he podido consultarlo con Gemini: {result.get('error', 'error desconocido')}"
+    _messages.append({"role": "user", "content": text})
+    _messages.append({"role": "assistant", "content": reply})
+    log(f"laura (gemini auto): {reply}")
+    notify("Laura", reply)
+    bus.emit(type="reply", value=reply)
+    bus.emit(type="state", value="speaking", mode=mode)
+    speak(reply, cancel)
+
+
+_GEMINI_BRIEF = """Eres un agente de código (Gemini, vía Antigravity) invocado por Laura, el
+asistente de voz local de Alberto, para una tarea que Laura no puede resolver
+por sí misma.
+
+Contexto del repositorio:
+- Repo: ~/LinuxRicing — dotfiles y "rice" de escritorio Linux (Hyprland +
+  Quickshell/Caelestia, tema matugen, control RGB, este mismo asistente de
+  voz en assistant/).
+- Lee CLAUDE.md (y GEMINI.md) en la raíz del repo: ahí están las convenciones
+  del proyecto (flujo de ramas, qué carpetas toca cada agente, backlog vivo
+  en vault/, obligación de reiniciar el shell de Quickshell tras tocar UI).
+- Si el cambio es sustancial, créate una rama dedicada para el trabajo (no
+  hace falta pedir permiso); si es un arreglo mínimo, ir directo a la rama
+  activa está bien.
+- No reinicies tú el shell de Quickshell ni hagas instalaciones de sistema:
+  eso lo hace Alberto a mano.
+
+Petición original de Alberto (transcrita de su voz, tal cual):
+"{peticion}"
+
+Por qué Laura no puede resolver esto ella misma:
+{motivo}
+
+Instrucciones:
+1. Interpreta la petición y haz el cambio necesario en el repo de verdad (no
+   te limites a proponerlo).
+2. Sé conciso y ve al grano.
+3. Termina con un párrafo corto (2-3 frases) resumiendo qué has hecho y qué
+   archivos has tocado — Laura se lo va a leer a Alberto en voz alta, así que
+   nada de markdown, listas ni bloques de código en ese resumen final.
+"""
+
+
+def _build_gemini_prompt(peticion: str, motivo: str) -> str:
+    return _GEMINI_BRIEF.format(
+        peticion=peticion,
+        motivo=motivo or "Laura ha juzgado que esto se sale de lo que sabe o "
+                         "puede hacer ella misma.")
+
+
+_YES = ("si", "sí", "vale", "adelante", "hazlo", "dale", "venga", "claro", "correcto")
+_NO = ("no", "nanay", "para nada", "olvidalo", "olvídalo", "mejor no", "nada")
+
+
+def _is_affirmative(text: str) -> bool:
+    t = text.lower().strip(" .,!?¡¿")
+    words = t.split()
+    if not words:
+        return False
+    if words[0] in _NO:
+        return False
+    return any(w in words for w in _YES)
+
+
+def _summarize_for_voice(texto: str) -> str:
+    """Resume la respuesta completa de Gemini en 1-2 frases orales usando el
+    LLM local, para que Laura la devuelva "como si fuera suya". Si el resumen
+    falla (Ollama caído, etc.), cae a un recorte crudo del texto."""
+    try:
+        msgs = [
+            {"role": "system", "content": CFG["llm"]["system_prompt"].strip()},
+            {"role": "user", "content": (
+                "Le pedí ayuda a Gemini para algo que yo no podía resolver "
+                "sola y esto es lo que ha hecho, con todo detalle:\n\n"
+                + texto[:6000] +
+                "\n\nResúmelo para Alberto en una o dos frases orales, en "
+                "español, sin markdown ni listas, como si tú misma lo "
+                "hubieras hecho.")},
+        ]
+        req = urllib.request.Request(
+            CFG["llm"]["url"],
+            data=json.dumps({"model": CFG["llm"]["model"], "messages": msgs,
+                             "stream": False,
+                             "options": {"num_ctx": CFG["llm"].get("num_ctx", 4096)}}).encode(),
+            headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=CFG["llm"].get("timeout", 45)) as resp:
+            msg = json.loads(resp.read())["message"]
+        resumen = (msg.get("content") or "").strip()
+        if resumen:
+            return resumen
+    except Exception as e:  # noqa: BLE001
+        log(f"resumen de Gemini falló: {e}")
+    primera = next((ln.strip() for ln in texto.strip().splitlines() if ln.strip()), "hecho.")
+    return f"Gemini ha terminado: {primera[:200]}"
+
+
+def _confirm_and_run_escalation(escalation: dict, mode: str,
+                                cancel: threading.Event) -> None:
+    """Modo B: pregunta a Alberto si quiere escalar, y si dice que sí, lanza
+    `agy` con un prompt bien formado y le lee el resultado."""
+    peticion = escalation.get("peticion", "")
+    motivo = escalation.get("motivo", "")
+    log(f"Modo B pendiente: {peticion!r} ({motivo!r})")
+
+    pregunta = "Esto se me escapa. ¿Quieres que se lo mande a Gemini para que lo resuelva?"
+    notify("Laura", pregunta)
+    bus.emit(type="reply", value=pregunta)
+    bus.emit(type="state", value="speaking", mode=mode)
+    speak(pregunta, cancel)
+    if cancel.is_set():
+        return
+
+    bus.emit(type="state", value="listening", mode=mode)
+    grace = CFG["audio"].get("followup_seconds", 4)
+    audio = listen(max_seconds=CFG["audio"]["max_seconds"], cancel=cancel,
+                   start_grace=grace)
+    if cancel.is_set():
+        return
+    bus.emit(type="state", value="thinking", mode=mode)
+    respuesta = transcribe(audio)
+    bus.emit(type="transcript", value=respuesta or "(sin respuesta)")
+
+    if not respuesta or not _is_affirmative(respuesta):
+        r = "Vale, no hago nada."
+        log(f"laura: {r}")
+        notify("Laura", r)
+        bus.emit(type="reply", value=r)
+        bus.emit(type="state", value="speaking", mode=mode)
+        speak(r, cancel)
+        _messages.append({"role": "assistant", "content": r})
+        return
+
+    r = "Vale, se lo mando a Gemini. Dame un momento."
+    notify("Laura", r)
+    bus.emit(type="reply", value=r)
+    bus.emit(type="state", value="speaking", mode=mode)
+    speak(r, cancel)
+    if cancel.is_set():
+        return
+
+    ecfg = CFG.get("escalation", {})
+    prompt = _build_gemini_prompt(peticion, motivo)
+    bus.emit(type="state", value="thinking", mode=mode)
+    result = _run_agy(prompt,
+                      model=ecfg.get("model_confirm", "gemini-3.1-pro-high"),
+                      effort=ecfg.get("effort_confirm", "medium"),
+                      timeout=ecfg.get("timeout_confirm", 180),
+                      add_dir=ecfg.get("add_dir") or None,
+                      cancel=cancel)
+    if cancel.is_set():
+        return
+
+    if not result.get("ok"):
+        final = f"No he podido completar el encargo con Gemini: {result.get('error', 'error desconocido')}"
+    else:
+        final = _summarize_for_voice(result["texto"])
+    _messages.append({"role": "assistant", "content": final})
+    log(f"laura (gemini): {final}")
+    notify("Laura", final)
+    bus.emit(type="reply", value=final)
+    bus.emit(type="state", value="speaking", mode=mode)
+    speak(final, cancel)
+
+
 # Fin de frase: puntuación terminal seguida de un espacio (para no cortar en el
 # punto de "3.5"), o un salto de línea. Trocea la respuesta según se genera para
 # mandar cada frase ya a la voz sin esperar al resto.
@@ -316,8 +561,13 @@ def _trim_history() -> None:
 
 
 def converse(user_text: str, on_sentence=None,
-             cancel: threading.Event | None = None) -> tuple[str, list[dict]]:
-    """Devuelve (respuesta, acciones) donde acciones = [{icon, text}, ...].
+             cancel: threading.Event | None = None
+             ) -> tuple[str, list[dict], dict | None]:
+    """Devuelve (respuesta, acciones, escalada) donde acciones = [{icon, text},
+    ...] y `escalada` es None salvo que el LLM haya llamado a la herramienta
+    `escalar_a_gemini` (Modo B): entonces es {"peticion":..., "motivo":...} y
+    `cycle()` se encarga de confirmar con Alberto antes de lanzar nada — no se
+    sigue el bucle de tools con normalidad en esa ronda.
 
     Si `on_sentence` no es None, la respuesta final se genera en streaming y
     cada frase terminada se le pasa según se produce (voz por frases)."""
@@ -334,7 +584,7 @@ def converse(user_text: str, on_sentence=None,
             _messages.append(msg)
             content, calls = msg.get("content") or "", msg.get("tool_calls") or []
         if not calls:
-            return content.strip(), actions
+            return content.strip(), actions, None
         for call in calls:
             fn = call["function"]
             args = fn.get("arguments") or {}
@@ -342,11 +592,16 @@ def converse(user_text: str, on_sentence=None,
                 args = json.loads(args or "{}")
             result = tools_mod.run_tool(fn["name"], args, CFG.get("apps", {}))
             log(f"tool {fn['name']}({args}) -> {result}")
-            if result.get("ok"):
-                actions.append(tools_mod.accion_overlay(fn["name"], result))
             _messages.append({"role": "tool", "name": fn["name"],
                               "content": json.dumps(result, ensure_ascii=False)})
-    return (_messages[-1].get("content") or "Hecho.").strip(), actions
+            if fn["name"] == "escalar_a_gemini":
+                return "", actions, {
+                    "peticion": args.get("peticion") or user_text,
+                    "motivo": args.get("motivo", ""),
+                }
+            if result.get("ok"):
+                actions.append(tools_mod.accion_overlay(fn["name"], result))
+    return (_messages[-1].get("content") or "Hecho.").strip(), actions, None
 
 
 def _synth_wav(text: str, tag: str) -> str:
@@ -547,6 +802,17 @@ def cycle(mode: str = "centro", cancel: threading.Event | None = None) -> None:
             bus.emit(type="transcript", value=text)
             bye = _is_farewell(text)
 
+            # Modo A: casos rutinarios pre-programados (config.toml
+            # [escalation].auto_cases) van directos a un Gemini ligero, sin
+            # pasar por el LLM local ni pedir confirmación.
+            auto_case = _match_auto_case(text)
+            if auto_case is not None:
+                _handle_auto_escalation(text, auto_case, mode, cancel)
+                turns += 1
+                if mode != "centro" or bye or turns >= max_turns:
+                    break
+                continue
+
             sw = _mode_switch(text)
             if sw is not None:
                 _quality[0] = sw
@@ -564,17 +830,31 @@ def cycle(mode: str = "centro", cancel: threading.Event | None = None) -> None:
 
             speech = Speech(cancel, mode) if CFG["llm"].get("stream", True) else None
             try:
-                reply, actions = converse(
+                reply, actions, escalation = converse(
                     text, speech.feed if speech else None, cancel)
                 # El LLM ya ha terminado de generar; el audio puede seguir
                 # sonando. Publicar aquí lo demás, no tras la voz.
-                log(f"laura: {reply}  · acciones: {actions}")
-                notify("Laura", reply)
-                bus.emit(type="result", actions=actions)
+                if escalation is None:
+                    log(f"laura: {reply}  · acciones: {actions}")
+                    notify("Laura", reply)
+                    bus.emit(type="result", actions=actions)
+                else:
+                    log(f"laura: pide escalar a Gemini (Modo B) -> {escalation}")
             finally:
                 spoken = speech.finish() if speech else ""
             if cancel.is_set():
                 break
+
+            # Modo B: el LLM local ha pedido escalar. Confirmar con Alberto
+            # antes de lanzar nada (lo gestiona esta función aparte, incluye
+            # su propio turno de escucha para el sí/no).
+            if escalation is not None:
+                _confirm_and_run_escalation(escalation, mode, cancel)
+                turns += 1
+                if mode != "centro" or turns >= max_turns:
+                    break
+                continue
+
             # Sin streaming, o si el streaming no llegó a decir nada, se
             # reproduce la respuesta entera de una vez.
             if reply and not spoken.strip():
