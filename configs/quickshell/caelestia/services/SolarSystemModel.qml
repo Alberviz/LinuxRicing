@@ -52,7 +52,7 @@ Singleton {
                 // D.bhRFrac en Sim.js) es el que realmente manda:
                 // pickAnchor(cfg,"blackhole") lo encuentra aquí y pisa el
                 // default de Sim.js.
-                motion: { kind: "fixed", fx: 0.87, fy: 0.22 }, rFrac: 0.075
+                motion: { kind: "fixed", fx: 0.90, fy: 0.08 }, rFrac: 0.080
             },
             {
                 id: "config", label: "Configuración", kind: "sun", role: "secondary",

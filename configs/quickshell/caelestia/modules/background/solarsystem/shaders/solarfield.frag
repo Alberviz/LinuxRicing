@@ -191,17 +191,13 @@ vec4 sampleDisk(float rD, float phi, float approach,
     // Corrimiento al rojo gravitacional (Gravitational Redshift) en caída hacia el horizonte
     float zGrav = sqrt(plunge);
 
-    // Paleta cromática térmica de acreción cinematográfica (Gargantua) — más
-    // sobreexpuesta/blanca que antes (foto de referencia: gran parte del
-    // disco quema a blanco, el ámbar/naranja solo aparece en la cola lejana).
-    // Propuesta de Gemini (consultado por Alberto): paleta "fotográfica" en vez
-    // de "fuego" — champán/melocotón/cobre/bronce, look Hoyte van Hoytema.
+    // Paleta cromática térmica de acreción cinematográfica (Gargantua)
     vec3 cWhite  = vec3(1.0, 0.99, 0.96);
-    vec3 cBright = mix(colP, vec3(1.00, 0.93, 0.82), 0.75); // champán
-    vec3 cGold   = mix(colP, vec3(0.95, 0.68, 0.42), 0.55); // melocotón
-    vec3 cAmber  = mix(colE, vec3(0.60, 0.24, 0.08), 0.55); // cobre tostado
-    vec3 cFire   = mix(dk(colE, 0.35), vec3(0.35, 0.12, 0.04), 0.65); // bronce profundo
-    vec3 cSmoke  = vec3(0.12, 0.03, 0.01); // ceniza espacial
+    vec3 cBright = lit(colP, 0.97);
+    vec3 cGold   = lit(colP, 0.55);
+    vec3 cAmber  = mix(colP, colE, 0.45);
+    vec3 cFire   = mix(colE, vec3(0.85, 0.22, 0.04), 0.65);
+    vec3 cSmoke  = mix(dk(colE, 0.65), vec3(0.18, 0.03, 0.01), 0.60);
 
     // Variación térmica por audio (agudos = blanco/azul, graves = rojo denso)
     float tShift = clamp(musicTreble * 0.85, 0.0, 1.0);
@@ -279,9 +275,9 @@ vec4 sampleDisk(float rD, float phi, float approach,
     float ceilD  = mix(1.35, 1.55, rayContrast);
     float density = mix(floorD, ceilD, ridgeMacro) * mix(1.0 - 0.35 * fineWeight, 1.0 + 0.35 * fineWeight, ridgeFine);
 
-    // Envolvente radial: extinción suave en el horizonte y desvanecimiento cúbico ultradifuminado al negro
+    // Envolvente radial: extinción suave en el horizonte y desvanecimiento progresivo al exterior
     float innerLip = smoothstep(0.0, 0.18, plunge);
-    float outerSmoke = pow(clamp(1.0 - smoothstep(0.35, 1.0, fN), 0.0, 1.0), 1.8);
+    float outerSmoke = pow(clamp(1.0 - smoothstep(0.72, 1.0, fN), 0.0, 1.0), 1.4);
     float radialEdge = innerLip * outerSmoke;
 
     // Beaming relativista (Doppler boosting ~0.5c)
@@ -337,20 +333,73 @@ vec4 sampleDisk(float rD, float phi, float approach,
     return vec4(emit, alpha);
 }
 
+// ------------------------------------------------------------------ disco ecuatorial frontal
+// Modela la mitad delantera del disco de acreción 3D (Y < 0, entre la cámara y
+// la singularidad). Cruza físicamente por DELANTE de la sombra del horizonte de
+// sucesos con espina incandescente blanca, corrientes laminares, bandas de polvo
+// y Doppler relativista, conectando de forma fluida y homogénea con las alas exteriores.
+vec4 sampleFrontDisk(vec2 pr, float R, float time, float music, float musicProgress,
+                     float musicPulse, float musicBass, float musicTreble, float musicBurstAge,
+                     vec3 colP, vec3 colE)
+{
+    float u = pr.x / R;
+    float v = pr.y / R;
+
+    // Perfil de espesor vertical H(u) y ensanchamiento en el flanco izquierdo (acercamiento Doppler)
+    float leftFlare = clamp((-u - 0.3) / 2.2, 0.0, 1.0);
+    float H = 0.42 + 0.38 * leftFlare - 0.05 * clamp(u / 2.5, 0.0, 1.0);
+    float vMid = 0.05 * (1.0 - min(1.0, (u / 3.0) * (u / 3.0))); // Ligera curvatura de perspectiva 3D
+    float dv = v - vMid;
+    float eta = dv / H;
+
+    if (abs(eta) > 1.35 || abs(u) > 4.2) return vec4(0.0);
+
+    // Mapeo físico analítico C^infty en el disco 3D ecuatorial frontal (sin singularidades ni cortes)
+    float yDepth = 1.85 + 0.35 * (1.0 - eta);
+    float rPhys = clamp(sqrt(u * u + yDepth * yDepth), 1.18, 3.55);
+    float phi = atan(-yDepth, u);
+
+    // Doppler approach factor: gas en órbita relativista (flanco izquierdo se acerca a ~0.55c)
+    float approach = clamp(0.5 - 0.5 * (u / 3.0), 0.0, 1.0);
+
+    // Muestreo HOMOGÉNEO usando exactamente el mismo motor y paleta de sampleDisk()
+    vec4 cDisk = sampleDisk(rPhys, phi, approach, time, music, musicProgress,
+                            musicPulse, musicBass, musicTreble, musicBurstAge,
+                            colP, colE, 0.28);
+
+    // Perfil vertical gaussiano de densidad del disco 3D
+    float vertProf = exp(-2.5 * eta * eta);
+    // Espina central incandescente hiperbrillante (Spine Core de Interstellar)
+    float spineProf = exp(-14.0 * eta * eta);
+    vec3 rgb = mix(cDisk.rgb, vec3(1.0, 0.99, 0.96), spineProf * (0.60 + 0.40 * approach));
+
+    // Bandas de absorción de polvo paralelas a las líneas de corriente
+    float fN_local = clamp((rPhys - 1.18) / 2.42, 0.0, 1.0);
+    float shearBase = 2.6 / (fN_local + 0.16);
+    float dustN = vnoise(vec2(rPhys * 4.0, (phi + shearBase) * 3.5 + eta * 2.0));
+    float dustLane = smoothstep(0.30, 0.80, dustN) * smoothstep(0.12, 0.70, abs(eta));
+    float dustAbsorb = 1.0 - 0.40 * dustLane;
+    rgb *= dustAbsorb;
+
+    float edgeFade = smoothstep(4.2, 3.5, abs(u));
+    // Núcleo denso y opaco que cubre limpiamente la sombra del horizonte detrás
+    float coreAlpha = clamp(1.0 - abs(eta) / 0.75, 0.0, 1.0);
+    float alpha = max(cDisk.a * vertProf, coreAlpha * 0.96) * dustAbsorb * edgeFade;
+
+    return vec4(rgb, clamp(alpha, 0.0, 1.0));
+}
+
 // ------------------------------------------------------------------ agujero negro estilo Gargantua
-// Geometría real (no aproximada a mano): `lensLUT` viene de una geodésica nula
-// de Schwarzschild integrada offline (ver shaders/lens_lut.png +
-// scratchpad/gen_lut_final.py, sesión con Claude). Un solo muestreo de textura
-// sustituye disco-delantero + arco-superior + arco-inferior — physically
-// consistente: cada rayo cruza el plano del disco 0, 1 o 2 veces según la
-// curvatura real, no según un `if` de hemisferio hecho a mano.
+// Geometría real Schwarzschild (LUT) + Disco 3D homogéneo con espesor vertical:
+// Bóvedas superior e inferior generadas por geodésica relativista (LUT0 y LUT1).
+// Disco delantero ecuatorial homogéneo (sampleFrontDisk) que cruza por
+// delante de la sombra con espina central, polvo y Doppler coherente.
 vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
                float music, float musicProgress, float musicPulse,
                float musicBass, float musicTreble, float musicBurstAge,
                vec3 colP, vec3 colE, vec3 colV)
 {
     const float FLAT = 0.20; // Inclinación casi de canto (~78°) — sólo para la bruma difusa
-    // Dominio y radios de la LUT (deben coincidir con gen_lut_final.py):
     const float LUT_RHO_MAX  = 5.6;
     const float LUT_R_HORIZ  = 1.00;
     const float LUT_R_OUTER  = 3.60;
@@ -374,42 +423,58 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
     // ORDEN FRONT-TO-BACK: El primer elemento en llamar a over() va DELANTE
     // ==================================================================
 
-    // NOTA sobre "sombra": b<b_crit implica que un rayo VENIDO DE INFINITO
-    // acaba capturado — pero el disco no está en infinito. Un rayo puede
-    // cruzar el plano ecuatorial (una vez, orden 0, o dos, orden 1) ANTES de
-    // completar la captura, incluso con rho<b_crit — es exactamente la franja
-    // del disco que en Interstellar cruza por delante de la sombra (a lo
-    // largo del eje mayor, xi=90°, hay cruces válidos de sobra por debajo de
-    // b_crit). Por eso la sombra NO puede pintarse como un disco opaco fijo
-    // en b_crit: solo debe rellenar lo que quede tras la imagen directa y la
-    // envolvente, así que va DETRÁS de ambas en el orden front-to-back.
+    // ------------------------------------------------------------------
+    // 1. DISCO ECUATORIAL FRONTAL (cruza directamente por delante de la sombra)
+    // Núcleo denso, espina incandescente y unión continua con ambos flancos.
+    // ------------------------------------------------------------------
+    vec4 colFront = sampleFrontDisk(pr, R, time, music, musicProgress,
+                                    musicPulse, musicBass, musicTreble, musicBurstAge,
+                                    P, ERR);
+    if (colFront.a > 0.001) {
+        over(acc, colFront.rgb, colFront.a);
+    }
+
+    // ------------------------------------------------------------------
+    // 2. IMAGEN DIRECTA (orden 0 — bóveda inferior lensada y alas exteriores)
+    // ------------------------------------------------------------------
     vec2 lutUV = pr / (R * 2.0 * LUT_RHO_MAX) + 0.5;
     vec4 lut0 = texture(lensLUT0, lutUV);
     vec4 lut1 = texture(lensLUT1, lutUV);
 
-    // ------------------------------------------------------------------
-    // 1. IMAGEN DIRECTA (orden 0 — cruce más cercano al observador, la
-    // franja que cruza por delante de la sombra). La más al frente.
-    // ------------------------------------------------------------------
-    if (lut0.r > 0.0) {
+    // lut0Mask: atenúa los rayos residuales truncados de orden 0 dentro de la
+    // sombra (rho < B_CRIT) para que el disco frontal gobierne con pureza el ecuador
+    // y las cavidades superior e inferior de la sombra queden nítidas y profundas.
+    float lut0Mask = smoothstep(B_CRIT - 0.28, B_CRIT + 0.05, rho);
+    if (lut0.r > 0.0 && lut0Mask > 0.001) {
         float rD  = mix(LUT_R_HORIZ, LUT_R_OUTER, lut0.r);
         float phi = lutDecode16(lut0.g, lut0.b) * TAU - PI;
-        float approach = 0.5 - 0.5 * cos(phi);
+        float approach = clamp(0.5 - 0.5 * (pr.x / (R * 3.0)), 0.0, 1.0);
         vec4 col0 = sampleDisk(rD, phi, approach, time, music, musicProgress,
                                musicPulse, musicBass, musicTreble, musicBurstAge, P, ERR,
-                               0.18);
-        over(acc, col0.rgb, col0.a);
+                               0.25);
+        over(acc, col0.rgb, col0.a * lut0Mask);
     }
 
     // ------------------------------------------------------------------
-    // 2. ANILLO DE FOTONES — acumulación de infinitas imágenes de orden
-    // creciente exactamente en rho=b_crit (no se puede pintar cada una, se
-    // aproxima como un anillo fino hiperbrillante con boosting Doppler).
+    // 3. IMAGEN ENVOLVENTE (orden 1 — bóveda superior lensada de Schwarzschild)
+    // ------------------------------------------------------------------
+    if (lut1.r > 0.0) {
+        float rD  = mix(LUT_R_HORIZ, LUT_R_OUTER, lut1.r);
+        float phi = lutDecode16(lut1.g, lut1.b) * TAU - PI;
+        float approach = clamp(0.5 - 0.5 * (pr.x / (R * 2.8)), 0.0, 1.0);
+        vec4 col1 = sampleDisk(rD, phi, approach, time, music, musicProgress,
+                               musicPulse, musicBass, musicTreble, musicBurstAge, P, ERR,
+                               0.20);
+        over(acc, col1.rgb, col1.a * 0.90);
+    }
+
+    // ------------------------------------------------------------------
+    // 4. ANILLO DE FOTONES (en rho = B_CRIT)
     // ------------------------------------------------------------------
     {
         float ringDist = abs(rho - B_CRIT);
         float ringAlpha = smoothstep(0.020, 0.0, ringDist) * 0.97;
-        float dop = 0.5 - 0.5 * (pr.x / (rho * R)); // Más brillante en el lado izquierdo
+        float dop = clamp(0.5 - 0.5 * (pr.x / (rho * R)), 0.0, 1.0);
         vec3 ringCol = mix(lit(P, 0.85), vec3(1.0), dop * 0.95);
         ringCol = mix(ringCol, vec3(1.0), musicPulse * 0.9);
         float polarBoost = smoothstep(0.05, 0.75, abs(pr.y / (R * rho)));
@@ -417,34 +482,13 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
     }
 
     // ------------------------------------------------------------------
-    // 3. IMAGEN ENVOLVENTE (orden 1 — un giro extra alrededor del horizonte,
-    // más "profunda" que la directa). Detrás de la directa y del anillo.
+    // 5. HORIZONTE DE SUCESOS — rellena de negro profundo el vacío no cubierto
     // ------------------------------------------------------------------
-    if (lut1.r > 0.0) {
-        float rD  = mix(LUT_R_HORIZ, LUT_R_OUTER, lut1.r);
-        float phi = lutDecode16(lut1.g, lut1.b) * TAU - PI;
-        float approach = 0.5 - 0.5 * cos(phi);
-        vec4 col1 = sampleDisk(rD, phi, approach, time, music, musicProgress,
-                               musicPulse, musicBass, musicTreble, musicBurstAge, P, ERR,
-                               0.18);
-        over(acc, col1.rgb, col1.a * 0.85); // imagen secundaria, ~0.85 de intensidad física
-    }
-
-    // ------------------------------------------------------------------
-    // 4. HORIZONTE DE SUCESOS — rellena de negro solo lo que ninguna de las
-    // dos imágenes ni el anillo hayan cubierto ya (ver nota más arriba).
-    // ------------------------------------------------------------------
-    // Gris-azulado muy tenue en vez de negro puro (foto de referencia: la
-    // sombra tiene un leve tinte frío, no es negro absoluto).
-    vec3 shadowCol = mix(colV, vec3(0.05, 0.07, 0.10), 0.35);
     float shadowMask = smoothstep(B_CRIT + 0.010, B_CRIT - 0.010, rho);
-    over(acc, shadowCol, shadowMask);
+    over(acc, colV, shadowMask);
 
     // ------------------------------------------------------------------
-    // 5. CORONA DIFUSA SEDOSA DEL DISCO (Interstellar Corona)
-    // El brillo de convergencia en el limbo izquierdo emerge solo del beaming
-    // relativista de sampleDisk() (pow(approach, ~2.2)) — no hace falta un
-    // parche de brillo en una posición fija.
+    // 6. CORONA DIFUSA SEDOSA DEL DISCO
     // ------------------------------------------------------------------
     {
         float yHaze = pr.y / (FLAT * 2.5);

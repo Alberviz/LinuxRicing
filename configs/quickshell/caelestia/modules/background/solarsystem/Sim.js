@@ -88,7 +88,7 @@ var D = {
     // si no hay ancla "blackhole" en config — el valor que MANDA de verdad
     // hoy es el rFrac del anchor "blackhole" en
     // services/SolarSystemModel.qml (pickAnchor lo encuentra y pisa esto).
-    bhFx: 0.87, bhFy: 0.22, bhRFrac: 0.075,        // R en fracción de h
+    bhFx: 0.90, bhFy: 0.08, bhRFrac: 0.080,        // R en fracción de h
     // Baricentro del binario: ANCLADO (no traslada). El sitio concreto lo pone
     // la variante (LAYOUTS); estos son sólo el defecto si la variante no existe.
     baryFx: 0.30, baryFy: 0.47,
