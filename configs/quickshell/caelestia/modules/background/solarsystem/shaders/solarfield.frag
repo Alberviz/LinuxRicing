@@ -109,6 +109,13 @@ void over(inout vec4 acc, vec3 lc, float la){
     acc.a   += la * (1.0 - acc.a);
 }
 
+// over-composite para capas ya premultiplicadas (evita divisiones por alfa y artefactos de borde)
+void overPremul(inout vec4 acc, vec4 src){
+    src.a = clamp(src.a, 0.0, 1.0);
+    acc.rgb += src.rgb * (1.0 - acc.a);
+    acc.a   += src.a   * (1.0 - acc.a);
+}
+
 // ------------------------------------------------------------------ estrellas
 // Campo de estrellas por celdas hash. Las que caen a 0.95R..1.9R del agujero
 // se dibujan como arcos cortos centrados en él (lente), no como puntos.
@@ -334,10 +341,11 @@ vec4 sampleDisk(float rD, float phi, float approach,
 }
 
 // ------------------------------------------------------------------ disco ecuatorial frontal
-// Modela la mitad delantera del disco de acreción 3D (Y < 0, entre la cámara y
-// la singularidad). Cruza físicamente por DELANTE de la sombra del horizonte de
-// sucesos con espina incandescente blanca, corrientes laminares, bandas de polvo
-// y Doppler relativista, conectando de forma fluida y homogénea con las alas exteriores.
+// Modela la mitad delantera del disco de acreción 3D (gas en primer plano entre
+// la cámara y el agujero negro). Cruza de lado a lado por DELANTE de la sombra
+// con espesor volumétrico cinematográfico (Interstellar), espina incandescente blanca,
+// corrientes laminares estrictamente horizontales a lo largo de u, bandas de absorción
+// de polvo y Doppler boosting relativista coherente.
 vec4 sampleFrontDisk(vec2 pr, float R, float time, float music, float musicProgress,
                      float musicPulse, float musicBass, float musicTreble, float musicBurstAge,
                      vec3 colP, vec3 colE)
@@ -345,48 +353,95 @@ vec4 sampleFrontDisk(vec2 pr, float R, float time, float music, float musicProgr
     float u = pr.x / R;
     float v = pr.y / R;
 
-    // Perfil de espesor vertical H(u) y ensanchamiento en el flanco izquierdo (acercamiento Doppler)
-    float leftFlare = clamp((-u - 0.3) / 2.2, 0.0, 1.0);
-    float H = 0.42 + 0.38 * leftFlare - 0.05 * clamp(u / 2.5, 0.0, 1.0);
-    float vMid = 0.05 * (1.0 - min(1.0, (u / 3.0) * (u / 3.0))); // Ligera curvatura de perspectiva 3D
+    // Curvatura del plano ecuatorial frontal cruzando el centro de la sombra
+    float u_norm = clamp(abs(u) / 3.6, 0.0, 1.0);
+    float vMid = 0.08 * (1.0 - u_norm * u_norm);
     float dv = v - vMid;
+
+    // Espesor volumétrico H(u): flare en el flanco de acercamiento (izquierdo), taper en el de alejamiento
+    float leftFlare = clamp((-u - 0.2) / 2.2, 0.0, 1.0);
+    float rightTaper = clamp((u - 0.2) / 2.8, 0.0, 1.0);
+    float H = 0.35 + 0.20 * leftFlare - 0.08 * rightTaper;
     float eta = dv / H;
 
-    if (abs(eta) > 1.35 || abs(u) > 4.2) return vec4(0.0);
+    if (abs(eta) > 1.65 || u < -4.2 || u > 3.8) return vec4(0.0);
 
-    // Mapeo físico analítico C^infty en el disco 3D ecuatorial frontal (sin singularidades ni cortes)
-    float yDepth = 1.85 + 0.35 * (1.0 - eta);
-    float rPhys = clamp(sqrt(u * u + yDepth * yDepth), 1.18, 3.55);
-    float phi = atan(-yDepth, u);
+    // Beaming relativista (~0.55c en el disco de acreción)
+    float approach = clamp(0.5 - 0.5 * (u / 3.2), 0.0, 1.0);
+    float beamMul = mix(0.48, 2.90, pow(approach, 1.6));
 
-    // Doppler approach factor: gas en órbita relativista (flanco izquierdo se acerca a ~0.55c)
-    float approach = clamp(0.5 - 0.5 * (u / 3.0), 0.0, 1.0);
+    // Corrientes laminares horizontales (fbm + vnoise)
+    float uFlow = u - time * 0.035;
+    vec2 uv1 = vec2(uFlow * 1.8, eta * 3.8);
+    vec2 uv2 = vec2(uFlow * 4.2, eta * 8.5);
+    vec2 uv3 = vec2(uFlow * 9.0, eta * 18.0);
 
-    // Muestreo HOMOGÉNEO usando exactamente el mismo motor y paleta de sampleDisk()
-    vec4 cDisk = sampleDisk(rPhys, phi, approach, time, music, musicProgress,
-                            musicPulse, musicBass, musicTreble, musicBurstAge,
-                            colP, colE, 0.28);
+    float n1 = fbm(uv1);
+    float n2 = fbm(uv2);
+    float n3 = vnoise(uv3);
 
-    // Perfil vertical gaussiano de densidad del disco 3D
-    float vertProf = exp(-2.5 * eta * eta);
-    // Espina central incandescente hiperbrillante (Spine Core de Interstellar)
-    float spineProf = exp(-14.0 * eta * eta);
-    vec3 rgb = mix(cDisk.rgb, vec3(1.0, 0.99, 0.96), spineProf * (0.60 + 0.40 * approach));
+    float r1 = 1.0 - abs(2.0 * n1 - 1.0);
+    float r2 = 1.0 - abs(2.0 * n2 - 1.0);
+    float r3 = 1.0 - abs(2.0 * n3 - 1.0);
+    float filaments = pow(r1 * 0.48 + r2 * 0.34 + r3 * 0.18, 1.5);
 
-    // Bandas de absorción de polvo paralelas a las líneas de corriente
-    float fN_local = clamp((rPhys - 1.18) / 2.42, 0.0, 1.0);
-    float shearBase = 2.6 / (fN_local + 0.16);
-    float dustN = vnoise(vec2(rPhys * 4.0, (phi + shearBase) * 3.5 + eta * 2.0));
-    float dustLane = smoothstep(0.30, 0.80, dustN) * smoothstep(0.12, 0.70, abs(eta));
-    float dustAbsorb = 1.0 - 0.40 * dustLane;
+    // Perfiles verticales:
+    // 1. Espina central incandescente hiperbrillante (Interstellar spine)
+    float spineCoreSharp = exp(-22.0 * eta * eta);
+    // 2. Núcleo denso luminoso
+    float spineCoreMid = exp(-6.0 * eta * eta);
+    // 3. Envolvente suave de plasma
+    float vertEnv = exp(-2.2 * eta * eta);
+
+    // Bandas finas de absorción de polvo paralelas al flujo (gas exterior |eta| > 0.22)
+    vec2 uvDust1 = vec2(uFlow * 2.8, eta * 7.5 + 1.8);
+    vec2 uvDust2 = vec2(uFlow * 6.0, eta * 16.0 + 4.2);
+    float d1 = vnoise(uvDust1);
+    float d2 = vnoise(uvDust2);
+    float dustPattern = smoothstep(0.32, 0.77, d1) * 0.65 + smoothstep(0.32, 0.77, d2) * 0.35;
+    float dustMask = smoothstep(0.22, 0.82, abs(eta));
+    float dustAbsorb = 1.0 - 0.48 * dustPattern * dustMask;
+
+    // Paleta cromática coordinada con el tema
+    vec3 cWhite = vec3(1.0, 0.99, 0.96);
+    vec3 cBright = lit(colP, 0.95);
+    vec3 cGold = lit(colP, 0.55);
+    vec3 cFire = mix(colE, vec3(0.85, 0.22, 0.04), 0.60);
+
+    // Gradiente vertical de temperatura del gas
+    vec3 gasCol = mix(cGold, cFire, clamp(abs(eta) * 0.85, 0.0, 1.0));
+
+    // Doppler approach: enriquecimiento a blanco/oro en el flanco izquierdo
+    vec3 hotApproach = mix(cBright, cWhite, leftFlare);
+    gasCol = mix(gasCol, hotApproach, leftFlare * 0.45);
+
+    // Modulación por filamentos
+    vec3 plasma = gasCol * (0.60 + 0.45 * filaments);
+
+    // Brillo del núcleo medio
+    plasma = mix(plasma, cBright, spineCoreMid * 0.70);
+
+    // Espina incandescente blanca + picos de energía en filamentos
+    float spineIntensity = spineCoreSharp * (0.90 + 0.50 * approach);
+    float filamentPeak = smoothstep(1.6, 2.5, filaments * beamMul * vertEnv);
+    float whiteAmount = clamp(max(spineIntensity, filamentPeak), 0.0, 1.0);
+
+    vec3 rgb = mix(plasma, vec3(1.0), whiteAmount);
     rgb *= dustAbsorb;
 
-    float edgeFade = smoothstep(4.2, 3.5, abs(u));
-    // Núcleo denso y opaco que cubre limpiamente la sombra del horizonte detrás
-    float coreAlpha = clamp(1.0 - abs(eta) / 0.75, 0.0, 1.0);
-    float alpha = max(cDisk.a * vertProf, coreAlpha * 0.96) * dustAbsorb * edgeFade;
+    // Modulación por audio
+    rgb = mix(rgb, vec3(1.0), musicPulse * spineCoreSharp * 0.4);
 
-    return vec4(rgb, clamp(alpha, 0.0, 1.0));
+    // Transición suave en los extremos
+    float leftEdgeFade = smoothstep(4.2, 3.3, -u);
+    float rightEdgeFade = smoothstep(3.7, 2.7, u);
+    float edgeFade = leftEdgeFade * rightEdgeFade;
+
+    // Opacidad del núcleo: cubre de forma continua y limpia la sombra detrás
+    float coreAlpha = smoothstep(1.15, 0.75, abs(eta));
+    float alpha = clamp(max(vertEnv * 0.98, coreAlpha) * min(1.0, beamMul * 1.5) * edgeFade, 0.0, 1.0);
+
+    return vec4(rgb, alpha);
 }
 
 // ------------------------------------------------------------------ agujero negro estilo Gargantua
@@ -441,15 +496,14 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
     vec4 lut0 = texture(lensLUT0, lutUV);
     vec4 lut1 = texture(lensLUT1, lutUV);
 
-    // lut0Mask: atenúa los rayos residuales truncados de orden 0 dentro de la
-    // sombra (rho < B_CRIT) para que el disco frontal gobierne con pureza el ecuador
-    // y las cavidades superior e inferior de la sombra queden nítidas y profundas.
+    float rD0 = mix(LUT_R_HORIZ, LUT_R_OUTER, lut0.r);
+    // Filtrado de artefactos bilineales en el borde exterior de la LUT
+    bool lut0Valid = (lut0.r > 0.0) && (rD0 >= rho * 0.45) && (fwidth(lut0.r) < 0.18);
     float lut0Mask = smoothstep(B_CRIT - 0.28, B_CRIT + 0.05, rho);
-    if (lut0.r > 0.0 && lut0Mask > 0.001) {
-        float rD  = mix(LUT_R_HORIZ, LUT_R_OUTER, lut0.r);
+    if (lut0Valid && lut0Mask > 0.001) {
         float phi = lutDecode16(lut0.g, lut0.b) * TAU - PI;
         float approach = clamp(0.5 - 0.5 * (pr.x / (R * 3.0)), 0.0, 1.0);
-        vec4 col0 = sampleDisk(rD, phi, approach, time, music, musicProgress,
+        vec4 col0 = sampleDisk(rD0, phi, approach, time, music, musicProgress,
                                musicPulse, musicBass, musicTreble, musicBurstAge, P, ERR,
                                0.25);
         over(acc, col0.rgb, col0.a * lut0Mask);
@@ -458,14 +512,15 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
     // ------------------------------------------------------------------
     // 3. IMAGEN ENVOLVENTE (orden 1 — bóveda superior lensada de Schwarzschild)
     // ------------------------------------------------------------------
-    if (lut1.r > 0.0) {
-        float rD  = mix(LUT_R_HORIZ, LUT_R_OUTER, lut1.r);
+    float rD1 = mix(LUT_R_HORIZ, LUT_R_OUTER, lut1.r);
+    bool lut1Valid = (lut1.r > 0.0) && (rD1 >= rho * 0.35) && (fwidth(lut1.r) < 0.18);
+    if (lut1Valid) {
         float phi = lutDecode16(lut1.g, lut1.b) * TAU - PI;
         float approach = clamp(0.5 - 0.5 * (pr.x / (R * 2.8)), 0.0, 1.0);
-        vec4 col1 = sampleDisk(rD, phi, approach, time, music, musicProgress,
+        vec4 col1 = sampleDisk(rD1, phi, approach, time, music, musicProgress,
                                musicPulse, musicBass, musicTreble, musicBurstAge, P, ERR,
                                0.20);
-        over(acc, col1.rgb, col1.a * 0.90);
+        over(acc, col1.rgb, col1.a * 0.95);
     }
 
     // ------------------------------------------------------------------
@@ -473,18 +528,18 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
     // ------------------------------------------------------------------
     {
         float ringDist = abs(rho - B_CRIT);
-        float ringAlpha = smoothstep(0.020, 0.0, ringDist) * 0.97;
+        float ringAlpha = smoothstep(0.025, 0.0, ringDist) * 0.98;
         float dop = clamp(0.5 - 0.5 * (pr.x / (rho * R)), 0.0, 1.0);
         vec3 ringCol = mix(lit(P, 0.85), vec3(1.0), dop * 0.95);
         ringCol = mix(ringCol, vec3(1.0), musicPulse * 0.9);
         float polarBoost = smoothstep(0.05, 0.75, abs(pr.y / (R * rho)));
-        over(acc, ringCol, ringAlpha * (0.55 + dop * 0.50 + polarBoost * 0.40 + musicPulse * 0.4));
+        over(acc, ringCol, ringAlpha * (0.80 + dop * 0.50 + polarBoost * 0.40 + musicPulse * 0.4));
     }
 
     // ------------------------------------------------------------------
     // 5. HORIZONTE DE SUCESOS — rellena de negro profundo el vacío no cubierto
     // ------------------------------------------------------------------
-    float shadowMask = smoothstep(B_CRIT + 0.010, B_CRIT - 0.010, rho);
+    float shadowMask = smoothstep(B_CRIT + 0.012, B_CRIT - 0.012, rho);
     over(acc, colV, shadowMask);
 
     // ------------------------------------------------------------------
@@ -587,7 +642,7 @@ vec4 render(vec2 frag)
                         music, musicProgress, musicPulse,
                         musicBass, musicTreble, musicBurstAge,
                         P, colError.rgb, colVoid.rgb);
-    over(acc, bh.rgb / max(bh.a, 1e-4), bh.a);
+    overPremul(acc, bh);
 
     // modo foco-Laura: oscurecer TODO lo anterior (fondo + agujero) a ~0.18
     float dimK = mix(1.0, 0.18, clamp(focusAmt, 0.0, 1.0));
@@ -614,12 +669,12 @@ vec4 render(vec2 frag)
     // Configuración (secundario, calmo) — también se oscurece con focusAmt
     vec4 s0 = sun(frag, sun0Pos, sun0Radius, colPrimary.rgb, false, 0.0, time);
     s0.rgb *= dimK;
-    over(acc, s0.rgb / max(s0.a, 1e-4), s0.a);
+    overPremul(acc, s0);
 
     // Laura (primario) — NO se oscurece; su brillo escala con focusAmt + voz
     float lb = focusAmt * (0.35 + 0.65*clamp(lauraAmp, 0.0, 1.0));
     vec4 s1 = sun(frag, sun1Pos, sun1Radius, colLaura.rgb, true, lb, time);
-    over(acc, s1.rgb / max(s1.a, 1e-4), s1.a);
+    overPremul(acc, s1);
 
     return acc;
 }
