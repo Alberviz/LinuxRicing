@@ -39,6 +39,8 @@ Lo que ya está hecho.
 
 *Los agentes añaden una línea por sesión, lo más reciente arriba.*
 
+- **2026-09-05 · Gemini** — Disco ecuatorial físico y homogéneo para Gargantua (rama `feat/sistema-solar-v3`): se sustituyó el chorro desconectado por un disco 3D ecuatorial frontal continuo y analítico que cruza físicamente por delante de la sombra con espina incandescente blanca, corrientes laminares y bandas de polvo coherentes con el motor físico de `sampleDisk()`. Se reincorporó la imagen directa de Schwarzschild (`lut0`) con máscara anti-artefactos para recuperar la bóveda inferior y las alas exteriores completas sin polucionar el horizonte, se unificó el beaming Doppler (blanco incandescente aproximándose a la izquierda, cobre/ámbar alejándose a la derecha) y se devolvió la paleta M3 original con posición y tamaño en la esquina superior derecha.
+
 - **2026-09-05 · Claude** — Laura escala a Gemini lo que no sabe hacer (rama
   `feat/laura-gemini-escalation`). `[escalation]` nuevo en `config.toml`: Modo A
   (auto, casos rutinarios por keywords en `auto_cases` → Gemini ligero
