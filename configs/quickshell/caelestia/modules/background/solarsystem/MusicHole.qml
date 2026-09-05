@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Shapes
 import Caelestia.Services
+import qs.services
 
 // Componente para visualizar la música dentro del agujero negro.
 // Se ancla al centro geométrico del agujero negro (horizonte de sucesos).
@@ -41,7 +42,6 @@ Item {
     readonly property bool isPlaying: Players.active?.isPlaying ?? false
     readonly property real position: Players.active?.position ?? 0
     readonly property real length: Players.active?.length ?? 0
-    readonly property real posFrac: length > 0 ? Math.max(0, Math.min(1, position / length)) : 0
 
     // Formateador de tiempo mm:ss
     function formatTime(s) {
@@ -54,7 +54,7 @@ Item {
 
     // Catálogo de nombres de variantes
     readonly property var variantNames: [
-        "",
+        "Disco desnudo (sin overlay)",
         "Órbita de Acreción + Espectro",
         "Minimalista Clásico + Anillo GPU",
         "Ondas Gravitacionales / Vinilo",
@@ -70,14 +70,16 @@ Item {
         onTriggered: badge.opacity = 0
     }
 
+    // Variante 0 = «disco desnudo» (sin overlay, ver mockup O9): todo lo lleva
+    // el disco de acreción del shader, esta capa no dibuja nada.
     function nextVariant() {
-        root.variant = (root.variant % 6) + 1;
+        root.variant = (root.variant + 1) % 7;
         badge.opacity = 1;
         badgeTimer.restart();
     }
 
     function prevVariant() {
-        root.variant = root.variant === 1 ? 6 : root.variant - 1;
+        root.variant = root.variant === 0 ? 6 : root.variant - 1;
         badge.opacity = 1;
         badgeTimer.restart();
     }
@@ -156,56 +158,11 @@ Item {
         anchors.fill: parent
         visible: root.variant === 2
 
-        // Anillo de progreso circular renderizado en GPU
-        Shape {
-            anchors.fill: parent
-            layer.enabled: true
-            layer.samples: 4
-
-            // Pista de fondo completa (360°)
-            ShapePath {
-                strokeColor: Qt.rgba(root.colInk.r, root.colInk.g, root.colInk.b, 0.08)
-                strokeWidth: 2
-                fillColor: "transparent"
-                capStyle: ShapePath.RoundCap
-                startX: root.width / 2
-                startY: root.height / 2 - (root.radius * 0.88)
-                PathAngleArc {
-                    centerX: root.width / 2
-                    centerY: root.height / 2
-                    radiusX: root.radius * 0.88
-                    radiusY: root.radius * 0.88
-                    startAngle: -90
-                    sweepAngle: 360
-                }
-            }
-
-            // Arco activo según posición de la canción
-            ShapePath {
-                strokeColor: root.colPrimary
-                strokeWidth: 2.5
-                fillColor: "transparent"
-                capStyle: ShapePath.RoundCap
-                startX: root.width / 2
-                startY: root.height / 2 - (root.radius * 0.88)
-                PathAngleArc {
-                    centerX: root.width / 2
-                    centerY: root.height / 2
-                    radiusX: root.radius * 0.88
-                    radiusY: root.radius * 0.88
-                    startAngle: -90
-                    sweepAngle: Math.max(2, root.posFrac * 360)
-                }
-            }
-        }
-
         // Bloque de texto e información centrado en el vacío
         Column {
             anchors.centerIn: parent
             width: parent.width * 0.72
             spacing: 4
-            scale: 1.0 + root.musicPulse * 0.02
-            Behavior on scale { NumberAnimation { duration: 120 } }
 
             Row {
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -603,16 +560,4 @@ Item {
         }
     }
 
-    // Indicador discreto permanente [V2] en la zona inferior
-    Text {
-        anchors.left: parent.left
-        anchors.bottom: parent.bottom
-        anchors.margins: 14
-        text: "V" + root.variant
-        color: root.colPrimary
-        font.family: root.fontFamily
-        font.pixelSize: 9
-        font.weight: Font.Bold
-        opacity: 0.35
-    }
 }

@@ -29,6 +29,11 @@ Item {
     // --- Entradas dinámicas ---
     property real time: 0            // s — el motor lo congela en modo Laura
     property real music: 0           // 0..1
+    property real musicProgress: 0   // 0..1  (0 sin canción / sin progreso)
+    property real musicPulse: 0      // 0..1  detector de golpe/beat (ya decae solo)
+    property real musicBass: 0       // 0..1  energía de graves
+    property real musicTreble: 0     // 0..1  energía de agudos
+    property real musicBurstAge: 999 // s     segundos desde último golpe (999 = inactivo)
     property real lauraFocus: 0      // 0..1  (0 normal · 1 foco-Laura)
     property real lauraAmp: 0        // 0..1  nivel de voz en vivo
 
@@ -55,7 +60,7 @@ Item {
 
     readonly property var _l: layout && layout.suns && layout.suns.length >= 2 && layout.bh ? layout : null
     readonly property point _bhCenter: _l ? Qt.point(_l.bh.x, _l.bh.y)
-                                          : Qt.point(width * 0.84, height * 0.12)
+                                          : Qt.point(width * 0.87, height * 0.22)
     readonly property real _bhRadius: _l ? _l.bh.R : height * 0.28
     // El giro se deriva del `time` continuo (que avanza a ~30 fps), NO del
     // layout de Sim (que se recalcula a ~10 fps): así el beaming/Doppler del
@@ -82,12 +87,17 @@ Item {
         // una propiedad FINAL de QQuickItem y no se puede sombrear.
         property real time: root.time
         property real music: root.music
+        property real musicProgress: root.musicProgress
+        property real musicPulse: root.musicPulse
+        property real musicBass: root.musicBass
+        property real musicTreble: root.musicTreble
+        property real musicBurstAge: root.musicBurstAge
         property real focusAmt: root.lauraFocus
         property real lauraAmp: root.lauraAmp
 
         property real bhRadius: root._bhRadius
         property real bhSpin: root._bhSpin
-        property real bhTilt: -0.489
+        property real bhTilt: -0.35
 
         property real sun0Radius: root.confRadius
         property real sun1Radius: root.lauraRadius

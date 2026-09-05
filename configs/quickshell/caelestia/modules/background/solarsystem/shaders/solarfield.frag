@@ -314,6 +314,133 @@ vec4 sampleDisk(float rD, float phi, float approach,
     return vec4(emit, alpha);
 }
 
+// ------------------------------------------------------------------ disco frontal y cola horizontal (Gargantua Direct Disk)
+vec4 sampleFrontDisk(vec2 pr, float R, float time, float music, float musicProgress,
+                     float musicPulse, float musicBass, float musicTreble, float musicBurstAge,
+                     vec3 colP, vec3 colE)
+{
+    float u = pr.x / R;
+
+    // Transición suave entre el haz frontal en la sombra y la cola ancha izquierda
+    float tailW = smoothstep(-0.50 * R, -1.30 * R, pr.x);
+    float H = mix(0.10 * R, 0.28 * R, tailW);
+    float yCenter = mix(0.06 * R, 0.0, tailW);
+    float v = (pr.y - yCenter) / H; // Normalizado [-1.0, 1.0]
+
+    if (abs(v) > 1.15) return vec4(0.0);
+
+    // Radio orbital físico equivalente a lo largo del plano del disco
+    float rPhys = sqrt(u * u + 1.44); // 1.20 R en el centro (ISCO), extendiéndose suavemente hacia 3.6 R
+    float rISCO  = 1.18;
+    float rOuter = 3.60;
+
+    if (rPhys > rOuter) return vec4(0.0);
+
+    // Fracción radial en el disco
+    float fN = clamp((rPhys - rISCO) / (rOuter - rISCO), 0.0, 1.0);
+    float zGrav = 1.0;
+
+    // Paleta cromática térmica idéntica a sampleDisk()
+    vec3 cWhite  = vec3(1.0, 0.98, 0.92);
+    vec3 cBright = lit(colP, 0.90);
+    vec3 cGold   = colP;
+    vec3 cAmber  = mix(colP, colE, 0.55);
+    vec3 cFire   = mix(colE, vec3(0.85, 0.22, 0.04), 0.65);
+    vec3 cSmoke  = mix(dk(colE, 0.65), vec3(0.18, 0.03, 0.01), 0.60);
+
+    float tShift = clamp(musicTreble * 0.85, 0.0, 1.0);
+    float bShift = clamp(musicBass * 0.50, 0.0, 1.0);
+    vec3 cCyanWhite = lit(vec3(colP.b, colP.g, colP.r), 0.92);
+    cWhite = mix(cWhite, cCyanWhite, tShift * 0.4);
+    cBright = mix(cBright, cCyanWhite, tShift * 0.7);
+    cFire  = mix(cFire, dk(colE, 0.55), bShift);
+
+    vec3 tcol;
+    float talpha;
+    if (fN < 0.04) {
+        float ut = fN / 0.04;
+        tcol = mix(cWhite, cBright, ut);
+        talpha = 1.0;
+    } else if (fN < 0.16) {
+        float ut = (fN - 0.04) / 0.12;
+        tcol = mix(cBright, cGold, ut);
+        talpha = 0.98;
+    } else if (fN < 0.40) {
+        float ut = (fN - 0.16) / 0.24;
+        tcol = mix(cGold, cAmber, ut);
+        talpha = 0.95;
+    } else if (fN < 0.65) {
+        float ut = (fN - 0.40) / 0.25;
+        tcol = mix(cAmber, cFire, ut);
+        talpha = mix(0.95, 0.55, ut);
+    } else {
+        float ut = (fN - 0.65) / 0.35;
+        tcol = mix(cFire, cSmoke, ut);
+        talpha = mix(0.55, 0.0, ut * ut);
+    }
+
+    // Incandescencia del plano medio (core caliente)
+    float midplaneGlow = exp(-3.5 * v * v);
+    tcol = mix(tcol, cBright, midplaneGlow * 0.45);
+
+    // =========================================================================
+    // CORRIENTES Y FILAMENTOS HORIZONTALES LAMINIFICADOS (INTERSTELLAR ACCRETION RIVER)
+    // =========================================================================
+    float xStream = u * 1.6 - time * 0.065;
+    float yStream = v * 14.0;
+
+    // Turbulencia orgánica sedosa y suave
+    vec2 warpUV = vec2(u * 1.1, v * 3.2) + vec2(time * 0.02, 0.0);
+    float warp = (fbm(warpUV) - 0.5) * 0.5;
+    float yWarped = yStream + warp * 2.8;
+
+    // Macro-ríos de plasma
+    float nMacro = fbm(vec2(xStream * 0.75, yWarped * 0.55));
+    float ridgeMacro = pow(1.0 - abs(2.0 * nMacro - 1.0), 1.8);
+
+    // Micro-estrías de alta velocidad
+    float nFine = fbm(vec2(xStream * 1.6 + 3.1, yWarped * 1.45 + 5.7));
+    float ridgeFine = pow(1.0 - abs(2.0 * nFine - 1.0), 2.2);
+
+    float fineWeight = smoothstep(0.85, 0.25, fN);
+
+    // Perfil vertical del disco (máxima densidad en ecuador, desvanecimiento suave a los bordes)
+    float vProfile = smoothstep(1.10, 0.15, abs(v));
+    float outerSmoke = pow(clamp(1.0 - smoothstep(0.40, 1.0, fN), 0.0, 1.0), 1.8);
+
+    // Beaming relativista (~0.5c)
+    float approach = clamp(0.5 - 0.5 * (u / rPhys), 0.0, 1.0);
+    float beamMul = mix(0.48, 2.35, pow(approach, 2.2));
+
+    // Color final del plasma con alto contraste entre filamentos
+    float density = mix(0.25, 1.60, ridgeMacro) * mix(1.0 - 0.35 * fineWeight, 1.0 + 0.35 * fineWeight, ridgeFine);
+    vec3 plasmaCol = mix(cSmoke * 1.35, tcol, mix(0.40, 1.0, ridgeMacro));
+    plasmaCol = mix(plasmaCol, cBright, ridgeFine * 0.70 * smoothstep(0.2, 0.9, ridgeMacro));
+
+    // Incandescencia de filamentos centrales
+    float spine = pow(ridgeFine, 3.2) * smoothstep(0.35, 0.95, ridgeMacro);
+    float spineGlow = spine * (0.25 + 1.45 * pow(approach, 1.8)) * smoothstep(0.65, 0.0, fN);
+    vec3 emit = mix(plasmaCol, vec3(1.0), clamp(spineGlow, 0.0, 1.0));
+
+    // Deslumbramiento relativista en el flanco izquierdo (Limb Glare de Interstellar)
+    // El núcleo del disco en x in [-0.6 R, -1.4 R] se vuelve blanco incandescente cegador
+    float limbGlow = pow(approach, 2.4) * smoothstep(2.6, 0.7, rPhys) * exp(-2.8 * v * v);
+    emit = mix(emit, vec3(1.0), clamp(limbGlow * 1.15, 0.0, 1.0));
+
+    // ISCO Bloom
+    float iscoBloom = pow(smoothstep(0.12, 0.0, fN), 2.4) * (0.85 + approach * 0.40);
+    emit = mix(emit, vec3(1.0), clamp(iscoBloom, 0.0, 1.0));
+
+    // Pulso de música
+    emit = mix(emit, vec3(1.0), musicPulse * smoothstep(0.18, 0.0, fN) * 0.6);
+
+    // Extensión suave del disco hacia el flanco derecho (hasta ~2.2 R)
+    float rightFade = smoothstep(2.40 * R, 1.30 * R, pr.x);
+
+    float alpha = clamp(talpha * vProfile * outerSmoke * density * beamMul * 1.48 * rightFade, 0.0, 1.0);
+    return vec4(emit, alpha);
+}
+
 // ------------------------------------------------------------------ agujero negro estilo Gargantua
 vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
                float music, float musicProgress, float musicPulse,
@@ -342,32 +469,16 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
     // ==================================================================
 
     // ------------------------------------------------------------------
+    // 1. SECTOR DELANTERO DEL DISCO ECUATORIAL (Direct Front Disk & Tail)
+    // Pasa POR DELANTE de la sombra cortándola horizontalmente y se extiende
+    // hacia la izquierda formando la gran cola de acreción de Gargantua.
     // ------------------------------------------------------------------
-    // 1. SECTOR DELANTERO DEL DISCO ECUATORIAL (Direct Front Disk)
-    // Pasa POR DELANTE de la sombra cortándola horizontalmente.
-    // En el flanco izquierdo (fuera de la sombra), el disco es simétrico verticalmente
-    // y se fusiona de forma continua con las corrientes de las bóvedas superior e inferior.
-    // ------------------------------------------------------------------
-    float leftFrontW = smoothstep(0.10 * R, -0.80 * R, pr.x);
-    float yMinFront = mix(-0.04 * R, -0.28 * R, leftFrontW);
-    if (pr.y >= yMinFront) {
-        float yDisk = pr.y / FLAT;
-        float rD = length(vec2(pr.x, yDisk)) / R;
-
-        float phi = -acos(clamp(pr.x / max(rD * R, 1e-3), -1.0, 1.0));
-        float approach = 0.5 - 0.5 * cos(phi);
-
-        vec4 colFront = sampleDisk(rD, phi, approach, time, music, musicProgress,
-                                   musicPulse, musicBass, musicTreble, musicBurstAge, P, ERR,
-                                   1.0);
-
-        // En la sombra: corte en el horizonte para no tapar la bóveda trasera.
-        // En el flanco izquierdo: desvanecimiento suave hacia los bordes superior e inferior (|pr.y| -> 0.28 R).
-        float maskShadow = smoothstep(-0.04 * R, 0.04 * R, pr.y);
-        float maskLeft   = smoothstep(0.28 * R, 0.05 * R, abs(pr.y));
-        float frontTransition = mix(maskShadow, maskLeft, leftFrontW);
-
-        over(acc, colFront.rgb, colFront.a * frontTransition);
+    float tailFade = smoothstep(-3.60 * R, -2.50 * R, pr.x);
+    vec4 colFront = sampleFrontDisk(pr, R, time, music, musicProgress,
+                                    musicPulse, musicBass, musicTreble, musicBurstAge,
+                                    P, ERR);
+    if (colFront.a > 0.001) {
+        over(acc, colFront.rgb, colFront.a * tailFade);
     }
 
     // ------------------------------------------------------------------
@@ -430,14 +541,7 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
 
         if (rho >= rhoInTop && rho <= rhoOutTop) {
             float f = (rho - rhoInTop) / max(rhoOutTop - rhoInTop, 0.01);
-            float rD_lens = 1.00 + f * (3.60 - 1.00);
-
-            // Conexión fluida con el disco: en el flanco izquierdo, rD converge suavemente
-            // hacia el radio real del disco horizontal, sincronizando fase y frecuencia de rayos
-            float yDisk = pr.y / FLAT;
-            float rD_disk = length(vec2(pr.x, yDisk)) / R;
-            float w_disk = smoothstep(0.10 * R, -0.80 * R, pr.x) * (1.0 - pow(s, 0.65));
-            float rD = mix(rD_lens, rD_disk, w_disk);
+            float rD = 1.00 + f * (3.60 - 1.00);
 
             // Azimut en el hemisferio trasero (phi en [0, PI])
             float phi = acos(cosScreen);
@@ -454,50 +558,25 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
             // Disolución progresiva al final de la cola izquierda (sincronizada con el disco frontal):
             float tailFade = smoothstep(-3.60 * R, -2.60 * R, pr.x);
 
-            // Fusión suave y continua con el disco frontal horizontal:
-            float archMask = smoothstep(0.20 * R, -0.04 * R, pr.y) * outerFade * mix(1.0, tailFade, leftW);
+            // Fusión suave con el disco frontal en el flanco izquierdo:
+            float archMask = smoothstep(0.12 * R, -0.02 * R, pr.y) * outerFade * mix(1.0, tailFade, leftW);
             over(acc, colTop.rgb, colTop.a * archMask);
         }
     }
 
-    // --- 4b. Arco Inferior (Secondary image bajo la sombra, pr.y > -0.20 R) ---
-    // Simétrico y compacto al igual que la bóveda superior
-    if (pr.y >= -0.20 * R) {
+    // --- 4b. Arco Inferior (Secondary image bajo la sombra, pr.y > 0.06 R) ---
+    // Creciente circular compacto abrazando la silueta inferior de la sombra (Interstellar)
+    if (pr.y >= 0.06 * R) {
         float s = clamp(pr.y / (R * rho), 0.0, 1.0);
+        float sCurv = pow(s, 0.85);
 
-        float leftW = smoothstep(0.12 * R, -0.12 * R, pr.x);
-
-        // Hemisferio izquierdo: flare exponencial continuo hacia la cola inferior
-        float sCurvL = pow(s, 1.35);
-        float yOutL = (0.30 + (1.34 - 0.30) * sCurvL);
-
-        // Borde interior inferior con hueco óptico simétrico
-        float gapWeight = pow(1.0 - s, 2.0);
-        float yInShadow = 1.005 * s;
-        float yInGap = (0.02 + (1.005 - 0.02) * pow(s, 1.20));
-        float yInL = mix(yInShadow, yInGap, gapWeight);
-
-        float sSafe = max(s, 1e-4);
-        float rhoOutL = yOutL / sSafe;
-        float rhoInL  = max(yInL / sSafe, 1.002);
-
-        // Hemisferio derecho: arco circular compacto abrazando la silueta inferior derecha
-        float sCurvR = pow(s, 0.85);
-        float rhoInR  = 1.005;
-        float rhoOutR = 1.34 + 0.04 * (1.0 - sCurvR); // 1.34 en el nadir (s=1)
-
-        float rhoInBot  = mix(rhoInR, rhoInL, leftW);
-        float rhoOutBot = mix(rhoOutR, rhoOutL, leftW);
+        // Borde interior pegado a la sombra, borde exterior circular compacto (1.24 R máx)
+        float rhoInBot  = 1.005;
+        float rhoOutBot = mix(1.18, 1.24, sCurv);
 
         if (rho >= rhoInBot && rho <= rhoOutBot) {
             float f = (rho - rhoInBot) / max(rhoOutBot - rhoInBot, 0.01);
-            float rD_lens = 1.00 + f * (3.60 - 1.00);
-
-            // Conexión fluida con el disco en el flanco inferior izquierdo:
-            float yDisk = pr.y / FLAT;
-            float rD_disk = length(vec2(pr.x, yDisk)) / R;
-            float w_disk = smoothstep(0.10 * R, -0.80 * R, pr.x) * (1.0 - pow(s, 0.65));
-            float rD = mix(rD_lens, rD_disk, w_disk);
+            float rD = 1.00 + f * (2.80 - 1.00);
 
             float phi = acos(cosScreen);
             float approach = 0.5 - 0.5 * cos(phi);
@@ -506,9 +585,8 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
                                      musicPulse, musicBass, musicTreble, musicBurstAge, P, ERR,
                                      0.35);
 
-            float outerFade = smoothstep(rhoOutBot, rhoOutBot - 0.04, rho);
-            float tailFade = smoothstep(-3.60 * R, -2.60 * R, pr.x);
-            float archMask = smoothstep(-0.20 * R, 0.04 * R, pr.y) * outerFade * mix(1.0, tailFade, leftW);
+            float outerFade = smoothstep(rhoOutBot, rhoOutBot - 0.03, rho);
+            float archMask = smoothstep(0.05 * R, 0.18 * R, pr.y) * outerFade;
             // Imagen secundaria con intensidad física (~0.85 de la primaria)
             over(acc, colBot.rgb, colBot.a * archMask * 0.85);
         }

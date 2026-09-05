@@ -46,7 +46,7 @@ Singleton {
         anchors: [
             {
                 id: "music", label: "Música", kind: "blackhole",
-                motion: { kind: "fixed", fx: 0.84, fy: 0.12 }, rFrac: 0.28
+                motion: { kind: "fixed", fx: 0.87, fy: 0.22 }, rFrac: 0.28
             },
             {
                 id: "config", label: "Configuración", kind: "sun", role: "secondary",
@@ -124,6 +124,8 @@ Singleton {
     property real _musicTreble: 0.0
     property real _musicPulse: 0.0
     property real _musicAvgSlow: 0.0
+    property real _musicProgress: 0.0
+    property real _musicBurstAge: 999.0
     property int _pendingTasks: 0
     readonly property bool _lauraActive: (Agents.runningAgents || []).length > 0
 
@@ -141,7 +143,8 @@ Singleton {
             || (Agents.sessions || []).length > 0 || (Agents.completedAgents || []).length > 0)
 
     readonly property var values: root._buildValues(root._music, root._musicBass, root._musicTreble,
-                                                    root._musicPulse,
+                                                    root._musicPulse, root._musicProgress,
+                                                    root._musicBurstAge,
                                                     root._pendingTasks, root._lauraActive,
                                                     root._batt,
                                                     RgbConfig.devices,
@@ -152,7 +155,7 @@ Singleton {
         return (typeof v === "number" && isFinite(v)) ? Math.max(0, Math.min(1, v / 100)) : 0;
     }
 
-    function _buildValues(music, musicBass, musicTreble, musicPulse, pending, lauraActive, batt, ledDevices, running, done, sessions) {
+    function _buildValues(music, musicBass, musicTreble, musicPulse, musicProgress, musicBurstAge, pending, lauraActive, batt, ledDevices, running, done, sessions) {
         const b = batt || {};
         const led = ledDevices || {};
         const v = {
@@ -160,6 +163,8 @@ Singleton {
             musicBass: musicBass,
             musicTreble: musicTreble,
             musicPulse: musicPulse,
+            musicProgress: musicProgress,
+            musicBurstAge: musicBurstAge,
             lauraActive: lauraActive,
             tasks: Math.min(1, pending / 12),
 
@@ -214,9 +219,22 @@ Singleton {
                 root._musicTreble = 0;
                 root._musicPulse = 0;
                 root._musicAvgSlow = 0;
+                root._musicProgress = 0;
+                root._musicBurstAge = 999.0;
             }
         }
         onTriggered: {
+            // Mpris no empuja la posición sola — hay que pedir el refresco
+            // explícitamente (mismo patrón que modules/dashboard/media/Details.qml)
+            // o `position` se queda clavada en su valor inicial para siempre.
+            Players.active?.positionChanged();
+            const p = Players.active;
+            const pos = (p && typeof p.position === "number") ? p.position : 0;
+            const len = (p && typeof p.length === "number") ? p.length : 0;
+            root._musicProgress = (len > 0 && !isNaN(pos))
+                ? Math.max(0, Math.min(1, pos / len))
+                : 0;
+
             const v = Audio.cava.values || [];
             if (!v.length) {
                 // cava sin datos: decaimiento, nunca dato inventado (principio 5).
@@ -225,6 +243,7 @@ Singleton {
                 root._musicTreble *= 0.9;
                 root._musicPulse *= 0.6;
                 root._musicAvgSlow *= 0.95;
+                root._musicBurstAge = Math.min(root._musicBurstAge + 0.04, 999.0);
                 return;
             }
             const n = v.length;
@@ -263,11 +282,18 @@ Singleton {
             // El margen relativo hace que un pasaje sostenido y fuerte levante la
             // media y deje de disparar: sólo los picos reales cuentan.
             root._musicAvgSlow += (mean - root._musicAvgSlow) * 0.06;
-            const thresh = root._musicAvgSlow * 1.35 + 0.02;
-            if (mean > thresh && root._musicAvgSlow > 0.015)
+            // Alberto: «el impulso ocurre muy poco» — margen relativo bajado de
+            // 1.35 a 1.18 y el suelo absoluto de 0.02 a 0.012 para que dispare
+            // con más facilidad en masters modernos comprimidos (poco rango
+            // dinámico entre golpe y golpe).
+            const thresh = root._musicAvgSlow * 1.18 + 0.012;
+            if (mean > thresh && root._musicAvgSlow > 0.015) {
                 root._musicPulse = 1.0;
-            else
+                root._musicBurstAge = 0.0;
+            } else {
                 root._musicPulse *= 0.6;
+                root._musicBurstAge = Math.min(root._musicBurstAge + 0.04, 999.0);
+            }
         }
     }
 
@@ -487,12 +513,12 @@ Singleton {
         }
 
         function setMusicVariant(v: int): void {
-            if (v >= 1 && v <= 6)
+            if (v >= 0 && v <= 6)
                 root.musicVariant = v;
         }
 
         function nextMusicVariant(): int {
-            root.musicVariant = (root.musicVariant % 6) + 1;
+            root.musicVariant = (root.musicVariant + 1) % 7;
             return root.musicVariant;
         }
     }
