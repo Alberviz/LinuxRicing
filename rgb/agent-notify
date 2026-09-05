@@ -17,6 +17,7 @@ Vías de disparo:
 
 import sys
 import os
+import re
 import json
 import subprocess
 import argparse
@@ -306,6 +307,37 @@ def get_claude_context_window(model_name="", current_tokens=0):
     return window
 
 
+def get_gemini_context_window(model_name="", current_tokens=0):
+    """Devuelve el tamaño de la ventana de contexto para el modelo Gemini / Antigravity especificado.
+
+    Catálogo oficial de Gemini (CLI / API):
+    - 2.000.000 (2M): Modelos Pro (Gemini 1.5 Pro, 2.5 Pro, etc.).
+    - 1.000.000 (1M): Modelos Flash (Gemini 1.5 Flash, 2.0 Flash, 3.8 Flash) y por defecto en Antigravity CLI.
+    """
+    env_max = os.environ.get("GEMINI_MAX_CONTEXT_TOKENS") or os.environ.get("ANTIGRAVITY_MAX_CONTEXT_TOKENS")
+    if env_max:
+        try:
+            val = int(env_max)
+            if val > 0:
+                return val
+        except ValueError:
+            pass
+
+    m = (model_name or "").lower()
+    if "pro" in m:
+        window = 2_000_000
+    elif "flash" in m or "gemini" in m or "antigravity" in m:
+        window = 1_000_000
+    else:
+        window = 1_000_000
+
+    # Margen de seguridad: si los tokens leídos superan la ventana actual asumida, adaptarla
+    if current_tokens > window:
+        window = 2_000_000 if current_tokens <= 2_000_000 else int(current_tokens * 1.25)
+
+    return window
+
+
 def get_agent_context_info(agent_name, target_pid=None, cwd=None, conv_id=None):
     """Calcula el ratio de uso de la ventana de contexto (0.05 a 1.0) y tokens aproximados."""
     pids_to_check = [int(target_pid)] if target_pid else []
@@ -391,6 +423,43 @@ def get_agent_context_info(agent_name, target_pid=None, cwd=None, conv_id=None):
 
     # 2. Antigravity: tamaño de conversación en SQLite o transcript.jsonl
     if any(k in name_lower for k in ("agy", "anti", "gemini")):
+        model_name = ""
+        for p in pids_to_check:
+            fd_dir = Path(f"/proc/{p}/fd")
+            if fd_dir.exists():
+                try:
+                    for fd in fd_dir.iterdir():
+                        try:
+                            target = os.readlink(str(fd))
+                            if "cli-" in target and target.endswith(".log") and os.path.exists(target):
+                                with open(target, "rb") as lf:
+                                    lf.seek(max(0, os.path.getsize(target) - 65536))
+                                    chunk = lf.read().decode("utf-8", errors="ignore")
+                                    matches = re.findall(r"selected model override to backend: label=\"([^\"]+)\"", chunk)
+                                    if matches:
+                                        model_name = matches[-1]
+                                        break
+                        except Exception:
+                            pass
+                    if model_name:
+                        break
+                except Exception:
+                    pass
+
+        if not model_name:
+            try:
+                logs = sorted((Path.home() / ".gemini/antigravity-cli/log").glob("cli-*.log"),
+                              key=lambda p: p.stat().st_mtime, reverse=True)
+                if logs:
+                    with open(logs[0], "rb") as lf:
+                        lf.seek(max(0, logs[0].stat().st_size - 65536))
+                        chunk = lf.read().decode("utf-8", errors="ignore")
+                        matches = re.findall(r"selected model override to backend: label=\"([^\"]+)\"", chunk)
+                        if matches:
+                            model_name = matches[-1]
+            except Exception:
+                pass
+
         if not conv_id:
             for p in pids_to_check:
                 fd_dir = Path(f"/proc/{p}/fd")
@@ -420,8 +489,8 @@ def get_agent_context_info(agent_name, target_pid=None, cwd=None, conv_id=None):
                 try:
                     size = tpath.stat().st_size
                     est_tokens = int(size / 5.5)
-                    # ~1.1MB de transcript.jsonl equivale a la saturación de contexto antes de compactación (~200k tokens)
-                    ratio = round(min(1.0, max(0.05, size / 1100000.0)), 3)
+                    window = get_gemini_context_window(model_name, est_tokens)
+                    ratio = round(min(1.0, max(0.05, est_tokens / float(window))), 3)
                     return ratio, est_tokens
                 except Exception:
                     pass
