@@ -110,10 +110,24 @@ from silero_vad import load_silero_vad, VADIterator
 _vad_model = load_silero_vad()
 
 # --------------------------------------------------------------------------- TTS
-log("cargando Kokoro…")
-from kokoro import KPipeline
+_tts_engine = CFG.get("tts", {}).get("engine", "auto")
+_tts_voice = CFG.get("tts", {}).get("voice", "es-ES-ElviraNeural")
 
-_kokoro = KPipeline(lang_code="e", device=_device)
+if _tts_engine == "auto":
+    if _tts_voice.startswith("es-ES-") or _tts_voice.startswith("es-"):
+        _tts_engine = "edge"
+    elif _tts_voice.startswith("es_ES-"):
+        _tts_engine = "piper"
+    else:
+        _tts_engine = "kokoro"
+
+_kokoro = None
+if _tts_engine == "kokoro":
+    log("cargando Kokoro…")
+    from kokoro import KPipeline
+    _kokoro = KPipeline(lang_code="e" if _tts_voice.startswith("e") else "a", device=_device)
+else:
+    log(f"TTS configurado en motor '{_tts_engine}' (voz: {_tts_voice})")
 
 # ----------------------------------------------------------------------- estado
 _messages = [{"role": "system", "content": CFG["llm"]["system_prompt"].strip()}]
@@ -336,13 +350,39 @@ def converse(user_text: str, on_sentence=None,
 
 
 def _synth_wav(text: str, tag: str) -> str:
-    """Sintetiza `text` con Kokoro, aplica el efecto y devuelve la ruta del wav."""
-    parts = []
-    for _, _, a in _kokoro(text, voice=CFG["tts"]["voice"]):
-        parts.append(a.detach().cpu().numpy() if hasattr(a, "detach")
-                     else np.asarray(a))
+    """Sintetiza `text` según el motor configurado, aplica el efecto y devuelve la ruta del wav."""
     raw = f"/tmp/laura_{tag}_raw.wav"
-    sf.write(raw, np.concatenate(parts), 24000)
+    engine = _tts_engine
+    voice = CFG["tts"]["voice"]
+
+    if engine == "edge":
+        import asyncio
+        import edge_tts
+
+        raw_mp3 = f"/tmp/laura_{tag}_raw.mp3"
+
+        async def _run():
+            communicate = edge_tts.Communicate(text, voice)
+            await communicate.save(raw_mp3)
+
+        asyncio.run(_run())
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", raw_mp3, raw], check=True)
+    elif engine == "piper":
+        import shutil
+        piper_bin = "piper-tts" if shutil.which("piper-tts") else "piper"
+        model_path = Path.home() / f".local/share/piper/voices/{voice}.onnx"
+        p = subprocess.Popen([piper_bin, "-m", str(model_path), "-f", raw], stdin=subprocess.PIPE)
+        p.communicate(input=text.encode("utf-8"))
+    else:
+        global _kokoro
+        if _kokoro is None:
+            from kokoro import KPipeline
+            _kokoro = KPipeline(lang_code="e" if voice.startswith("e") else "a", device=_device)
+        parts = []
+        for _, _, a in _kokoro(text, voice=voice):
+            parts.append(a.detach().cpu().numpy() if hasattr(a, "detach") else np.asarray(a))
+        sf.write(raw, np.concatenate(parts), 24000)
+
     af = EFFECTS.get(CFG["tts"]["effect"])
     if not af:
         return raw

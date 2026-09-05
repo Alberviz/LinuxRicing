@@ -53,8 +53,9 @@ threshold = 0.5        # 0..1. Súbelo (0.6-0.7) si hay disparos falsos.
 cooldown = 3.0         # segundos "sordo" tras un disparo (evita re-triggers).
 
 [tts]
-voice = "ef_dora"      # kokoro: ef_dora (mujer), em_alex, em_santa
-effect = "jarvis"      # jarvis | subnautica | robot | dry
+engine = "edge"           # edge (es-ES Elvira/Alvaro) | kokoro (ef_dora/em_alex) | piper (es_ES offline)
+voice = "es-ES-ElviraNeural" # es-ES-ElviraNeural (Castellano España) | ef_dora | es_ES-davefx-medium
+effect = "jarvis"         # jarvis | subnautica | robot | dry
 
 [audio]
 max_seconds = 15       # tope de grabación de una intervención
