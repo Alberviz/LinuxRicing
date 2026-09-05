@@ -101,6 +101,17 @@ entonces:
    si mandarlo a Gemini; responder que sí y comprobar que `agy` se lanza con
    `--add-dir ~/LinuxRicing` y que al terminar Laura resume el resultado.
 
+## Gotcha de `agy` descubierto en esta sesión
+
+En `agy`, el **nombre del modelo ya fija el effort** (sufijo `-low` /
+`-medium` / `-high`, ver `agy models`) — `--effort` debe coincidir
+**exactamente** con ese sufijo o `agy` rechaza la combinación con
+`--model X conflicts with --effort=Y` (probado a mano: `gemini-3.1-pro-high`
++ `--effort medium` falla así; `--effort high` sí funciona). Los valores en
+`config.toml` ya están corregidos (`model_confirm = "gemini-3.1-pro-high"` +
+`effort_confirm = "high"`), pero si Alberto cambia `model_auto`/`model_confirm`
+más adelante, tiene que ajustar el `effort_*` correspondiente a juego.
+
 ## Pendiente / lo que Alberto puede querer ajustar
 
 - Los `auto_cases` de ejemplo (`busqueda_web`, `dato_rapido`) son un punto de

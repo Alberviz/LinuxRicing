@@ -91,8 +91,14 @@ model_auto = "gemini-3.8-flash-low"   # Modo A: el modelo MAS LIGERO disponible
 effort_auto = "low"
 timeout_auto = 25                     # segundos; son consultas rápidas
 
-model_confirm = "gemini-3.1-pro-high" # Modo B: tarea real, conviene el modelo fuerte
-effort_confirm = "medium"
+model_confirm = "gemini-3.1-pro-high" # Modo B: tarea real, conviene el modelo fuerte.
+effort_confirm = "high"               # OJO: en `agy`, el nombre del modelo YA fija
+                       # el effort (sufijo -low/-medium/-high) — --effort debe
+                       # coincidir exactamente o `agy` rechaza la combinación
+                       # como conflicto (comprobado: --model …-high --effort
+                       # medium -> "conflicts with --effort"). Si cambias
+                       # `model_confirm`/`model_auto`, actualiza este valor a
+                       # juego (mira `agy models` para ver qué sufijo trae cada uno).
 timeout_confirm = 180                 # segundos; puede tardar (agente editando código)
 
 auto_cases = [
