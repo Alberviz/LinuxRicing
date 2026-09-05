@@ -342,13 +342,15 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
     // ==================================================================
 
     // ------------------------------------------------------------------
-    // 1. SECTOR DELANTERO DEL DISCO ECUATORIAL (Direct Front Disk)
-    // Pasa POR DELANTE de la sombra del agujero negro cortándola horizontalmente.
-    // Proyección elíptica simple (FLAT) + sampleDisk(): opaca cerca del ecuador,
-    // lo que bloquea por composición el solape del arco superior (más abajo) con
-    // esta misma zona — necesario para que no se vean dos texturas cruzadas.
     // ------------------------------------------------------------------
-    if (pr.y >= -0.04 * R) {
+    // 1. SECTOR DELANTERO DEL DISCO ECUATORIAL (Direct Front Disk)
+    // Pasa POR DELANTE de la sombra cortándola horizontalmente.
+    // En el flanco izquierdo (fuera de la sombra), el disco es simétrico verticalmente
+    // y se fusiona de forma continua con las corrientes de las bóvedas superior e inferior.
+    // ------------------------------------------------------------------
+    float leftFrontW = smoothstep(0.10 * R, -0.80 * R, pr.x);
+    float yMinFront = mix(-0.04 * R, -0.28 * R, leftFrontW);
+    if (pr.y >= yMinFront) {
         float yDisk = pr.y / FLAT;
         float rD = length(vec2(pr.x, yDisk)) / R;
 
@@ -359,15 +361,18 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
                                    musicPulse, musicBass, musicTreble, musicBurstAge, P, ERR,
                                    1.0);
 
-        float frontTransition = smoothstep(-0.04 * R, 0.04 * R, pr.y);
+        // En la sombra: corte en el horizonte para no tapar la bóveda trasera.
+        // En el flanco izquierdo: desvanecimiento suave hacia los bordes superior e inferior (|pr.y| -> 0.28 R).
+        float maskShadow = smoothstep(-0.04 * R, 0.04 * R, pr.y);
+        float maskLeft   = smoothstep(0.28 * R, 0.05 * R, abs(pr.y));
+        float frontTransition = mix(maskShadow, maskLeft, leftFrontW);
+
         over(acc, colFront.rgb, colFront.a * frontTransition);
     }
 
     // ------------------------------------------------------------------
     // 2. HORIZONTE DE SUCESOS (La Sombra Central Negra)
     // Ocluye todo lo que esté detrás de él (arcos lensados y fondo)
-    // Se divide naturalmente en la bóveda superior y el creciente inferior
-    // porque el haz frontal ya está pintado por delante con opacidad sólida.
     // ------------------------------------------------------------------
     float shadowMask = smoothstep(1.006, 0.990, dS);
     over(acc, colV, shadowMask);
@@ -399,8 +404,7 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
         float leftW = smoothstep(0.12 * R, -0.12 * R, pr.x);
 
         // Hemisferio izquierdo: flare exponencial continuo hacia el disco tail (trompeta de Interstellar)
-        // Bóveda esférica compacta en el ápice (y = -1.36 R) que se abre suavemente
-        // hacia el ecuador horizontal sin escalón vertical ni ángulo a 90 grados.
+        // Bóveda esférica compacta en el ápice (y = -1.36 R) que se abre suavemente hacia el disco
         float sCurvL = pow(s, 1.35);
         float yOutL = -(0.30 + (1.36 - 0.30) * sCurvL);
 
@@ -426,7 +430,14 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
 
         if (rho >= rhoInTop && rho <= rhoOutTop) {
             float f = (rho - rhoInTop) / max(rhoOutTop - rhoInTop, 0.01);
-            float rD = 1.00 + f * (3.60 - 1.00);
+            float rD_lens = 1.00 + f * (3.60 - 1.00);
+
+            // Conexión fluida con el disco: en el flanco izquierdo, rD converge suavemente
+            // hacia el radio real del disco horizontal, sincronizando fase y frecuencia de rayos
+            float yDisk = pr.y / FLAT;
+            float rD_disk = length(vec2(pr.x, yDisk)) / R;
+            float w_disk = smoothstep(0.10 * R, -0.80 * R, pr.x) * (1.0 - pow(s, 0.65));
+            float rD = mix(rD_lens, rD_disk, w_disk);
 
             // Azimut en el hemisferio trasero (phi en [0, PI])
             float phi = acos(cosScreen);
@@ -449,29 +460,57 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
         }
     }
 
-    // --- 4b. Arco Inferior (Secondary image bajo la sombra, pr.y > 0.15 R) ---
-    if (pr.y >= 0.15 * R) {
+    // --- 4b. Arco Inferior (Secondary image bajo la sombra, pr.y > -0.20 R) ---
+    // Simétrico y compacto al igual que la bóveda superior
+    if (pr.y >= -0.20 * R) {
         float s = clamp(pr.y / (R * rho), 0.0, 1.0);
-        float sCurv = pow(s, 0.80);
 
-        // Mapeo continuo sin hueco muerto abrazando el borde inferior
-        float rhoInBot  = mix(1.005, 1.001, sCurv);
-        float rhoOutBot = mix(2.90, 1.40,  sCurv);
+        float leftW = smoothstep(0.12 * R, -0.12 * R, pr.x);
+
+        // Hemisferio izquierdo: flare exponencial continuo hacia la cola inferior
+        float sCurvL = pow(s, 1.35);
+        float yOutL = (0.30 + (1.34 - 0.30) * sCurvL);
+
+        // Borde interior inferior con hueco óptico simétrico
+        float gapWeight = pow(1.0 - s, 2.0);
+        float yInShadow = 1.005 * s;
+        float yInGap = (0.02 + (1.005 - 0.02) * pow(s, 1.20));
+        float yInL = mix(yInShadow, yInGap, gapWeight);
+
+        float sSafe = max(s, 1e-4);
+        float rhoOutL = yOutL / sSafe;
+        float rhoInL  = max(yInL / sSafe, 1.002);
+
+        // Hemisferio derecho: arco circular compacto abrazando la silueta inferior derecha
+        float sCurvR = pow(s, 0.85);
+        float rhoInR  = 1.005;
+        float rhoOutR = 1.34 + 0.04 * (1.0 - sCurvR); // 1.34 en el nadir (s=1)
+
+        float rhoInBot  = mix(rhoInR, rhoInL, leftW);
+        float rhoOutBot = mix(rhoOutR, rhoOutL, leftW);
 
         if (rho >= rhoInBot && rho <= rhoOutBot) {
             float f = (rho - rhoInBot) / max(rhoOutBot - rhoInBot, 0.01);
-            float rD = 1.00 + f * (2.90 - 1.00);
+            float rD_lens = 1.00 + f * (3.60 - 1.00);
+
+            // Conexión fluida con el disco en el flanco inferior izquierdo:
+            float yDisk = pr.y / FLAT;
+            float rD_disk = length(vec2(pr.x, yDisk)) / R;
+            float w_disk = smoothstep(0.10 * R, -0.80 * R, pr.x) * (1.0 - pow(s, 0.65));
+            float rD = mix(rD_lens, rD_disk, w_disk);
 
             float phi = acos(cosScreen);
             float approach = 0.5 - 0.5 * cos(phi);
 
             vec4 colBot = sampleDisk(rD, phi, approach, time, music, musicProgress,
                                      musicPulse, musicBass, musicTreble, musicBurstAge, P, ERR,
-                                     0.40);
+                                     0.35);
 
-            float archMask = smoothstep(0.15 * R, 0.28 * R, pr.y);
-            // Imagen secundaria con intensidad física (~0.80 de la primaria)
-            over(acc, colBot.rgb, colBot.a * archMask * 0.80);
+            float outerFade = smoothstep(rhoOutBot, rhoOutBot - 0.04, rho);
+            float tailFade = smoothstep(-3.60 * R, -2.60 * R, pr.x);
+            float archMask = smoothstep(-0.20 * R, 0.04 * R, pr.y) * outerFade * mix(1.0, tailFade, leftW);
+            // Imagen secundaria con intensidad física (~0.85 de la primaria)
+            over(acc, colBot.rgb, colBot.a * archMask * 0.85);
         }
     }
 
