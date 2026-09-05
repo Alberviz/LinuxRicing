@@ -191,11 +191,13 @@ vec4 sampleDisk(float rD, float phi, float approach,
     // Corrimiento al rojo gravitacional (Gravitational Redshift) en caída hacia el horizonte
     float zGrav = sqrt(plunge);
 
-    // Paleta cromática térmica de acreción cinematográfica (Gargantua)
-    vec3 cWhite  = vec3(1.0, 0.98, 0.92);
-    vec3 cBright = lit(colP, 0.90);
-    vec3 cGold   = colP;
-    vec3 cAmber  = mix(colP, colE, 0.55);
+    // Paleta cromática térmica de acreción cinematográfica (Gargantua) — más
+    // sobreexpuesta/blanca que antes (foto de referencia: gran parte del
+    // disco quema a blanco, el ámbar/naranja solo aparece en la cola lejana).
+    vec3 cWhite  = vec3(1.0, 0.99, 0.96);
+    vec3 cBright = lit(colP, 0.97);
+    vec3 cGold   = lit(colP, 0.55);
+    vec3 cAmber  = mix(colP, colE, 0.45);
     vec3 cFire   = mix(colE, vec3(0.85, 0.22, 0.04), 0.65);
     vec3 cSmoke  = mix(dk(colE, 0.65), vec3(0.18, 0.03, 0.01), 0.60);
 
@@ -209,24 +211,24 @@ vec4 sampleDisk(float rD, float phi, float approach,
 
     vec3 tcol;
     float talpha;
-    if (fN < 0.04) {
-        float u = fN / 0.04;
+    if (fN < 0.10) {
+        float u = fN / 0.10;
         tcol = mix(cWhite, cBright, u);
         talpha = 1.0;
-    } else if (fN < 0.16) {
-        float u = (fN - 0.04) / 0.12;
+    } else if (fN < 0.32) {
+        float u = (fN - 0.10) / 0.22;
         tcol = mix(cBright, cGold, u);
         talpha = 0.98;
-    } else if (fN < 0.40) {
-        float u = (fN - 0.16) / 0.24;
+    } else if (fN < 0.55) {
+        float u = (fN - 0.32) / 0.23;
         tcol = mix(cGold, cAmber, u);
         talpha = 0.95;
-    } else if (fN < 0.65) {
-        float u = (fN - 0.40) / 0.25;
+    } else if (fN < 0.75) {
+        float u = (fN - 0.55) / 0.20;
         tcol = mix(cAmber, cFire, u);
         talpha = mix(0.95, 0.55, u);
     } else {
-        float u = (fN - 0.65) / 0.35;
+        float u = (fN - 0.75) / 0.25;
         tcol = mix(cFire, cSmoke, u);
         talpha = mix(0.55, 0.0, u * u);
     }
@@ -385,7 +387,7 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
         float approach = 0.5 - 0.5 * cos(phi);
         vec4 col0 = sampleDisk(rD, phi, approach, time, music, musicProgress,
                                musicPulse, musicBass, musicTreble, musicBurstAge, P, ERR,
-                               0.35);
+                               0.18);
         over(acc, col0.rgb, col0.a);
     }
 
@@ -414,7 +416,7 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
         float approach = 0.5 - 0.5 * cos(phi);
         vec4 col1 = sampleDisk(rD, phi, approach, time, music, musicProgress,
                                musicPulse, musicBass, musicTreble, musicBurstAge, P, ERR,
-                               0.35);
+                               0.18);
         over(acc, col1.rgb, col1.a * 0.85); // imagen secundaria, ~0.85 de intensidad física
     }
 
@@ -422,8 +424,11 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
     // 4. HORIZONTE DE SUCESOS — rellena de negro solo lo que ninguna de las
     // dos imágenes ni el anillo hayan cubierto ya (ver nota más arriba).
     // ------------------------------------------------------------------
+    // Gris-azulado muy tenue en vez de negro puro (foto de referencia: la
+    // sombra tiene un leve tinte frío, no es negro absoluto).
+    vec3 shadowCol = mix(colV, vec3(0.05, 0.07, 0.10), 0.35);
     float shadowMask = smoothstep(B_CRIT + 0.010, B_CRIT - 0.010, rho);
-    over(acc, colV, shadowMask);
+    over(acc, shadowCol, shadowMask);
 
     // ------------------------------------------------------------------
     // 5. CORONA DIFUSA SEDOSA DEL DISCO (Interstellar Corona)
