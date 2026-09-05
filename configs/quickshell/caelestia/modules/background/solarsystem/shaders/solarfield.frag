@@ -194,12 +194,14 @@ vec4 sampleDisk(float rD, float phi, float approach,
     // Paleta cromática térmica de acreción cinematográfica (Gargantua) — más
     // sobreexpuesta/blanca que antes (foto de referencia: gran parte del
     // disco quema a blanco, el ámbar/naranja solo aparece en la cola lejana).
+    // Propuesta de Gemini (consultado por Alberto): paleta "fotográfica" en vez
+    // de "fuego" — champán/melocotón/cobre/bronce, look Hoyte van Hoytema.
     vec3 cWhite  = vec3(1.0, 0.99, 0.96);
-    vec3 cBright = lit(colP, 0.97);
-    vec3 cGold   = lit(colP, 0.55);
-    vec3 cAmber  = mix(colP, colE, 0.45);
-    vec3 cFire   = mix(colE, vec3(0.85, 0.22, 0.04), 0.65);
-    vec3 cSmoke  = mix(dk(colE, 0.65), vec3(0.18, 0.03, 0.01), 0.60);
+    vec3 cBright = mix(colP, vec3(1.00, 0.93, 0.82), 0.75); // champán
+    vec3 cGold   = mix(colP, vec3(0.95, 0.68, 0.42), 0.55); // melocotón
+    vec3 cAmber  = mix(colE, vec3(0.60, 0.24, 0.08), 0.55); // cobre tostado
+    vec3 cFire   = mix(dk(colE, 0.35), vec3(0.35, 0.12, 0.04), 0.65); // bronce profundo
+    vec3 cSmoke  = vec3(0.12, 0.03, 0.01); // ceniza espacial
 
     // Variación térmica por audio (agudos = blanco/azul, graves = rojo denso)
     float tShift = clamp(musicTreble * 0.85, 0.0, 1.0);
@@ -292,7 +294,15 @@ vec4 sampleDisk(float rD, float phi, float approach,
     // Spine Incandescence:
     float spine = pow(ridgeFine, 3.2) * smoothstep(0.35, 0.95, ridgeMacro);
     float spineGlow = spine * (0.25 + 1.45 * pow(approach, 1.8)) * smoothstep(0.65, 0.0, fN) * zGrav * rayContrast;
-    vec3 emit = mix(plasmaCol, vec3(1.0), clamp(spineGlow, 0.0, 1.0));
+
+    // Sobreexposición fotográfica (propuesta de Gemini, consultado por Alberto):
+    // a partir de cierta energía local (densidad de plasma * boosting Doppler)
+    // el "sensor" satura a blanco, como película sobreexpuesta, en vez de un
+    // umbral geométrico fijo por radio.
+    float energy = density * beamMul;
+    float overexposure = smoothstep(0.95, 1.85, energy);
+
+    vec3 emit = mix(plasmaCol, vec3(1.0), clamp(max(spineGlow, overexposure), 0.0, 1.0));
 
     // Bloom/sobreexposición blanca en el labio ISCO (atenuado en la zona de caída por redshift)
     float iscoBloom = pow(smoothstep(0.12, 0.0, fN), 2.4) * (0.85 + approach * 0.40) * zGrav;
