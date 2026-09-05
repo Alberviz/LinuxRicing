@@ -39,6 +39,24 @@ Lo que ya está hecho.
 
 *Los agentes añaden una línea por sesión, lo más reciente arriba.*
 
+- **2026-09-05 · Claude** — Laura escala a Gemini lo que no sabe hacer (rama
+  `feat/laura-gemini-escalation`). `[escalation]` nuevo en `config.toml`: Modo A
+  (auto, casos rutinarios por keywords en `auto_cases` → Gemini ligero
+  `gemini-3.8-flash-low`/`low`, sin pasar por el LLM local) y Modo B (confirma
+  primero: tool nueva `escalar_a_gemini` en `tools.py`, el LLM local la llama
+  cuando la petición toca código/config del ecosistema; `converse()` devuelve la
+  escalada pendiente en vez de resolver, `cycle()` pregunta por voz, y si Alberto
+  dice que sí lanza `agy` con `gemini-3.1-pro-high`/`medium` + `--add-dir
+  ~/LinuxRicing` y un prompt con contexto del repo, luego resume el resultado
+  con el LLM local y lo lee integrado). Ver
+  [[Laura puede abrir sesiones de gemini para todo lo que no sabe hacer]].
+  Nota: el worktree de este agente estaba varias decenas de commits detrás de
+  `main` (no tenía `assistant/` en absoluto) — la rama se creó desde `main`
+  local, no desde el punto de partida del worktree. Pendiente de Alberto: la
+  cuota de Antigravity estaba agotada durante la sesión, así que el round-trip
+  real de `agy` no se pudo confirmar end-to-end — probarlo a mano antes de
+  fiarse del todo.
+
 - **2026-09-02 · Claude** — Análisis del asistente para el portátil (i5-12600HX / RTX 4050 6 GB / 24 GB) y consolidación de ramas. Arreglado el segfault de `laurad.py` al escuchar: el preload de CUDA de `93740b0` cargaba `libnvblas.so` con RTLD_GLOBAL y tumbaba el proceso en la primera llamada BLAS; acotado a solo cuBLAS + cuDNN. `llm.num_ctx` configurable (antes fijo a 4096), a 6144 por presupuesto de VRAM. Mergeados a `main`: overlay nuevo de Laura (`feat/laura-overlay-redesign`), arreglos del portátil y el `ProjectDialog` de Gemini. `~/.config` resincronizado (fuera `Orb`/`OrbWindow`/`BarWindow`). Además, plan de mejora de Laura del portátil: **voz por frases** (fase 3, `converse()` en streaming + clase `Speech` de 2 hilos, `[llm] stream`); **tools nuevas** (`leer_portapapeles`, `pegar_texto` con ydotool, `leer_pantalla` grim+tesseract, `ventanas_abiertas` hyprctl); **modo calidad** por voz (`llm.model_quality`, a `qwen2.5:7b-instruct`); **wake word** (fase 5, clase `WakeListener` con openWakeWord, `[wake]` en config, se pausa durante el ciclo). Medido: STT 0,6 s, primera palabra a ~1 s, ~1,5 s percibido. OCR acotado a la ventana activa (~2,5 s). Todo en `main`. Pendiente de Alberto: `ollama pull qwen2.5:7b-instruct`; usuario al grupo `input` + módulo `uinput` para que `pegar_texto` teclee (ydotoold no abre `/dev/uinput`); entrenar `models/laura.onnx` para el wake word; decir en qué app el OCR salió difuso.
 
 - **2026-09-02 · Gemini** — Rendimiento, layout, Laura CUDA y selector de pantallas: eliminadas instancias duplicadas de Quickshell y optimizado Laura en CUDA (Whisper/Kokoro en RTX 4050). Implementado el módulo nativo de Caelestia `ProjectDialog` (`Super + P`) con tarjetas interactivas Material Design 3, atajos numéricos 1-4, animación de entrada/salida y llamadas a la API Lua de Hyprland (`hyprctl eval`) para control en caliente de monitores a 144Hz y apagado de panel integrado.

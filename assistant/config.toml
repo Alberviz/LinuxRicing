@@ -42,6 +42,11 @@ confirma en una frase breve, sin leer en voz alta el texto largo entero.
 Para «traduce/resume esto» o «qué he copiado» usa leer_portapapeles; para «pega
 esto aquí» usa pegar_texto; para «qué dice este error» o «lee la pantalla» usa
 leer_pantalla; para «qué tengo abierto» usa ventanas_abiertas.
+Si la petición es demasiado compleja para ti, implica modificar código o
+configuración del ecosistema (por ejemplo «haz que el reloj marque la hora en
+formato 12 horas»), o está claramente fuera de tus herramientas, usa
+escalar_a_gemini con la petición resumida y un motivo breve; no la resuelvas
+tú misma con un parche improvisado ni te inventes que sí puedes hacerlo.
 """
 
 [wake]
@@ -61,6 +66,47 @@ max_seconds = 15       # tope de grabación de una intervención
 followup_seconds = 4   # si en modo centro no empiezas a hablar en estos segundos, cierra
 silence_ms = 900       # silencio que corta la grabación
 amp_gain = 12.0        # multiplicador RMS->0..1 para la amplitud del overlay
+
+# Escalada a Gemini (Antigravity) para lo que Laura no sabe/puede resolver sola.
+# Dos modos:
+#   Modo A (automatico, sin confirmar) — casos rutinarios pre-programados en
+#   `auto_cases`: si lo que dice Alberto contiene alguna de las `keywords` de un
+#   caso, Laura NI SIQUIERA se lo pregunta al LLM local — manda el texto tal
+#   cual a un agente Gemini ligero (`model_auto`/`effort_auto`) y lee la
+#   respuesta en voz alta. Pensado para búsquedas web / datos rápidos que el
+#   modelo local no puede saber (no tiene Internet).
+#   Modo B (con confirmacion) — el LLM local, con tool-calling, decide llamar a
+#   la herramienta `escalar_a_gemini` cuando la petición es compleja o toca
+#   modificar el ecosistema (código, configuración). Laura pregunta primero
+#   ("¿mando esto a Gemini?"); solo si Alberto dice que sí, redacta un prompt
+#   con contexto del repo y lanza `agy` con `model_confirm`/`effort_confirm`.
+# `auto_cases` es una lista abierta — añade más entradas (nombre + keywords)
+# sin tocar el código de laurad.py.
+[escalation]
+enabled = true
+agy_bin = "agy"                    # binario en ~/.local/bin, debe estar en PATH
+add_dir = "~/LinuxRicing"          # --add-dir para el Modo B (necesita ver el repo)
+
+model_auto = "gemini-3.8-flash-low"   # Modo A: el modelo MAS LIGERO disponible
+effort_auto = "low"
+timeout_auto = 25                     # segundos; son consultas rápidas
+
+model_confirm = "gemini-3.1-pro-high" # Modo B: tarea real, conviene el modelo fuerte
+effort_confirm = "medium"
+timeout_confirm = 180                 # segundos; puede tardar (agente editando código)
+
+auto_cases = [
+  { nombre = "busqueda_web", keywords = [
+      "busca en internet", "búscame en internet", "búscalo en internet",
+      "qué es", "que es", "quién es", "quien es", "cuándo fue", "cuando fue",
+      "cuánto es", "cuanto es", "cuál es la capital", "cual es la capital",
+      "qué tiempo hace", "que tiempo hace", "noticias de", "resultado del partido",
+  ] },
+  { nombre = "dato_rapido", keywords = [
+      "dato rápido", "dato rapido", "sabes si", "es verdad que", "en qué año",
+      "en que año",
+  ] },
+]
 
 # Apps que Laura puede abrir. clave = como lo dices; valor = comando.
 [apps]
