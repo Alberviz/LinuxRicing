@@ -258,7 +258,10 @@ vec4 sampleDisk(float rD, float phi, float approach,
 
     // Difuminado progresivo hacia el borde exterior:
     float fineWeight = smoothstep(0.85, 0.30, fN);
-    float density = mix(0.70, 1.30, ridgeMacro) * mix(1.0 - 0.20 * fineWeight, 1.0 + 0.20 * fineWeight, ridgeFine);
+    // Contraste alto entre corriente y canal oscuro (look cinematográfico de
+    // la referencia): el suelo baja bastante más que antes, así los huecos
+    // entre filamentos quedan casi negros en vez de un gris medio uniforme.
+    float density = mix(0.30, 1.55, ridgeMacro) * mix(1.0 - 0.35 * fineWeight, 1.0 + 0.35 * fineWeight, ridgeFine);
 
     // Envolvente radial: extinción suave en el horizonte y desvanecimiento cúbico ultradifuminado al negro
     float innerLip = smoothstep(0.0, 0.18, plunge);
@@ -283,7 +286,7 @@ vec4 sampleDisk(float rD, float phi, float approach,
 
     // Fogonazo en el labio interior al ritmo de la música
     emit = mix(emit, vec3(1.0), musicPulse * smoothstep(0.18, 0.0, fN) * 0.6 * zGrav);
-    float alpha = clamp(talpha * radialEdge * density * beamMul * 1.32, 0.0, 1.0);
+    float alpha = clamp(talpha * radialEdge * density * beamMul * 1.48, 0.0, 1.0);
 
     // Arco de progreso de la música
     if (musicProgress > 0.0) {
@@ -373,13 +376,13 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
     // ------------------------------------------------------------------
     {
         float ringDist = abs(dS - 1.006);
-        float ringAlpha = smoothstep(0.009, 0.0, ringDist) * 0.95;
+        float ringAlpha = smoothstep(0.007, 0.0, ringDist) * 0.97;
         float dop = 0.5 - 0.5 * (pr.x / (rho * R)); // Más brillante en el lado izquierdo
-        vec3 ringCol = mix(lit(P, 0.75), vec3(1.0), dop * 0.90);
+        vec3 ringCol = mix(lit(P, 0.85), vec3(1.0), dop * 0.95);
         ringCol = mix(ringCol, vec3(1.0), musicPulse * 0.9);
         // El anillo de fotones se intensifica donde los arcos gravíticos abrazan la silueta
         float polarBoost = smoothstep(0.05, 0.75, abs(pr.y / (R * rho)));
-        over(acc, ringCol, ringAlpha * (0.45 + dop * 0.45 + polarBoost * 0.35 + musicPulse * 0.4));
+        over(acc, ringCol, ringAlpha * (0.55 + dop * 0.50 + polarBoost * 0.40 + musicPulse * 0.4));
     }
 
     // ------------------------------------------------------------------
