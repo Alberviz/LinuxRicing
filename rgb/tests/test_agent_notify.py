@@ -221,3 +221,91 @@ def test_finish_agent_refreshes_session(an, tmp_path, monkeypatch):
     assert session_calls[0]["name"] == "Claude"
 
 
+def test_get_claude_context_window_resolves_model_sizes(an):
+    # Modelos de 1M
+    assert an.get_claude_context_window("claude-sonnet-5") == 1_000_000
+    assert an.get_claude_context_window("claude-opus-5") == 1_000_000
+    assert an.get_claude_context_window("claude-opus-4-7") == 1_000_000
+    assert an.get_claude_context_window("claude-opus-4-6[1m]") == 1_000_000
+
+    # Modelos de 200k
+    assert an.get_claude_context_window("claude-haiku-4-5-20251001") == 200_000
+    assert an.get_claude_context_window("claude-sonnet-4-5-20250929") == 200_000
+
+    # Adaptación dinámica si los tokens exceden 200k
+    assert an.get_claude_context_window("unknown-model", current_tokens=350_000) == 1_000_000
+
+
+def test_claude_context_calculation_does_not_clamp_to_100_percent_on_sonnet_5(an, tmp_path, monkeypatch):
+    import json
+    # Crear estructura simulada de sesión y proyecto Claude
+    sess_dir = tmp_path / ".claude/sessions"
+    sess_dir.mkdir(parents=True)
+    proj_dir = tmp_path / ".claude/projects/-tmp-proj"
+    proj_dir.mkdir(parents=True)
+
+    sess_file = sess_dir / "1234.json"
+    sess_file.write_text(json.dumps({
+        "sessionId": "test-uuid",
+        "cwd": "/tmp/proj"
+    }))
+
+    transcript = proj_dir / "test-uuid.jsonl"
+    line = json.dumps({
+        "type": "assistant",
+        "message": {
+            "model": "claude-sonnet-5",
+            "usage": {
+                "input_tokens": 100,
+                "cache_creation_input_tokens": 2000,
+                "cache_read_input_tokens": 498000
+            }
+        }
+    })
+    transcript.write_text(line + "\n")
+
+    monkeypatch.setattr(an.Path, "home", lambda: tmp_path)
+    ratio, tokens = an.get_agent_context_info("Claude", target_pid=1234, cwd="/tmp/proj")
+
+    assert tokens == 500100
+    # 500,100 / 1,000,000 = ~0.500 (50%), NO 1.0 (100%)
+    assert 0.49 <= ratio <= 0.51
+
+
+def test_get_gemini_context_window_resolves_model_sizes(an):
+    # Modelos de 1M (por defecto / Flash)
+    assert an.get_gemini_context_window("Gemini 3.8 Flash (High)") == 1_000_000
+    assert an.get_gemini_context_window("gemini-1.5-flash") == 1_000_000
+    assert an.get_gemini_context_window("gemini-2.0-flash") == 1_000_000
+    assert an.get_gemini_context_window("antigravity") == 1_000_000
+
+    # Modelos de 2M (Pro)
+    assert an.get_gemini_context_window("Gemini 1.5 Pro") == 2_000_000
+    assert an.get_gemini_context_window("gemini-2.5-pro") == 2_000_000
+
+    # Adaptación dinámica si los tokens exceden 1M
+    assert an.get_gemini_context_window("Gemini Flash", current_tokens=1_200_000) == 2_000_000
+
+
+def test_gemini_context_calculation_does_not_clamp_to_100_percent_on_1m_window(an, tmp_path, monkeypatch):
+    import json
+    # Crear estructura simulada de Antigravity / Gemini
+    conv_id = "test-conv-123"
+    brain_dir = tmp_path / f".gemini/antigravity-cli/brain/{conv_id}/.system_generated/logs"
+    brain_dir.mkdir(parents=True)
+    transcript = brain_dir / "transcript.jsonl"
+
+    # Escribir ~1 MB de transcript (simulando 190k tokens)
+    dummy_line = json.dumps({"content": "A" * 1000}) + "\n"
+    transcript.write_text(dummy_line * 1000)  # ~1 MB
+
+    monkeypatch.setattr(an.Path, "home", lambda: tmp_path)
+    ratio, tokens = an.get_agent_context_info("Gemini", conv_id=conv_id)
+
+    # Con ~1MB (~180k-190k tokens) sobre una ventana de 1M, el ratio debe rondar el 18-20%, NO el 95%
+    assert 150_000 <= tokens <= 250_000
+    assert 0.15 <= ratio <= 0.25
+
+
+
+

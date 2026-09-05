@@ -83,7 +83,7 @@ var D = {
 
     // Agujero negro: asomando más hacia el interior de la pantalla para que el
     // horizonte de sucesos (la parte negra pura) sea visible y aloje la UI de música.
-    bhFx: 0.84, bhFy: 0.12, bhRFrac: 0.28,        // R en fracción de h
+    bhFx: 0.87, bhFy: 0.22, bhRFrac: 0.28,        // R en fracción de h
     // Baricentro del binario: ANCLADO (no traslada). El sitio concreto lo pone
     // la variante (LAYOUTS); estos son sólo el defecto si la variante no existe.
     baryFx: 0.30, baryFy: 0.47,
@@ -226,10 +226,11 @@ function computeLayout(state, geom) {
         var oa = _bodyPhases[b.id];
 
         // Tamaño del cuerpo.
-        // Dispositivo: tamaño según % de batería.
-        // Agente: masa estelar según ventana de contexto acumulada (sizeF: 0.05 planeta enano .. 1.0 gigante).
+        // Dispositivo: tamaño según % de batería (0.13 .. 0.26 de host.r).
+        // Agente: masa estelar según ventana de contexto acumulada (sizeF: 0.05 asteroide / satélite .. 1.0 gigante masivo).
+        // A 95% de contexto, el cuerpo triplica con creces su radio (0.11 .. 0.41 de host.r) para visibilidad imponente.
         var baseR = isDevice ? host.r * (0.13 + 0.13 * sizeF)
-                             : host.r * ((running ? 0.13 : 0.10) + 0.09 * sizeF);
+                             : host.r * ((running ? 0.13 : 0.11) + 0.28 * sizeF);
 
         // Semieje vertical de la órbita, RECORTADO para no invadir la franja
         // inferior de ~200 px (la órbita se achata por abajo, no se traslada).
@@ -364,6 +365,8 @@ function computeLayout(state, geom) {
         musicBass: num(values, "musicBass", 0),
         musicTreble: num(values, "musicTreble", 0),
         musicPulse: num(values, "musicPulse", 0),
+        musicBurstAge: num(values, "musicBurstAge", 999),
+        musicProgress: clamp01(num(values, "musicProgress", 0)),
         variant: D.layoutVariant, orbitAlpha: C.orbitAlpha,
         bh: bh, bary: bary, bhSpin: (2 * Math.PI / D.bhSpinPeriod) * t,
         suns: suns, bodies: bodies, belt: belt, bin: bin,

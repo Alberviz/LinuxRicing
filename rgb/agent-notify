@@ -17,6 +17,7 @@ Vías de disparo:
 
 import sys
 import os
+import re
 import json
 import subprocess
 import argparse
@@ -273,14 +274,89 @@ def send_desktop_notification(agent_data):
         pass
 
 
+def get_claude_context_window(model_name="", current_tokens=0):
+    """Devuelve el tamaño de la ventana de contexto para el modelo Claude especificado.
+
+    Catálogo oficial de Claude Code (CLI / API):
+    - 1.000.000 (1M): Sonnet 5, Opus 5, Fable 5, Mythos 5, Opus 4.7, Opus 4.8, o variantes '[1m]'.
+    - 200.000 (200k): Haiku 4.5, Sonnet 4.5, Sonnet 4.0, Opus 4.5, etc.
+    """
+    env_max = os.environ.get("CLAUDE_CODE_MAX_CONTEXT_TOKENS")
+    if env_max:
+        try:
+            val = int(env_max)
+            if val > 0:
+                return val
+        except ValueError:
+            pass
+
+    m = (model_name or "").lower()
+    # Modelos nativos de 1M o flags explícitos
+    if "1m" in m or any(k in m for k in ("sonnet-5", "opus-5", "fable-5", "mythos-5", "opus-4-7", "opus-4-8")):
+        window = 1_000_000
+    elif any(k in m for k in ("haiku", "sonnet-4", "opus-4", "claude-3")):
+        window = 200_000
+    else:
+        # Por defecto o modelo desconocido: si ya supera 200k tokens, soporta al menos 1M
+        window = 1_000_000 if current_tokens > 200_000 else 200_000
+
+    # Margen de seguridad: si los tokens leídos superan la ventana actual asumida, adaptarla
+    if current_tokens > window:
+        window = 1_000_000 if current_tokens <= 1_000_000 else 2_000_000
+
+    return window
+
+
+def get_gemini_context_window(model_name="", current_tokens=0):
+    """Devuelve el tamaño de la ventana de contexto para el modelo Gemini / Antigravity especificado.
+
+    Catálogo oficial de Gemini (CLI / API):
+    - 2.000.000 (2M): Modelos Pro (Gemini 1.5 Pro, 2.5 Pro, etc.).
+    - 1.000.000 (1M): Modelos Flash (Gemini 1.5 Flash, 2.0 Flash, 3.8 Flash) y por defecto en Antigravity CLI.
+    """
+    env_max = os.environ.get("GEMINI_MAX_CONTEXT_TOKENS") or os.environ.get("ANTIGRAVITY_MAX_CONTEXT_TOKENS")
+    if env_max:
+        try:
+            val = int(env_max)
+            if val > 0:
+                return val
+        except ValueError:
+            pass
+
+    m = (model_name or "").lower()
+    if "pro" in m:
+        window = 2_000_000
+    elif "flash" in m or "gemini" in m or "antigravity" in m:
+        window = 1_000_000
+    else:
+        window = 1_000_000
+
+    # Margen de seguridad: si los tokens leídos superan la ventana actual asumida, adaptarla
+    if current_tokens > window:
+        window = 2_000_000 if current_tokens <= 2_000_000 else int(current_tokens * 1.25)
+
+    return window
+
+
 def get_agent_context_info(agent_name, target_pid=None, cwd=None, conv_id=None):
     """Calcula el ratio de uso de la ventana de contexto (0.05 a 1.0) y tokens aproximados."""
     pids_to_check = [int(target_pid)] if target_pid else []
     if target_pid:
         try:
-            res = subprocess.run(["pgrep", "-P", str(target_pid)], capture_output=True, text=True)
+            res = subprocess.run(["ps", "-eo", "pid,ppid"], capture_output=True, text=True)
             if res.returncode == 0:
-                pids_to_check.extend([int(p) for p in res.stdout.splitlines() if p.strip()])
+                tree = {}
+                for line in res.stdout.splitlines()[1:]:
+                    parts = line.strip().split()
+                    if len(parts) >= 2:
+                        p, pp = int(parts[0]), int(parts[1])
+                        tree.setdefault(pp, []).append(p)
+                queue = [int(target_pid)]
+                while queue:
+                    curr = queue.pop(0)
+                    children = tree.get(curr, [])
+                    pids_to_check.extend(children)
+                    queue.extend(children)
         except Exception:
             pass
 
@@ -298,7 +374,18 @@ def get_agent_context_info(agent_name, target_pid=None, cwd=None, conv_id=None):
             all_sess = list(Path.home().glob(".claude/sessions/*.json"))
             if all_sess:
                 all_sess.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-                sess_file = all_sess[0]
+                if cwd:
+                    norm_cwd = str(cwd).rstrip("/")
+                    for cand in all_sess:
+                        try:
+                            sdata = json.loads(cand.read_text())
+                            if sdata.get("cwd", "").rstrip("/") == norm_cwd:
+                                sess_file = cand
+                                break
+                        except Exception:
+                            pass
+                if not sess_file:
+                    sess_file = all_sess[0]
 
         if sess_file and sess_file.exists():
             try:
@@ -307,15 +394,27 @@ def get_agent_context_info(agent_name, target_pid=None, cwd=None, conv_id=None):
                 sess_cwd = data.get("cwd", cwd or "")
                 proj_dir = sess_cwd.replace("/", "-")
                 transcript = Path.home() / f".claude/projects/{proj_dir}/{sess_id}.jsonl"
+                if not transcript.exists():
+                    cand_transcripts = list((Path.home() / ".claude/projects").glob(f"*/{sess_id}.jsonl"))
+                    if cand_transcripts:
+                        transcript = cand_transcripts[0]
+
                 if transcript.exists():
                     res = subprocess.run(["tac", str(transcript)], capture_output=True, text=True)
-                    for line in res.stdout.splitlines()[:60]:
+                    for line in res.stdout.splitlines()[:80]:
                         try:
                             d = json.loads(line)
                             u = d.get("message", {}).get("usage") or d.get("usage")
                             if u:
+                                model = d.get("message", {}).get("model") or d.get("model") or ""
+                                if not model:
+                                    for k in d.get("modelUsage", {}).keys():
+                                        if "claude" in k:
+                                            model = k
+                                            break
                                 tokens = u.get("input_tokens", 0) + u.get("cache_creation_input_tokens", 0) + u.get("cache_read_input_tokens", 0)
-                                ratio = round(min(1.0, max(0.05, tokens / 200000.0)), 3)
+                                window = get_claude_context_window(model, tokens)
+                                ratio = round(min(1.0, max(0.05, tokens / float(window))), 3)
                                 return ratio, tokens
                         except Exception:
                             pass
@@ -324,6 +423,43 @@ def get_agent_context_info(agent_name, target_pid=None, cwd=None, conv_id=None):
 
     # 2. Antigravity: tamaño de conversación en SQLite o transcript.jsonl
     if any(k in name_lower for k in ("agy", "anti", "gemini")):
+        model_name = ""
+        for p in pids_to_check:
+            fd_dir = Path(f"/proc/{p}/fd")
+            if fd_dir.exists():
+                try:
+                    for fd in fd_dir.iterdir():
+                        try:
+                            target = os.readlink(str(fd))
+                            if "cli-" in target and target.endswith(".log") and os.path.exists(target):
+                                with open(target, "rb") as lf:
+                                    lf.seek(max(0, os.path.getsize(target) - 65536))
+                                    chunk = lf.read().decode("utf-8", errors="ignore")
+                                    matches = re.findall(r"selected model override to backend: label=\"([^\"]+)\"", chunk)
+                                    if matches:
+                                        model_name = matches[-1]
+                                        break
+                        except Exception:
+                            pass
+                    if model_name:
+                        break
+                except Exception:
+                    pass
+
+        if not model_name:
+            try:
+                logs = sorted((Path.home() / ".gemini/antigravity-cli/log").glob("cli-*.log"),
+                              key=lambda p: p.stat().st_mtime, reverse=True)
+                if logs:
+                    with open(logs[0], "rb") as lf:
+                        lf.seek(max(0, logs[0].stat().st_size - 65536))
+                        chunk = lf.read().decode("utf-8", errors="ignore")
+                        matches = re.findall(r"selected model override to backend: label=\"([^\"]+)\"", chunk)
+                        if matches:
+                            model_name = matches[-1]
+            except Exception:
+                pass
+
         if not conv_id:
             for p in pids_to_check:
                 fd_dir = Path(f"/proc/{p}/fd")
@@ -353,8 +489,8 @@ def get_agent_context_info(agent_name, target_pid=None, cwd=None, conv_id=None):
                 try:
                     size = tpath.stat().st_size
                     est_tokens = int(size / 5.5)
-                    # ~1.1MB de transcript.jsonl equivale a la saturación de contexto antes de compactación (~200k tokens)
-                    ratio = round(min(1.0, max(0.05, size / 1100000.0)), 3)
+                    window = get_gemini_context_window(model_name, est_tokens)
+                    ratio = round(min(1.0, max(0.05, est_tokens / float(window))), 3)
                     return ratio, est_tokens
                 except Exception:
                     pass
@@ -382,6 +518,7 @@ def build_agent_data(name="Agente", status="Completado", task=None, duration="",
         "startTime": start_time,
         "contextRatio": context_ratio,
         "contextTokens": context_tokens,
+        "pid": target_pid,
     }
 
 
@@ -579,7 +716,7 @@ def sync_sessions():
         if addr in active_addrs and addr not in found:
             try:
                 d = json.loads(f.read_text())
-                ratio, tokens = get_agent_context_info(d.get("name"), cwd=d.get("dir"))
+                ratio, tokens = get_agent_context_info(d.get("name"), target_pid=d.get("pid"), cwd=d.get("dir"))
                 d["contextRatio"] = ratio
                 d["contextTokens"] = tokens
                 f.write_text(json.dumps(d))

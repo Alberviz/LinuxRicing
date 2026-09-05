@@ -51,7 +51,7 @@ Item {
     property bool reduceMotion: false
     property bool active: false                // ¿hay un agente en curso? (sube el ritmo del Sim)
     property bool fastRate: false              // ¿música sonando? (sube el ritmo del Sim)
-    property int musicVariant: 2               // Variante de visualizador en agujero negro (1..6)
+    property int musicVariant: 2               // Variante de visualizador en agujero negro (0..6, 0=sin overlay)
 
     // --- Modo Laura activa (D-12) ---
     // Lo cablea SolarSystemLayer desde el singleton Laura. La vista solo ve dos
@@ -86,6 +86,11 @@ Item {
     property var _layout: null
     readonly property var layout: _layout
     readonly property real music: _layout ? _layout.music : 0
+    readonly property real musicProgress: _layout ? _layout.musicProgress : 0
+    readonly property real musicPulse: _layout && _layout.musicPulse !== undefined ? _layout.musicPulse : 0
+    readonly property real musicBass: _layout && _layout.musicBass !== undefined ? _layout.musicBass : 0
+    readonly property real musicTreble: _layout && _layout.musicTreble !== undefined ? _layout.musicTreble : 0
+    readonly property real musicBurstAge: _layout && _layout.musicBurstAge !== undefined ? _layout.musicBurstAge : 999
 
     // Bounding box del contenido (región de input de la tanda de interacción, D-7).
     readonly property rect contentBounds: _layout
@@ -168,13 +173,16 @@ Item {
         }
         return root.colPrimary;   // dispositivo → sol Configuración
     }
-    // Énfasis del satélite, derivado de su radio (acotado). Anclas van a 1.0.
+    // Énfasis del satélite, derivado de su radio y contexto (acotado). Anclas van a 1.0.
     function _bodyEmphasis(b) {
         if (!b) return 0.35;
         if (b.status === "done") return 1.0;
         if (b.running) return 0.85;
-        if (b.status === "session") return 0.28;
-        const k = Math.max(0, Math.min(1, (b.r - 4) / 14));
+        if (b.status === "session") {
+            const cr = (typeof b.contextRatio === "number") ? b.contextRatio : 0;
+            return 0.26 + 0.24 * cr;
+        }
+        const k = Math.max(0, Math.min(1, (b.r - 4) / 18));
         return 0.30 + 0.22 * k;
     }
 
@@ -234,6 +242,11 @@ Item {
         anchors.fill: parent
         time: root.simTime
         music: root.music
+        musicProgress: root.musicProgress
+        musicPulse: root.musicPulse
+        musicBass: root.musicBass
+        musicTreble: root.musicTreble
+        musicBurstAge: root.musicBurstAge
         lauraFocus: root.lauraFocus
         lauraAmp: root.lauraAmplitude
         layout: root._layout
