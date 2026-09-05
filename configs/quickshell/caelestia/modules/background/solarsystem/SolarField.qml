@@ -78,10 +78,37 @@ Item {
     readonly property real _beltSpin: (2 * Math.PI / 1400) * time
     readonly property real _beltDensity: _l && _l.belt && _l.belt.density !== undefined ? _l.belt.density : 0.28
 
+    // Texturas de lente gravitacional (geodésica real de Schwarzschild,
+    // horneadas offline — ver shaders/gen_lut_final.py). Ocultas, solo sirven
+    // de fuente de textura para el ShaderEffect. Una por orden de imagen
+    // (0=directa, 1=envolvente): el azimut va en 16 bits (g=hi, b=lo) porque
+    // la cizalla de sampleDisk() amplifica ~15x cualquier escalón de 8 bits.
+    Image {
+        id: lensLUT0Image
+        source: Qt.resolvedUrl("shaders/lens_lut_order0.png")
+        visible: false
+        smooth: true
+        mipmap: false
+        fillMode: Image.PreserveAspectFit
+        sourceSize: Qt.size(896, 896)
+    }
+    Image {
+        id: lensLUT1Image
+        source: Qt.resolvedUrl("shaders/lens_lut_order1.png")
+        visible: false
+        smooth: true
+        mipmap: false
+        fillMode: Image.PreserveAspectFit
+        sourceSize: Qt.size(896, 896)
+    }
+
     ShaderEffect {
         anchors.fill: parent
         fragmentShader: Qt.resolvedUrl("shaders/solarfield.frag.qsb")
         blending: true
+
+        property variant lensLUT0: lensLUT0Image
+        property variant lensLUT1: lensLUT1Image
 
         // nombres = uniforms del shader (buf). `focusAmt` no `focus`: `focus` es
         // una propiedad FINAL de QQuickItem y no se puede sombrear.
