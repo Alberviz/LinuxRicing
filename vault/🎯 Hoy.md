@@ -39,6 +39,8 @@ Lo que ya está hecho.
 
 *Los agentes añaden una línea por sesión, lo más reciente arriba.*
 
+- **2026-09-08 · Gemini** — Integración de avisos de servidor Minecraft por Telegram: se recuperó el token del bot (`vizcapon_avisos_bot`) y chat ID de Alberto desde `switch_autosync.sh`. Se crearon `~/minecraft-server/telegram_env.sh` y la utilidad `~/.local/bin/telegram-send`. Se actualizaron `iniciar_servidor.sh` (envío automático de IPs de juego y voz) e `iniciar_web.sh` (espera activa y envío del enlace público de Cloudflare y modpack). Verificado con mensajes de prueba recibidos en Telegram.
+
 - **2026-09-08 · Gemini** — Modo ahorro máximo en batería (rama `feat/power-saving-black-bg`): servicio singleton `PowerSaving.qml` que conmuta Hyprland (sin animaciones, desenfoques ni sombras) y `powerprofilesctl` a `power-saver`. En `Background.qml`, fondo negro puro OLED, wallpaper desactivado, reloj `DesktopClock` visible sin shaders pesados ni placa, y widgets secundarios (deck, periféricos, tira LED y visualizador de música) completamente apagados para reducir el consumo a 0% CPU en reposo. Animaciones de Quickshell (`Anim`, `AnchorAnim`, `CAnim`) instantáneas (0 ms).
 
 - **2026-09-05 · Gemini** — Diagnóstico forense de la «X» geométrica entre el disco ecuatorial y la bóveda superior: tras verificar en workspace 9 limpio ([[current_bh.png]]), se analizó por qué el disco frontal recto ($0^\circ$) colisiona con el arco descendente ($\approx 70^\circ$) formando dos cuerpos que se cruzan. Se generó el documento exhaustivo de coordinación y handoff para Claude en [[Handoff a Claude — Unificación Total Agujero Negro Gargantua]] con la física de Thorne, las capturas de comparación y los planes de solución unificada.
