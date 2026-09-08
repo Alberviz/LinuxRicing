@@ -20,6 +20,10 @@ Singleton {
     id: root
 
     // Interruptor global (v1: siempre on; en v3 sustituye a los widgets).
+    // Persistido en ~/.config/caelestia/desktop-state.json y conmutable desde el
+    // popout de batería o por IPC ("solarSystem toggle"). En OFF el escritorio
+    // queda negro sin el sistema solar, PERO sin tocar el perfil de CPU ni
+    // Hyprland (eso es el modo ahorro, PowerSaving) — sólo se descarga la vista.
     property bool enabled: true
     property int musicVariant: 2
 
@@ -510,7 +514,43 @@ Singleton {
         }
     }
 
-    // ---------- Control IPC: variantes de visualización de música ----------
+    // ---------- Estado persistido del escritorio (enabled) ----------
+    // Fichero propio y minúsculo: sólo el interruptor del sistema solar. La
+    // disposición sigue en solarsystem.json; esto es preferencia de sesión.
+    property bool _stateLoaded: false
+
+    function setEnabled(v: bool): void {
+        root.enabled = v;
+        if (root._stateLoaded)
+            stateView.setText(JSON.stringify({
+                solarSystemEnabled: root.enabled
+            }, null, 2) + "\n");
+    }
+
+    FileView {
+        id: stateView
+
+        path: `${Quickshell.env("HOME")}/.config/caelestia/desktop-state.json`
+        printErrors: false
+        watchChanges: true
+        onFileChanged: reload()
+        onLoaded: {
+            try {
+                const d = JSON.parse(text());
+                if (typeof d.solarSystemEnabled === "boolean")
+                    root.enabled = d.solarSystemEnabled;
+            } catch (e) {
+                console.warn("SolarSystemModel: desktop-state.json inválido:", e);
+            }
+            root._stateLoaded = true;
+        }
+        onLoadFailed: err => {
+            // Sin fichero aún: el estado por defecto (enabled = true) vale.
+            root._stateLoaded = true;
+        }
+    }
+
+    // ---------- Control IPC: variantes de música + interruptor del fondo ----------
     IpcHandler {
         target: "solarSystem"
 
@@ -526,6 +566,19 @@ Singleton {
         function nextMusicVariant(): int {
             root.musicVariant = (root.musicVariant + 1) % 7;
             return root.musicVariant;
+        }
+
+        function isEnabled(): bool {
+            return root.enabled;
+        }
+
+        function setEnabled(v: bool): void {
+            root.setEnabled(v);
+        }
+
+        function toggle(): bool {
+            root.setEnabled(!root.enabled);
+            return root.enabled;
         }
     }
 }

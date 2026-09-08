@@ -1,6 +1,8 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import Quickshell
+import Quickshell.Io
 import Quickshell.Services.UPower
 import Caelestia.Config
 import qs.components
@@ -179,6 +181,86 @@ Column {
 
             profile: PowerProfile.Performance
             icon: "rocket_launch"
+        }
+    }
+
+    // ---- Acciones extra bajo los perfiles ----
+
+    // Estado del "boost" de carga (lo escribe `lenovo-battery-control --monitor`).
+    FileView {
+        id: boostState
+
+        path: `${Quickshell.env("HOME")}/.cache/lenovo-battery/boost_state.json`
+        printErrors: false
+        watchChanges: true
+
+        property bool active: false
+
+        onFileChanged: reload()
+        onLoaded: active = true
+        onLoadFailed: active = false
+    }
+
+    // Cargar al 100% una sola vez (portátiles Lenovo con Modo Conservación).
+    // Al llegar al 100% el propio script reactiva el límite del 80%.
+    ActionPill {
+        visible: UPower.displayDevice.isLaptopBattery
+        icon: boostState.active ? "stop_circle" : "battery_android_bolt"
+        label: boostState.active ? qsTr("Cancelar carga al 100%") : qsTr("Cargar al 100% una vez")
+        accent: boostState.active
+        onTriggered: Quickshell.execDetached([`${Quickshell.env("HOME")}/.local/bin/lenovo-battery-control`, boostState.active ? "--cancel" : "--boost"])
+    }
+
+    // Apagar/encender el fondo del sistema solar a mano, sin entrar en modo
+    // ahorro (no toca el perfil de CPU ni Hyprland — sólo descarga la vista).
+    ActionPill {
+        icon: SolarSystemModel.enabled ? "dark_mode" : "planet"
+        label: SolarSystemModel.enabled ? qsTr("Fondo negro (apagar espacio)") : qsTr("Encender fondo espacio")
+        accent: !SolarSystemModel.enabled
+        onTriggered: SolarSystemModel.toggle()
+    }
+
+    component ActionPill: StyledRect {
+        id: pill
+
+        required property string icon
+        required property string label
+        property bool accent: false
+
+        signal triggered
+
+        anchors.horizontalCenter: parent.horizontalCenter
+
+        implicitWidth: pillRow.implicitWidth + Tokens.padding.large * 2
+        implicitHeight: pillRow.implicitHeight + Tokens.padding.small * 2
+
+        color: pill.accent ? Colours.palette.m3primary : Colours.tPalette.m3surfaceContainer
+        radius: Tokens.rounding.full
+
+        StateLayer {
+            radius: Tokens.rounding.full
+            color: pill.accent ? Colours.palette.m3onPrimary : Colours.palette.m3onSurface
+            onClicked: pill.triggered()
+        }
+
+        Row {
+            id: pillRow
+
+            anchors.centerIn: parent
+            spacing: Tokens.spacing.small
+
+            MaterialIcon {
+                anchors.verticalCenter: parent.verticalCenter
+                text: pill.icon
+                fontStyle: Tokens.font.icon.small
+                color: pill.accent ? Colours.palette.m3onPrimary : Colours.palette.m3onSurfaceVariant
+            }
+
+            StyledText {
+                anchors.verticalCenter: parent.verticalCenter
+                text: pill.label
+                color: pill.accent ? Colours.palette.m3onPrimary : Colours.palette.m3onSurface
+            }
         }
     }
 

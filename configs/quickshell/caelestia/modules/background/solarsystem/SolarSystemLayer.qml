@@ -42,18 +42,21 @@ Variants {
         // Click-through completo (sin interacción en esta tanda — D-7).
         mask: Region {}
 
-        visible: SolarSystemModel.enabled
+        // Esta ventana ES el fondo negro del escritorio: siempre presente y opaca.
+        // Lo que se enciende/apaga es su CONTENIDO (el Loader de abajo).
+        visible: true
 
-        // Ahorro de energía (modo batería / perfil power-saver / batería < 20 %):
-        // se descarga TODO el sistema solar — shader GPU, capa Canvas y el
-        // FrameAnimation — y sólo queda esta ventana negra a pantalla completa.
-        // Un Loader (no `visible`/`paused`) para destruir de verdad el árbol y
-        // sus bucles; al volver a la corriente se reinstancia limpio.
+        // El sistema solar entero — shader GPU, capa Canvas y el FrameAnimation —
+        // se DESCARGA (no se pausa: Loader.active) cuando:
+        //   · el modo ahorro está activo (batería / perfil power-saver / <20 %), o
+        //   · Alberto ha apagado el fondo a mano desde el popout de batería.
+        // En ambos casos queda sólo esta ventana negra a pantalla completa; al
+        // reactivar se reinstancia limpio (nada de hot-reload — CLAUDE.md).
         Loader {
             id: solarLoader
 
             anchors.fill: parent
-            active: !PowerSaving.active
+            active: !PowerSaving.active && SolarSystemModel.enabled
 
             sourceComponent: SolarSystem {
                 anchors.fill: parent
