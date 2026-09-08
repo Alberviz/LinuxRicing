@@ -1,0 +1,474 @@
+#!/usr/bin/env python3
+import os
+import sys
+import time
+import glob
+import json
+import signal
+import subprocess
+import argparse
+
+CACHE_DIR = os.path.expanduser("~/.cache/lenovo-battery")
+STATE_FILE = os.path.join(CACHE_DIR, "boost_state.json")
+
+def find_conservation_path():
+    patterns = [
+        "/sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode",
+        "/sys/devices/platform/ideapad_acpi/conservation_mode",
+        "/sys/devices/platform/VPC2004:00/conservation_mode",
+        "/sys/devices/platform/*/*conservation*",
+    ]
+    for p in patterns:
+        matches = glob.glob(p)
+        if matches and os.path.exists(matches[0]):
+            return matches[0]
+    return None
+
+def find_battery_path():
+    matches = glob.glob("/sys/class/power_supply/BAT*")
+    if matches and os.path.exists(matches[0]):
+        return matches[0]
+    return "/sys/class/power_supply/BAT1"
+
+def read_file(path, default=""):
+    try:
+        with open(path, "r") as f:
+            return f.read().strip()
+    except Exception:
+        return default
+
+def write_file(path, content):
+    try:
+        with open(path, "w") as f:
+            f.write(str(content).strip() + "\n")
+        return True
+    except PermissionError:
+        try:
+            cmd = ["pkexec", "sh", "-c", f"echo {content} > {path}"]
+            subprocess.run(cmd, check=True)
+            return True
+        except Exception as e:
+            print(f"Error writing with pkexec: {e}", file=sys.stderr)
+            return False
+    except Exception as e:
+        print(f"Error writing to {path}: {e}", file=sys.stderr)
+        return False
+
+def send_notification(title, message, icon="battery-charging", urgency="normal"):
+    try:
+        subprocess.run([
+            "notify-send",
+            "-a", "Lenovo Battery",
+            "-i", icon,
+            "-u", urgency,
+            title,
+            message
+        ], check=False)
+    except Exception:
+        pass
+
+def get_battery_info():
+    bat_path = find_battery_path()
+    cons_path = find_conservation_path()
+
+    capacity_str = read_file(os.path.join(bat_path, "capacity"), "0")
+    try:
+        capacity = int(capacity_str)
+    except ValueError:
+        capacity = 0
+
+    status = read_file(os.path.join(bat_path, "status"), "Unknown")
+    cons_str = read_file(cons_path, "0") if cons_path else "0"
+    conservation_mode = cons_str == "1"
+
+    boost_active = is_boost_running()
+
+    return {
+        "capacity": capacity,
+        "status": status,
+        "conservation_mode": conservation_mode,
+        "boost_active": boost_active,
+        "battery_path": bat_path,
+        "conservation_path": cons_path,
+    }
+
+def set_conservation_mode(enable: bool):
+    cons_path = find_conservation_path()
+    if not cons_path:
+        print("No se encontró el archivo sysfs de conservation_mode", file=sys.stderr)
+        return False
+    val = "1" if enable else "0"
+    return write_file(cons_path, val)
+
+def is_boost_running():
+    if not os.path.exists(STATE_FILE):
+        return False
+    try:
+        with open(STATE_FILE, "r") as f:
+            data = json.load(f)
+        pid = data.get("pid")
+        if pid:
+            try:
+                os.kill(pid, 0)
+                return True
+            except OSError:
+                pass
+    except Exception:
+        pass
+    try:
+        os.remove(STATE_FILE)
+    except Exception:
+        pass
+    return False
+
+def start_boost():
+    if is_boost_running():
+        return True
+
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    
+    # 1. Disable conservation mode to allow charging to 100%
+    if not set_conservation_mode(False):
+        send_notification("Error", "No se pudo desactivar el Modo Conservación.", icon="dialog-error", urgency="critical")
+        return False
+
+    # 2. Spawn monitor daemon in background
+    script_path = os.path.abspath(__file__)
+    proc = subprocess.Popen(
+        [sys.executable, script_path, "--monitor"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True
+    )
+
+    state = {
+        "active": True,
+        "pid": proc.pid,
+        "started_at": time.time(),
+        "target": 100
+    }
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f)
+
+    send_notification(
+        "⚡ Carga al 100% activada",
+        "El límite se ha desactivado temporalmente. Se reactivará el modo conservación (80%) de forma automática al llegar al 100%.",
+        icon="battery-charging"
+    )
+    return True
+
+def cancel_boost():
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE, "r") as f:
+                data = json.load(f)
+            pid = data.get("pid")
+            if pid:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except OSError:
+                    pass
+        except Exception:
+            pass
+        try:
+            os.remove(STATE_FILE)
+        except Exception:
+            pass
+
+    # Reactivate conservation mode
+    set_conservation_mode(True)
+    send_notification(
+        "⏹ Carga al 100% cancelada",
+        "El Modo Conservación (80%) vuelve a estar activo.",
+        icon="battery-good"
+    )
+    return True
+
+def run_monitor_daemon():
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    state = {
+        "active": True,
+        "pid": os.getpid(),
+        "started_at": time.time(),
+        "target": 100
+    }
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f)
+
+    bat_path = find_battery_path()
+    cons_path = find_conservation_path()
+
+    while True:
+        time.sleep(8)
+        
+        # Check if state file was removed (user cancelled)
+        if not os.path.exists(STATE_FILE):
+            break
+
+        capacity_str = read_file(os.path.join(bat_path, "capacity"), "0")
+        try:
+            capacity = int(capacity_str)
+        except ValueError:
+            capacity = 0
+
+        status = read_file(os.path.join(bat_path, "status"), "Unknown")
+        cons_str = read_file(cons_path, "0") if cons_path else "0"
+
+        # If user manually re-enabled conservation mode outside this script, abort boost
+        if cons_str == "1" and capacity < 98:
+            break
+
+        # Check if 100% (or 99%+ Full) has been reached
+        if capacity >= 100 or status == "Full" or (capacity >= 99 and status != "Charging"):
+            # Target reached! Re-enable conservation mode
+            set_conservation_mode(True)
+            send_notification(
+                "🔋 ¡Carga al 100% completada!",
+                "La batería ha alcanzado el 100%. El Modo Conservación (80%) se ha reactivado automáticamente.",
+                icon="battery-full",
+                urgency="critical"
+            )
+            break
+
+    try:
+        if os.path.exists(STATE_FILE):
+            os.remove(STATE_FILE)
+    except Exception:
+        pass
+
+
+def launch_gui():
+    import gi
+    gi.require_version("Gtk", "4.0")
+    gi.require_version("Adw", "1")
+    from gi.repository import Gtk, Adw, GLib
+
+    Adw.init()
+
+    class BatteryAppWindow(Adw.ApplicationWindow):
+        def __init__(self, app):
+            super().__init__(application=app, title="Control de Batería")
+            self.set_default_size(440, 480)
+            self.set_resizable(False)
+
+            self.updating_ui_internally = False
+
+            toolbar_view = Adw.ToolbarView()
+            header_bar = Adw.HeaderBar()
+            header_bar.set_title_widget(Adw.WindowTitle(title="Batería Lenovo", subtitle="Modo Conservación & Boost"))
+            toolbar_view.add_top_bar(header_bar)
+
+            page = Adw.PreferencesPage()
+
+            # --- Grupo 1: Estado Actual ---
+            self.status_group = Adw.PreferencesGroup(title="Estado Actual")
+            
+            status_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+            status_box.set_margin_top(8)
+            status_box.set_margin_bottom(8)
+            status_box.set_margin_start(12)
+            status_box.set_margin_end(12)
+
+            top_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
+            self.icon_image = Gtk.Image.new_from_icon_name("battery-level-80-charging-symbolic")
+            self.icon_image.set_pixel_size(44)
+
+            label_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            self.percent_label = Gtk.Label(label="--%")
+            self.percent_label.set_halign(Gtk.Align.START)
+            self.percent_label.add_css_class("title-1")
+            self.percent_label.add_css_class("heading")
+
+            self.state_label = Gtk.Label(label="Leyendo estado...")
+            self.state_label.set_halign(Gtk.Align.START)
+            self.state_label.add_css_class("dim-label")
+
+            label_box.append(self.percent_label)
+            label_box.append(self.state_label)
+
+            top_box.append(self.icon_image)
+            top_box.append(label_box)
+            status_box.append(top_box)
+
+            self.progress_bar = Gtk.ProgressBar()
+            self.progress_bar.set_fraction(0.8)
+            self.progress_bar.set_margin_top(6)
+            status_box.append(self.progress_bar)
+
+            self.status_group.add(status_box)
+            page.add(self.status_group)
+
+            # --- Grupo 2: Carga al 100% Única (Boost) ---
+            self.boost_group = Adw.PreferencesGroup(
+                title="Carga al 100% (Una sola vez)",
+                description="Desactiva el límite temporalmente. Al alcanzar el 100%, el modo conservación se reactivará automáticamente."
+            )
+
+            self.boost_row = Adw.ActionRow(
+                title="Cargar al 100% ahora",
+                subtitle="Ideal para cuando vas a salir y necesitas batería completa."
+            )
+            
+            self.boost_btn = Gtk.Button(label="⚡ Iniciar Carga al 100%")
+            self.boost_btn.set_valign(Gtk.Align.CENTER)
+            self.boost_btn.add_css_class("suggested-action")
+            self.boost_btn.add_css_class("pill")
+            self.boost_btn.connect("clicked", self.on_boost_clicked)
+
+            self.boost_row.add_suffix(self.boost_btn)
+            self.boost_group.add(self.boost_row)
+            page.add(self.boost_group)
+
+            # --- Grupo 3: Modo Conservación Permanente ---
+            self.manual_group = Adw.PreferencesGroup(
+                title="Modo Conservación (Límite 80%)",
+                description="Mantiene la batería en torno al 80% para evitar la degradación si usas el portátil conectado."
+            )
+
+            self.switch_row = Adw.SwitchRow(
+                title="Limitar carga al 80%",
+                subtitle="Interruptor manual del Modo de Conservación"
+            )
+            self.switch_row.connect("notify::active", self.on_switch_toggled)
+            self.manual_group.add(self.switch_row)
+            page.add(self.manual_group)
+
+            clamp = Adw.Clamp()
+            clamp.set_maximum_size(480)
+            clamp.set_child(page)
+
+            scrolled = Gtk.ScrolledWindow()
+            scrolled.set_propagate_natural_height(True)
+            scrolled.set_child(clamp)
+
+            toolbar_view.set_content(scrolled)
+            self.set_content(toolbar_view)
+
+            self.refresh_ui()
+            GLib.timeout_add(1500, self.refresh_ui)
+
+        def refresh_ui(self):
+            info = get_battery_info()
+            cap = info["capacity"]
+            status = info["status"]
+            cons = info["conservation_mode"]
+            boost = info["boost_active"]
+
+            self.percent_label.set_text(f"{cap}%")
+            self.progress_bar.set_fraction(cap / 100.0)
+
+            status_es = {
+                "Charging": "Cargando",
+                "Discharging": "En batería (descargando)",
+                "Not charging": "Conectado a corriente (pausado)",
+                "Full": "Batería completa (100%)",
+            }.get(status, status)
+
+            if boost:
+                self.state_label.set_text(f"⚡ Modo Carga 100% activo · {status_es}")
+                self.state_label.remove_css_class("dim-label")
+                self.state_label.add_css_class("accent")
+            elif cons:
+                self.state_label.set_text(f"🛡️ Modo Conservación (80%) · {status_es}")
+                self.state_label.remove_css_class("accent")
+                self.state_label.add_css_class("dim-label")
+            else:
+                self.state_label.set_text(f"🔋 Carga completa estándar (100%) · {status_es}")
+                self.state_label.remove_css_class("accent")
+                self.state_label.add_css_class("dim-label")
+
+            icon_base = "battery-level-100" if cap >= 95 else f"battery-level-{min(90, (cap // 10) * 10)}"
+            if status == "Charging" or boost:
+                icon_name = f"{icon_base}-charging-symbolic"
+            else:
+                icon_name = f"{icon_base}-symbolic"
+            self.icon_image.set_from_icon_name(icon_name)
+
+            if boost:
+                self.boost_btn.set_label("⏹ Cancelar Boost")
+                self.boost_btn.remove_css_class("suggested-action")
+                self.boost_btn.add_css_class("destructive-action")
+                self.boost_row.set_subtitle("⚡ Cargando hacia el 100%... Se reactivará el 80% al finalizar.")
+            else:
+                self.boost_btn.set_label("⚡ Iniciar Carga al 100%")
+                self.boost_btn.remove_css_class("destructive-action")
+                self.boost_btn.add_css_class("suggested-action")
+                self.boost_row.set_subtitle("Desactiva el límite temporalmente y lo reactiva automáticamente al alcanzar el 100%.")
+
+            self.updating_ui_internally = True
+            self.switch_row.set_active(cons)
+            self.updating_ui_internally = False
+
+            return True
+
+        def on_boost_clicked(self, button):
+            if is_boost_running():
+                cancel_boost()
+            else:
+                start_boost()
+            self.refresh_ui()
+
+        def on_switch_toggled(self, row, param):
+            if self.updating_ui_internally:
+                return
+            new_val = row.get_active()
+            if new_val and is_boost_running():
+                cancel_boost()
+            else:
+                set_conservation_mode(new_val)
+            self.refresh_ui()
+
+    class BatteryApp(Adw.Application):
+        def __init__(self):
+            super().__init__(
+                application_id="com.alberviz.lenovobattery",
+                flags=0
+            )
+
+        def do_activate(self):
+            win = self.props.active_window
+            if not win:
+                win = BatteryAppWindow(self)
+            win.present()
+
+    app = BatteryApp()
+    app.run([])
+
+def main():
+    parser = argparse.ArgumentParser(description="Control de Batería y Modo Conservación Lenovo")
+    parser.add_argument("--gui", action="store_true", help="Abrir la interfaz gráfica")
+    parser.add_argument("--boost", action="store_true", help="Iniciar carga al 100%% (una sola vez)")
+    parser.add_argument("--cancel", action="store_true", help="Cancelar la carga al 100%%")
+    parser.add_argument("--toggle", action="store_true", help="Alternar Modo Conservación")
+    parser.add_argument("--status", action="store_true", help="Mostrar estado de la batería")
+    parser.add_argument("--monitor", action="store_true", help="Ejecutar monitor en segundo plano (uso interno)")
+    parser.add_argument("--set", type=int, choices=[0, 1], help="Fijar modo de conservación (1=80%%, 0=100%%)")
+
+    args = parser.parse_args()
+
+    if args.monitor:
+        run_monitor_daemon()
+    elif args.boost:
+        start_boost()
+    elif args.cancel:
+        cancel_boost()
+    elif args.toggle:
+        info = get_battery_info()
+        new_mode = not info["conservation_mode"]
+        set_conservation_mode(new_mode)
+        mode_text = "Activado (80%)" if new_mode else "Desactivado (100%)"
+        print(f"Modo Conservación: {mode_text}")
+    elif args.set is not None:
+        set_conservation_mode(args.set == 1)
+        mode_text = "Activado (80%)" if args.set == 1 else "Desactivado (100%)"
+        print(f"Modo Conservación: {mode_text}")
+    elif args.status:
+        info = get_battery_info()
+        print(json.dumps(info, indent=2))
+    elif args.gui or len(sys.argv) == 1:
+        launch_gui()
+    else:
+        parser.print_help()
+
+if __name__ == "__main__":
+    main()

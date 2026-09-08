@@ -12,7 +12,9 @@
 #    configs/caelestia/rgb-config.json -> ~/.config/caelestia/         (semilla)
 #    configs/spicetify/Themes/*      -> ~/.config/spicetify/Themes/
 #    configs/quickshell/caelestia/modules/background/* -> ~/.config/.../modules/background/
-#    widgets/{gtasks,desktop-deck-helper,display-selector,magichome-control} -> ~/.local/bin/
+#    widgets/{gtasks,desktop-deck-helper,display-selector,magichome-control,lenovo-battery-control} -> ~/.local/bin/
+#    configs/applications/lenovo-battery-control.desktop -> ~/.local/share/applications/
+#    configs/udev/99-lenovo-conservation.rules -> /etc/udev/rules.d/  (manual, con sudo)
 #    rgb/{sync-rgb,argb-wave}.py     -> ~/.config/caelestia/
 #    rgb/sounds/*                    -> ~/.config/caelestia/sounds/  (paletas de notificación)
 #    rgb/{agent-notify,akko-rgb,battery-lighting,magichome-control,mchose-battery,
@@ -151,6 +153,27 @@ if [ "$SELECTED_WIDGETS" = true ]; then
         cp -u "$BASE_DIR/widgets/display-selector" "$HOME/.local/bin/display-selector"
         chmod +x "$HOME/.local/bin/display-selector"
         echo -e "  ${SUCCESS}✔ Selector de pantallas (Win+P) instalado en ~/.local/bin${RESET}"
+    fi
+
+    # Control de batería Lenovo (Modo Conservación 80% + "Cargar al 100%").
+    # El popout de batería de Caelestia y el lanzador GTK llaman a este binario.
+    if [ -f "$BASE_DIR/widgets/lenovo-battery-control" ]; then
+        cp -u "$BASE_DIR/widgets/lenovo-battery-control" "$HOME/.local/bin/lenovo-battery-control"
+        chmod +x "$HOME/.local/bin/lenovo-battery-control"
+        mkdir -p "$HOME/.local/share/applications"
+        cp -u "$BASE_DIR/configs/applications/lenovo-battery-control.desktop" "$HOME/.local/share/applications/lenovo-battery-control.desktop"
+        echo -e "  ${SUCCESS}✔ Control de batería Lenovo instalado en ~/.local/bin${RESET}"
+
+        # La regla udev hace escribible conservation_mode sin root. Necesita sudo,
+        # así que no se aplica sola: se copia si falta y se recargan las reglas.
+        UDEV_SRC="$BASE_DIR/configs/udev/99-lenovo-conservation.rules"
+        UDEV_DST="/etc/udev/rules.d/99-lenovo-conservation.rules"
+        if [ -f "$UDEV_SRC" ] && [ ! -f "$UDEV_DST" ]; then
+            if [ -e /sys/bus/platform/drivers/ideapad_acpi ]; then
+                echo -e "  ${WARNING}ℹ Falta la regla udev de conservación. Para instalarla:${RESET}"
+                echo -e "      ${WARNING}sudo cp '$UDEV_SRC' '$UDEV_DST' && sudo udevadm control --reload && sudo udevadm trigger${RESET}"
+            fi
+        fi
     fi
 fi
 
