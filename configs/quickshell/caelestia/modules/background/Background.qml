@@ -81,7 +81,8 @@ Variants {
                 anchors.fill: parent
                 // v3 (D-1): wallpaper apagado por defecto; fondo negro. Restaurable
                 // con SolarSystemModel.showWallpaper = true. No se borra Wallpaper.qml.
-                active: Config.background.wallpaperEnabled && SolarSystemModel.showWallpaper
+                // En ahorro de energía nunca se carga (fondo negro puro).
+                active: Config.background.wallpaperEnabled && SolarSystemModel.showWallpaper && !PowerSaving.active
 
                 sourceComponent: Wallpaper {}
             }
@@ -98,7 +99,8 @@ Variants {
             id: clockLoader
 
             asynchronous: true
-            active: Config.background.desktopClock.enabled
+            // Ahorro de energía (modo batería): fondo negro sin reloj ni widgets.
+            active: Config.background.desktopClock.enabled && !PowerSaving.active
             width: item ? (item as Item).implicitWidth : implicitWidth
             height: item ? (item as Item).implicitHeight : implicitHeight
 
