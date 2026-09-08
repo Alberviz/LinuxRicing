@@ -50,8 +50,8 @@ Variants {
         screen: modelData
         name: "background"
         WlrLayershell.exclusionMode: ExclusionMode.Ignore
-        WlrLayershell.layer: contentItem.Config.background.wallpaperEnabled ? WlrLayer.Background : WlrLayer.Bottom
-        color: contentItem.Config.background.wallpaperEnabled ? "black" : "transparent"
+        WlrLayershell.layer: (PowerSaving.active || contentItem.Config.background.wallpaperEnabled) ? WlrLayer.Background : WlrLayer.Bottom
+        color: PowerSaving.active ? "black" : (contentItem.Config.background.wallpaperEnabled ? "black" : "transparent")
         surfaceFormat.opaque: false
 
         anchors.top: true
@@ -76,15 +76,22 @@ Variants {
                 asynchronous: true
 
                 anchors.fill: parent
-                active: Config.background.wallpaperEnabled
+                active: Config.background.wallpaperEnabled && !PowerSaving.active
 
                 sourceComponent: Wallpaper {}
             }
 
-            DesktopCircularMedia {
+            Loader {
+                id: circularMediaLoader
+
+                asynchronous: true
+                active: !PowerSaving.active
+
                 anchors.right: parent.right
-                anchors.rightMargin: Math.max(80, Math.round((parent.width - 640 - width) / 2))
+                anchors.rightMargin: Math.max(80, Math.round((parent.width - 640 - (item ? (item as Item).width : 260)) / 2))
                 anchors.verticalCenter: parent.verticalCenter
+
+                sourceComponent: DesktopCircularMedia {}
             }
         }
 
@@ -199,7 +206,7 @@ Variants {
             id: peripheralsLoader
 
             asynchronous: false
-            active: Config.background.desktopClock.enabled
+            active: Config.background.desktopClock.enabled && !PowerSaving.active
             width: 640
             height: item ? (item as Item).implicitHeight : 0
 
@@ -217,7 +224,7 @@ Variants {
             id: deckLoader
 
             asynchronous: false
-            active: Config.background.desktopClock.enabled
+            active: Config.background.desktopClock.enabled && !PowerSaving.active
             width: 640
             height: item ? (item as Item).implicitHeight : 0
 
@@ -234,7 +241,7 @@ Variants {
             id: ledStripLoader
 
             asynchronous: false
-            active: Config.background.desktopClock.enabled
+            active: Config.background.desktopClock.enabled && !PowerSaving.active
             width: 640
             height: item ? (item as Item).implicitHeight : 0
 

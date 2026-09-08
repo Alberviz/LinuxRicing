@@ -1,7 +1,7 @@
 ---
 fileClass: Backlog
 tipo: tarea
-estado: en-curso
+estado: hecha
 prioridad: 1
 area: caelestia
 origen: Alberto

@@ -1,7 +1,8 @@
 import QtQuick
 import Caelestia.Config
+import qs.services
 
 ColorAnimation {
-    duration: Tokens.anim.durations.expressiveSlowEffects
+    duration: PowerSaving.active ? 0 : Tokens.anim.durations.expressiveSlowEffects
     easing: Tokens.anim.expressiveSlowEffects
 }
