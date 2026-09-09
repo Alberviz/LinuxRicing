@@ -527,6 +527,11 @@ Singleton {
             }, null, 2) + "\n");
     }
 
+    function toggle(): bool {
+        root.setEnabled(!root.enabled);
+        return root.enabled;
+    }
+
     FileView {
         id: stateView
 
@@ -577,8 +582,7 @@ Singleton {
         }
 
         function toggle(): bool {
-            root.setEnabled(!root.enabled);
-            return root.enabled;
+            return root.toggle();
         }
     }
 }
