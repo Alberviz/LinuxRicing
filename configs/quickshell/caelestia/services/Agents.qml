@@ -369,6 +369,16 @@ Singleton {
             time: new Date()
         };
 
+        const existing = root.sessions.find(s => (na !== "" && root._normAddr(s.address) === na) || s.id === entry.id);
+        if (existing &&
+            existing.name === entry.name &&
+            existing.ws === entry.ws &&
+            existing.pid === entry.pid &&
+            existing.dir === entry.dir &&
+            Math.abs((existing.contextRatio || 0) - entry.contextRatio) < 0.015) {
+            return; // Datos idénticos: no invalidar bindings reactivos
+        }
+
         root.sessions = [
             ...root.sessions.filter(s => (na === "" || root._normAddr(s.address) !== na) && s.id !== entry.id),
             entry

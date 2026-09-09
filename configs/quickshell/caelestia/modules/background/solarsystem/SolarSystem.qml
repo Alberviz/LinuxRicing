@@ -52,6 +52,7 @@ Item {
     property bool active: false                // ¿hay un agente en curso? (sube el ritmo del Sim)
     property bool fastRate: false              // ¿música sonando? (sube el ritmo del Sim)
     property int musicVariant: 2               // Variante de visualizador en agujero negro (0..6, 0=sin overlay)
+    property int targetFps: 60                 // Límite de FPS para el fondo (evita 144 Hz innecesarios en iGPU)
 
     // --- Modo Laura activa (D-12) ---
     // Lo cablea SolarSystemLayer desde el singleton Laura. La vista solo ve dos
@@ -625,17 +626,26 @@ Item {
         id: clock
         running: root.visible && !root.paused && !root.reduceMotion
         onTriggered: {
-            root._t += frameTime;                // reloj del shader: CADA frame (60 fps, fluido)
+            if (root.targetFps > 0) {
+                const targetInterval = 1.0 / root.targetFps;
+                root._accFrame += frameTime;
+                if (root._accFrame < targetInterval)
+                    return;
+            }
+            const dt = root.targetFps > 0 ? root._accFrame : frameTime;
+            root._accFrame = 0;
+
+            root._t += dt;                       // reloj del shader: Capped a targetFps (60 fps por defecto)
             if (root.lauraActive)
                 return;                          // sistema congelado: nada que recalcular
-            root._accSim += frameTime;
-            if (root._accSim >= 0.028) {          // ~33 fps: posiciones (Sim)
+            root._accSim += dt;
+            if (root._accSim >= 0.033) {          // ~30 fps: posiciones (Sim)
                 root._accSim = 0;
                 root._recompute();
             }
             // Pulsos de UI: sólo si hay algún cuerpo que los use, y a ~25 fps.
             if (root._anyAlert || root._anyRunning || root._anyDone) {
-                root._accPulse += frameTime;
+                root._accPulse += dt;
                 if (root._accPulse >= 0.04) {
                     root._accPulse = 0;
                     if (root._anyAlert)
@@ -647,9 +657,10 @@ Item {
                 }
             }
         }
-        onRunningChanged: if (!running) { root._recompute(); }
+        onRunningChanged: if (!running) { root._accSim = 0; root._accFrame = 0; root._recompute(); }
     }
     property real _accSim: 0
+    property real _accFrame: 0
 
     // Transición del foco-Laura: repinta la capa fina mientras `lauraFocus`
     // anima (el shader del fondo dima solo, atado a `lauraFocus` por binding).

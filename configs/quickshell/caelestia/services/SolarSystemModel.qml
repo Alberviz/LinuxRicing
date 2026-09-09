@@ -26,6 +26,7 @@ Singleton {
     // Hyprland (eso es el modo ahorro, PowerSaving) — sólo se descarga la vista.
     property bool enabled: true
     property int musicVariant: 2
+    property int targetFps: 60
 
     // v3: el wallpaper se apaga y el escritorio queda sobre fondo negro
     // (decisión D-1, restaurable). Poner a true devuelve el wallpaper; la paleta
@@ -521,15 +522,27 @@ Singleton {
 
     function setEnabled(v: bool): void {
         root.enabled = v;
-        if (root._stateLoaded)
-            stateView.setText(JSON.stringify({
-                solarSystemEnabled: root.enabled
-            }, null, 2) + "\n");
+        root._saveState();
     }
 
     function toggle(): bool {
         root.setEnabled(!root.enabled);
         return root.enabled;
+    }
+
+    function setTargetFps(fps: int): void {
+        if (fps >= 15 && fps <= 240) {
+            root.targetFps = fps;
+            root._saveState();
+        }
+    }
+
+    function _saveState(): void {
+        if (root._stateLoaded)
+            stateView.setText(JSON.stringify({
+                solarSystemEnabled: root.enabled,
+                targetFps: root.targetFps
+            }, null, 2) + "\n");
     }
 
     FileView {
@@ -544,6 +557,8 @@ Singleton {
                 const d = JSON.parse(text());
                 if (typeof d.solarSystemEnabled === "boolean")
                     root.enabled = d.solarSystemEnabled;
+                if (typeof d.targetFps === "number" && d.targetFps >= 15)
+                    root.targetFps = d.targetFps;
             } catch (e) {
                 console.warn("SolarSystemModel: desktop-state.json inválido:", e);
             }
@@ -583,6 +598,14 @@ Singleton {
 
         function toggle(): bool {
             return root.toggle();
+        }
+
+        function getTargetFps(): int {
+            return root.targetFps;
+        }
+
+        function setTargetFps(fps: int): void {
+            root.setTargetFps(fps);
         }
     }
 }
