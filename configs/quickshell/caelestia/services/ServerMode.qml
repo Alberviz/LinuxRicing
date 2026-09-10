@@ -24,9 +24,13 @@ Singleton {
         }
     }
 
+    // ~/.local/bin no está en el PATH del proceso de Quickshell, así que hay que
+    // invocar el script por ruta absoluta (mismo patrón que NotificacionesView.qml).
+    readonly property string script: Quickshell.env("HOME") + "/.local/bin/caelestia-server-mode"
+
     function activate(): void {
         Toaster.toast(qsTr("Entrando en modo servidor…"), qsTr("Cerrando el escritorio. Vuelve con «volver-escritorio» desde la consola."), "dns");
-        Quickshell.execDetached(["caelestia-server-mode", "on"]);
+        Quickshell.execDetached([root.script, "on"]);
     }
 
     Timer {
