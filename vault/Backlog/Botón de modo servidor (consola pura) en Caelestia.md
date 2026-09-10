@@ -17,7 +17,7 @@ Minecraft abierto. Escalón por encima del `PowerSaving.qml` automático (que se
 en Hyprland recortado): este **cierra el entorno gráfico entero**
 (`systemctl isolate multi-user.target`).
 
-Al pulsar (doble toque de confirmación): perfil `power-saver`, para servicios
+Al activar (mantener pulsado ~1 s, anillo que se rellena): perfil `power-saver`, para servicios
 cosméticos (`openrgb`, `argb-wave`, `battery-lighting`, `laura`,
 `mchose-audio-cleanup`, `ydotool`, `appimagelauncherd`) y procesos sueltos
 (`sync-rgb.py`, `mchose-battery`, `magichome-control`, `desktop-deck-helper`,

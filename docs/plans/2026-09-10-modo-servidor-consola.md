@@ -34,11 +34,11 @@ de sistema. Por eso cerrar el escritorio no corta ninguna partida ni el túnel.
 ## 3. Componentes
 
 ```
- Botón "Server mode" (Toggles.qml)
-        │ doble toque (confirmación: cierra el escritorio)
+ Botón "Server mode" (HoldToggle en Toggles.qml)
+        │ mantener pulsado ~1 s (anillo que se rellena) → held()
         ▼
  ServerMode.qml (singleton, services/)
-        │ Quickshell.execDetached(["caelestia-server-mode", "on"])
+        │ Quickshell.execDetached(["$HOME/.local/bin/caelestia-server-mode", "on"])
         ▼
  ~/.local/bin/caelestia-server-mode  {on|off|status}
         │  - powerprofilesctl / systemctl --user stop / pkill / rfkill
@@ -48,9 +48,13 @@ de sistema. Por eso cerrar el escritorio no corta ninguna partida ni el túnel.
         (root; NOPASSWD acotado vía /etc/sudoers.d/caelestia-server-mode)
 ```
 
-- **`services/ServerMode.qml`** — singleton. `armed` + timer de 5 s para la
-  confirmación de doble toque; `activate()` lanza el script; `IpcHandler` con target
-  `serverMode` (`activate`, `isArmed`).
+- **`services/ServerMode.qml`** — singleton. `activate()` lanza el script por ruta
+  absoluta (`$HOME/.local/bin/caelestia-server-mode`, porque Quickshell no tiene
+  `~/.local/bin` en el PATH); `IpcHandler` con target `serverMode` (`activate`).
+- **`HoldToggle` (componente inline en `Toggles.qml`)** — confirmación por
+  **mantener pulsado ~1 s**: un anillo (`CircularProgress`, color `m3error`) se
+  rellena mientras se mantiene el botón; al completarse emite `held()` →
+  `ServerMode.activate()`. Un toque suelto no hace nada.
 - **`widgets/caelestia-server-mode`** — el motor (bash). `on` / `off` / `status`.
 - **`widgets/volver-escritorio`** — atajo de una línea (`caelestia-server-mode off`)
   para el camino de vuelta desde la consola.
@@ -59,9 +63,9 @@ de sistema. Por eso cerrar el escritorio no corta ninguna partida ni el túnel.
 - **`configs/system/caelestia-server-mode.sudoers`** — regla `NOPASSWD` restringida
   EXACTAMENTE al helper. Instalada en `/etc/sudoers.d/caelestia-server-mode` (0440)
   tras validar con `visudo -c`.
-- **UI:** `modules/utilities/cards/Toggles.qml` (delegado `serverMode`, icono `dns` /
-  `power_settings_new` cuando está armado) y
-  `modules/nexus/pages/panels/UtilitiesPanel.qml` (fila de ajustes).
+- **UI:** `modules/utilities/cards/Toggles.qml` (delegado `serverMode` → componente
+  `HoldToggle`, icono `dns`) y `modules/nexus/pages/panels/UtilitiesPanel.qml`
+  (fila de ajustes).
 - **Semilla:** `configs/caelestia/shell.json` añade `utilities.quickToggles` con
   `serverMode` incluido.
 - **`install.sh`** — sección 3b/3c: copia los scripts de usuario e instala (con sudo)
@@ -83,7 +87,7 @@ muestra un recordatorio de este comando mientras el modo está activo.
 ## 5. Verificación
 
 1. `qmllint` / `caelestia shell -d` → `INFO: Configuration Loaded` sin errores nuevos.
-2. El botón aparece en *Quick Toggles*; primer toque → toast de confirmación; segundo
-   toque en <5 s → cae a consola.
+2. El botón aparece en *Quick Toggles*; mantener pulsado ~1 s (el anillo se rellena)
+   → toast «Entrando en modo servidor…» → cae a consola. Un toque suelto no hace nada.
 3. Desde otra máquina: el servidor de Minecraft sigue respondiendo (jugadores online).
 4. `volver-escritorio` devuelve la sesión de Hyprland y rearranca los servicios.

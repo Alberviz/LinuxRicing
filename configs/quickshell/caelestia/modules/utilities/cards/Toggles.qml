@@ -132,11 +132,10 @@ StyledRect {
                 }
                 DelegateChoice {
                     roleValue: "serverMode"
-                    delegate: Toggle {
-                        icon: ServerMode.armed ? "power_settings_new" : "dns"
-                        checked: ServerMode.armed
+                    delegate: HoldToggle {
+                        icon: "dns"
                         inactiveOnColour: Colours.palette.m3onSurfaceVariant
-                        onClicked: ServerMode.request()
+                        onHeld: ServerMode.activate()
                     }
                 }
                 DelegateChoice {
@@ -168,5 +167,69 @@ StyledRect {
         isToggle: true
         isRound: true
         shapeMorph: true
+    }
+
+    // Botón de "mantener pulsado para confirmar": el anillo se rellena mientras
+    // se mantiene pulsado (~1 s) y al completarse emite held(). Un toque suelto no
+    // hace nada. Pensado para acciones peligrosas como entrar en modo servidor.
+    component HoldToggle: IconButton {
+        id: hold
+
+        property real progress: 0
+        property int holdDuration: 1000
+        signal held
+
+        inactiveColour: Colours.layer(Colours.palette.m3surfaceContainerHighest, 2)
+        fillWidth: true
+        isToggle: false
+        isRound: true
+        shapeMorph: true
+
+        onPressedChanged: {
+            if (pressed) {
+                resetAnim.stop();
+                progress = 0;
+                fillAnim.restart();
+            } else {
+                fillAnim.stop();
+                resetAnim.restart();
+            }
+        }
+        onClicked: {} // requiere mantener pulsado; un toque suelto se ignora
+
+        NumberAnimation {
+            id: fillAnim
+
+            target: hold
+            property: "progress"
+            to: 1
+            duration: hold.holdDuration
+            easing.type: Easing.Linear
+            onFinished: hold.held()
+        }
+
+        NumberAnimation {
+            id: resetAnim
+
+            target: hold
+            property: "progress"
+            to: 0
+            duration: 220
+            easing.type: Easing.OutCubic
+        }
+
+        CircularProgress {
+            anchors.centerIn: parent
+            implicitSize: parent.height - Tokens.padding.small
+            z: 1
+            visible: hold.progress > 0.001
+            value: hold.progress
+            strokeWidth: Math.round(Tokens.padding.small / 1.5)
+            startAngle: -90
+            sweepAngle: 360
+            fgColour: Colours.palette.m3error
+            bgColour: "transparent"
+            hasEndIndicator: false
+        }
     }
 }
