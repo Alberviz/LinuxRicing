@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+# ==============================================================================
+#  caelestia-server-mode — "Modo servidor": cae a consola pura o vuelve al escritorio
+# ==============================================================================
+#
+#  Uso:
+#    caelestia-server-mode on      Entra en modo servidor (cierra el escritorio)
+#    caelestia-server-mode off     Vuelve al escritorio  (alias: volver-escritorio)
+#    caelestia-server-mode status  Muestra si el modo está activo
+#
+#  Qué hace `on`:
+#    - Perfil de energía  -> power-saver
+#    - Apaga LEDs y para servicios cosméticos de usuario (RGB, telemetría, ydotool…)
+#    - Bluetooth          -> bloqueado (rfkill)
+#    - Banner en /etc/issue para el login de consola
+#    - systemctl isolate multi-user.target  (mata Hyprland/Quickshell)
+#
+#  Qué NO toca (siguen vivos y conectados):
+#    - minecraft-server.service, minecraft-telegram-bot.service (user@1000 + linger)
+#    - playitd (servicio de sistema)
+#    - la red WiFi
+#
+#  Las operaciones privilegiadas van por un único helper con NOPASSWD acotado:
+#    sudo /usr/local/bin/caelestia-server-mode-root {console|desktop|issue-on|issue-off}
+# ==============================================================================
+
+set -uo pipefail
+
+MARKER="${XDG_CACHE_HOME:-$HOME/.cache}/caelestia/server-mode"
+ROOT_HELPER="/usr/local/bin/caelestia-server-mode-root"
+
+# Servicios de usuario puramente estéticos / no esenciales para "modo servidor".
+COSMETIC_UNITS=(
+    openrgb.service
+    argb-wave.service
+    battery-lighting.service
+    laura.service
+    mchose-audio-cleanup.service
+    ydotool.service
+    appimagelauncherd.service
+)
+
+# Procesos sueltos (no systemd) que conviene matar en modo servidor.
+KILL_PATTERNS=(
+    "sync-rgb.py"
+    "mchose-battery"
+    "magichome-control"
+    "desktop-deck-helper"
+    "gtasks"
+)
+
+log()  { printf '\033[38;5;216m▶\033[0m %s\n' "$*"; }
+warn() { printf '\033[38;5;221m!\033[0m %s\n' "$*" >&2; }
+
+turn_off_leds() {
+    if command -v openrgb >/dev/null 2>&1; then
+        openrgb --mode static --color 000000 >/dev/null 2>&1 || true
+    fi
+    if command -v magichome-control >/dev/null 2>&1; then
+        magichome-control off >/dev/null 2>&1 || true
+    fi
+}
+
+server_on() {
+    if [ ! -x "$ROOT_HELPER" ]; then
+        warn "Falta $ROOT_HELPER. Ejecuta install.sh para instalarlo."
+        exit 1
+    fi
+
+    log "Perfil de energía -> power-saver"
+    powerprofilesctl set power-saver 2>/dev/null || true
+
+    log "Apagando LEDs y periféricos RGB"
+    turn_off_leds
+
+    log "Parando servicios cosméticos de usuario"
+    systemctl --user stop "${COSMETIC_UNITS[@]}" 2>/dev/null || true
+    for pat in "${KILL_PATTERNS[@]}"; do
+        pkill -f "$pat" 2>/dev/null || true
+    done
+
+    log "Bluetooth -> off"
+    rfkill block bluetooth 2>/dev/null || true
+
+    mkdir -p "$(dirname "$MARKER")"
+    date -Iseconds > "$MARKER"
+
+    sudo "$ROOT_HELPER" issue-on || warn "No se pudo escribir el banner de /etc/issue"
+
+    log "Cerrando el escritorio (Hyprland/Quickshell)…"
+    sync
+    exec sudo "$ROOT_HELPER" console
+}
+
+server_off() {
+    if [ ! -x "$ROOT_HELPER" ]; then
+        warn "Falta $ROOT_HELPER. Vuelve manualmente: sudo systemctl isolate graphical.target"
+        exit 1
+    fi
+
+    # Restaura primero lo barato: isolate desktop puede matar esta shell (getty@tty1).
+    log "Bluetooth -> on"
+    rfkill unblock bluetooth 2>/dev/null || true
+
+    log "Rearrancando servicios cosméticos de usuario"
+    systemctl --user start "${COSMETIC_UNITS[@]}" 2>/dev/null || true
+
+    log "Perfil de energía -> balanced"
+    powerprofilesctl set balanced 2>/dev/null || true
+
+    sudo "$ROOT_HELPER" issue-off || true
+    rm -f "$MARKER"
+
+    log "Volviendo al escritorio…"
+    exec sudo "$ROOT_HELPER" desktop
+}
+
+case "${1:-}" in
+    on)     server_on ;;
+    off)    server_off ;;
+    status)
+        if [ -f "$MARKER" ]; then
+            echo "modo servidor: ON (desde $(cat "$MARKER"))"
+        else
+            echo "modo servidor: OFF"
+        fi
+        ;;
+    *)
+        echo "uso: caelestia-server-mode {on|off|status}" >&2
+        exit 2
+        ;;
+esac

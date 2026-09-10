@@ -131,6 +131,15 @@ StyledRect {
                     }
                 }
                 DelegateChoice {
+                    roleValue: "serverMode"
+                    delegate: Toggle {
+                        icon: ServerMode.armed ? "power_settings_new" : "dns"
+                        checked: ServerMode.armed
+                        inactiveOnColour: Colours.palette.m3onSurfaceVariant
+                        onClicked: ServerMode.request()
+                    }
+                }
+                DelegateChoice {
                     roleValue: "dnd"
                     delegate: Toggle {
                         icon: "notifications_off"

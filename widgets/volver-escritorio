@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# volver-escritorio — atajo para salir del "modo servidor" desde la consola.
+# Equivale a `caelestia-server-mode off`.
+exec caelestia-server-mode off

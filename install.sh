@@ -13,6 +13,9 @@
 #    configs/spicetify/Themes/*      -> ~/.config/spicetify/Themes/
 #    configs/quickshell/caelestia/modules/background/* -> ~/.config/.../modules/background/
 #    widgets/{gtasks,desktop-deck-helper,display-selector,magichome-control} -> ~/.local/bin/
+#    widgets/{caelestia-server-mode,volver-escritorio} -> ~/.local/bin/  (modo servidor)
+#    configs/system/caelestia-server-mode-root  -> /usr/local/bin/        (sudo, helper acotado)
+#    configs/system/caelestia-server-mode.sudoers -> /etc/sudoers.d/caelestia-server-mode (0440)
 #    rgb/{sync-rgb,argb-wave}.py     -> ~/.config/caelestia/
 #    rgb/sounds/*                    -> ~/.config/caelestia/sounds/  (paletas de notificación)
 #    rgb/{agent-notify,akko-rgb,battery-lighting,magichome-control,mchose-battery,
@@ -151,6 +154,37 @@ if [ "$SELECTED_WIDGETS" = true ]; then
         cp -u "$BASE_DIR/widgets/display-selector" "$HOME/.local/bin/display-selector"
         chmod +x "$HOME/.local/bin/display-selector"
         echo -e "  ${SUCCESS}✔ Selector de pantallas (Win+P) instalado en ~/.local/bin${RESET}"
+    fi
+
+    # 3b. Modo servidor: scripts de usuario (el botón "Server mode" de Caelestia
+    #     invoca `caelestia-server-mode on`; `volver-escritorio` es la vuelta desde tty)
+    for bin in caelestia-server-mode volver-escritorio; do
+        if [ -f "$BASE_DIR/widgets/$bin" ]; then
+            cp -u "$BASE_DIR/widgets/$bin" "$HOME/.local/bin/$bin"
+            chmod +x "$HOME/.local/bin/$bin"
+        fi
+    done
+    echo -e "  ${SUCCESS}✔ Scripts de modo servidor instalados en ~/.local/bin${RESET}"
+
+    # 3c. Modo servidor: helper privilegiado + regla sudoers acotada.
+    #     El helper solo acepta 4 verbos fijos (console/desktop/issue-on/issue-off).
+    SM_ROOT_SRC="$BASE_DIR/configs/system/caelestia-server-mode-root"
+    SM_SUDOERS_SRC="$BASE_DIR/configs/system/caelestia-server-mode.sudoers"
+    if [ -f "$SM_ROOT_SRC" ] && [ -f "$SM_SUDOERS_SRC" ]; then
+        echo -e "${PRIMARY}➔ Instalando helper privilegiado del modo servidor (pide sudo)...${RESET}"
+        if sudo install -m 0755 -o root -g root "$SM_ROOT_SRC" /usr/local/bin/caelestia-server-mode-root; then
+            SM_TMP="$(mktemp)"
+            install -m 0440 "$SM_SUDOERS_SRC" "$SM_TMP"
+            if visudo -cf "$SM_TMP" >/dev/null 2>&1; then
+                sudo install -m 0440 -o root -g root "$SM_TMP" /etc/sudoers.d/caelestia-server-mode
+                echo -e "  ${SUCCESS}✔ /usr/local/bin/caelestia-server-mode-root + /etc/sudoers.d/caelestia-server-mode${RESET}"
+            else
+                echo -e "  ${ERROR}✖ La regla sudoers no valida con visudo; se omite. Revisa $SM_SUDOERS_SRC${RESET}"
+            fi
+            rm -f "$SM_TMP"
+        else
+            echo -e "  ${WARNING}ℹ No se pudo instalar el helper (sin sudo). El botón de modo servidor no funcionará hasta hacerlo.${RESET}"
+        fi
     fi
 fi
 

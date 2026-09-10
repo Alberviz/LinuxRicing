@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# ==============================================================================
+#  caelestia-server-mode-root — helper privilegiado del "modo servidor"
+# ==============================================================================
+#
+#  Instalado en /usr/local/bin/ (root:root 0755) y autorizado sin contraseña
+#  para el usuario mediante /etc/sudoers.d/caelestia-server-mode, restringido
+#  EXACTAMENTE a este script. Superficie mínima: cuatro verbos fijos.
+#
+#    console    systemctl isolate multi-user.target   (cierra el entorno gráfico)
+#    desktop    systemctl isolate graphical.target    (lo restaura)
+#    issue-on   añade el banner de "modo servidor" a /etc/issue
+#    issue-off  restaura /etc/issue original
+# ==============================================================================
+
+set -euo pipefail
+
+ISSUE="/etc/issue"
+ISSUE_BAK="/etc/issue.orig-caelestia"
+
+case "${1:-}" in
+    console)
+        exec systemctl isolate multi-user.target
+        ;;
+    desktop)
+        exec systemctl isolate graphical.target
+        ;;
+    issue-on)
+        [ -f "$ISSUE_BAK" ] || cp -- "$ISSUE" "$ISSUE_BAK"
+        cp -- "$ISSUE_BAK" "$ISSUE"
+        cat >> "$ISSUE" <<'EOF'
+
+  *** MODO SERVIDOR ACTIVO — el servidor de Minecraft sigue corriendo ***
+  Para volver al escritorio: inicia sesion y ejecuta  volver-escritorio
+
+EOF
+        ;;
+    issue-off)
+        if [ -f "$ISSUE_BAK" ]; then
+            mv -- "$ISSUE_BAK" "$ISSUE"
+        fi
+        ;;
+    *)
+        echo "uso: caelestia-server-mode-root {console|desktop|issue-on|issue-off}" >&2
+        exit 2
+        ;;
+esac

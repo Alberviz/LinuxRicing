@@ -126,6 +126,14 @@ PageBase {
         }
 
         ToggleRow {
+            text: qsTr("Server mode")
+            subtext: qsTr("Drop to a text console; keep only essential services")
+            disabled: !Config.utilities.cards.quickToggles
+            checked: root.isToggleOn("serverMode")
+            onToggled: root.setToggleOn("serverMode", checked)
+        }
+
+        ToggleRow {
             text: qsTr("Do not disturb")
             subtext: qsTr("Silence notifications")
             disabled: !Config.utilities.cards.quickToggles
