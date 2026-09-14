@@ -23,6 +23,16 @@ QtObject {
     signal subPageOpened(idx: int)
     signal subPageClosed
 
+    // Opens the password sub-page for a network. Idempotent per SSID: the
+    // connection machinery can report needsPassword multiple times (retries),
+    // and each report must not stack another copy of the page.
+    function openPasswordPage(network: var): void {
+        if (!network || (pendingNetwork && pendingNetwork.ssid === network.ssid))
+            return;
+        pendingNetwork = network;
+        openSubPage(7);
+    }
+
     function openSubPage(idx: int): void {
         subPageIdxStack.push(idx);
         subPageOpened(idx);

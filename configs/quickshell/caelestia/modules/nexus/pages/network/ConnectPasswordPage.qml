@@ -14,7 +14,7 @@ import qs.modules.nexus.common
 PageBase {
     id: root
 
-    readonly property string ssid: nState.selectedNetworkSsid
+    readonly property string ssid: nState.pendingNetwork?.ssid ?? nState.selectedNetworkSsid ?? ""
     readonly property var network: nState.pendingNetwork ?? Nmcli.findNetwork(root.ssid) ?? ({ ssid: root.ssid, isSecure: true, bssid: "" })
     property bool connecting: false
     property bool failed: false
@@ -55,6 +55,14 @@ PageBase {
         anchors.top: parent.top
         width: root.cappedWidth
         spacing: Tokens.spacing.large
+
+        Connections {
+            function onSubPageClosed(): void {
+                root.nState.pendingNetwork = null;
+            }
+
+            target: root.nState
+        }
 
         StyledText {
             Layout.fillWidth: true

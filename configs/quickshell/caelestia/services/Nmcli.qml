@@ -29,6 +29,10 @@ Singleton {
     property var wifiConnectionQueue: []
     property int currentSsidQueryIndex: 0
     property var pendingConnection: null
+    // State for deleteProbeLeftovers, deferred by a few seconds because nmcli
+    // writes the incomplete profile after the failure is reported.
+    property string probeCleanupSsid: ""
+    property var probeCleanupProfiles: []
     property var wirelessDeviceDetails: null
     property var ethernetDeviceDetails: null
     property string ethernetDataUsage: ""
@@ -66,7 +70,6 @@ Singleton {
     readonly property string connectionParamIfname: "ifname"
     readonly property string connectionParamSsid: "ssid"
     readonly property string connectionParamPassword: "password"
-    readonly property string connectionParamBssid: "802-11-wireless.bssid"
     readonly property string connectionParamHidden: "802-11-wireless.hidden"
 
     signal connectionFailed(string ssid)
@@ -366,10 +369,59 @@ Singleton {
         });
     }
 
+    // Lists saved wifi profiles as {uuid, timestamp, name}.
+    function listWifiProfiles(callback: var): void {
+        executeCommand(["-t", "-f", "UUID,TYPE,TIMESTAMP,NAME", root.nmcliCommandConnection, "show"], result => {
+            const profiles = [];
+            if (result.success && result.output) {
+                for (const line of result.output.trim().split("\n")) {
+                    const parts = line.split(":");
+                    if (parts.length >= 4 && parts[1] === root.connectionTypeWireless)
+                        profiles.push({
+                            uuid: parts[0],
+                            timestamp: parts[2],
+                            name: parts.slice(3).join(":")
+                        });
+                }
+            }
+            if (callback)
+                callback(profiles);
+        });
+    }
+
+    // `nmcli device wifi connect` without a password still saves a profile
+    // before failing for missing secrets. That profile keeps autoconnect on and
+    // NetworkManager retries it forever, leaving the adapter in a loop of
+    // no-secrets failures. Remove only what the probe left behind: profiles that
+    // appeared after the probe, are not active and were never used, so a profile
+    // just created with the correct password is never touched.
+    function deleteProbeLeftovers(ssid: string, before: var): void {
+        executeCommand(["-t", "-f", "UUID", root.nmcliCommandConnection, "show", "--active"], activeResult => {
+            const active = (activeResult.output || "").trim().split("\n");
+            listWifiProfiles(after => {
+                for (const profile of after) {
+                    if (before.indexOf(profile.uuid) !== -1 || active.indexOf(profile.uuid) !== -1)
+                        continue;
+                    if (profile.timestamp !== "0")
+                        continue;
+                    if (profile.name !== ssid && profile.name.indexOf(ssid + " ") !== 0)
+                        continue;
+                    console.warn(lc, "Removing leftover profile from password probe: " + profile.name);
+                    executeCommand([root.nmcliCommandConnection, "delete", "uuid", profile.uuid], () => {});
+                }
+            });
+        });
+    }
+
     function connectToNetworkWithPasswordCheck(ssid: string, isSecure: bool, callback: var, bssid: string): void {
         if (isSecure) {
             const hasBssid = bssid !== undefined && bssid !== null && bssid.length > 0;
-            connectWireless(ssid, "", bssid, result => {
+            listWifiProfiles(existing => connectWireless(ssid, "", bssid, result => {
+                if (!result.success) {
+                    root.probeCleanupSsid = ssid;
+                    root.probeCleanupProfiles = existing.map(profile => profile.uuid);
+                    probeCleanupTimer.restart();
+                }
                 if (result.success) {
                     if (callback)
                         callback({
@@ -392,7 +444,7 @@ Singleton {
                     if (callback)
                         callback(result);
                 }
-            });
+            }));
         } else {
             connectWireless(ssid, "", bssid, callback);
         }
@@ -454,33 +506,6 @@ Singleton {
                 if (callback)
                     callback(result);
             }
-        });
-    }
-
-    function createConnectionWithPassword(ssid: string, bssidUpper: string, password: string, callback: var): void {
-        checkAndDeleteConnection(ssid, () => {
-            const cmd = [root.nmcliCommandConnection, "add", root.connectionParamType, root.deviceTypeWifi, root.connectionParamConName, ssid, root.connectionParamIfname, "*", root.connectionParamSsid, ssid, root.connectionParamBssid, bssidUpper, root.securityKeyMgmt, root.keyMgmtWpaPsk, root.securityPsk, password];
-
-            executeCommand(cmd, result => {
-                if (result.success) {
-                    loadSavedConnections(() => {});
-                    activateConnection(ssid, callback);
-                } else {
-                    const hasDuplicateWarning = result.error && (result.error.includes("another connection with the name") || result.error.includes("Reference the connection by its uuid"));
-
-                    if (hasDuplicateWarning || (result.exitCode > 0 && result.exitCode < 10)) {
-                        loadSavedConnections(() => {});
-                        activateConnection(ssid, callback);
-                    } else {
-                        console.warn(lc, "Connection profile creation failed, trying fallback...");
-                        let fallbackCmd = [root.nmcliCommandDevice, root.nmcliCommandWifi, "connect", ssid, root.connectionParamPassword, password];
-                        executeCommand(fallbackCmd, fallbackResult => {
-                            if (callback)
-                                callback(fallbackResult);
-                        });
-                    }
-                }
-            });
         });
     }
 
@@ -1489,6 +1514,13 @@ Singleton {
         id: ethComp
 
         EthernetDevice {}
+    }
+
+    Timer {
+        id: probeCleanupTimer
+
+        interval: 3000
+        onTriggered: root.deleteProbeLeftovers(root.probeCleanupSsid, root.probeCleanupProfiles)
     }
 
     Timer {
