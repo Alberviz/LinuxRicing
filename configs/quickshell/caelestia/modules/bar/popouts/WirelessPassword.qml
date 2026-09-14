@@ -13,7 +13,7 @@ ColumnLayout {
     id: root
 
     required property PopoutState popouts
-    property var network: null
+    property var network: root.popouts.passwordNetwork
     property bool isClosing: false
 
     readonly property bool shouldBeVisible: root.popouts.currentName === "wirelesspassword"
@@ -42,7 +42,9 @@ ColumnLayout {
                 connectButton.hasError = true;
                 connectButton.enabled = true;
                 connectButton.text = qsTr("Connect");
-                passwordContainer.passwordBuffer = "";
+                if (passwordField) {
+                    passwordField.text = "";
+                }
                 // Delete the failed connection
                 if (root.network && root.network.ssid) {
                     Nmcli.forgetNetwork(root.network.ssid);
@@ -57,11 +59,14 @@ ColumnLayout {
         }
 
         isClosing = true;
-        passwordContainer.passwordBuffer = "";
+        if (passwordField) {
+            passwordField.text = "";
+        }
         connectButton.connecting = false;
         connectButton.hasError = false;
         connectButton.text = qsTr("Connect");
         connectionMonitor.stop();
+        root.popouts.passwordNetwork = null;
 
         // Return to network popout
         if (root.popouts.currentName === "wirelesspassword") {
@@ -95,20 +100,10 @@ ColumnLayout {
     Connections {
         function onCurrentNameChanged() {
             if (root.popouts.currentName === "wirelesspassword") {
-                // Update network when popout becomes active
-                Qt.callLater(() => {
-                    // Try to get network from parent Content's networkPopout
-                    const content = root.parent?.parent?.parent;
-                    if (content) {
-                        const networkPopout = content.children.find(c => c.name === "network");
-                        if (networkPopout && networkPopout.item) {
-                            root.network = networkPopout.item.passwordNetwork;
-                        }
-                    }
-                    // Force focus to password container when popout becomes active
-                    // Use Timer for actual delay to ensure dialog is fully rendered
-                    focusTimer.start();
-                });
+                if (!root.network && root.popouts.passwordNetwork) {
+                    root.network = root.popouts.passwordNetwork;
+                }
+                focusTimer.start();
             }
         }
 
@@ -121,7 +116,9 @@ ColumnLayout {
         interval: 150
         onTriggered: {
             root.forceActiveFocus();
-            passwordContainer.forceActiveFocus();
+            if (passwordField) {
+                passwordField.forceActiveFocus();
+            }
         }
     }
 
@@ -206,34 +203,6 @@ ColumnLayout {
                 font: Tokens.font.body.small
             }
 
-            Timer {
-                property int attempts: 0
-
-                interval: 50
-                running: root.shouldBeVisible && (!root.network || !root.network.ssid)
-                repeat: true
-                onTriggered: {
-                    attempts++;
-                    // Keep trying to get network from Network component
-                    const content = root.parent?.parent?.parent;
-                    if (content) {
-                        const networkPopout = content.children.find(c => c.name === "network");
-                        if (networkPopout && networkPopout.item && networkPopout.item.passwordNetwork) {
-                            root.network = networkPopout.item.passwordNetwork;
-                        }
-                    }
-                    // Stop if we got it or after 20 attempts (1 second)
-                    if ((root.network && root.network.ssid) || attempts >= 20) {
-                        stop();
-                        attempts = 0;
-                    }
-                }
-                onRunningChanged: {
-                    if (!running) {
-                        attempts = 0;
-                    }
-                }
-            }
 
             StyledText {
                 id: statusText
@@ -256,214 +225,39 @@ ColumnLayout {
                 Layout.maximumWidth: parent.width - Tokens.padding.extraLargeIncreased
             }
 
-            FocusScope {
-                id: passwordContainer
+            StyledTextField {
+                id: passwordField
 
-                property string passwordBuffer: ""
-
-                objectName: "passwordContainer"
                 Layout.topMargin: Tokens.spacing.largeIncreased
                 Layout.fillWidth: true
-                implicitHeight: Math.max(48, charList.implicitHeight + Tokens.padding.medium * 2)
+                placeholderText: qsTr("Password")
+                leadingIcon: "key"
+                echoMode: TextInput.Password
+                isError: connectButton.hasError
                 focus: true
-                activeFocusOnTab: true
 
-                Component.onCompleted: {
-                    if (root.shouldBeVisible) {
-                        // Use Timer for actual delay to ensure focus works correctly
-                        passwordFocusTimer.start();
+                onAccepted: {
+                    if (connectButton.enabled) {
+                        connectButton.clicked();
                     }
                 }
 
-                Keys.onPressed: event => {
-                    // Ensure we have focus when receiving keyboard input
-                    if (!activeFocus) {
-                        forceActiveFocus();
-                    }
-
-                    if (event.key === Qt.Key_Escape) {
-                        event.accepted = false;
-                        closeDialog();
-                    }
-
-                    // Clear error when user starts typing
-                    if (connectButton.hasError && event.text && event.text.length > 0) {
+                onTextEdited: {
+                    if (connectButton.hasError) {
                         connectButton.hasError = false;
-                    }
-
-                    if (event.key === Qt.Key_Enter || event.key === Qt.Key_Return) {
-                        if (connectButton.enabled) {
-                            connectButton.clicked();
-                        }
-                        event.accepted = true;
-                    } else if (event.key === Qt.Key_Backspace) {
-                        if (event.modifiers & Qt.ControlModifier) {
-                            passwordBuffer = "";
-                        } else {
-                            passwordBuffer = passwordBuffer.slice(0, -1);
-                        }
-                        event.accepted = true;
-                    } else if (event.text && event.text.length > 0) {
-                        if (event.key === Qt.Key_Tab) {
-                            event.accepted = false;
-                            return;
-                        }
-                        passwordBuffer += event.text;
-                        event.accepted = true;
                     }
                 }
 
                 Connections {
                     function onShouldBeVisibleChanged(): void {
                         if (root.shouldBeVisible) {
-                            // Use Timer for actual delay to ensure focus works correctly
-                            passwordFocusTimer.start();
-                            passwordContainer.passwordBuffer = "";
+                            passwordField.text = "";
                             connectButton.hasError = false;
+                            focusTimer.start();
                         }
                     }
 
                     target: root
-                }
-
-                Timer {
-                    id: passwordFocusTimer
-
-                    interval: 50
-                    onTriggered: {
-                        passwordContainer.forceActiveFocus();
-                    }
-                }
-
-                StyledRect {
-                    anchors.fill: parent
-                    radius: Tokens.rounding.large
-                    color: passwordContainer.activeFocus ? Qt.lighter(Colours.tPalette.m3surfaceContainer, 1.05) : Colours.tPalette.m3surfaceContainer
-                    border.width: passwordContainer.activeFocus || connectButton.hasError ? 4 : (root.shouldBeVisible ? 1 : 0)
-                    border.color: {
-                        if (connectButton.hasError) {
-                            return Colours.palette.m3error;
-                        }
-                        if (passwordContainer.activeFocus) {
-                            return Colours.palette.m3primary;
-                        }
-                        return root.shouldBeVisible ? Colours.palette.m3outline : "transparent";
-                    }
-
-                    Behavior on border.color {
-                        CAnim {}
-                    }
-
-                    Behavior on border.width {
-                        CAnim {}
-                    }
-
-                    Behavior on color {
-                        CAnim {}
-                    }
-                }
-
-                StateLayer {
-                    hoverEnabled: false
-                    cursorShape: Qt.IBeamCursor
-                    radius: Tokens.rounding.large
-                    onClicked: passwordContainer.forceActiveFocus()
-                }
-
-                StyledText {
-                    id: placeholder
-
-                    anchors.centerIn: parent
-                    text: qsTr("Password")
-                    color: Colours.palette.m3outline
-                    font: Tokens.font.mono.medium
-                    opacity: passwordContainer.passwordBuffer ? 0 : 1
-
-                    Behavior on opacity {
-                        Anim {
-                            type: Anim.DefaultEffects
-                        }
-                    }
-                }
-
-                ListView {
-                    id: charList
-
-                    readonly property int fullWidth: count * (implicitHeight + spacing) - spacing
-
-                    anchors.centerIn: parent
-                    implicitWidth: fullWidth
-                    implicitHeight: Tokens.font.body.medium.pointSize
-
-                    orientation: Qt.Horizontal
-                    spacing: Tokens.spacing.extraSmall
-                    interactive: false
-
-                    model: ScriptModel {
-                        values: passwordContainer.passwordBuffer.split("")
-                    }
-
-                    delegate: StyledRect {
-                        id: ch
-
-                        implicitWidth: implicitHeight
-                        implicitHeight: charList.implicitHeight
-
-                        color: Colours.palette.m3onSurface
-                        radius: Tokens.rounding.medium / 2
-
-                        opacity: 0
-                        scale: 0
-                        Component.onCompleted: {
-                            opacity = 1;
-                            scale = 1;
-                        }
-                        ListView.onRemove: removeAnim.start()
-
-                        SequentialAnimation {
-                            id: removeAnim
-
-                            PropertyAction {
-                                target: ch
-                                property: "ListView.delayRemove"
-                                value: true
-                            }
-                            ParallelAnimation {
-                                Anim {
-                                    type: Anim.DefaultEffects
-                                    target: ch
-                                    property: "opacity"
-                                    to: 0
-                                }
-                                Anim {
-                                    target: ch
-                                    property: "scale"
-                                    to: 0.5
-                                }
-                            }
-                            PropertyAction {
-                                target: ch
-                                property: "ListView.delayRemove"
-                                value: false
-                            }
-                        }
-
-                        Behavior on opacity {
-                            Anim {
-                                type: Anim.DefaultEffects
-                            }
-                        }
-
-                        Behavior on scale {
-                            Anim {
-                                type: Anim.FastSpatial
-                            }
-                        }
-                    }
-
-                    Behavior on implicitWidth {
-                        Anim {}
-                    }
                 }
             }
 
@@ -495,14 +289,14 @@ ColumnLayout {
                     inactiveColour: Colours.palette.m3primary
                     inactiveOnColour: Colours.palette.m3onPrimary
                     text: qsTr("Connect")
-                    enabled: passwordContainer.passwordBuffer.length > 0 && !connecting
+                    enabled: (passwordField?.text?.length ?? 0) > 0 && !connecting
 
                     onClicked: {
                         if (!root.network || connecting) {
                             return;
                         }
 
-                        const password = passwordContainer.passwordBuffer;
+                        const password = passwordField.text;
                         if (!password || password.length === 0) {
                             return;
                         }
@@ -526,7 +320,7 @@ ColumnLayout {
                                 hasError = true;
                                 enabled = true;
                                 text = qsTr("Connect");
-                                passwordContainer.passwordBuffer = "";
+                                passwordField.text = "";
                                 // Delete the failed connection
                                 if (root.network && root.network.ssid) {
                                     Nmcli.forgetNetwork(root.network.ssid);
@@ -538,7 +332,7 @@ ColumnLayout {
                                 hasError = true;
                                 enabled = true;
                                 text = qsTr("Connect");
-                                passwordContainer.passwordBuffer = "";
+                                passwordField.text = "";
                                 // Delete the failed connection
                                 if (root.network && root.network.ssid) {
                                     Nmcli.forgetNetwork(root.network.ssid);
@@ -611,7 +405,9 @@ ColumnLayout {
                 connectButton.hasError = true;
                 connectButton.enabled = true;
                 connectButton.text = qsTr("Connect");
-                passwordContainer.passwordBuffer = "";
+                if (passwordField) {
+                    passwordField.text = "";
+                }
                 // Delete the failed connection
                 Nmcli.forgetNetwork(ssid);
             }
