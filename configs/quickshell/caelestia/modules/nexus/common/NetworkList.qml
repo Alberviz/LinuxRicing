@@ -61,9 +61,19 @@ ItemList {
 
         onClicked: {
             if (!modelData.active) {
-                NetworkConnection.handleConnect(modelData);
-                currentSelected = true;
-                root.networkSelected(modelData);
+                if (modelData.isSecure && !Nmcli.hasSavedProfile(modelData.ssid)) {
+                    root.nState.selectedNetworkSsid = modelData.ssid;
+                    root.nState.pendingNetwork = modelData;
+                    root.nState.openSubPage(7);
+                } else {
+                    currentSelected = true;
+                    root.networkSelected(modelData);
+                    NetworkConnection.handleConnect(modelData, null, net => {
+                        root.nState.selectedNetworkSsid = net.ssid;
+                        root.nState.pendingNetwork = net;
+                        root.nState.openSubPage(7);
+                    });
+                }
             } else {
                 // Active network: open its detail/settings sub-page.
                 root.nState.selectedNetworkSsid = modelData.ssid;

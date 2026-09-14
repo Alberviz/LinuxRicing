@@ -15,6 +15,7 @@ QtObject {
     property DesktopEntry selectedApp
     property int editingVpnIndex: -1
     property string selectedNetworkSsid
+    property var pendingNetwork: null
     property string selectedEthernetInterface
     property bool networkDetailsFromSaved
 
