@@ -135,6 +135,7 @@ ColumnLayout {
                             root.connectingToSsid = networkItem.modelData.ssid;
                             NetworkConnection.handleConnect(networkItem.modelData, null, network => {
                                 // Password is required - show password dialog
+                                root.popouts.passwordNetwork = network;
                                 root.passwordNetwork = network;
                                 root.showPasswordDialog = true;
                                 root.popouts.currentName = "wirelesspassword";
@@ -345,9 +346,10 @@ ColumnLayout {
             if (Nmcli.active && root.connectingToSsid === Nmcli.active.ssid) {
                 root.connectingToSsid = "";
                 // Close password dialog if we successfully connected
-                if (root.showPasswordDialog && root.passwordNetwork && Nmcli.active.ssid === root.passwordNetwork.ssid) {
+                if (root.showPasswordDialog && (root.passwordNetwork || root.popouts.passwordNetwork) && Nmcli.active.ssid === (root.passwordNetwork?.ssid ?? root.popouts.passwordNetwork?.ssid)) {
                     root.showPasswordDialog = false;
                     root.passwordNetwork = null;
+                    root.popouts.passwordNetwork = null;
                     if (root.popouts.currentName === "wirelesspassword") {
                         root.popouts.currentName = "network";
                     }
@@ -369,6 +371,7 @@ ColumnLayout {
             if (root.popouts.currentName !== "wirelesspassword" && root.showPasswordDialog) {
                 root.showPasswordDialog = false;
                 root.passwordNetwork = null;
+                root.popouts.passwordNetwork = null;
             }
         }
 

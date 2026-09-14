@@ -417,20 +417,17 @@ Singleton {
             immediateCheckTimer.start();
         }
 
-        if (password && password.length > 0 && hasBssid) {
-            const bssidUpper = bssid.toUpperCase();
-            createConnectionWithPassword(ssid, bssidUpper, password, callback);
-            return;
-        }
-
         let cmd = [root.nmcliCommandDevice, root.nmcliCommandWifi, "connect", ssid];
         if (password && password.length > 0) {
             cmd.push(root.connectionParamPassword, password);
         }
         executeCommand(cmd, result => {
             if (result.needsPassword && callback) {
-                if (callback)
-                    callback(result);
+                connectionCheckTimer.stop();
+                immediateCheckTimer.stop();
+                immediateCheckTimer.checkCount = 0;
+                root.pendingConnection = null;
+                callback(result);
                 return;
             }
 
@@ -439,7 +436,19 @@ Singleton {
                 Qt.callLater(() => {
                     connectWireless(ssid, password, bssid, callback, retries + 1);
                 }, 1000);
-            } else if (!result.success && root.pendingConnection) {} else if (result.success && callback) {} else if (!result.success && !root.pendingConnection) {
+            } else if (result.success && callback) {
+                connectionCheckTimer.stop();
+                immediateCheckTimer.stop();
+                immediateCheckTimer.checkCount = 0;
+                root.pendingConnection = null;
+                callback(result);
+            } else if (!result.success) {
+                if (root.pendingConnection) {
+                    connectionCheckTimer.stop();
+                    immediateCheckTimer.stop();
+                    immediateCheckTimer.checkCount = 0;
+                    root.pendingConnection = null;
+                }
                 if (callback)
                     callback(result);
             }
@@ -664,9 +673,14 @@ Singleton {
 
         const isSecure = security && security !== "none";
 
+        if (!hidden) {
+            connectWireless(ssid, isSecure ? password : "", "", callback);
+            return;
+        }
+
         // Remove any stale profile with the same name first so we don't collide.
         checkAndDeleteConnection(ssid, () => {
-            let cmd = [root.nmcliCommandConnection, "add", root.connectionParamType, root.deviceTypeWifi, root.connectionParamConName, ssid, root.connectionParamIfname, "*", root.connectionParamSsid, ssid, root.connectionParamHidden, hidden ? "yes" : "no"];
+            let cmd = [root.nmcliCommandConnection, "add", root.connectionParamType, root.deviceTypeWifi, root.connectionParamConName, ssid, root.connectionParamIfname, "*", root.connectionParamSsid, ssid, root.connectionParamHidden, "yes"];
 
             if (isSecure) {
                 cmd.push(root.securityKeyMgmt, root.keyMgmtWpaPsk, root.securityPsk, password);
@@ -1458,7 +1472,7 @@ Singleton {
     Timer {
         id: connectionCheckTimer
 
-        interval: 4000
+        interval: 13000
         onTriggered: {
             if (root.pendingConnection) {
                 const connected = root.active && root.active.ssid === root.pendingConnection.ssid;
