@@ -23,6 +23,8 @@ Singleton {
     property list<string> savedConnectionSsids: []
     // Map of saved Wi-Fi SSID (lowercased) -> security type
     property var savedConnectionSecurity: ({})
+    // Map of saved Wi-Fi SSID (lowercased) -> real connection profile name
+    property var savedSsidToName: ({})
 
     property var wifiConnectionQueue: []
     property int currentSsidQueryIndex: 0
@@ -74,7 +76,7 @@ Singleton {
             return false;
         }
 
-        return (error.includes("Secrets were required") || error.includes("Secrets were required, but not provided") || error.includes("No secrets provided") || error.includes("802-11-wireless-security.psk") || error.includes("password for") || (error.includes("password") && !error.includes("Connection activated") && !error.includes("successfully")) || (error.includes("Secrets") && !error.includes("Connection activated") && !error.includes("successfully")) || (error.includes("802.11") && !error.includes("Connection activated") && !error.includes("successfully"))) && !error.includes("Connection activated") && !error.includes("successfully");
+        return (error.includes("Secrets were required") || error.includes("Secrets were required, but not provided") || error.includes("No secrets provided") || error.includes("no-secrets") || error.toLowerCase().includes("no-secrets") || error.includes("802-11-wireless-security.psk") || error.includes("password for") || (error.includes("password") && !error.includes("Connection activated") && !error.includes("successfully")) || (error.includes("Secrets") && !error.includes("Connection activated") && !error.includes("successfully")) || (error.includes("802.11") && !error.includes("Connection activated") && !error.includes("successfully"))) && !error.includes("Connection activated") && !error.includes("successfully");
     }
 
     function parseNetworkOutput(output: string): list<var> {
@@ -500,6 +502,9 @@ Singleton {
 
     function activateConnection(connectionName: string, callback: var): void {
         executeCommand([root.nmcliCommandConnection, "up", connectionName], result => {
+            if (result && !result.needsPassword && (root.detectPasswordRequired(result.error) || root.detectPasswordRequired(result.output))) {
+                result.needsPassword = true;
+            }
             if (callback)
                 callback(result);
         });
@@ -511,6 +516,7 @@ Singleton {
                 root.savedConnections = [];
                 root.savedConnectionSsids = [];
                 root.savedConnectionSecurity = {};
+                root.savedSsidToName = {};
                 if (callback)
                     callback([]);
                 return;
@@ -541,6 +547,7 @@ Singleton {
         root.savedConnections = connections;
 
         root.savedConnectionSecurity = {};
+        root.savedSsidToName = {};
 
         if (wifiConnections.length > 0) {
             root.wifiConnectionQueue = wifiConnections;
@@ -562,7 +569,7 @@ Singleton {
 
             executeCommand(["-t", "-f", `${root.wirelessSsidField},${root.securityKeyMgmt}`, root.nmcliCommandConnection, "show", connectionName], result => {
                 if (result.success) {
-                    processSsidOutput(result.output);
+                    processSsidOutput(result.output, connectionName);
                 }
                 queryNextSsid(callback);
             });
@@ -574,7 +581,7 @@ Singleton {
         }
     }
 
-    function processSsidOutput(output: string): void {
+    function processSsidOutput(output: string, connectionName: string): void {
         const ssidPrefix = "802-11-wireless.ssid:";
         const keyMgmtPrefix = `${root.securityKeyMgmt}:`;
 
@@ -591,6 +598,12 @@ Singleton {
             return;
 
         const ssidLower = ssid.toLowerCase();
+
+        if (connectionName && connectionName.length > 0) {
+            const nameMap = Object.assign({}, root.savedSsidToName);
+            nameMap[ssidLower.trim()] = connectionName;
+            root.savedSsidToName = nameMap;
+        }
 
         const exists = root.savedConnectionSsids.some(s => s && s.toLowerCase() === ssidLower);
         if (!exists) {
@@ -764,6 +777,15 @@ Singleton {
         });
     }
 
+    // Resuelve el nombre real del perfil para un SSID (puede diferir del SSID,
+    // p.ej. nmcli le pone un sufijo automático "SSID 1"). Si no lo encuentra, usa el SSID tal cual.
+    function savedProfileNameFor(ssid: string): string {
+        if (!ssid || ssid.length === 0)
+            return ssid;
+        const ssidLower = ssid.toLowerCase().trim();
+        return root.savedSsidToName[ssidLower] || root.savedConnections.find(conn => conn && conn.toLowerCase().trim() === ssidLower) || ssid;
+    }
+
     function forgetNetwork(ssid: string, callback: var): void {
         if (!ssid || ssid.length === 0) {
             if (callback)
@@ -776,7 +798,7 @@ Singleton {
             return;
         }
 
-        const connectionName = root.savedConnections.find(conn => conn && conn.toLowerCase().trim() === ssid.toLowerCase().trim()) || ssid;
+        const connectionName = savedProfileNameFor(ssid);
 
         executeCommand([root.nmcliCommandConnection, "delete", connectionName], result => {
             if (result.success) {
@@ -1743,7 +1765,7 @@ Singleton {
                         return;
                     }
 
-                    const needsPassword = cmdIsConnection && root.detectPasswordRequired(error);
+                    const needsPassword = cmdIsConnection && (root.detectPasswordRequired(error) || root.detectPasswordRequired(output));
 
                     if (!success && cmdIsConnection && root.pendingConnection) {
                         const failedSsid = root.pendingConnection.ssid;

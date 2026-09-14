@@ -70,7 +70,20 @@ QtObject {
             const hasSavedProfile = Nmcli.hasSavedProfile(network.ssid);
 
             if (hasSavedProfile) {
-                Nmcli.connectToNetwork(network.ssid, "", network.bssid, null);
+                // Activa el perfil existente directamente ("nmcli connection up") en vez de
+                // "device wifi connect", que crearía un perfil duplicado. Si falla por falta
+                // de secreto guardado (perfil roto/secretless), lo borra y abre el diálogo de contraseña.
+                Nmcli.activateConnection(Nmcli.savedProfileNameFor(network.ssid), result => {
+                    if (result && result.needsPassword) {
+                        Nmcli.forgetNetwork(network.ssid, null);
+                        if (session && session.network) {
+                            session.network.showPasswordDialog = true;
+                            session.network.pendingNetwork = network;
+                        } else if (onPasswordNeeded) {
+                            onPasswordNeeded(network);
+                        }
+                    }
+                });
             } else {
                 // Use password check with callback
                 Nmcli.connectToNetworkWithPasswordCheck(network.ssid, network.isSecure, result => {
