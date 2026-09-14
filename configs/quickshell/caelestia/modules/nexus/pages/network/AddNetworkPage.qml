@@ -59,18 +59,6 @@ PageBase {
         width: root.cappedWidth
         spacing: Tokens.spacing.large
 
-        Connections {
-            function onSubPageClosed(): void {
-                if (root.success)
-                    return;
-
-                const ssid = ssidField.text.trim();
-                if (ssid)
-                    Nmcli.forgetNetwork(ssid);
-            }
-
-            target: root.nState
-        }
 
         StyledText {
             Layout.fillWidth: true
@@ -101,7 +89,7 @@ PageBase {
             first: true
             text: qsTr("Hidden network")
             subtext: qsTr("Actively probe for a network that doesn't broadcast its name")
-            checked: true
+            checked: false
         }
 
         SelectRow {
@@ -144,6 +132,7 @@ PageBase {
             Layout.bottomMargin: root.secured ? 0 : -parent.spacing
             implicitHeight: root.secured ? passwordField.implicitHeight : 0
             opacity: root.secured ? 1 : 0
+            clip: true
 
             Behavior on Layout.bottomMargin {
                 Anim {
@@ -166,8 +155,7 @@ PageBase {
             StyledTextField {
                 id: passwordField
 
-                anchors.left: parent.left
-                anchors.right: parent.right
+                anchors.fill: parent
 
                 enabled: root.secured
                 placeholderText: qsTr("Password")
