@@ -404,10 +404,10 @@ Detalle de cada fix:
   también resuelve nombres de perfil con sufijo automático (`"Mi Red 1"`).
 
 **Nota para Alberto**: todo el código afectado venía intacto del upstream
-[`caelestia-dots/caelestia`](https://github.com/caelestia-dots/caelestia) (GPL-3.0) —
-nunca se había tocado ahí. Una vez confirmado que funciona en real, esto es candidato
-razonable para un PR upstream (ver tarea de backlog
-[[Proponer PR a caelestia-dots — fixes del panel de WiFi]]).
+[`caelestia-dots/shell`](https://github.com/caelestia-dots/shell) (GPL-3.0) — el repo
+real donde vive el código fuente de Caelestia (`caelestia-dots/caelestia`, enlazado en
+nuestro README, es el proyecto "paraguas"/dotfiles, no el shell en sí). Nunca se había
+tocado ahí. Ver §6 para el estado real de esto en upstream.
 
 ---
 
