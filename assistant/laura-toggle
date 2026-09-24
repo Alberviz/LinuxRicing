@@ -1,22 +1,67 @@
 #!/usr/bin/env python
 """Dispara un ciclo de Laura. Atar a un atajo de Hyprland.
 
-    hl.bind("SUPER + A", hl.dsp.exec_cmd(".../laura-toggle"))
+    hl.bind("SUPER + A",         hl.dsp.exec_cmd(".../laura-toggle centro"))
+    hl.bind("SUPER + SHIFT + A", hl.dsp.exec_cmd(".../laura-toggle barra"))
 
 Un solo modo: si Laura ya está en marcha, repetir el atajo cancela el ciclo
-(lo gestiona el daemon). No lleva argumentos.
+(lo gestiona el daemon).
 """
+import glob
 import os
 import socket
+import subprocess
 import sys
+
+
+def is_power_saving() -> bool:
+    try:
+        res = subprocess.run(["powerprofilesctl", "get"], capture_output=True, text=True, timeout=1)
+        if res.stdout.strip() == "power-saver":
+            return True
+    except Exception:
+        pass
+
+    try:
+        for bat_path in glob.glob("/sys/class/power_supply/BAT*/status"):
+            with open(bat_path) as f:
+                if f.read().strip() == "Discharging":
+                    return True
+    except Exception:
+        pass
+
+    try:
+        res = subprocess.run(["qs", "-c", "caelestia", "ipc", "call", "powerSaving", "isActive"],
+                             capture_output=True, text=True, timeout=1)
+        if res.stdout.strip() == "true":
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
+mode = sys.argv[1] if len(sys.argv) > 1 else "centro"
+msg = f"activate:{mode}".encode() if mode else b"activate"
 
 path = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "laura.sock")
 try:
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.connect(path)
-    s.sendall(b"activate")
+    s.sendall(msg)
     s.close()
 except (FileNotFoundError, ConnectionRefusedError):
-    sys.stderr.write("laura: el daemon no está corriendo\n")
-    os.system("notify-send -a Laura 'Laura' 'El daemon no está corriendo'")
-    sys.exit(1)
+    if is_power_saving():
+        sys.stderr.write("laura: el asistente está desactivado en modo ahorro de batería\n")
+        subprocess.run([
+            "notify-send", "-a", "Laura", "-i", "battery-profile-powersave-symbolic",
+            "Laura en reposo", "El asistente está desactivado en modo ahorro para proteger la batería."
+        ], check=False)
+        sys.exit(0)
+    else:
+        sys.stderr.write("laura: el daemon no está corriendo\n")
+        subprocess.run([
+            "notify-send", "-a", "Laura", "-i", "dialog-error-symbolic",
+            "Laura", "El daemon no está corriendo"
+        ], check=False)
+        sys.exit(1)
