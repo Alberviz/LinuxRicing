@@ -20,6 +20,7 @@ Singleton {
 
     property int previousProfile: PowerProfile.Balanced
     property bool autoSwitchedProfile: false
+    property bool lauraAutoStopped: false
 
     function applyHyprlandConfs(): void {
         Quickshell.execDetached([
@@ -39,6 +40,18 @@ Singleton {
         }
     }
 
+    function applyLauraPowerSaving(): void {
+        Quickshell.execDetached(["systemctl", "--user", "stop", "laura"]);
+        lauraAutoStopped = true;
+    }
+
+    function restoreLauraPowerSaving(): void {
+        if (lauraAutoStopped) {
+            Quickshell.execDetached(["systemctl", "--user", "start", "laura"]);
+            lauraAutoStopped = false;
+        }
+    }
+
     function checkState(): void {
         if (active) {
             if (UPower.onBattery && PowerProfiles.profile !== PowerProfile.PowerSaver) {
@@ -47,12 +60,14 @@ Singleton {
                 PowerProfiles.profile = PowerProfile.PowerSaver;
             }
             applyHyprlandConfs();
+            applyLauraPowerSaving();
         } else {
             if (autoSwitchedProfile && PowerProfiles.profile === PowerProfile.PowerSaver) {
                 PowerProfiles.profile = previousProfile;
                 autoSwitchedProfile = false;
             }
             restoreHyprlandConfs();
+            restoreLauraPowerSaving();
         }
     }
 
