@@ -21,6 +21,7 @@ Singleton {
     property int previousProfile: PowerProfile.Balanced
     property bool autoSwitchedProfile: false
     property bool lauraAutoStopped: false
+    readonly property string tweaksScript: Quickshell.env("HOME") + "/.local/bin/caelestia-power-tweaks"
 
     function applyHyprlandConfs(): void {
         Quickshell.execDetached([
@@ -38,6 +39,14 @@ Singleton {
                 "hl.config({ animations = { enabled = true }, decoration = { blur = { enabled = true }, shadow = { enabled = true } } })"
             ]);
         }
+    }
+
+    function applyPowerTweaks(): void {
+        Quickshell.execDetached([tweaksScript, "on"]);
+    }
+
+    function restorePowerTweaks(): void {
+        Quickshell.execDetached([tweaksScript, "off"]);
     }
 
     function applyLauraPowerSaving(): void {
@@ -60,6 +69,7 @@ Singleton {
                 PowerProfiles.profile = PowerProfile.PowerSaver;
             }
             applyHyprlandConfs();
+            applyPowerTweaks();
             applyLauraPowerSaving();
         } else {
             if (autoSwitchedProfile && PowerProfiles.profile === PowerProfile.PowerSaver) {
@@ -67,6 +77,7 @@ Singleton {
                 autoSwitchedProfile = false;
             }
             restoreHyprlandConfs();
+            restorePowerTweaks();
             restoreLauraPowerSaving();
         }
     }
@@ -76,8 +87,10 @@ Singleton {
 
     Connections {
         function onConfigReloaded(): void {
-            if (root.active)
+            if (root.active) {
                 root.applyHyprlandConfs();
+                root.applyPowerTweaks();
+            }
         }
 
         target: Hypr

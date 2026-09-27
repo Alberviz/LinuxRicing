@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# ==============================================================================
+#  caelestia-power-tweaks — Gestor unificado de ahorro extremo de energía
+# ==============================================================================
+#  Controla en caliente:
+#   - Tasa de refresco del monitor (144Hz ↔ 60Hz) vía Hyprland Lua eval
+#   - Hardware: Intel No-Turbo, WiFi Power Save, Audio Power Save, dGPU runtime PM
+#   - Bluetooth: Apagado al pasar a batería (reactivable manualmente por el usuario)
+#   - Servicios: Parada de Laura, ARGB wave, Minecraft bot y OpenRGB
+#   - LEDs: Apagado completo de iluminación RGB
+# ==============================================================================
+
+set -uo pipefail
+
+ROOT_HELPER="/usr/local/bin/caelestia-power-root"
+
+get_internal_monitors() {
+    python3 -c '
+import json, subprocess
+try:
+    mons = json.loads(subprocess.check_output(["hyprctl", "monitors", "all", "-j"]))
+    for m in mons:
+        if m.get("name", "").startswith("eDP"):
+            print(m["name"])
+except Exception:
+    print("eDP-2")
+'
+}
+
+set_refresh_rate() {
+    local target_hz="$1"
+    local monitors
+    monitors=$(get_internal_monitors)
+    for mon in $monitors; do
+        hyprctl eval "hl.monitor({ output = '${mon}', mode = '1920x1080@${target_hz}.00Hz' })" >/dev/null 2>&1 || true
+    done
+}
+
+case "${1:-status}" in
+    on)
+        # 1. Aplicar tweaks de hardware privilegiados
+        if [ -x "$ROOT_HELPER" ]; then
+            sudo "$ROOT_HELPER" on
+        fi
+
+        # 2. Conmutar monitor interno a 60 Hz
+        set_refresh_rate 60
+
+        # 3. Apagar Bluetooth (ahorro de energía, pero el usuario puede reactivarlo a mano)
+        if command -v bluetoothctl >/dev/null 2>&1; then
+            bluetoothctl power off >/dev/null 2>&1 || true
+        fi
+
+        # 4. Parar daemons y servicios pesados en segundo plano
+        local_units=(
+            laura.service
+            argb-wave.service
+            minecraft-telegram-bot.service
+            openrgb.service
+        )
+        for unit in "${local_units[@]}"; do
+            systemctl --user stop "$unit" >/dev/null 2>&1 || true
+        done
+
+        # 5. Apagar LEDs RGB
+        if command -v openrgb >/dev/null 2>&1; then
+            openrgb --mode static --color 000000 >/dev/null 2>&1 || true
+        fi
+        if command -v magichome-control >/dev/null 2>&1; then
+            magichome-control off >/dev/null 2>&1 || true
+        fi
+
+        pkill -f "sync-rgb.py" >/dev/null 2>&1 || true
+        ;;
+
+    off)
+        # 1. Restaurar tweaks de hardware
+        if [ -x "$ROOT_HELPER" ]; then
+            sudo "$ROOT_HELPER" off
+        fi
+
+        # 2. Restaurar monitor interno a 144 Hz
+        set_refresh_rate 144
+
+        # 3. Reactivar Bluetooth
+        if command -v bluetoothctl >/dev/null 2>&1; then
+            bluetoothctl power on >/dev/null 2>&1 || true
+        fi
+
+        # 4. Reanudar servicios esenciales de escritorio
+        systemctl --user start openrgb.service >/dev/null 2>&1 || true
+        systemctl --user start laura.service >/dev/null 2>&1 || true
+        systemctl --user start argb-wave.service >/dev/null 2>&1 || true
+        ;;
+
+    status)
+        echo "=== Caelestia Power Tweaks Status ==="
+        if [ -x "$ROOT_HELPER" ]; then
+            sudo "$ROOT_HELPER" status
+        fi
+        echo -n "Internal Monitor(s) Hz: "
+        hyprctl monitors -j 2>/dev/null | python3 -c '
+import json, sys
+try:
+    mons = json.load(sys.stdin)
+    for m in mons:
+        if m.get("name", "").startswith("eDP"):
+            name = m.get("name")
+            rate = m.get("refreshRate", 0)
+            print(f"{name}: {rate:.2f} Hz")
+except Exception:
+    print("N/A")
+'
+        echo -n "Bluetooth Powered: "
+        bluetoothctl show 2>/dev/null | grep -i "Powered:" | awk "{print \$2}" || echo "N/A"
+        ;;
+
+    *)
+        echo "uso: caelestia-power-tweaks {on|off|status}" >&2
+        exit 2
+        ;;
+esac
