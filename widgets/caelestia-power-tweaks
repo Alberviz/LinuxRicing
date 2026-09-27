@@ -46,9 +46,11 @@ case "${1:-status}" in
         # 2. Conmutar monitor interno a 60 Hz
         set_refresh_rate 60
 
-        # 3. Apagar Bluetooth (ahorro de energía, pero el usuario puede reactivarlo a mano)
+        # 3. Apagar Bluetooth sólo si NO hay dispositivos conectados (ratón, teclado, auriculares...)
         if command -v bluetoothctl >/dev/null 2>&1; then
-            bluetoothctl power off >/dev/null 2>&1 || true
+            if ! bluetoothctl devices Connected 2>/dev/null | grep -q "Device"; then
+                bluetoothctl power off >/dev/null 2>&1 || true
+            fi
         fi
 
         # 4. Parar daemons y servicios pesados en segundo plano

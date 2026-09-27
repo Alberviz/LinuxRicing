@@ -87,10 +87,8 @@ Singleton {
 
     Connections {
         function onConfigReloaded(): void {
-            if (root.active) {
+            if (root.active)
                 root.applyHyprlandConfs();
-                root.applyPowerTweaks();
-            }
         }
 
         target: Hypr
