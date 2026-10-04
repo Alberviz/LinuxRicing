@@ -168,7 +168,7 @@ Item {
     function _bodySubtitle(b) {
         if (!b) return "";
         if (b.kind === "device")
-            return (typeof b.batt === "number") ? (Math.round(b.batt * 100) + "%") : "";
+            return (b.battKnown !== false && typeof b.batt === "number") ? (Math.round(b.batt * 100) + "%") : "";
         if (b.kind === "agent") {
             const prefix = b.ws ? ("ws " + b.ws + " · ") : "";
             const pct = (typeof b.contextRatio === "number") ? Math.round(b.contextRatio * 100) : 0;

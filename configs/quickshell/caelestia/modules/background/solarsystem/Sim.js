@@ -263,6 +263,7 @@ function computeLayout(state, geom) {
             running: running,
             alert: alert,
             batt: act,
+            battKnown: b.battKnown !== false,
             // Geometría de la órbita para la traza + la estela de cometa (la
             // dibuja la capa fina en Canvas). orbX/orbV = semiejes; oa = ángulo
             // actual; el cuerpo avanza en +oa.

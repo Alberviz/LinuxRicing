@@ -13,6 +13,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Bluetooth
 import Caelestia.Services
 import qs.services
 
@@ -114,7 +115,20 @@ Singleton {
                 orbitK: s.orbitK, phase: s.phase, period: s.period,
                 activitySignal: "batt:" + s.id,
                 alertSignal: "battLow:" + s.id,
-                sizeSignal: "batt:" + s.id
+                sizeSignal: "batt:" + s.id,
+                name: (root._battNames && root._battNames[s.id]) ? root._battNames[s.id] : ""
+            });
+        }
+        const bt = root._btDevices;
+        for (let j = 0; j < bt.length; j++) {
+            out.push({
+                id: "dev-bt-" + bt[j].id, kind: "planet", anchor: "config",
+                orbitK: 4.4 + 0.7 * j, phase: 1.3 + 1.7 * j, period: 104 + 8 * j,
+                activitySignal: "batt:bt:" + bt[j].id,
+                alertSignal: "battLow:bt:" + bt[j].id,
+                sizeSignal: "batt:bt:" + bt[j].id,
+                name: bt[j].name,
+                battKnown: bt[j].batt !== null
             });
         }
         return out;
@@ -143,6 +157,39 @@ Singleton {
     // Batería real de los tres periféricos. null = desconectado (cuerpo apagado,
     // solo un aro; nunca un porcentaje inventado — principio 5).
     property var _batt: ({ headset: null, mouse: null, keyboard: null })
+    property var _battNames: ({ headset: "", mouse: "", keyboard: "" })
+
+    // Dispositivos Bluetooth CONECTADOS que mchose-battery no cubre (p. ej.
+    // unos auriculares BT genéricos). Se deduplican por nombre: un MCHOSE/Akko
+    // ya reportado por mchose-battery no se repite. batt = 0..1 o null si el
+    // dispositivo no expone batería (entonces no se inventa porcentaje).
+    readonly property var _btDevices: {
+        const out = [];
+        const list = (Bluetooth.devices && Bluetooth.devices.values) ? Bluetooth.devices.values : [];
+        const b = root._batt || {};
+        for (let i = 0; i < list.length; i++) {
+            const d = list[i];
+            if (!d || !d.connected)
+                continue;
+            const name = d.name || d.deviceName || "";
+            const low = name.toLowerCase();
+            // ¿ya lo cubre mchose-battery?
+            let slot = "";
+            if (/v9|headset/.test(low) && /mchose/.test(low)) slot = "headset";
+            else if (/k7|mouse/.test(low) && /mchose/.test(low)) slot = "mouse";
+            else if (/akko/.test(low)) slot = "keyboard";
+            if (slot !== "" && typeof b[slot] === "number")
+                continue;
+            out.push({
+                id: String(d.address || name || i).replace(/[^A-Za-z0-9]/g, ""),
+                name: name || "Bluetooth",
+                batt: d.batteryAvailable ? Math.max(0, Math.min(1, d.battery)) : null
+            });
+            if (out.length >= 4)
+                break;
+        }
+        return out;
+    }
 
     // ¿Hay algo moviéndose? Si no, la vista PARA la animación del todo (el
     // hot-reload de Quickshell fuga los FrameAnimation zombis y un bucle a
@@ -194,6 +241,12 @@ Singleton {
             "led:akko": led.akko_keyboard ? 1.0 : 0.0,
             "led:base": led.mchose_base ? 1.0 : 0.0
         };
+        const bts = root._btDevices || [];
+        for (let k = 0; k < bts.length; k++) {
+            const bv = (bts[k].batt === null) ? 0.6 : bts[k].batt;
+            v["batt:bt:" + bts[k].id] = bv;
+            v["battLow:bt:" + bts[k].id] = bts[k].batt !== null && bts[k].batt < 0.2;
+        }
         for (let i = 0; i < (running || []).length; i++) {
             const rid = running[i].id || "?";
             v["term:" + rid] = 1.0;
@@ -319,13 +372,15 @@ Singleton {
         stdout: StdioCollector {
             onStreamFinished: {
                 try {
-                    const d = JSON.parse(text());
+                    const d = JSON.parse(text);
                     const pick = o => (o && o.connected && typeof o.battery === "number") ? o.battery : null;
                     root._batt = {
                         headset: pick(d.headset),
                         mouse: pick(d.mouse),
                         keyboard: pick(d.keyboard)
                     };
+                    const nm = o => (o && o.name) ? o.name : "";
+                    root._battNames = { headset: nm(d.headset), mouse: nm(d.mouse), keyboard: nm(d.keyboard) };
                 } catch (e) {
                     // salida vacía o inválida: se conservan los últimos valores
                 }
