@@ -74,7 +74,8 @@ Singleton {
     }
 
     // Sincronización y descubrimiento de sesiones de agentes abiertas (reposo/idle).
-    // Se ejecuta al iniciar Quickshell (running: true) y periódicamente cada 15 s.
+    // Se ejecuta al iniciar Quickshell (running: true) y periódicamente: cada 15 s
+    // en uso normal, cada 60 s en modo ahorro de energía (menos churn de procesos).
     Process {
         id: syncSessionsProc
         command: ["agent-notify", "sync-sessions"]
@@ -83,7 +84,7 @@ Singleton {
 
     Timer {
         id: syncSessionsTimer
-        interval: 15000
+        interval: PowerSaving.active ? 60000 : 15000
         running: true
         repeat: true
         onTriggered: {
@@ -282,11 +283,13 @@ Singleton {
     }
 
     // Reproduce un sonido de notificación (fire-and-forget, no bloqueante).
-    // Se salta si los sonidos están desactivados o si el modo No Molestar está activo.
+    // Se salta si los sonidos están desactivados, si el modo No Molestar está
+    // activo, o si el modo ahorro de energía está activo (batería / power-saver /
+    // <20 %): en ahorro las notificaciones de agente son mudas.
     function _playSound(path: string): void {
         if (!root.soundEnabled || !path || path.length === 0)
             return;
-        if (Notifs.dnd)
+        if (Notifs.dnd || PowerSaving.active)
             return;
         soundProcComp.createObject(root, {
             command: ["pw-play", `--volume=${root.soundVolume}`, path],

@@ -57,7 +57,7 @@ Singleton {
                 // D.bhRFrac en Sim.js) es el que realmente manda:
                 // pickAnchor(cfg,"blackhole") lo encuentra aquí y pisa el
                 // default de Sim.js.
-                motion: { kind: "fixed", fx: 0.90, fy: 0.08 }, rFrac: 0.080
+                motion: { kind: "fixed", fx: 0.86, fy: 0.09 }, rFrac: 0.26
             },
             {
                 id: "config", label: "Configuración", kind: "sun", role: "secondary",
@@ -522,6 +522,9 @@ Singleton {
 
     function setEnabled(v: bool): void {
         root.enabled = v;
+        // Al apagar el sistema solar el escritorio cae al wallpaper estático, no
+        // a negro plano. Al reactivarlo el shader lo tapa: se descarga otra vez.
+        root.showWallpaper = !v;
         root._saveState();
     }
 
@@ -541,6 +544,7 @@ Singleton {
         if (root._stateLoaded)
             stateView.setText(JSON.stringify({
                 solarSystemEnabled: root.enabled,
+                showWallpaper: root.showWallpaper,
                 targetFps: root.targetFps
             }, null, 2) + "\n");
     }
@@ -557,6 +561,8 @@ Singleton {
                 const d = JSON.parse(text());
                 if (typeof d.solarSystemEnabled === "boolean")
                     root.enabled = d.solarSystemEnabled;
+                if (typeof d.showWallpaper === "boolean")
+                    root.showWallpaper = d.showWallpaper;
                 if (typeof d.targetFps === "number" && d.targetFps >= 15)
                     root.targetFps = d.targetFps;
             } catch (e) {

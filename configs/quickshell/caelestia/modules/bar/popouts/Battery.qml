@@ -211,11 +211,12 @@ Column {
         onTriggered: Quickshell.execDetached([`${Quickshell.env("HOME")}/.local/bin/lenovo-battery-control`, boostState.active ? "--cancel" : "--boost"])
     }
 
-    // Apagar/encender el fondo del sistema solar a mano, sin entrar en modo
+    // Apagar/encender el shader del sistema solar a mano, sin entrar en modo
     // ahorro (no toca el perfil de CPU ni Hyprland — sólo descarga la vista).
+    // Al apagarlo, el escritorio cae al wallpaper estático (no a negro plano).
     ActionPill {
         icon: SolarSystemModel.enabled ? "dark_mode" : "planet"
-        label: SolarSystemModel.enabled ? qsTr("Fondo negro (apagar espacio)") : qsTr("Encender fondo espacio")
+        label: SolarSystemModel.enabled ? qsTr("Desactivar shaders (volver al wallpaper)") : qsTr("Activar sistema solar")
         accent: !SolarSystemModel.enabled
         onTriggered: SolarSystemModel.toggle()
     }

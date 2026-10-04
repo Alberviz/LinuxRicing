@@ -62,6 +62,9 @@ Variants {
         anchors.left: true
         anchors.right: true
 
+        // Click-through completo: no interfiere con clics dirigidos a capas inferiores (SolarSystemLayer).
+        mask: Region {}
+
         ShellState.ComponentRef {
             screen: win.screen
             slot: "background"
@@ -81,8 +84,10 @@ Variants {
                 anchors.fill: parent
                 // v3 (D-1): wallpaper apagado por defecto; fondo negro. Restaurable
                 // con SolarSystemModel.showWallpaper = true. No se borra Wallpaper.qml.
-                // En ahorro de energía nunca se carga (fondo negro puro).
-                active: Config.background.wallpaperEnabled && SolarSystemModel.showWallpaper && !PowerSaving.active
+                // En ahorro de energía se muestra el wallpaper estático (coste ~0)
+                // en vez del negro: lo caro (shader del sistema solar, reloj,
+                // widgets) sigue descargado, pero el fondo deja de ser negro plano.
+                active: Config.background.wallpaperEnabled && (SolarSystemModel.showWallpaper || PowerSaving.active)
 
                 sourceComponent: Wallpaper {}
             }

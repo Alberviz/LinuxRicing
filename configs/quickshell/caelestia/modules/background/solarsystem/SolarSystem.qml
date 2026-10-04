@@ -93,6 +93,23 @@ Item {
     readonly property real musicTreble: _layout && _layout.musicTreble !== undefined ? _layout.musicTreble : 0
     readonly property real musicBurstAge: _layout && _layout.musicBurstAge !== undefined ? _layout.musicBurstAge : 999
 
+    // --- Interacción con Configuración (sol/planeta secundario) ---
+    signal configClicked()
+
+    readonly property var _confSun: {
+        if (!_layout || !_layout.suns) return null;
+        for (let i = 0; i < _layout.suns.length; i++) {
+            if (_layout.suns[i].id === "config") return _layout.suns[i];
+        }
+        return null;
+    }
+
+    // Área interactiva alrededor del sol y etiqueta de Configuración
+    readonly property real configClickX: _confSun ? (_confSun.x - _confSun.r - 16) : 0
+    readonly property real configClickY: _confSun ? (_confSun.y - Math.max(_confSun.r, 24) - 16) : 0
+    readonly property real configClickW: _confSun ? (_confSun.r * 2 + 32 + 230) : 0
+    readonly property real configClickH: _confSun ? (Math.max(_confSun.r, 24) * 2 + 32) : 0
+
     // Bounding box del contenido (región de input de la tanda de interacción, D-7).
     readonly property rect contentBounds: _layout
         ? Qt.rect(_layout.bounds.x, _layout.bounds.y, _layout.bounds.w, _layout.bounds.h)
@@ -527,10 +544,31 @@ Item {
                 id: sunWrap
                 required property int index
                 readonly property var s: root._layout ? root._layout.suns[index] : null
+                readonly property bool isConfig: sunWrap.s !== null && sunWrap.s.id === "config"
+                property bool hovered: false
+
                 anchors.fill: parent
                 opacity: (root.lauraActive && sunWrap.s && sunWrap.s.id === "laura")
                     ? 1 : root._dimK
                 Behavior on opacity { NumberAnimation { duration: 380; easing.type: Easing.OutCubic } }
+
+                // Anillo sutil de hover interactivo para el planeta/sol de Configuración
+                Rectangle {
+                    visible: sunWrap.isConfig
+                    x: (sunWrap.s ? sunWrap.s.x : 0) - width / 2
+                    y: (sunWrap.s ? sunWrap.s.y : 0) - height / 2
+                    width: (sunWrap.s ? sunWrap.s.r * 2 : 0) + 16
+                    height: width
+                    radius: width / 2
+                    color: "transparent"
+                    border.color: root.colPrimary
+                    border.width: 1.5
+                    opacity: sunWrap.hovered ? 0.8 : 0.0
+
+                    Behavior on opacity {
+                        NumberAnimation { duration: 200; easing.type: Easing.OutCubic }
+                    }
+                }
 
                 BodyLabel {
                     variant: "B"
@@ -543,10 +581,24 @@ Item {
                     targetRadius: sunWrap.s ? sunWrap.s.r : 0
                     title: sunWrap.s ? (root._labelNames[sunWrap.s.id] || "") : ""
                     subtitle: ""
-                    emphasis: 0.55
+                    emphasis: (sunWrap.isConfig && sunWrap.hovered) ? 1.0 : 0.55
                     col: sunWrap.s
                         ? (sunWrap.s.id === "laura" ? root.colLaura : root.colPrimary)
                         : root.colInk
+                }
+
+                MouseArea {
+                    id: configMouseArea
+                    visible: sunWrap.isConfig
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    x: root.configClickX
+                    y: root.configClickY
+                    width: root.configClickW
+                    height: root.configClickH
+                    onEntered: sunWrap.hovered = true
+                    onExited: sunWrap.hovered = false
+                    onClicked: root.configClicked()
                 }
             }
         }

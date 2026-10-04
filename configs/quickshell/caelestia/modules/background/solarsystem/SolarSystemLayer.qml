@@ -39,8 +39,19 @@ Variants {
         anchors.left: true
         anchors.right: true
 
-        // Click-through completo (sin interacción en esta tanda — D-7).
-        mask: Region {}
+        Region {
+            id: clickMask
+
+            Region {
+                x: solarLoader.item ? Math.round(solarLoader.item.configClickX) : 0
+                y: solarLoader.item ? Math.round(solarLoader.item.configClickY) : 0
+                width: solarLoader.item ? Math.round(solarLoader.item.configClickW) : 0
+                height: solarLoader.item ? Math.round(solarLoader.item.configClickH) : 0
+            }
+        }
+
+        // Interacción con el planeta Configuración; fuera de él, click-through total.
+        mask: clickMask
 
         // Esta ventana ES el fondo negro del escritorio: siempre presente y opaca.
         // Lo que se enciende/apaga es su CONTENIDO (el Loader de abajo).
@@ -60,6 +71,10 @@ Variants {
 
             sourceComponent: SolarSystem {
                 anchors.fill: parent
+
+                onConfigClicked: {
+                    ShellState.rgbControl?.open();
+                }
 
                 config: SolarSystemModel.config
                 values: SolarSystemModel.values

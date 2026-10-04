@@ -60,8 +60,8 @@ Item {
 
     readonly property var _l: layout && layout.suns && layout.suns.length >= 2 && layout.bh ? layout : null
     readonly property point _bhCenter: _l ? Qt.point(_l.bh.x, _l.bh.y)
-                                          : Qt.point(width * 0.90, height * 0.08)
-    readonly property real _bhRadius: _l ? _l.bh.R : height * 0.080
+                                          : Qt.point(width * 0.86, height * 0.09)
+    readonly property real _bhRadius: _l ? _l.bh.R : height * 0.26
     // El giro se deriva del `time` continuo (que avanza a ~30 fps), NO del
     // layout de Sim (que se recalcula a ~10 fps): así el beaming/Doppler del
     // disco es fluido aunque las posiciones de los soles se refresquen despacio.
@@ -78,53 +78,21 @@ Item {
     readonly property real _beltSpin: (2 * Math.PI / 1400) * time
     readonly property real _beltDensity: _l && _l.belt && _l.belt.density !== undefined ? _l.belt.density : 0.28
 
-    // Texturas de lente gravitacional (geodésica real de Schwarzschild,
-    // horneadas offline — ver shaders/gen_lut_final.py). Ocultas, solo sirven
-    // de fuente de textura para el ShaderEffect. Una por orden de imagen
-    // (0=directa, 1=envolvente): el azimut va en 16 bits (g=hi, b=lo) porque
-    // la cizalla de sampleDisk() amplifica ~15x cualquier escalón de 8 bits.
-    Image {
-        id: lensLUT0Image
-        source: Qt.resolvedUrl("shaders/lens_lut_order0.png")
-        visible: false
-        smooth: true
-        mipmap: false
-        fillMode: Image.PreserveAspectFit
-        sourceSize: Qt.size(896, 896)
-    }
-    Image {
-        id: lensLUT1Image
-        source: Qt.resolvedUrl("shaders/lens_lut_order1.png")
-        visible: false
-        smooth: true
-        mipmap: false
-        fillMode: Image.PreserveAspectFit
-        sourceSize: Qt.size(896, 896)
-    }
-
     ShaderEffect {
         anchors.fill: parent
         fragmentShader: Qt.resolvedUrl("shaders/solarfield.frag.qsb")
         blending: true
 
-        property variant lensLUT0: lensLUT0Image
-        property variant lensLUT1: lensLUT1Image
-
         // nombres = uniforms del shader (buf). `focusAmt` no `focus`: `focus` es
         // una propiedad FINAL de QQuickItem y no se puede sombrear.
         property real time: root.time
         property real music: root.music
-        property real musicProgress: root.musicProgress
-        property real musicPulse: root.musicPulse
-        property real musicBass: root.musicBass
-        property real musicTreble: root.musicTreble
-        property real musicBurstAge: root.musicBurstAge
         property real focusAmt: root.lauraFocus
         property real lauraAmp: root.lauraAmp
 
         property real bhRadius: root._bhRadius
         property real bhSpin: root._bhSpin
-        property real bhTilt: -0.35
+        property real bhTilt: -0.489
 
         property real sun0Radius: root.confRadius
         property real sun1Radius: root.lauraRadius
@@ -142,6 +110,11 @@ Item {
         property real beltTilt: root._beltTilt
         property real beltSpin: root._beltSpin
         property real beltDensity: root._beltDensity
+        property real musicProgress: root.musicProgress
+        property real musicPulse: root.musicPulse
+        property real musicBass: root.musicBass
+        property real musicTreble: root.musicTreble
+        property real musicBurstAge: root.musicBurstAge
 
         property color colPrimary: root.colPrimary
         property color colLaura: root.colLaura
