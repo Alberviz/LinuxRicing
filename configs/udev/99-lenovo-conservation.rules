@@ -1,0 +1,1 @@
+ACTION=="add|change", SUBSYSTEM=="platform", DRIVERS=="ideapad_acpi", RUN+="/usr/bin/chmod 0666 /sys/bus/platform/drivers/ideapad_acpi/VPC2004:00/conservation_mode"

@@ -50,6 +50,11 @@ Item {
             readonly property bool running: Agents.hasRunningForWs(modelData) && !Agents.hasCompletedForWs(modelData)
             readonly property color ringColour: running ? Qt.rgba(0.93, 1.0, 0.97, 1.0) : Colours.palette.m3primary
 
+            // Late el halo solo cuando hay agente en curso Y no estamos en ahorro
+            // de energía: en batería el anillo queda estático y visible (sigues
+            // sabiendo qué workspace tiene agente) pero sin bucle de animación.
+            readonly property bool pulsing: running && !PowerSaving.active
+
             // 0..1, animado por el estilo de pulso activo
             property real pulse: 1.0
             property real pulseScale: 1.0
@@ -87,7 +92,8 @@ Item {
                     border.color: halo.ringColour
                     opacity: halo.running ? 0.5 * halo.pulse : 0.32
 
-                    layer.enabled: true
+                    // En ahorro no se instancia el blur (gaussian por-píxel).
+                    layer.enabled: !PowerSaving.active
                     layer.effect: MultiEffect {
                         blurEnabled: true
                         blur: 0.85
@@ -108,7 +114,7 @@ Item {
 
             // ---- Estilo A: parpadeo blanco ----
             SequentialAnimation {
-                running: halo.running && Agents.runningStyle === "blink"
+                running: halo.pulsing && Agents.runningStyle === "blink"
                 loops: Animation.Infinite
 
                 NumberAnimation { target: halo; property: "pulse"; to: 1.0; duration: 90; easing.type: Easing.OutQuad }
@@ -119,7 +125,7 @@ Item {
 
             // ---- Estilo B: respiración en color de paleta ----
             SequentialAnimation {
-                running: halo.running && Agents.runningStyle === "breathe"
+                running: halo.pulsing && Agents.runningStyle === "breathe"
                 loops: Animation.Infinite
 
                 ParallelAnimation {
@@ -132,8 +138,10 @@ Item {
                 }
             }
 
-            // Al dejar de estar "en curso", devolver el pulso a reposo.
-            onRunningChanged: if (!running) {
+            // Al dejar de latir (agente terminado, o entrada en modo ahorro con un
+            // agente aún en curso), devolver el pulso a reposo para que el anillo
+            // no se quede clavado a medio parpadeo.
+            onPulsingChanged: if (!pulsing) {
                 pulse = 1.0;
                 pulseScale = 1.0;
             }

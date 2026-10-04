@@ -74,7 +74,8 @@ Singleton {
     }
 
     // Sincronización y descubrimiento de sesiones de agentes abiertas (reposo/idle).
-    // Se ejecuta al iniciar Quickshell (running: true) y periódicamente cada 15 s.
+    // Se ejecuta al iniciar Quickshell (running: true) y periódicamente: cada 15 s
+    // en uso normal, cada 60 s en modo ahorro de energía (menos churn de procesos).
     Process {
         id: syncSessionsProc
         command: ["agent-notify", "sync-sessions"]
@@ -83,7 +84,7 @@ Singleton {
 
     Timer {
         id: syncSessionsTimer
-        interval: 15000
+        interval: PowerSaving.active ? 60000 : 15000
         running: true
         repeat: true
         onTriggered: {
@@ -194,6 +195,7 @@ Singleton {
         const nm = data.name || "Agente";
         const alreadyRunning = na !== "" && root.runningAgents.some(a => root._normAddr(a.address) === na);
 
+        const existingRatio = (root.sessions.find(s => root._normAddr(s.address) === na) || {}).contextRatio;
         const entry = {
             id: data.id || `agent-${Date.now()}`,
             name: nm,
@@ -203,6 +205,8 @@ Singleton {
             dir: data.dir || "",
             ws: data.ws || 1,
             address: address,
+            contextRatio: (typeof data.contextRatio === "number") ? data.contextRatio : (existingRatio !== undefined ? existingRatio : 0.25),
+            contextTokens: data.contextTokens || 0,
             startTime: data.startTime || Date.now(),
             time: new Date()
         };
@@ -237,6 +241,7 @@ Singleton {
         const address = data.address || "";
         const na = root._normAddr(address);
         const nm = data.name || "Agente";
+        const existingRatio = (root.sessions.find(s => root._normAddr(s.address) === na) || {}).contextRatio;
         const entry = {
             id: data.id || `agent-${Date.now()}`,
             name: nm,
@@ -246,6 +251,8 @@ Singleton {
             dir: data.dir || "",
             ws: data.ws || 1,
             address: address,
+            contextRatio: (typeof data.contextRatio === "number") ? data.contextRatio : (existingRatio !== undefined ? existingRatio : 0.25),
+            contextTokens: data.contextTokens || 0,
             duration: data.duration || "",
             time: new Date(),
             seen: false
@@ -276,11 +283,13 @@ Singleton {
     }
 
     // Reproduce un sonido de notificación (fire-and-forget, no bloqueante).
-    // Se salta si los sonidos están desactivados o si el modo No Molestar está activo.
+    // Se salta si los sonidos están desactivados, si el modo No Molestar está
+    // activo, o si el modo ahorro de energía está activo (batería / power-saver /
+    // <20 %): en ahorro las notificaciones de agente son mudas.
     function _playSound(path: string): void {
         if (!root.soundEnabled || !path || path.length === 0)
             return;
-        if (Notifs.dnd)
+        if (Notifs.dnd || PowerSaving.active)
             return;
         soundProcComp.createObject(root, {
             command: ["pw-play", `--volume=${root.soundVolume}`, path],
@@ -357,9 +366,21 @@ Singleton {
             ws: data.ws || 1,
             address: address,
             pid: data.pid || 0,
+            contextRatio: (typeof data.contextRatio === "number") ? data.contextRatio : 0.25,
+            contextTokens: data.contextTokens || 0,
             startTime: data.startTime || Date.now(),
             time: new Date()
         };
+
+        const existing = root.sessions.find(s => (na !== "" && root._normAddr(s.address) === na) || s.id === entry.id);
+        if (existing &&
+            existing.name === entry.name &&
+            existing.ws === entry.ws &&
+            existing.pid === entry.pid &&
+            existing.dir === entry.dir &&
+            Math.abs((existing.contextRatio || 0) - entry.contextRatio) < 0.015) {
+            return; // Datos idénticos: no invalidar bindings reactivos
+        }
 
         root.sessions = [
             ...root.sessions.filter(s => (na === "" || root._normAddr(s.address) !== na) && s.id !== entry.id),

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Control de Batería Lenovo
+GenericName=Gestor de Batería y Conservación
+Comment=Carga al 100% una sola vez o ajusta el Modo Conservación al 80%
+Exec=lenovo-battery-control --gui
+Icon=battery-charging
+Terminal=false
+Type=Application
+Categories=Settings;HardwareSettings;Utility;
+Keywords=battery;bateria;lenovo;carga;conservation;boost;
+StartupNotify=true
