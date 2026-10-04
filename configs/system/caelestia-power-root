@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# ==============================================================================
+#  caelestia-power-root — helper privilegiado para ahorro extremo de energía
+# ==============================================================================
+set -euo pipefail
+
+KBD_LED="/sys/class/leds/platform::kbd_backlight/brightness"
+STATE_DIR="/run/caelestia-power"
+KBD_STATE="$STATE_DIR/kbd_brightness"
+
+case "${1:-}" in
+    on)
+        # 1. Desactivar Intel Turbo Boost (evita picos de 55W+ a 5.0 GHz)
+        if [ -f /sys/devices/system/cpu/intel_pstate/no_turbo ]; then
+            echo 1 > /sys/devices/system/cpu/intel_pstate/no_turbo
+        fi
+
+        # 2. Activar WiFi Power Save (IEEE 802.11 powersave)
+        if command -v iw >/dev/null 2>&1; then
+            iw dev wlan0 set power_save on 2>/dev/null || true
+        fi
+
+        # 3. Activar ahorro de energía en codec de audio Intel
+        if [ -f /sys/module/snd_hda_intel/parameters/power_save ]; then
+            echo 1 > /sys/module/snd_hda_intel/parameters/power_save 2>/dev/null || true
+        fi
+
+        # 4. Asegurar runtime PM auto para dGPU NVIDIA (permite suspender a D3cold)
+        if [ -f /sys/bus/pci/devices/0000:01:00.0/power/control ]; then
+            echo auto > /sys/bus/pci/devices/0000:01:00.0/power/control 2>/dev/null || true
+        fi
+
+        # 5. Apagar teclado retroiluminado, guardando el brillo para restaurarlo en `off`.
+        #    Solo se guarda si no hay ya un valor guardado (dos `on` seguidos no guardan 0).
+        if [ -f "$KBD_LED" ]; then
+            if [ ! -f "$KBD_STATE" ]; then
+                cur="$(cat "$KBD_LED" 2>/dev/null || true)"
+                if [[ "$cur" =~ ^[0-9]+$ ]]; then
+                    mkdir -p "$STATE_DIR" 2>/dev/null || true
+                    echo "$cur" > "$KBD_STATE" 2>/dev/null || true
+                fi
+            fi
+            echo 0 > "$KBD_LED" 2>/dev/null || true
+        fi
+        ;;
+
+    off)
+        # 1. Restaurar Intel Turbo Boost
+        if [ -f /sys/devices/system/cpu/intel_pstate/no_turbo ]; then
+            echo 0 > /sys/devices/system/cpu/intel_pstate/no_turbo
+        fi
+
+        # 2. Desactivar WiFi Power Save (máximo rendimiento y menor latencia con cable)
+        if command -v iw >/dev/null 2>&1; then
+            iw dev wlan0 set power_save off 2>/dev/null || true
+        fi
+
+        # 3. Restaurar audio power save
+        if [ -f /sys/module/snd_hda_intel/parameters/power_save ]; then
+            echo 0 > /sys/module/snd_hda_intel/parameters/power_save 2>/dev/null || true
+        fi
+
+        # 4. Restaurar brillo del teclado retroiluminado (solo si `on` lo guardó)
+        if [ -f "$KBD_STATE" ]; then
+            saved="$(cat "$KBD_STATE" 2>/dev/null || true)"
+            if [[ "$saved" =~ ^[0-9]+$ ]] && [ -f "$KBD_LED" ]; then
+                echo "$saved" > "$KBD_LED" 2>/dev/null || true
+            fi
+            rm -f "$KBD_STATE"
+        fi
+        ;;
+
+    status)
+        echo "=== Hardware Power Saving Status ==="
+        echo -n "Intel No-Turbo: "
+        cat /sys/devices/system/cpu/intel_pstate/no_turbo 2>/dev/null || echo "N/A"
+        echo -n "WiFi Power Save: "
+        iw dev wlan0 get power_save 2>/dev/null || echo "N/A"
+        echo -n "Audio Power Save: "
+        cat /sys/module/snd_hda_intel/parameters/power_save 2>/dev/null || echo "N/A"
+        echo -n "NVIDIA Runtime PM: "
+        cat /sys/bus/pci/devices/0000:01:00.0/power/runtime_status 2>/dev/null || echo "N/A"
+        ;;
+
+    *)
+        echo "uso: caelestia-power-root {on|off|status}" >&2
+        exit 2
+        ;;
+esac

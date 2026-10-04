@@ -186,6 +186,17 @@ if [ "$SELECTED_WIDGETS" = true ]; then
             echo -e "  ${WARNING}ℹ No se pudo instalar el helper (sin sudo). El botón de modo servidor no funcionará hasta hacerlo.${RESET}"
         fi
     fi
+
+    # 3d. Ahorro extremo de energía: helper privilegiado (no_turbo, WiFi/audio PM, teclado).
+    PW_ROOT_SRC="$BASE_DIR/configs/system/caelestia-power-root"
+    if [ -f "$PW_ROOT_SRC" ]; then
+        echo -e "${PRIMARY}➔ Instalando helper privilegiado de ahorro de energía (pide sudo)...${RESET}"
+        if sudo install -m 0755 -o root -g root "$PW_ROOT_SRC" /usr/local/bin/caelestia-power-root; then
+            echo -e "  ${SUCCESS}✔ /usr/local/bin/caelestia-power-root${RESET}"
+        else
+            echo -e "  ${WARNING}ℹ No se pudo instalar caelestia-power-root (sin sudo). El ahorro extremo no aplicará tweaks de hardware.${RESET}"
+        fi
+    fi
 fi
 
 # 4. Instalar Google Tasks CLI
