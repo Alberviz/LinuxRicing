@@ -21,9 +21,14 @@ ColumnLayout {
 
     spacing: Tokens.spacing.medium
 
+    // Un solo titulo: con la lista vacia el estado vacio ya dice "No Notifications",
+    // asi que la cabecera se oculta para no repetirlo; el conteo usa notClosed (igual que el modelo).
     StyledText {
+        readonly property int count: Notifs.notClosed.length
+
         Layout.fillWidth: true
-        text: Notifs.list.length > 0 ? qsTr("%1 notification%2").arg(Notifs.list.length).arg(Notifs.list.length === 1 ? "" : "s") : qsTr("Notifications")
+        visible: count > 0 && !Config.lock.hideNotifs
+        text: qsTr("%1 notification%2").arg(count).arg(count === 1 ? "" : "s")
         color: Colours.palette.m3outline
         font: Tokens.font.mono.builders.small.weight(Font.Medium).build()
         elide: Text.ElideRight
@@ -42,12 +47,13 @@ ColumnLayout {
             asynchronous: true
             anchors.centerIn: parent
             active: opacity > 0
-            opacity: Notifs.list.length > 0 && !Config.lock.hideNotifs ? 0 : 1
+            opacity: Notifs.notClosed.length > 0 && !Config.lock.hideNotifs ? 0 : 1
 
             sourceComponent: ColumnLayout {
                 spacing: Tokens.spacing.largeIncreased
 
                 Image {
+                    visible: Config.paths.lockNoNotifsPic.length > 0
                     asynchronous: true
                     source: Paths.absolutePath(Config.paths.lockNoNotifsPic)
                     fillMode: Image.PreserveAspectFit
