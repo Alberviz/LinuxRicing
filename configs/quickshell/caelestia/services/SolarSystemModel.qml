@@ -541,12 +541,19 @@ Singleton {
     }
 
     function _saveState(): void {
-        if (root._stateLoaded)
-            stateView.setText(JSON.stringify({
-                solarSystemEnabled: root.enabled,
-                showWallpaper: root.showWallpaper,
-                targetFps: root.targetFps
-            }, null, 2) + "\n");
+        if (!root._stateLoaded)
+            return;
+        // Read-modify-write: conservar claves ajenas (p.ej. powerSavingOverride de PowerSaving.qml)
+        let cur = {};
+        try {
+            const parsed = JSON.parse(stateView.text());
+            if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+                cur = parsed;
+        } catch (e) {}
+        cur.solarSystemEnabled = root.enabled;
+        cur.showWallpaper = root.showWallpaper;
+        cur.targetFps = root.targetFps;
+        stateView.setText(JSON.stringify(cur, null, 2) + "\n");
     }
 
     FileView {
