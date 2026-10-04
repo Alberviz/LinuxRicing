@@ -1,0 +1,5 @@
+# Regla de privilegio del "modo ahorro" de Caelestia.
+# install.sh la copia a /etc/sudoers.d/caelestia-power-root (modo 0440) tras
+# validarla con `visudo -c`. Autoriza sin contrasena SOLO el helper acotado
+# (on / off / status); ninguna otra cosa.
+alberviz ALL=(root) NOPASSWD: /usr/local/bin/caelestia-power-root

@@ -15,6 +15,7 @@
 #    widgets/{caelestia-server-mode,volver-escritorio} -> ~/.local/bin/  (modo servidor)
 #    configs/system/caelestia-server-mode-root  -> /usr/local/bin/        (sudo, helper acotado)
 #    configs/system/caelestia-server-mode.sudoers -> /etc/sudoers.d/caelestia-server-mode (0440)
+#    configs/system/caelestia-power-root{,.sudoers} -> /usr/local/bin/ + /etc/sudoers.d/caelestia-power-root (ahorro)
 #    widgets/{gtasks,desktop-deck-helper,display-selector,magichome-control,lenovo-battery-control} -> ~/.local/bin/
 #    configs/applications/lenovo-battery-control.desktop -> ~/.local/share/applications/
 #    configs/udev/99-lenovo-conservation.rules -> /etc/udev/rules.d/  (manual, con sudo)
@@ -195,6 +196,18 @@ if [ "$SELECTED_WIDGETS" = true ]; then
         echo -e "${PRIMARY}➔ Instalando helper privilegiado de ahorro de energía (pide sudo)...${RESET}"
         if sudo install -m 0755 -o root -g root "$PW_ROOT_SRC" /usr/local/bin/caelestia-power-root; then
             echo -e "  ${SUCCESS}✔ /usr/local/bin/caelestia-power-root${RESET}"
+            PW_SUDOERS_SRC="$BASE_DIR/configs/system/caelestia-power-root.sudoers"
+            if [ -f "$PW_SUDOERS_SRC" ]; then
+                PW_TMP="$(mktemp)"
+                install -m 0440 "$PW_SUDOERS_SRC" "$PW_TMP"
+                if visudo -cf "$PW_TMP" >/dev/null 2>&1; then
+                    sudo install -m 0440 -o root -g root "$PW_TMP" /etc/sudoers.d/caelestia-power-root
+                    echo -e "  ${SUCCESS}✔ /etc/sudoers.d/caelestia-power-root${RESET}"
+                else
+                    echo -e "  ${ERROR}✖ La regla sudoers no valida con visudo; se omite. Revisa $PW_SUDOERS_SRC${RESET}"
+                fi
+                rm -f "$PW_TMP"
+            fi
         else
             echo -e "  ${WARNING}ℹ No se pudo instalar caelestia-power-root (sin sudo). El ahorro extremo no aplicará tweaks de hardware.${RESET}"
         fi
