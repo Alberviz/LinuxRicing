@@ -196,7 +196,7 @@ vec4 shadeThin(vec4 s, float dop, float seed, vec4 J){
         float dr = (rc - rh) / 0.55, dp = dphi * rh / 0.8;
         hot = exp(-(dr * dr + dp * dp)) * exp(-beatAge / 1.1) * smoothstep(0.0, 0.08, beatAge);
     }
-    float I = lip * gS * ((1.5 * exp(-4.0 * rn) + 0.16) * vein * (0.85 + (0.3 + 0.35 * musicTreble * mAct) * n.y)
+    float I = lip * gS * ((1.7 * exp(-5.0 * rn) + 0.07) * vein * (0.85 + (0.3 + 0.35 * musicTreble * mAct) * n.y)
                           + 0.9 * exp(-(rc - R_ISCO) * 2.5));
     I *= 1.0 + 0.35 * musicBass * mAct * inner;
     I += lip * gS * 1.1 * hot * mAct;
