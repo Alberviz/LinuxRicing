@@ -271,6 +271,7 @@ function computeLayout(state, geom) {
             name: b.name,
             provider: b.provider,
             ws: b.ws,
+            startTime: b.startTime,
             // Un dispositivo NO está «terminado»: status "device" (si no, hereda
             // el halo y el parpadeo de «¡hecho!» de los agentes).
             status: b.status || (isDevice ? "device" : (running ? "running" : "done")),

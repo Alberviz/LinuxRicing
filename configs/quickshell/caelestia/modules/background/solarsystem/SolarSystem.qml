@@ -227,19 +227,35 @@ Item {
         if (b.name && b.name.length) return b.name;          // agentes (del modelo)
         return root._labelNames[b.id] || "";
     }
-    // Subtítulo: SÓLO dato real. Dispositivo → batería; agente → estado. Nada más.
+    // Subtítulo (solo en hover): SÓLO dato real.
+    // Agente: ws · estado · % ctx · modelo (proveedor) · tiempo de sesión.
+    // Dispositivo: batería · carga · conexión.
+    function _fmtDur(ms) {
+        const m = Math.floor(ms / 60000);
+        if (m < 1) return "<1 min";
+        if (m < 60) return m + " min";
+        return Math.floor(m / 60) + " h " + (m % 60) + " min";
+    }
     function _bodySubtitle(b) {
         if (!b) return "";
-        if (b.kind === "device")
-            return (b.battKnown !== false && typeof b.batt === "number") ? (Math.round(b.batt * 100) + "%") : "";
+        if (b.kind === "device") {
+            const parts = [];
+            if (b.battKnown !== false && typeof b.batt === "number")
+                parts.push(Math.round(b.batt * 100) + "%");
+            if (b.charging) parts.push("cargando");
+            parts.push("conectado");
+            return parts.join(" · ");
+        }
         if (b.kind === "agent") {
-            const prefix = b.ws ? ("ws " + b.ws + " · ") : "";
+            const parts = [];
+            if (b.ws) parts.push("ws " + b.ws);
+            parts.push(b.running ? "en curso" : (b.status === "done" ? "hecho" : "sesión"));
             const pct = (typeof b.contextRatio === "number") ? Math.round(b.contextRatio * 100) : 0;
-            const ctxText = (pct > 0) ? (" · " + pct + "% ctx") : "";
-            if (b.running) return prefix + "en curso" + ctxText;
-            if (b.status === "done") return prefix + "hecho" + ctxText;
-            if (b.status === "session") return prefix + "sesión" + ctxText;
-            return prefix + "sesión" + ctxText;
+            if (pct > 0) parts.push(pct + "% ctx");
+            if (b.provider) parts.push(b.provider);
+            if (typeof b.startTime === "number" && b.startTime > 0)
+                parts.push(_fmtDur(Date.now() - b.startTime));
+            return parts.join(" · ");
         }
         return "";
     }
@@ -371,7 +387,7 @@ Item {
                 angle: binTrace.bn ? binTrace.bn.tilt * 180 / Math.PI : 0
             }
             ShapePath {
-                strokeColor: Qt.rgba(root.colLaura.r, root.colLaura.g, root.colLaura.b, 0.03 + 0.32 * root.zLaura)
+                strokeColor: Qt.rgba(root.colLaura.r, root.colLaura.g, root.colLaura.b, 0.07 + 0.48 * root.zLaura)
                 strokeWidth: 1.2 * binTrace.k
                 fillColor: "transparent"
                 PathAngleArc {
@@ -383,7 +399,7 @@ Item {
                 }
             }
             ShapePath {
-                strokeColor: Qt.rgba(root.colPrimary.r, root.colPrimary.g, root.colPrimary.b, 0.03 + 0.32 * root.zConfig)
+                strokeColor: Qt.rgba(root.colPrimary.r, root.colPrimary.g, root.colPrimary.b, 0.07 + 0.48 * root.zConfig)
                 strokeWidth: 1.2 * binTrace.k
                 fillColor: "transparent"
                 PathAngleArc {
@@ -424,7 +440,7 @@ Item {
                            : (isDone ? Math.min(0.70, baseA * 3.8) : Math.min(0.18, baseA * 0.9)))
 
                 // Estelas: en calma, a ~45 %; con hover en la zona, plenas.
-                readonly property real trailK: 0.45 + 0.55 * zone
+                readonly property real trailK: 0.25 + 0.75 * zone
                 readonly property real deg: b ? (b.oa * 180 / Math.PI) : 0
                 readonly property real spanDeg: isRunning
                     ? (1.30 * 180 / Math.PI)
@@ -435,12 +451,27 @@ Item {
                 Shape {
                     anchors.fill: parent
 
+                    // 0 · Resplandor de la órbita (solo con hover; GPU, sin blur)
+                    ShapePath {
+                        strokeColor: Qt.rgba(orbitItem.col.r, orbitItem.col.g, orbitItem.col.b, 0.12 * orbitItem.zone)
+                        strokeWidth: 5 * orbitItem.scaleFactor
+                        fillColor: "transparent"
+                        PathAngleArc {
+                            centerX: orbitItem.b ? orbitItem.b.hostx : 0
+                            centerY: orbitItem.b ? orbitItem.b.hosty : 0
+                            radiusX: orbitItem.b ? orbitItem.b.orbX : 0
+                            radiusY: orbitItem.b ? orbitItem.b.orbV : 0
+                            startAngle: 0
+                            sweepAngle: 360
+                        }
+                    }
+
                     // 1 · Elipse orbital completa
                     ShapePath {
-                        // Calma: casi invisible (~0.03). Con hover en su zona: ~0.35.
+                        // Calma: visible pero finísima. Hover en su zona: se marca.
                         strokeColor: Qt.rgba(orbitItem.col.r, orbitItem.col.g, orbitItem.col.b,
-                                             0.03 + 0.32 * orbitItem.zone)
-                        strokeWidth: (orbitItem.isRunning ? 1.4 : (orbitItem.isSession ? 0.75 : 1.0)) * orbitItem.scaleFactor
+                                             0.07 + 0.48 * orbitItem.zone)
+                        strokeWidth: (0.55 + 0.65 * orbitItem.zone) * orbitItem.scaleFactor
                         fillColor: "transparent"
                         PathAngleArc {
                             centerX: orbitItem.b ? orbitItem.b.hostx : 0
@@ -682,7 +713,7 @@ Item {
                 angle: cometLayer.c ? cometLayer.c.tilt * 180 / Math.PI : 0
             }
             ShapePath {
-                strokeColor: Qt.rgba(cometLayer.tint.r, cometLayer.tint.g, cometLayer.tint.b, 0.03 + 0.32 * root.zComet)
+                strokeColor: Qt.rgba(cometLayer.tint.r, cometLayer.tint.g, cometLayer.tint.b, 0.07 + 0.48 * root.zComet)
                 strokeWidth: 1 * cometLayer.sc
                 fillColor: "transparent"
                 PathAngleArc {
@@ -907,10 +938,11 @@ Item {
                 required property int index
                 readonly property var b: root._layout ? root._layout.bodies[index] : null
                 anchors.fill: parent
-                // Sin etiqueta en calma: aparece con fundido al enfocar su zona.
+                // Todos los astros llevan etiqueta (tenue); con hover en su zona se marca y
+                // muestra el detalle (subtítulo).
                 readonly property real zone: root._zoneOfBody(satWrap.b)
-                opacity: root._dimK * zone
-                visible: zone > 0.01 && satWrap.b !== null && root._bodyName(satWrap.b).length > 0
+                opacity: root._dimK * root._dimOf(zone)
+                visible: satWrap.b !== null && root._bodyName(satWrap.b).length > 0
 
                 BodyLabel {
                     variant: "B"
@@ -922,8 +954,9 @@ Item {
                     labelY: satWrap.b ? satWrap.b.ly : 0
                     targetRadius: satWrap.b ? satWrap.b.r : 0
                     title: root._bodyName(satWrap.b)
-                    subtitle: root._bodySubtitle(satWrap.b)
-                    emphasis: root._bodyEmphasis(satWrap.b)
+                    subtitle: satWrap.zone > 0.01 ? root._bodySubtitle(satWrap.b) : ""
+                    detailAmount: satWrap.zone
+                    emphasis: Math.min(1, 0.16 + 0.12 * root._bodyEmphasis(satWrap.b) + 0.45 * satWrap.zone)
                     col: root._bodyCol(satWrap.b)
                     showReticle: false
                 }
@@ -944,48 +977,45 @@ Item {
     // recálculo: el sistema está congelado (`simTime` latcheado) y el shader no
     // necesita repintar (su `time` es `simTime`, el latido de Laura va por
     // `lauraAmp`). Siempre restart limpio del shell, nunca hot-reload.
-    FrameAnimation {
+    // Ritmo ADAPTATIVO (CPU en reposo): el movimiento orbital es lentísimo, así que
+    // en reposo bastan ~6 fps. Hover/transición de zona o de foco-Laura: `targetFps`;
+    // música sonando (cava va a 25 Hz) o agente «terminado» parpadeando: 30. Timer (no FrameAnimation): no despierta a
+    // cada vsync y el intervalo es regulable.
+    readonly property bool _hovering: hoverZone !== "" || hoverAny > 0.001
+        || Math.abs(lauraFocus - (lauraActive ? 1 : 0)) > 0.001
+    readonly property real _fps: _hovering ? (targetFps > 0 ? targetFps : 60)
+        : (fastRate ? Math.min(30, targetFps > 0 ? targetFps : 30) : (_anyDone ? 30 : 6))
+    Timer {
         id: clock
+        repeat: true
+        interval: Math.round(1000 / root._fps)
         running: root.visible && !root.paused && !root.reduceMotion
+        property double last: 0
         onTriggered: {
-            if (root.targetFps > 0) {
-                const targetInterval = 1.0 / root.targetFps;
-                root._accFrame += frameTime;
-                if (root._accFrame < targetInterval)
-                    return;
-            }
-            const dt = root.targetFps > 0 ? root._accFrame : frameTime;
-            root._accFrame = 0;
+            const now = Date.now();
+            let dt = last > 0 ? (now - last) / 1000 : interval / 1000;
+            last = now;
+            if (dt > 0.5) dt = 0.5;
 
-            root._t += dt;                       // reloj del shader: Capped a targetFps (60 fps por defecto)
+            root._t += dt;
             if (root.lauraActive)
                 return;                          // sistema congelado: nada que recalcular
             root.bhPhase += dt * (2 * Math.PI / 150) * (1 - 0.75 * root.zBh);
-            root._accSim += dt;
-            if (root._accSim >= 0.033) {          // ~30 fps: posiciones (Sim)
-                root._accSim = 0;
-                root._recompute();
-            }
-            // Pulsos de UI: sólo si hay algún cuerpo que los use, y a ~25 fps.
+            root._recompute();
+            // Pulsos de UI: sólo si hay algún cuerpo que los use.
             if (root._anyAlert || root._anyRunning || root._anyDone || root._anyCharging) {
-                root._accPulse += dt;
-                if (root._accPulse >= 0.04) {
-                    root._accPulse = 0;
-                    if (root._anyAlert)
-                        root._alertPulse = 0.5 + 0.5 * Math.sin(root._t * 1.4);
-                    if (root._anyRunning)
-                        root._ringPulse = 0.5 + 0.5 * Math.sin(root._t * 0.7);
-                    if (root._anyCharging)
-                        root._chargePulse = 0.5 + 0.5 * Math.sin(root._t * 0.9);
-                    if (root._anyDone)
-                        root._donePulse = 0.5 + 0.5 * Math.sin(root._t * 4.2);
-                }
+                if (root._anyAlert)
+                    root._alertPulse = 0.5 + 0.5 * Math.sin(root._t * 1.4);
+                if (root._anyRunning)
+                    root._ringPulse = 0.5 + 0.5 * Math.sin(root._t * 0.7);
+                if (root._anyCharging)
+                    root._chargePulse = 0.5 + 0.5 * Math.sin(root._t * 0.9);
+                if (root._anyDone)
+                    root._donePulse = 0.5 + 0.5 * Math.sin(root._t * 4.2);
             }
         }
-        onRunningChanged: if (!running) { root._accSim = 0; root._accFrame = 0; root._recompute(); }
+        onRunningChanged: { last = 0; if (!running) root._recompute(); }
     }
-    property real _accSim: 0
-    property real _accFrame: 0
 
     // Transición del foco-Laura: repinta la capa fina mientras `lauraFocus`
     // anima (el shader del fondo dima solo, atado a `lauraFocus` por binding).

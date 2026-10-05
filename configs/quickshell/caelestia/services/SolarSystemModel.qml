@@ -535,6 +535,7 @@ Singleton {
                     ring: isRunning,
                     alertSignal: isDone ? ("alert:" + bid) : undefined,
                     provider: provider,
+                    startTime: a.startTime,
                     activitySignal: "term:" + bid,
                     providerSignal: "provider:" + bid,
                     sizeSignal: "size:" + bid

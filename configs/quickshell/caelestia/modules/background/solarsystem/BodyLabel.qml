@@ -54,6 +54,8 @@ Item {
     // en curso, alerta de batería < 20 %) para que no se apilen dos círculos.
     // El nombre, la regla y el dato se conservan.
     property bool showReticle: true
+    // 0..1: cuánto se muestra el subtítulo (detalle) y cuánto se marca el título.
+    property real detailAmount: 1
 
     // ---- Fuente ----
     // Familia por defecto: la mono con la que ya viene configurado el shell
@@ -156,7 +158,7 @@ Item {
             id: titleText
             text: root.title.toUpperCase()
             color: root.col
-            opacity: root._restOpacity
+            opacity: Math.min(1, root._restOpacity * (1 + 0.5 * root.detailAmount))
             renderType: Text.NativeRendering
             font.family: root.fontFamily
             font.pixelSize: root._titlePx
@@ -178,7 +180,7 @@ Item {
             visible: root._hasSub
             text: root.subtitle
             color: root.col
-            opacity: root._restOpacity * 0.68
+            opacity: root._restOpacity * 0.68 * root.detailAmount
             renderType: Text.NativeRendering
             font.family: root.fontFamily
             font.pixelSize: root._subPx
