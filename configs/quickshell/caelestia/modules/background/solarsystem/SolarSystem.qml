@@ -46,6 +46,9 @@ Item {
     property color colSurface: "#0c0e12"
     property color colSurfaceC: "#161a1f"
     property color colOutline: "#70767e"
+    // Colores de proveedor: Claude = secondary, Gemini = tertiaryContainer (roles en vivo).
+    readonly property color claudeCol: colSecondary
+    readonly property color geminiCol: colTertiaryC
     property color colVoid: "#050302"          // horizonte de sucesos (darker(m3surface, 3))
     readonly property color _hot: _lit(colPrimary, 0.86)
 
@@ -58,6 +61,7 @@ Item {
     property var agentProviderColours: ({})
 
     property bool paused: false
+    property bool onBattery: false             // con cargador: tasa completa siempre
     property bool reduceMotion: false
     property bool active: false                // ¿hay un agente en curso? (sube el ritmo del Sim)
     property bool fastRate: false              // ¿música sonando? (sube el ritmo del Sim)
@@ -182,6 +186,7 @@ Item {
 
     // --- Interacción con Configuración (sol/planeta secundario) ---
     signal configClicked()
+    signal cometClicked()
 
     readonly property var _confSun: {
         if (!_layout || !_layout.suns) return null;
@@ -289,6 +294,8 @@ Item {
         if (!b) return root.colInk;
         if (b.alert > 0.5) return root.colError;
         if (b.kind === "agent") {
+            if (b.provider === "claude") return root.claudeCol;
+            if (b.provider === "gemini") return root.geminiCol;
             const pc = root.agentProviderColours[b.provider];
             return (pc !== undefined && pc !== null) ? pc : root.colLaura;
         }
@@ -781,8 +788,8 @@ Item {
                     Shape {
                         anchors.fill: parent
                         ShapePath {
-                            strokeColor: Qt.rgba(moonItem.mc.r, moonItem.mc.g, moonItem.mc.b, 0.10)
-                            strokeWidth: 0.6
+                            strokeColor: Qt.rgba(moonItem.mc.r, moonItem.mc.g, moonItem.mc.b, 0.24)
+                            strokeWidth: 0.7
                             fillColor: "transparent"
                             PathAngleArc {
                                 centerX: moonHost.b.x; centerY: moonHost.b.y
@@ -932,6 +939,17 @@ Item {
                     horizontalAlignment: cometTasks.onLeft ? Text.AlignRight : Text.AlignLeft
                 }
             }
+        }
+
+        // Clic en la cabeza del cometa: abre el panel de tareas.
+        MouseArea {
+            visible: cometLayer.c !== null
+            x: cometLayer.c ? cometLayer.c.x - 24 * cometLayer.sc : 0
+            y: cometLayer.c ? cometLayer.c.y - 24 * cometLayer.sc : 0
+            width: 48 * cometLayer.sc
+            height: 48 * cometLayer.sc
+            cursorShape: Qt.PointingHandCursor
+            onClicked: root.cometClicked()
         }
     }
 
@@ -1097,8 +1115,11 @@ Item {
     // cada vsync y el intervalo es regulable.
     readonly property bool _hovering: hoverId !== "" || hoverAny > 0.001
         || Math.abs(lauraFocus - (lauraActive ? 1 : 0)) > 0.001
-    readonly property real _fps: _hovering ? (targetFps > 0 ? targetFps : 60)
-        : (fastRate ? Math.min(30, targetFps > 0 ? targetFps : 30) : (_anyDone ? 30 : 6))
+    readonly property real _fullFps: targetFps > 0 ? targetFps : 60
+    // Enchufado (!onBattery): SIEMPRE tasa completa. En batería: ritmo adaptativo.
+    readonly property real _fps: !onBattery ? _fullFps
+        : (_hovering ? _fullFps
+        : (fastRate ? Math.min(30, _fullFps) : (_anyDone ? 30 : 6)))
     Timer {
         id: clock
         repeat: true

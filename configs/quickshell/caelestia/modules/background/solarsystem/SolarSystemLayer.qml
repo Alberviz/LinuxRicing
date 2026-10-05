@@ -48,6 +48,9 @@ Variants {
         // Lo que se enciende/apaga es su CONTENIDO (el Loader de abajo).
         visible: true
 
+        // Panel completo de tareas (se abre con clic en el cometa).
+        property bool tasksPanelOpen: false
+
         // El sistema solar entero — shader GPU, capa Canvas y el FrameAnimation —
         // se DESCARGA (no se pausa: Loader.active) cuando:
         //   · el modo ahorro está activo (batería / perfil power-saver / <20 %), o
@@ -66,6 +69,7 @@ Variants {
                 onConfigClicked: {
                     ShellState.rgbControl?.open();
                 }
+                onCometClicked: win.tasksPanelOpen = true
 
                 config: SolarSystemModel.config
                 values: SolarSystemModel.values
@@ -77,6 +81,7 @@ Variants {
                 // En modo juego el shell congela sus animaciones; el sistema solar
                 // hace lo mismo para no competir por GPU.
                 paused: GameMode.enabled
+                onBattery: PowerSaving.onBattery
 
                 // Modo Laura activa (D-12): al hablarle a Laura, el sistema se
                 // congela y oscurece y Laura brilla latiendo con su voz.
@@ -110,6 +115,23 @@ Variants {
                 colInk: Colours.palette.m3onSurface
                 colVoid: Qt.darker(Colours.palette.m3surface, 3)
             }
+        }
+
+        // Widget de tareas debajo del reloj (arriba a la izquierda). Fuera del Loader: se
+        // ve también en modo ahorro / fondo negro (no tiene animaciones ni shader).
+        // Márgenes alineados con el reloj de Background.qml. Los bordes inferior (~230 px)
+        // y derecho (~70 px) no reciben clics: los tapa la capa de drawers de Caelestia.
+        TasksWidget {
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.leftMargin: 104
+            anchors.topMargin: 180
+        }
+
+        TasksPanel {
+            anchors.fill: parent
+            open: win.tasksPanelOpen
+            onClosed: win.tasksPanelOpen = false
         }
     }
 }

@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+"""tasks-index — agrupa las tareas (notas de Obsidian) de todos los repos registrados.
+
+  tasks-index scan [--print]               escribe ~/.cache/tasks.json
+  tasks-index set <repo> <nota> <estado>   cambia solo la línea `estado:` de la nota
+  tasks-index add <repo> "título" [-p N] [-a area]   crea una nota nueva
+
+Cada nota es un .md con frontmatter (`estado`, `prioridad`, `area`, `esfuerzo`).
+`set` y `add` imprimen una línea JSON {"ok": ...} y reescanean el caché.
+"""
+import argparse
+import json
+import os
+import re
+import sys
+import tempfile
+import urllib.parse
+from datetime import datetime
+from pathlib import Path
+
+REPOS_FILE = Path.home() / ".config/caelestia/task-repos.json"
+CACHE_FILE = Path.home() / ".cache/tasks.json"
+OBSIDIAN_FILE = Path.home() / ".config/obsidian/obsidian.json"
+ESTADOS = ("pendiente", "en-curso", "hecha", "idea")
+FM_RE = re.compile(r"\A---\n(.*?)\n---\n", re.S)
+
+
+def atomic_write(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(tmp, path)
+
+
+def load_repos() -> list[dict]:
+    try:
+        repos = json.loads(REPOS_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    for r in repos:
+        r["_dir"] = Path(os.path.expanduser(r["backlog"]))
+    return repos
+
+
+def obsidian_vaults() -> list[tuple[Path, str]]:
+    """[(raíz del vault, id)] según la config de Obsidian, de la raíz más profunda a la más corta."""
+    try:
+        d = json.loads(OBSIDIAN_FILE.read_text(encoding="utf-8"))["vaults"]
+    except (OSError, ValueError, KeyError):
+        return []
+    out = [(Path(v["path"]), vid) for vid, v in d.items()]
+    return sorted(out, key=lambda x: len(x[0].parts), reverse=True)
+
+
+def obsidian_uri(path: Path, vaults, fallback_vault: str) -> str:
+    """URI obsidian:// a una nota. Usa el id del vault (el nombre puede repetirse: dos vaults
+    se llaman «vault») y la ruta relativa real; si Obsidian no conoce el vault, cae al nombre."""
+    for root, vid in vaults:
+        try:
+            rel = path.relative_to(root)
+        except ValueError:
+            continue
+        return f"obsidian://open?vault={vid}&file={urllib.parse.quote(str(rel.with_suffix('')))}"
+    return f"obsidian://open?vault={urllib.parse.quote(fallback_vault)}&file={urllib.parse.quote('Backlog/' + path.stem)}"
+
+
+def parse_frontmatter(text: str) -> dict | None:
+    m = FM_RE.match(text)
+    if not m:
+        return None
+    fm = {}
+    for line in m.group(1).split("\n"):
+        k, sep, v = line.partition(":")
+        if sep and not line.startswith((" ", "\t", "-")):
+            fm[k.strip()] = v.strip().strip('"')
+    return fm
+
+
+def norm_prio(v) -> int:
+    if v == "alta":
+        return 1
+    try:
+        return max(1, min(5, int(v)))
+    except (TypeError, ValueError):
+        return 5
+
+
+def scan() -> dict:
+    out = {"generado": datetime.now().isoformat(timespec="seconds"), "avisos": [], "hoy": "", "repos": []}
+    vaults = obsidian_vaults()
+    for r in load_repos():
+        if r.get("inicio") and not out["hoy"]:
+            nota = r["_dir"].parent / f"{r['inicio']}.md"
+            out["hoy"] = obsidian_uri(nota, vaults, r["vault"])
+        d = r["_dir"]
+        repo = {"nombre": r["nombre"], "vault": r["vault"], "hechas": 0, "ideas": 0, "tareas": []}
+        if d.is_dir():
+            for f in sorted(d.glob("*.md")):
+                try:
+                    fm = parse_frontmatter(f.read_text(encoding="utf-8"))
+                except (OSError, UnicodeDecodeError) as e:
+                    out["avisos"].append(f"{f}: {e}")
+                    continue
+                if fm is None or fm.get("estado") not in ESTADOS:
+                    continue
+                estado = fm["estado"]
+                if estado == "hecha":
+                    repo["hechas"] += 1
+                    continue
+                if estado == "idea":
+                    repo["ideas"] += 1
+                    continue
+                repo["tareas"].append({
+                    "id": f"{r['nombre']}/{f.stem}", "titulo": f.stem, "estado": estado,
+                    "prioridad": norm_prio(fm.get("prioridad")), "area": fm.get("area", ""),
+                    "esfuerzo": fm.get("esfuerzo", ""), "ruta": str(f),
+                    "uri": obsidian_uri(f, vaults, r["vault"]),
+                })
+        repo["tareas"].sort(key=lambda t: (t["estado"] != "en-curso", t["prioridad"], t["titulo"]))
+        out["repos"].append(repo)
+    atomic_write(CACHE_FILE, json.dumps(out, ensure_ascii=False))
+    return out
+
+
+def find_repo(nombre: str) -> dict | None:
+    for r in load_repos():
+        if r["nombre"].lower() == nombre.lower():
+            return r
+    return None
+
+
+def resolve_note(repo: dict, nota: str):
+    """(Path, None) si hay una candidata clara; (None, [candidatos]) si no."""
+    d = repo["_dir"]
+    exact = d / f"{nota}.md"
+    if exact.is_file():
+        return exact, None
+    q = nota.lower()
+    cands = [f for f in sorted(d.glob("*.md")) if q in f.stem.lower()] if d.is_dir() else []
+    if len(cands) == 1:
+        return cands[0], None
+    return None, [c.stem for c in cands]
+
+
+def cmd_set(args) -> dict:
+    repo = find_repo(args.repo)
+    if not repo:
+        return {"ok": False, "error": f"repo desconocido: {args.repo}"}
+    if args.estado not in ESTADOS:
+        return {"ok": False, "error": f"estado inválido: {args.estado}"}
+    path, cands = resolve_note(repo, args.nota)
+    if path is None:
+        return {"ok": False, "error": "nota no encontrada o ambigua", "candidatos": cands}
+    text = path.read_text(encoding="utf-8")  # releer justo antes de escribir
+    m = FM_RE.match(text)
+    if not m:
+        return {"ok": False, "error": "la nota no tiene frontmatter"}
+    fm_block = m.group(1)
+    if re.search(r"^estado:.*$", fm_block, re.M):
+        fm_block = re.sub(r"^estado:.*$", f"estado: {args.estado}", fm_block, count=1, flags=re.M)
+    else:
+        fm_block += f"\nestado: {args.estado}"
+    atomic_write(path, f"---\n{fm_block}\n---\n" + text[m.end():])
+    scan()
+    return {"ok": True, "tarea": path.stem, "estado": args.estado}
+
+
+def cmd_add(args) -> dict:
+    repo = find_repo(args.repo)
+    if not repo:
+        return {"ok": False, "error": f"repo desconocido: {args.repo}"}
+    titulo = re.sub(r'[\\/:*?"<>|]', "", args.titulo).strip()
+    if not titulo:
+        return {"ok": False, "error": "título vacío"}
+    path = repo["_dir"] / f"{titulo}.md"
+    if path.exists():
+        return {"ok": False, "error": "ya existe una tarea con ese título"}
+    body = (
+        "---\nfileClass: Backlog\ntipo: tarea\nestado: pendiente\n"
+        f"prioridad: {norm_prio(args.prioridad)}\narea: {args.area}\norigen: Alberto\n"
+        f"esfuerzo: M\ncreado: {datetime.now().date().isoformat()}\ntags:\n  - backlog\n---\n\n# {titulo}\n"
+    )
+    atomic_write(path, body)
+    scan()
+    return {"ok": True, "tarea": titulo}
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(prog="tasks-index")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("scan")
+    s.add_argument("--print", action="store_true", dest="do_print")
+    st = sub.add_parser("set")
+    st.add_argument("repo"); st.add_argument("nota"); st.add_argument("estado")
+    ad = sub.add_parser("add")
+    ad.add_argument("repo"); ad.add_argument("titulo")
+    ad.add_argument("-p", "--prioridad", default=3)
+    ad.add_argument("-a", "--area", default="general")
+    args = p.parse_args()
+    if args.cmd == "scan":
+        data = scan()
+        if args.do_print:
+            print(json.dumps(data, ensure_ascii=False))
+        return 0
+    res = cmd_set(args) if args.cmd == "set" else cmd_add(args)
+    print(json.dumps(res, ensure_ascii=False))
+    return 0 if res.get("ok") else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

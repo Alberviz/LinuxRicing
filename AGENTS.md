@@ -16,12 +16,18 @@ Alberto usa Claude y Gemini a la vez en este repo, misma identidad git. Reparto 
 `hardware/`, `install.sh`, `systemd/`**. `git fetch` a menudo; commitear pronto (un
 `git add -A` del otro agente puede barrer tu working tree a medias).
 
+**Cursor compartido:** varias sesiones de agentes comparten el mismo ratón. Si pruebas clics con
+`ydotool` / `hyprctl dispatch 'hl.dsp.cursor.move(...)'`, avisa antes y no uses los workspaces donde
+otro agente esté probando; un clic tuyo puede caer sobre la UI de otro (pasó con el widget de tareas).
+
 ## Backlog de tareas y bitácora de sesiones
 
 `vault/🎯 Hoy.md` (+ `vault/Backlog.base` + carpeta `vault/Backlog/`) es la lista viva y
 priorizada de tareas que Alberto abre cada día. **Mantenerla es trabajo de los agentes,
 no de Alberto:**
 
+- **Atajo:** crear o cambiar de estado una tarea se hace con `tasks-index add|set` (ver «Sistema de tareas de
+  Alberto» al final); lo de abajo describe lo que hace por dentro.
 - **Cuando Alberto diga «añade una tarea», «esto para el futuro», «apunta que hay
   que…» o similar:** crea `vault/Backlog/<título>.md` con frontmatter `tipo: tarea`,
   `estado: pendiente`, `prioridad` (1 urgente … 5 algún día), `area`, `origen: Alberto`,
@@ -58,3 +64,49 @@ relato.
      ```
   3. Comprobar que la salida confirme `INFO: Configuration Loaded` sin errores de sintaxis o propiedades QML.
 
+## Sistema de tareas de Alberto (todos los repos)
+
+Las tareas de Alberto son **notas de Obsidian** en el `Backlog/` de cada repo; un indexador las
+agrupa y las muestran el **widget de tareas** (debajo del reloj del escritorio), el **cometa** del
+sistema solar y **Laura** (por voz). Para este repo (`LinuxRicing`) las notas viven en `vault/Backlog/`.
+
+Además de las tareas, `vault/🎯 Hoy.md` tiene la bitácora de sesiones y las vistas (Ideas, Pendiente, En curso, Terminado).
+
+**Formato** — un `.md` por tarea (el nombre del archivo es el título) con este frontmatter:
+
+```yaml
+---
+fileClass: Backlog
+tipo: tarea
+estado: pendiente        # pendiente | en-curso | hecha | idea  (otro valor = se ignora en silencio)
+prioridad: 3             # 1 urgente … 5 algún día
+area: general
+origen: Alberto
+esfuerzo: M              # S | M | L
+creado: 2026-10-05
+tags:
+  - backlog
+---
+```
+
+**Cómo crear y cambiar tareas — usa siempre el CLI, no escribas la nota a mano:**
+
+```bash
+tasks-index add LinuxRicing "Título de la tarea" -p 3 -a area   # crea la nota (estado: pendiente)
+tasks-index set LinuxRicing "parte del título" en-curso          # cambia SOLO la línea `estado:`
+tasks-index scan                                            # fuerza el refresco (si no, cada 30 s)
+```
+
+`set` busca por coincidencia aproximada: si el nombre es ambiguo devuelve `candidatos` y no toca
+nada. Los repos registrados están en `~/.config/caelestia/task-repos.json` (`LinuxRicing`,
+`Universidad`, `Minecraft`, `Gym`, `BarberBot`, `VuelosViajes`, `WebLaura`); un repo nuevo = una línea ahí + su `Backlog/`.
+
+**Reglas**
+- **Tarea = lo que Alberto te pide explícitamente** («apunta…», «añade una tarea…»). Las ideas
+  sueltas, lo muy complejo o lo «para el futuro» van con `estado: idea` (no salen en el widget).
+  No inventes tareas por tu cuenta.
+- Al **empezar** una tarea: `estado: en-curso`. Al **terminar**: `estado: hecha`. **Nunca borres**
+  la nota (la vista de «Hechas» es el registro).
+- Si Alberto menciona una tarea de OTRO repo, créala en el suyo (`tasks-index add <Repo> …`).
+- La nota nueva debe estar en el `Backlog/` de ESTE repo; si no sale en el widget, ejecuta
+  `tasks-index scan` y mira que el `estado` sea uno de los cuatro valores válidos.

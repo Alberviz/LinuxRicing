@@ -16,7 +16,7 @@
 #    configs/system/caelestia-server-mode-root  -> /usr/local/bin/        (sudo, helper acotado)
 #    configs/system/caelestia-server-mode.sudoers -> /etc/sudoers.d/caelestia-server-mode (0440)
 #    configs/system/caelestia-power-root{,.sudoers} -> /usr/local/bin/ + /etc/sudoers.d/caelestia-power-root (ahorro)
-#    widgets/{gtasks,desktop-deck-helper,display-selector,magichome-control,lenovo-battery-control} -> ~/.local/bin/
+#    widgets/{gtasks,tasks-index,desktop-deck-helper,display-selector,magichome-control,lenovo-battery-control} -> ~/.local/bin/
 #    configs/applications/lenovo-battery-control.desktop -> ~/.local/share/applications/
 #    configs/udev/99-lenovo-conservation.rules -> /etc/udev/rules.d/  (manual, con sudo)
 #    rgb/{sync-rgb,argb-wave}.py     -> ~/.config/caelestia/
@@ -243,6 +243,15 @@ if [ "$SELECTED_GTASKS" = true ]; then
         chmod +x "$HOME/.local/bin/gtasks"
         echo -e "  ${SUCCESS}✔ gtasks instalado en ~/.local/bin${RESET}"
     fi
+fi
+
+# 4b. Instalar tasks-index (sistema unificado de tareas)
+if [ -f "$BASE_DIR/widgets/tasks-index" ]; then
+    mkdir -p "$HOME/.local/bin" "$HOME/.config/caelestia"
+    cp -u "$BASE_DIR/widgets/tasks-index" "$HOME/.local/bin/tasks-index"
+    chmod +x "$HOME/.local/bin/tasks-index"
+    [ -f "$HOME/.config/caelestia/task-repos.json" ] || cp "$BASE_DIR/configs/caelestia/task-repos.json" "$HOME/.config/caelestia/task-repos.json"
+    echo -e "  ${SUCCESS}✔ tasks-index instalado en ~/.local/bin${RESET}"
 fi
 
 # 5. Instalar Spicetify Dynamic Material You Theme
