@@ -20,8 +20,8 @@ void main(){
     vec3 acc = vec3(0.0); float ws = 0.0;
     for (int i=-14; i<=14; i++){
         float x = float(i);
-        float w = exp(-x*x/(2.0*36.0));
-        vec2 uv = qt_TexCoord0 + dir * texel * x * 1.5;
+        float w = exp(-x*x/(2.0*12.0));
+        vec2 uv = qt_TexCoord0 + dir * texel * x * 1.2;
         acc += bright(texture(src, uv).rgb) * w; ws += w;
     }
     fragColor = vec4(acc / ws, 1.0);
