@@ -283,8 +283,12 @@ Singleton {
                 root._musicTreble = 0;
                 root._musicPulse = 0;
                 root._musicAvgSlow = 0;
-                root._musicProgress = 0;
                 root._musicBurstAge = 999.0;
+                // Progreso: en pausa se queda donde está; sin player/duración → 0.
+                const pa = Players.active;
+                const pl = pa ? pa.length : 0;
+                if (!(pl > 0))
+                    root._musicProgress = 0;
             }
         }
         onTriggered: {

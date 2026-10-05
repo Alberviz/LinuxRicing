@@ -20,6 +20,15 @@ Item {
     property real musicPulse: 0
     property real musicTreble: 0
 
+    // Versiones muy suavizadas (≈450 ms): las variantes alternativas nunca
+    // parpadean con el beat; sólo derivan despacio con la energía.
+    property real _calmBass: musicBass * 0.5
+    property real _calmPulse: musicPulse * 0.5
+    property real _calmTreble: musicTreble * 0.5
+    Behavior on _calmBass { NumberAnimation { duration: 450 } }
+    Behavior on _calmPulse { NumberAnimation { duration: 450 } }
+    Behavior on _calmTreble { NumberAnimation { duration: 450 } }
+
     // Paleta de colores M3
     property color colPrimary: "#f7b999"
     property color colInk: "#f8e1d6"
@@ -94,12 +103,12 @@ Item {
         // Anillo perimetral que late con graves y golpe
         Rectangle {
             anchors.centerIn: parent
-            width: parent.width * (0.92 + root.musicBass * 0.06)
+            width: parent.width * (0.92 + root._calmBass * 0.06)
             height: width
             radius: width / 2
             color: "transparent"
-            border.width: 1.5 + root.musicPulse * 2.5
-            border.color: Qt.rgba(root.colPrimary.r, root.colPrimary.g, root.colPrimary.b, 0.25 + root.musicPulse * 0.5)
+            border.width: 1.5 + root._calmPulse * 2.5
+            border.color: Qt.rgba(root.colPrimary.r, root.colPrimary.g, root.colPrimary.b, 0.25 + root._calmPulse * 0.5)
         }
 
         // Texto en órbita continua tangente al horizonte
@@ -141,10 +150,10 @@ Item {
                 Rectangle {
                     required property int index
                     width: 3
-                    height: 5 + (index === 0 || index === 4 ? root.musicBass * 20 : (index === 2 ? root.musicPulse * 26 : root.musicTreble * 18))
+                    height: 5 + (index === 0 || index === 4 ? root._calmBass * 20 : (index === 2 ? root._calmPulse * 26 : root._calmTreble * 18))
                     radius: 1.5
                     color: root.colPrimary
-                    opacity: 0.5 + root.musicPulse * 0.5
+                    opacity: 0.5 + root._calmPulse * 0.5
                     anchors.verticalCenter: parent.verticalCenter
                 }
             }
@@ -218,12 +227,12 @@ Item {
             Rectangle {
                 required property int index
                 anchors.centerIn: parent
-                width: parent.width * (0.34 + index * 0.17 + (index % 2 === 0 ? root.musicBass * 0.05 : root.musicTreble * 0.05))
+                width: parent.width * (0.34 + index * 0.17 + (index % 2 === 0 ? root._calmBass * 0.05 : root._calmTreble * 0.05))
                 height: width
                 radius: width / 2
                 color: "transparent"
                 border.width: 1
-                border.color: Qt.rgba(root.colInk.r, root.colInk.g, root.colInk.b, 0.06 + (index === 1 ? root.musicPulse * 0.28 : root.musicBass * 0.16))
+                border.color: Qt.rgba(root.colInk.r, root.colInk.g, root.colInk.b, 0.06 + (index === 1 ? root._calmPulse * 0.28 : root._calmBass * 0.16))
             }
         }
 
@@ -281,16 +290,16 @@ Item {
             Rectangle {
                 anchors.centerIn: parent
                 width: parent.width
-                height: 1 + root.musicPulse * 2.5
+                height: 1 + root._calmPulse * 2.5
                 color: root.colPrimary
-                opacity: 0.2 + root.musicBass * 0.5
+                opacity: 0.2 + root._calmBass * 0.5
             }
 
             // Púlsar Alfa
             Rectangle {
                 anchors.horizontalCenter: parent.horizontalCenter
                 y: -4
-                width: 7 + root.musicPulse * 5
+                width: 7 + root._calmPulse * 5
                 height: width
                 radius: width / 2
                 color: root.colPrimary
@@ -302,7 +311,7 @@ Item {
             Rectangle {
                 anchors.horizontalCenter: parent.horizontalCenter
                 y: parent.height - 4
-                width: 7 + root.musicPulse * 5
+                width: 7 + root._calmPulse * 5
                 height: width
                 radius: width / 2
                 color: root.colError
@@ -347,11 +356,11 @@ Item {
         Shape {
             anchors.fill: parent
             rotation: (root.time * 22) % 360
-            scale: 1.0 - root.musicBass * 0.08
+            scale: 1.0 - root._calmBass * 0.08
             Behavior on scale { NumberAnimation { duration: 100 } }
 
             ShapePath {
-                strokeColor: Qt.rgba(root.colPrimary.r, root.colPrimary.g, root.colPrimary.b, 0.28 + root.musicBass * 0.35)
+                strokeColor: Qt.rgba(root.colPrimary.r, root.colPrimary.g, root.colPrimary.b, 0.28 + root._calmBass * 0.35)
                 strokeWidth: 2
                 fillColor: "transparent"
                 capStyle: ShapePath.RoundCap
@@ -368,7 +377,7 @@ Item {
             }
 
             ShapePath {
-                strokeColor: Qt.rgba(root.colInk.r, root.colInk.g, root.colInk.b, 0.20 + root.musicPulse * 0.35)
+                strokeColor: Qt.rgba(root.colInk.r, root.colInk.g, root.colInk.b, 0.20 + root._calmPulse * 0.35)
                 strokeWidth: 1.5
                 fillColor: "transparent"
                 capStyle: ShapePath.RoundCap
@@ -445,7 +454,7 @@ Item {
                         width: index % 3 === 0 ? 2 : 1
                         height: index % 3 === 0 ? 8 : 4
                         color: index % 3 === 0 ? root.colPrimary : root.colInk
-                        opacity: 0.3 + (index % 2 === 0 ? root.musicBass * 0.5 : root.musicTreble * 0.4)
+                        opacity: 0.3 + (index % 2 === 0 ? root._calmBass * 0.5 : root._calmTreble * 0.4)
                     }
                 }
             }
@@ -474,7 +483,7 @@ Item {
                 font.family: root.fontFamily
                 font.pixelSize: 12
                 font.weight: Font.Black
-                font.letterSpacing: 1.0 + root.musicBass * 1.5
+                font.letterSpacing: 1.0 + root._calmBass * 1.5
                 Behavior on font.letterSpacing { NumberAnimation { duration: 100 } }
                 horizontalAlignment: Text.AlignHCenter
                 elide: Text.ElideRight
@@ -499,7 +508,7 @@ Item {
                     Rectangle {
                         required property int index
                         width: 4
-                        height: 3 + (index === 2 ? root.musicPulse * 16 : (index === 0 || index === 4 ? root.musicBass * 14 : root.musicTreble * 12))
+                        height: 3 + (index === 2 ? root._calmPulse * 16 : (index === 0 || index === 4 ? root._calmBass * 14 : root._calmTreble * 12))
                         radius: 1
                         color: root.colPrimary
                         anchors.bottom: parent.bottom

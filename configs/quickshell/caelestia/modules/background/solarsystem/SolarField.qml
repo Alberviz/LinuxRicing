@@ -78,6 +78,28 @@ Item {
     readonly property real _beltSpin: (2 * Math.PI / 1400) * time
     readonly property real _beltDensity: _l && _l.belt && _l.belt.density !== undefined ? _l.belt.density : 0.28
 
+    // --- Progreso de la canción, interpolado ---
+    // El modelo lo entrega a saltos (25 Hz, posición MPRIS); aquí se suaviza.
+    // Un salto grande (cambio de tema, seek) viaja con animación más larga:
+    // vuelve a 0 con transición suave, no de golpe.
+    property real _progressSmooth: musicProgress
+    Behavior on _progressSmooth {
+        NumberAnimation {
+            duration: Math.abs(root.musicProgress - root._progressSmooth) > 0.03 ? 700 : 120
+            easing.type: Easing.OutCubic
+        }
+    }
+
+    // --- Energía para las líneas finas (nunca destellos) ---
+    // Dos seguidores: el rápido (ataque ~150 ms) y el lento (caída ~700 ms);
+    // la salida es el máximo → sube rápido y baja despacio.
+    readonly property real _linesTarget: Math.min(1, music * 0.5 + musicBass * 0.3 + musicTreble * 0.3)
+    property real _linesFast: _linesTarget
+    property real _linesSlow: _linesTarget
+    Behavior on _linesFast { NumberAnimation { duration: 150 } }
+    Behavior on _linesSlow { NumberAnimation { duration: 700 } }
+    readonly property real _linesEnergy: Math.max(_linesFast, _linesSlow)
+
     ShaderEffect {
         anchors.fill: parent
         fragmentShader: Qt.resolvedUrl("shaders/solarfield.frag.qsb")
@@ -110,11 +132,8 @@ Item {
         property real beltTilt: root._beltTilt
         property real beltSpin: root._beltSpin
         property real beltDensity: root._beltDensity
-        property real musicProgress: root.musicProgress
-        property real musicPulse: root.musicPulse
-        property real musicBass: root.musicBass
-        property real musicTreble: root.musicTreble
-        property real musicBurstAge: root.musicBurstAge
+        property real musicProgress: root._progressSmooth
+        property real musicLines: root._linesEnergy
 
         property color colPrimary: root.colPrimary
         property color colLaura: root.colLaura

@@ -51,10 +51,7 @@ layout(std140, binding = 0) uniform buf {
     float beltSpin;    // rad — giro acumulado (derivado de time)
     float beltDensity; // 0..1 — crece con el nº de tareas
     float musicProgress; // 0..1 — progreso de la canción activa (0 = sin canción)
-    float musicPulse;    // 0..1 — detector de golpe/beat, decae solo (viene ya envuelto)
-    float musicBass;     // 0..1 — energía de graves
-    float musicTreble;   // 0..1 — energía de agudos
-    float musicBurstAge; // s — segundos desde último golpe (para ráfagas de acreción)
+    float musicLines;    // 0..1 — energía MUY suavizada (ataque rápido, caída lenta) para las líneas finas
 
     vec4  colPrimary;   // rol m3primary  (disco, Configuración)
     vec4  colLaura;     // rol m3tertiaryFixedDim (Laura)
@@ -168,8 +165,7 @@ void belt(inout vec4 acc, vec2 frag, vec2 c, vec2 rad, float tilt, float spin,
 
 // ------------------------------------------------------------------ agujero negro
 vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
-               float music, float musicProgress, float musicPulse,
-               float musicBass, float musicTreble, float musicBurstAge,
+               float musicProgress, float musicLines,
                vec3 colP, vec3 colE, vec3 colV)
 {
     const float FLAT = 0.14;
@@ -181,9 +177,9 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
 
     vec4 acc = vec4(0.0);
 
-    // 1. resplandor exterior (respira y late con graves y pulsos)
+    // 1. resplandor exterior (estable: sin pulso)
     {
-        float g = pow(smoothstep(4.4 + musicBass * 0.8, 0.75, dS), 1.6) * (0.20 + musicPulse * 0.18 + musicBass * 0.14);
+        float g = pow(smoothstep(4.4, 0.75, dS), 1.6) * 0.22;
         vec3 gc = mix(P, lit(P, 0.30), smoothstep(2.4, 0.8, dS));
         over(acc, gc, g);
     }
@@ -202,12 +198,11 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
     if (aboveH > 0.001) {
         vec2 qh = vec2(pr.x, (pr.y + R*0.16) / (FLAT*2.4));
         float rh = length(qh) / R;
-        float band  = smoothstep(0.16, 0.0, abs(rh - 1.10));
+        float band  = smoothstep(0.16, 0.0, abs(rh - (1.10 + 0.012 * musicLines)));
         float upper = smoothstep(0.0, 0.30, -qh.y / max(length(qh), 1.0));
         // gradiente de temperatura del arco: blanco-caliente dentro → color del tema fuera
         vec3 col = mix(lit(colP, 0.96), P, clamp((rh - 1.02) / 0.20, 0.0, 1.0));
-        col = mix(col, vec3(1.0), musicPulse * 0.4);
-        over(acc, col, band * upper * aboveH * (0.85 + musicPulse * 0.25));
+        over(acc, col, band * upper * aboveH * (0.80 + 0.14 * musicLines));
     }
 
     // temperatura del disco por radio normalizado. Gradiente 100% en el color del tema:
@@ -242,30 +237,7 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
     float diskEdge = smoothstep(0.0, 0.10, fN) * smoothstep(1.0, 0.58, fN);
     vec3  emit  = mix(tcol, lit(colP, 0.92), pow(smoothstep(0.18, 0.0, fN), 1.8) * 0.5);
 
-    // Fogonazo en el labio interior con cada golpe de bombo / beat
-    emit = mix(emit, vec3(1.0), musicPulse * smoothstep(0.18, 0.0, fN) * 0.65);
-
     float diskA = talpha * diskEdge * beamMul * turbMul * 1.02;
-
-    // Arco de progreso de la canción recorriendo el disco
-    if (musicProgress > 0.0) {
-        float sweep = mod(thetaD + PI, TAU);
-        float headEdge = musicProgress * TAU;
-        float inProgress = (headEdge >= TAU) ? 1.0 : (1.0 - smoothstep(headEdge - 0.05, headEdge + 0.05, sweep));
-        emit  = mix(emit, lit(colP, 0.96), inProgress * 0.40);
-        diskA = mix(diskA, clamp(diskA * 1.35 + 0.14, 0.0, 1.0), inProgress * 0.55);
-    }
-
-    // Ráfagas de acreción por pulsos de bombo (inyección de masa hacia el horizonte)
-    if (musicBurstAge >= 0.0 && musicBurstAge < 1.4) {
-        float p = clamp(musicBurstAge / 1.4, 0.0, 1.0);
-        float rr = mix(3.6, 1.28, p * p);
-        float dR = abs(rD - rr);
-        float blobA = smoothstep(0.25, 0.0, dR) * (1.0 - p) * 0.75;
-        vec3 blobCol = mix(lit(colP, 0.98), lit(colP, 0.60), p);
-        emit = mix(emit, blobCol, clamp(blobA * 1.3, 0.0, 1.0));
-        diskA = clamp(diskA + blobA * (1.0 - diskA * 0.5), 0.0, 1.0);
-    }
 
     // 3. disco de acreción — UNA sola pasada
     if (inDisk) {
@@ -275,22 +247,44 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
     // 4. horizonte de sucesos — negro puro
     over(acc, colV, smoothstep(1.03, 0.985, dS));
 
-    // 5. anillo de fotones + Doppler con destello rítmico
+    // 5. anillo de fotones: pista tenue + arco de PROGRESO de la canción
+    //    (de las 12 en punto, en sentido horario, 0..360° = 0..100 %). Nada de pulso.
     {
         float dRot = length(pr) / R;
         over(acc, lit(P, 0.55), smoothstep(0.14, 0.0, abs(dRot - 1.11)) * 0.24);
-        over(acc, lit(P, 0.96), smoothstep(0.018, 0.0, abs(dRot - 1.035)) * 0.95);
-        float thetaR = atan(pr.y, pr.x);
-        float dop = smoothstep(1.7, 0.0, abs(mod(thetaR - beam + PI, TAU) - PI));
-        vec3 ringCol = mix(vec3(1.0), lit(P, 0.95), 0.3);
-        ringCol = mix(ringCol, vec3(1.0), musicPulse * 0.9);
-        over(acc, ringCol, smoothstep(0.026, 0.0, abs(dRot - 1.035)) * (dop * 0.85 + musicPulse * 0.60));
+        float ang = mod(atan(rel.x, -rel.y) + TAU, TAU);       // 0 arriba, horario
+        float head = clamp(musicProgress, 0.0, 1.0) * TAU;
+        float ringW = smoothstep(0.020, 0.0, abs(dRot - 1.06));
+        over(acc, lit(P, 0.80), ringW * 0.22);                  // pista (siempre, tenue)
+        if (musicProgress > 0.0005) {
+            float inArc = 1.0 - smoothstep(head - 0.012, head, ang);
+            over(acc, lit(P, 0.97), ringW * inArc * 0.95);
+            float dh = length(vec2(dRot - 1.06, (ang - head) * 1.06)) ;
+            over(acc, vec3(1.0), smoothstep(0.045, 0.0, dh) * 0.9);   // cabeza
+        }
     }
 
-    // 6. labio interior caliente (ISCO) que late con la música
+    // 5b. líneas finas concéntricas: única parte que reacciona a la música,
+    //     con energía ya suavizada (sin destellos): opacidad y apertura del arco.
+    {
+        float dRot = length(pr) / R;
+        float aR = mod(atan(rel.y, rel.x) + TAU, TAU);
+        float L = musicLines;
+        // arco exterior: gira lento, se abre un poco con la música
+        float ctr = time * 0.05 + 1.2;
+        float dA = abs(mod(aR - ctr + PI, TAU) - PI);
+        float open = 1.0 - smoothstep(0.9 + 1.3 * L, 1.3 + 1.3 * L, dA);
+        over(acc, lit(P, 0.85), smoothstep(0.011, 0.0, abs(dRot - 1.62)) * open * (0.10 + 0.34 * L));
+        // segundo arco, opuesto, más fino y lejano
+        float dB = abs(mod(aR - ctr, TAU) - PI);
+        float open2 = 1.0 - smoothstep(0.5 + 0.9 * L, 0.9 + 0.9 * L, dB);
+        over(acc, lit(P, 0.75), smoothstep(0.008, 0.0, abs(dRot - 2.05)) * open2 * (0.07 + 0.26 * L));
+    }
+
+    // 6. labio interior caliente (ISCO), estable
     {
         float hb = 0.5 + 0.5*cos(thetaD - beam);
-        float lipA = (0.24 + 0.5*hb + music*0.22 + musicPulse*0.45) * smoothstep(0.24, 0.0, abs(rD - 1.33));
+        float lipA = (0.24 + 0.5*hb) * smoothstep(0.24, 0.0, abs(rD - 1.33));
         over(acc, mix(lit(P,0.45), lit(colP,0.95), hb), lipA * 1.0);
     }
 
@@ -298,7 +292,7 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
     {
         float jx = smoothstep(R*0.06, 0.0, abs(pr.x));
         float jy = smoothstep(R*0.5, R*0.55, abs(pr.y)) * smoothstep(R*3.4, R*0.6, abs(pr.y));
-        over(acc, lit(P, 0.6), jx * jy * (0.11 + musicBass * 0.25 + musicPulse * 0.20));
+        over(acc, lit(P, 0.6), jx * jy * (0.10 + 0.12 * musicLines));
     }
     return acc;
 }
@@ -389,8 +383,7 @@ vec4 render(vec2 frag)
 
     // agujero negro
     vec4 bh = blackHole(frag, bhCenter, bhRadius, bhTilt, bhSpin,
-                        music, musicProgress, musicPulse,
-                        musicBass, musicTreble, musicBurstAge,
+                        musicProgress, musicLines,
                         P, colError.rgb, colVoid.rgb);
     over(acc, bh.rgb / max(bh.a, 1e-4), bh.a);
 
