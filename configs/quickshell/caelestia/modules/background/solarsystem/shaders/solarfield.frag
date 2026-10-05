@@ -99,18 +99,13 @@ void over(inout vec4 acc, vec3 lc, float la){
 }
 
 // ------------------------------------------------------------------ estrellas
-// Campo de estrellas por celdas hash. Las que caen a 0.95R..1.9R del agujero
-// se dibujan como arcos cortos centrados en él (lente), no como puntos.
+// Campo de estrellas por celdas hash. Las que caen a menos de 1.9R del agujero
+// se omiten (el agujero B10-B ya curva la luz por sí solo).
 void starfield(inout vec4 acc, vec2 frag, vec2 bhC, float R, vec3 ink){
     vec3 sc = lit(ink, 0.45);
     float cell = 54.0;
     vec2 g = frag / cell;
     vec2 id = floor(g);
-    // ¿Está este píxel en la zona donde la lente curva las estrellas? Fuera de
-    // ella todas las estrellas van por la rama barata (un punto), sin los dos
-    // atan por estrella. Cerca del agujero apenas hay estrellas de fondo, así
-    // que esto no se nota.
-    bool nearBH = distance(frag, bhC) < R*2.1;
     // 3x3 vecindario para no cortar estrellas en el borde de celda
     for (int oy=-1; oy<=1; oy++)
     for (int ox=-1; ox<=1; ox++){
@@ -120,21 +115,11 @@ void starfield(inout vec4 acc, vec2 frag, vec2 bhC, float R, vec3 ink){
         vec2 spos = (cid + hash22(cid+3.7)) * cell;  // posición de la estrella
         float b = fract(rnd.y * 91.7);               // brillo
         float d = distance(spos, bhC);
-        if (nearBH && d > R*0.95 && d < R*1.9) {
-            // arco lensado
-            float ang = atan(spos.y - bhC.y, spos.x - bhC.x);
-            float bend = (R / d) * 0.22;
-            float pd  = distance(frag, bhC);
-            float pang = atan(frag.y - bhC.y, frag.x - bhC.x);
-            float da = abs(mod(pang - ang + PI, TAU) - PI);
-            float onArc = smoothstep(bend, 0.0, da) * smoothstep(2.2, 0.0, abs(pd - d));
-            over(acc, sc, onArc * (0.06 + b*0.16));
-        } else {
-            float pr = distance(frag, spos);
-            float s  = b < 0.7 ? 0.9 : 1.7;
-            float pt = smoothstep(s, 0.0, pr);
-            over(acc, sc, pt * (0.14 + b*0.55));
-        }
+        if (d < R*1.9) continue;                     // el agujero B10-B ya lenta solo: sin estrellas ni arcos viejos cerca
+        float pr = distance(frag, spos);
+        float s  = b < 0.7 ? 0.9 : 1.7;
+        float pt = smoothstep(s, 0.0, pr);
+        over(acc, sc, pt * (0.14 + b*0.55));
     }
 }
 

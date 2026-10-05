@@ -47,7 +47,7 @@ const float R_ISCO = 1.95;
 const float B_CRIT = 2.9098;
 const float K_THIN = 60.0;
 const float TAU = 6.28318530718;
-const float DIM_OFF = 0.25;      // brillo de la parte de bóveda/anillo aún no recorrida por la canción
+const float DIM_OFF = 0.10;      // brillo de la parte de bóveda/anillo aún no recorrida por la canción
 
 vec3 lit(vec3 c, float k){ return mix(c, vec3(1.0), k); }
 vec3 dk(vec3 c, float k){ return c * (1.0 - k); }
@@ -240,9 +240,9 @@ void main(){
     float tAng = atan(frag.x - bhCenter.x, -(frag.y - bhCenter.y)) / TAU;
     tAng += tAng < 0.0 ? 1.0 : 0.0;
     float fill = 1.0 - smoothstep(musicProgress - 0.008, musicProgress + 0.008, tAng);
-    float dh = (tAng - musicProgress) / 0.012;
+    float dh = (tAng - musicProgress) / 0.02;
     float head = exp(-0.5 * dh * dh);                       // cabeza del trazo
-    float gain = mix(1.0, mix(DIM_OFF, 1.0, fill) * (1.0 + 0.45 * head), musicActive);
+    float gain = mix(1.0, mix(DIM_OFF, 1.0, fill) * (1.0 + 0.6 * head), musicActive);
     if (Tr > 0.01 && s1.z > 1e-6){
         vec4 c = shadeThin(s1, s1.w, 1.0, J1);
         c.rgb *= gain;
