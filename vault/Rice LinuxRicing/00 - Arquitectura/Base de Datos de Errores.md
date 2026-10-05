@@ -512,3 +512,37 @@ Ambos agentes (Claude y Gemini) escriben aquí — añadir, no reescribir.
 - **Lección:** cualquier `FrameAnimation`/`Timer` de repintado nuevo en el fondo
   se revisa contra la regla de gateo del `CLAUDE.md` antes de commitear. Buscar
   `running: true` a pelo en `modules/background/` es una comprobación barata.
+
+## 2026-09-28
+
+### Al cambiar de idioma con Alt+Shift salían dos notificaciones de "Keyboard layout changed"
+- **Síntoma:** cada pulsación de Alt+Shift para alternar el layout de teclado
+  disparaba dos toasts de Quickshell/Caelestia anunciando el cambio, en vez
+  de uno.
+- **Causa:** `hyprctl devices` muestra que el teclado interno de esta IdeaPad
+  se expone al sistema **dos veces**: el driver normal i8042
+  (`at-translated-set-2-keyboard`) y una segunda interfaz USB-HID duplicada
+  del controlador embebido (`ITE Tech. Inc. ITE Device(8176) Keyboard`,
+  vendor `048d`). Hyprland las trata como dos teclados independientes, cada
+  uno con su propio grupo de layout; la pulsación física de Alt+Shift llega a
+  ambas, así que cada una conmuta por separado y Hyprland emite un evento
+  `activelayout` por dispositivo. Confirmado con `hyprctl devices -j`: las dos
+  interfaces habían quedado con layouts distintos entre sí (habían acumulado
+  un número impar de conmutaciones independientes). El "teclado principal"
+  que expone Hyprland además salta al que acaba de emitir el evento, así que
+  `Hypr.qml` (`services/Hypr.qml`, `onKbLayoutFullChanged`) ve dos cambios de
+  verdad y saca dos toasts.
+- **Arreglo:** fijar la interfaz USB-HID duplicada a un único layout (sin
+  nada que alternar) con `hl.device({ name = "ite-tech.-inc.-ite-device(8176)-keyboard",
+  kb_layout = "us" })` en `configs/hypr/hyprland/input.lua`. El nombre exacto
+  del dispositivo sale de `hyprctl devices -j`. Aplicado también a
+  `~/.config/hypr/hyprland/input.lua` (la copia desplegada tenía además un
+  `kb_layout = "es,us"` ya divergido del repo, sin relación con este bug — no
+  tocado, pendiente de que Alberto decida cuál es el bueno).
+- **Verificado:** tras `hyprctl reload`, escuchando el socket de eventos de
+  Hyprland (`.socket2.sock`) mientras se conmuta el layout, solo se emite un
+  `activelayout` y la interfaz ITE Tech se queda fija en `English (US)`.
+- **Lección:** si un laptop expone el mismo teclado por dos rutas (i8042 +
+  una interfaz USB-HID del EC), cualquier config global de teclado (`kb_layout`,
+  `kb_options`) se aplica a ambas por separado. `hyprctl devices -j` con los
+  layouts desincronizados entre entradas de nombre parecido es la pista.

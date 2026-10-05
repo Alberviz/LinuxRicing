@@ -114,25 +114,17 @@ Whisper en CPU es asumible y la velocidad del 7B ya no es problema, así que un
 
 ### 2.3 TTS (texto → voz)
 
-> [!success] Voz decidida (2026-09-01)
-> **Kokoro-82M, voz `ef_dora` (femenina), con la cadena de efectos "JARVIS", corriendo
-> en CPU.** Alberto no quería una voz hiperrealista sino sintética/robótica tipo JARVIS
-> o la IA de Subnautica; con `ef_dora` + efecto queda bien. Acento neutro con deje
-> latino (Kokoro no tiene voces `es_ES`) — aceptado, el efecto lo disimula.
+> [!success] Voz actualizada (2026-09-02)
+> **Edge-TTS Neuronal, voz `es-ES-ElviraNeural` (castellano de España), con la cadena de efectos "JARVIS".**
+> Proporciona pronunciación nativa castellana con alta naturalidad, combinada con el filtrado robótico JARVIS de ffmpeg. Se mantiene compatibilidad modular en `config.toml` con Kokoro y Piper.
 >
 > ```
-> Motor:  Kokoro-82M, lang_code="e", voice="ef_dora"
+> Motor:  Edge-TTS (Azure Neural), voice="es-ES-ElviraNeural"
 > Efecto: ffmpeg -af "highpass=f=200,lowpass=f=3800,chorus=0.5:0.9:50:0.4:0.25:2,
 >                      aecho=0.85:0.75:35:0.2,volume=2"   (cadena "jarvis")
 > ```
 >
-> **Cambiar de voz más adelante es trivial:** en el daemon (fase 3), la voz de Kokoro y
-> la cadena de efectos son **dos valores de `config.toml`** (`voz` y `efecto`), no código
-> — cambiarlos no toca el daemon. Kokoro trae ~54 voces (`em_alex`, `em_santa`, inglesas,
-> etc., incluso mezclables entre sí) y las cadenas de efecto de este documento (`jarvis`,
-> `subnautica`, `robot`, `dry`) quedan ya escritas en `/tmp/tts_lab.py` para reusar. Piper
-> y eSpeak NG se quedan documentados arriba como alternativas si el acento castellano
-> real importase más que el timbre.
+> **Cambiar de voz:** en [`assistant/config.toml`](file:///home/alberviz/LinuxRicing/assistant/config.toml), `engine` ("edge" | "kokoro" | "piper"), `voice` y `effect`. El script `./assistant/test-voice` permite previsualizar cualquier voz al instante.
 
 - **Elegido para empezar: Piper (rhasspy/piper), voz `es_ES` / `es_MX`.** Primer audio en
   ~40 ms, corre en CPU (no gasta VRAM), factor tiempo-real ~0,03 → latencia mínima, que

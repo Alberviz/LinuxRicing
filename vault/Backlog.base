@@ -51,6 +51,8 @@ views:
       file.name: 320
       note.area: 90
       note.flujo: 95
+      note.esfuerzo: 9
+      formula.prio: 16
   - type: table
     name: 🔨 En curso
     filters:

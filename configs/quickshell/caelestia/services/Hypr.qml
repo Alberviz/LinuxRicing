@@ -38,6 +38,7 @@ Singleton {
     readonly property alias devices: extras.devices
 
     property bool hadKeyboard
+    property string lastKbLayoutFull: ""
     property string lastSpecialWorkspace: ""
 
     signal configReloaded
@@ -117,11 +118,37 @@ Singleton {
             Toaster.toast(qsTr("Num lock disabled"), qsTr("Num lock is currently disabled"), "timer_1");
     }
 
+    // El teclado de este portátil expone el mismo cambio de layout a través
+    // de varios eventos de Hyprland en ráfaga (uno por dispositivo cuando se
+    // conmuta "all", o un renotify espurio del propio HyprKeyboard). En vez
+    // de fiarse de un único evento, se espera a que kbLayoutFull se asiente
+    // y se avisa una sola vez con el valor final.
+    Timer {
+        id: kbLayoutToastDebounce
+
+        interval: 250
+
+        onTriggered: {
+            if (root.kbLayoutFull && root.kbLayoutFull !== "Unknown" && root.kbLayoutFull !== root.lastKbLayoutFull && GlobalConfig.utilities.toasts.kbLayoutChanged) {
+                Toaster.toast(qsTr("Keyboard layout changed"), qsTr("Layout changed to: %1").arg(root.kbLayoutFull), "keyboard");
+            }
+
+            if (root.kbLayoutFull && root.kbLayoutFull !== "Unknown")
+                root.lastKbLayoutFull = root.kbLayoutFull;
+        }
+    }
+
     onKbLayoutFullChanged: {
-        if (hadKeyboard && GlobalConfig.utilities.toasts.kbLayoutChanged)
-            Toaster.toast(qsTr("Keyboard layout changed"), qsTr("Layout changed to: %1").arg(kbLayoutFull), "keyboard");
+
+        if (!hadKeyboard) {
+            if (kbLayoutFull && kbLayoutFull !== "Unknown")
+                lastKbLayoutFull = kbLayoutFull;
+            hadKeyboard = !!keyboard;
+            return;
+        }
 
         hadKeyboard = !!keyboard;
+        kbLayoutToastDebounce.restart();
     }
 
     Connections {
