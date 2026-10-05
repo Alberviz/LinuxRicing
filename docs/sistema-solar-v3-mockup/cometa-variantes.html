@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Cometa de tareas — rediseño</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#0b0a10; --card:#14121b; --ink:#f3e9dc; --dim:#9a8f86; --pri:#ffb59a; --acc:#ff6a4d; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.4 ui-monospace, "JetBrains Mono", monospace; }
+  header { padding:18px 24px 6px; display:flex; flex-wrap:wrap; gap:18px 32px; align-items:center; }
+  h1 { font-size:16px; letter-spacing:3px; margin:0; font-weight:600; }
+  label { display:flex; gap:10px; align-items:center; color:var(--dim); }
+  input[type=range] { accent-color: var(--pri); width:140px; }
+  b { color:var(--ink); min-width:2ch; display:inline-block; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,560px),1fr)); gap:14px; padding:14px 24px 28px; }
+  .card { background:var(--card); border-radius:14px; overflow:hidden; border:1px solid #ffffff10; }
+  canvas { display:block; width:100%; height:auto; aspect-ratio:16/9; }
+  .cap { padding:10px 16px 14px; }
+  .cap h2 { margin:0 0 4px; font-size:13px; letter-spacing:2px; color:var(--pri); }
+  .cap p { margin:0; color:var(--dim); font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>COMETA DE TAREAS · REDISEÑO</h1>
+  <label>tareas <input id="n" type="range" min="0" max="18" value="7"><b id="nv"></b></label>
+  <label>urgentes (P1) <input id="p" type="range" min="0" max="8" value="2"><b id="pv"></b></label>
+  <label>zoom <input id="z" type="range" min="1" max="4" step=".5" value="1"><b id="zv"></b></label>
+  <label><input id="h" type="checkbox"> hover (etiqueta)</label>
+  <label><input id="live" type="checkbox" checked> animar</label>
+</header>
+<div class="grid" id="grid"></div>
+
+<script>
+const Q = new URLSearchParams(location.search);
+const $ = id => document.getElementById(id);
+const st = { n:+(Q.get('n')??7), p:+(Q.get('p')??2), hover:Q.get('hover')==='1', live:Q.get('live')!=='0', t:+(Q.get('t')??6), z:+(Q.get('z')??1) };
+$('n').value=st.n; $('p').value=st.p; $('h').checked=st.hover; $('live').checked=st.live; $('z').value=st.z;
+const sync=()=>{ st.n=+$('n').value; st.p=Math.min(+$('p').value,st.n); $('nv').textContent=st.n; $('pv').textContent=st.p; st.hover=$('h').checked; st.live=$('live').checked; st.z=+$('z').value; $('zv').textContent='×'+st.z; };
+['n','p','z','h','live'].forEach(i=>$(i).addEventListener('input',sync)); sync();
+
+const INK='243,233,220', PRI='255,181,154', SEC='231,189,176', ACC='255,106,77', ICE='170,205,255';
+const rnd = i => { const x=Math.sin(i*127.1+311.7)*43758.5453; return x-Math.floor(x); };
+const W=960, H=540;
+
+// ---------- escena común: estrellas, binario al centro, órbita ----------
+const stars = Array.from({length:140},(_,i)=>({x:rnd(i)*W,y:rnd(i+500)*H,r:rnd(i+900)*1.1+.2,a:rnd(i+1300)*.5+.1}));
+function scene(ctx,t){
+  ctx.fillStyle='#0b0a10'; ctx.fillRect(0,0,W,H);
+  for(const s of stars){ ctx.fillStyle=`rgba(${INK},${s.a})`; ctx.fillRect(s.x,s.y,s.r,s.r); }
+  const cx=W*.5, cy=H*.52;
+  // binario
+  for(const [dx,col,r] of [[-12,'255,200,150',9],[13,'200,170,255',6]]){
+    const g=ctx.createRadialGradient(cx+dx,cy,0,cx+dx,cy,r*4);
+    g.addColorStop(0,`rgba(${col},.9)`); g.addColorStop(.25,`rgba(${col},.25)`); g.addColorStop(1,`rgba(${col},0)`);
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(cx+dx,cy,r*4,0,7); ctx.fill();
+    ctx.fillStyle=`rgb(${col})`; ctx.beginPath(); ctx.arc(cx+dx,cy,r*.55,0,7); ctx.fill();
+  }
+  const o={cx:cx+W*.03,cy:cy-H*.03,rx:W*.36,ry:H*.34,tilt:-.1};
+  ctx.save(); ctx.translate(o.cx,o.cy); ctx.rotate(o.tilt);
+  ctx.strokeStyle=`rgba(${INK},.09)`; ctx.lineWidth=1; ctx.beginPath(); ctx.ellipse(0,0,o.rx,o.ry,0,0,7); ctx.stroke(); ctx.restore();
+  // posición + dirección de la cola (contra el avance)
+  const th=1.15+t*.22, c=Math.cos(o.tilt), s=Math.sin(o.tilt);
+  const lx=Math.cos(th)*o.rx, ly=Math.sin(th)*o.ry;
+  const vx=-Math.sin(th)*o.rx, vy=Math.cos(th)*o.ry;
+  const vxr=vx*c-vy*s, vyr=vx*s+vy*c, vl=Math.hypot(vxr,vyr);
+  return { x:o.cx+lx*c-ly*s, y:o.cy+lx*s+ly*c, tx:-vxr/vl, ty:-vyr/vl, sun:{x:cx,y:cy} };
+}
+const glow=(ctx,x,y,r,col,a)=>{ const g=ctx.createRadialGradient(x,y,0,x,y,r); g.addColorStop(0,`rgba(${col},${a})`); g.addColorStop(1,`rgba(${col},0)`); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fill(); };
+const lerp=(a,b,k)=>a+(b-a)*k;
+
+// ---------- V0: el actual (referencia) ----------
+function v0(ctx,c,n,p,t){
+  const len=(46+14*Math.min(n,18))*1.4, ang=Math.atan2(c.ty,c.tx);
+  ctx.save(); ctx.translate(c.x,c.y); ctx.rotate(ang);
+  let g=ctx.createLinearGradient(0,0,len,0); g.addColorStop(0,`rgba(${SEC},.3)`); g.addColorStop(1,`rgba(${SEC},0)`);
+  ctx.fillStyle=g; ctx.fillRect(0,-4.5,len,9);
+  g=ctx.createLinearGradient(0,0,len*1.2,0); g.addColorStop(0,`rgba(${INK},.85)`); g.addColorStop(1,`rgba(${SEC},0)`);
+  ctx.fillStyle=g; ctx.fillRect(0,-1,len*1.2,2); ctx.restore();
+  glow(ctx,c.x,c.y,9,PRI,.4); ctx.fillStyle=`rgb(${INK})`; ctx.beginPath(); ctx.arc(c.x,c.y,3.2,0,7); ctx.fill();
+}
+
+// ---------- A: ROCA — meteorito rocoso con grano, cráteres y polvo curvado ----------
+function vA(ctx,c,n,p,t){
+  const k=Math.min(n,18)/18, R=5+9*Math.sqrt(k), len=60+230*k;
+  const nx=-c.ty, ny=c.tx, ang=Math.atan2(c.ty,c.tx);
+  // polvo: abanico curvado (se arquea alejándose del sol)
+  const sd=Math.sign((c.x-c.sun.x)*nx+(c.y-c.sun.y)*ny)||1;
+  for(let i=0;i<70;i++){
+    const age=((t*.35+i/70)%1), d=age*len, lat=(rnd(i)-.5)*age*R*3.2 + sd*age*age*len*.16;
+    const x=c.x+c.tx*d+nx*lat, y=c.y+c.ty*d+ny*lat, a=(1-age)*(.20+.25*rnd(i+9));
+    ctx.fillStyle=`rgba(${SEC},${a})`; ctx.beginPath(); ctx.arc(x,y,(1+rnd(i+3)*2.4)*(1-age*.5),0,7); ctx.fill();
+  }
+  // cola de iones: recta, fina, azulada (apunta lejos del sol)
+  let sx=c.x-c.sun.x, sy=c.y-c.sun.y, sl=Math.hypot(sx,sy); sx/=sl; sy/=sl;
+  const il=len*1.15, g=ctx.createLinearGradient(c.x,c.y,c.x+sx*il,c.y+sy*il);
+  g.addColorStop(0,`rgba(${ICE},.7)`); g.addColorStop(1,`rgba(${ICE},0)`);
+  ctx.strokeStyle=g; ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(c.x,c.y); ctx.lineTo(c.x+sx*il,c.y+sy*il); ctx.stroke();
+  glow(ctx,c.x,c.y,R*3.2,PRI,.22);
+  // roca poligonal irregular, gira lentamente, luz desde el sol
+  const pts=9, rot=t*.5;
+  ctx.save(); ctx.translate(c.x,c.y); ctx.rotate(rot);
+  ctx.beginPath();
+  for(let i=0;i<pts;i++){ const a=i/pts*Math.PI*2, r=R*(.72+.4*rnd(i+40)); i?ctx.lineTo(Math.cos(a)*r,Math.sin(a)*r):ctx.moveTo(Math.cos(a)*r,Math.sin(a)*r); }
+  ctx.closePath(); ctx.clip();
+  const lx=(c.sun.x-c.x)/sl, ly=(c.sun.y-c.y)/sl, cr=Math.cos(-rot), sr=Math.sin(-rot);
+  const lxl=lx*cr-ly*sr, lyl=lx*sr+ly*cr;
+  const rg=ctx.createRadialGradient(lxl*R*.5,lyl*R*.5,R*.1,0,0,R*1.3);
+  rg.addColorStop(0,`rgb(255,226,200)`); rg.addColorStop(.55,`rgb(170,120,100)`); rg.addColorStop(1,`rgb(40,26,28)`);
+  ctx.fillStyle=rg; ctx.fillRect(-R*2,-R*2,R*4,R*4);
+  for(let i=0;i<4;i++){ ctx.fillStyle='rgba(30,16,18,.45)'; ctx.beginPath(); ctx.arc((rnd(i+70)-.5)*R*1.2,(rnd(i+80)-.5)*R*1.2,R*(.12+.12*rnd(i+90)),0,7); ctx.fill(); }
+  ctx.restore();
+  // urgentes: vetas incandescentes en la roca
+  if(p>0){ glow(ctx,c.x,c.y,R*(1.4+.25*p),ACC,.18+.05*Math.min(p,6)); }
+}
+
+// ---------- B: BOLA DE FUEGO — plasma entrando, el color es la urgencia ----------
+function vB(ctx,c,n,p,t){
+  const k=Math.min(n,18)/18, u=n?p/n:0, R=4+5*Math.sqrt(k), len=70+240*k;
+  const nx=-c.ty, ny=c.tx;
+  const hot=[lerp(255,255,u),lerp(190,90,u),lerp(120,60,u)].map(Math.round).join(',');
+  const old=`${Math.round(lerp(190,200,u))},${Math.round(lerp(120,40,u))},${Math.round(lerp(150,50,u))}`;
+  ctx.globalCompositeOperation='lighter';
+  for(let i=0;i<110;i++){
+    const age=((t*.9+i/110)%1), d=age*len, w=(rnd(i)-.5)*(R*2.2+age*R*5)*(1-age*.3);
+    const x=c.x+c.tx*d+nx*w, y=c.y+c.ty*d+ny*w, a=Math.pow(1-age,1.6)*.55;
+    ctx.fillStyle=`rgba(${age<.35?hot:old},${a})`; ctx.beginPath(); ctx.arc(x,y,(1+rnd(i+5)*2.8)*(1-age*.6),0,7); ctx.fill();
+  }
+  // chispas que se desprenden
+  for(let i=0;i<14;i++){
+    const age=((t*1.4+i/14)%1), d=age*len*1.1, w=(rnd(i+200)-.5)*age*R*9;
+    ctx.fillStyle=`rgba(255,235,200,${(1-age)*.9})`; ctx.fillRect(c.x+c.tx*d+nx*w,c.y+c.ty*d+ny*w,1.6,1.6);
+  }
+  glow(ctx,c.x,c.y,R*5,hot,.35);
+  glow(ctx,c.x,c.y,R*2.4,'255,230,200',.7);
+  ctx.globalCompositeOperation='source-over';
+  ctx.fillStyle='rgb(255,246,232)'; ctx.beginPath(); ctx.arc(c.x,c.y,R*.7,0,7); ctx.fill();
+}
+
+// ---------- C: ENJAMBRE — una roca por tarea; las P1 grandes y encendidas ----------
+function vC(ctx,c,n,p,t){
+  const nx=-c.ty, ny=c.tx, span=70+14*n;
+  // estela tenue de unión
+  const g=ctx.createLinearGradient(c.x,c.y,c.x+c.tx*span,c.y+c.ty*span);
+  g.addColorStop(0,`rgba(${SEC},.22)`); g.addColorStop(1,`rgba(${SEC},0)`);
+  ctx.strokeStyle=g; ctx.lineWidth=7; ctx.lineCap='round'; ctx.beginPath(); ctx.moveTo(c.x,c.y); ctx.lineTo(c.x+c.tx*span,c.y+c.ty*span); ctx.stroke();
+  for(let i=n-1;i>=0;i--){                       // i=0 es la cabeza (la tarea más prioritaria)
+    const urgent=i<p, d=i===0?0:(i/Math.max(n-1,1))*span*(.55+.45*i/n);
+    const wob=i===0?0:Math.sin(t*1.3+i*1.9)*(3+i*.9);
+    const x=c.x+c.tx*d+nx*wob, y=c.y+c.ty*d+ny*wob;
+    const r=i===0?7:(urgent?4.2:2.6)*(1-i/n*.35);
+    const col=urgent?ACC:INK, fade=1-i/n*.55;
+    glow(ctx,x,y,r*(urgent?3.6:2.4),urgent?ACC:SEC,(urgent?.38:.16)*fade);
+    ctx.save(); ctx.translate(x,y); ctx.rotate(t*.6+i);
+    ctx.fillStyle=`rgba(${i===0?INK:col},${.95*fade})`; ctx.beginPath();
+    for(let k=0;k<7;k++){ const a=k/7*Math.PI*2, rr=r*(.75+.35*rnd(i*9+k)); k?ctx.lineTo(Math.cos(a)*rr,Math.sin(a)*rr):ctx.moveTo(Math.cos(a)*rr,Math.sin(a)*rr); }
+    ctx.closePath(); ctx.fill(); ctx.restore();
+  }
+}
+
+// ---------- D: CUENTAS — cola segmentada: cada cuenta es una tarea (lectura al instante) ----------
+function vD(ctx,c,n,p,t){
+  const nx=-c.ty, ny=c.tx, step=17;
+  // anillo de cabeza que respira con las urgentes
+  const pulse=p?0.5+0.5*Math.sin(t*3):0;
+  ctx.strokeStyle=`rgba(${p?ACC:PRI},${.55+.35*pulse})`; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(c.x,c.y,11+3*pulse*(p?1:0),0,7); ctx.stroke();
+  ctx.fillStyle=`rgb(${INK})`; ctx.beginPath(); ctx.arc(c.x,c.y,3.4,0,7); ctx.fill();
+  glow(ctx,c.x,c.y,22,p?ACC:PRI,.22);
+  for(let i=0;i<n;i++){
+    const d=20+i*step, f=1-i/Math.max(n,1)*.8, urgent=i<p;
+    const x=c.x+c.tx*d, y=c.y+c.ty*d, r=(urgent?4.4:3.2)*f+.6;
+    ctx.fillStyle=`rgba(${urgent?ACC:INK},${.95*f})`; ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fill();
+    if(urgent) glow(ctx,x,y,r*3.2,ACC,.28*f);
+    // varilla fina entre cuentas
+    ctx.strokeStyle=`rgba(${SEC},${.3*f})`; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(x-c.tx*step+c.tx*r,y-c.ty*step+c.ty*r); ctx.lineTo(x-c.tx*r,y-c.ty*r); ctx.stroke();
+  }
+}
+
+// posición determinista de la tarea i dentro de una nube alargada hacia la cola
+function cloudPos(c,i,n,span,t,spread){
+  const nx=-c.ty, ny=c.tx;
+  if(i===0) return {x:c.x,y:c.y,u:0};
+  const u=Math.pow(rnd(i*3+1),.8), v=(rnd(i*3+2)+rnd(i*3+3)-1);          // v ~ campana
+  const a=span*u, b=spread*(.35+u*.9)*v;
+  const dr=Math.sin(t*.45+i*2.1)*5, dr2=Math.cos(t*.38+i*1.3)*5;
+  return {x:c.x+c.tx*a+nx*b+nx*dr+c.tx*dr2, y:c.y+c.ty*a+ny*b+ny*dr+c.ty*dr2, u};
+}
+
+// ---------- E: POLVO ESTELAR — nube difusa; cada tarea es una mota con su propio resplandor ----------
+function vE(ctx,c,n,p,t){
+  const span=60+9*n, spread=24+2.4*n;
+  ctx.globalCompositeOperation='lighter';
+  // velo general de la nube (más denso cerca de la cabeza)
+  const mid={x:c.x+c.tx*span*.45,y:c.y+c.ty*span*.45};
+  ctx.save(); ctx.translate(mid.x,mid.y); ctx.rotate(Math.atan2(c.ty,c.tx)); ctx.scale(1,spread/span*1.6);
+  const vg=ctx.createRadialGradient(0,0,0,0,0,span*.75); vg.addColorStop(0,`rgba(${SEC},.13)`); vg.addColorStop(1,`rgba(${SEC},0)`);
+  ctx.fillStyle=vg; ctx.beginPath(); ctx.arc(0,0,span*.75,0,7); ctx.fill(); ctx.restore();
+  // granos de polvo de fondo
+  for(let i=0;i<150;i++){
+    const q=cloudPos(c,i+1,150,span*1.1,t*.6,spread*1.2), tw=.5+.5*Math.sin(t*1.7+i);
+    ctx.fillStyle=`rgba(${INK},${(.1+.3*rnd(i+7))*tw*(1-q.u*.6)})`; ctx.fillRect(q.x,q.y,1.2,1.2);
+  }
+  // una mota por tarea
+  for(let i=n-1;i>=0;i--){
+    const q=cloudPos(c,i,n,span,t,spread), urgent=i<p, f=1-q.u*.55;
+    const pulse=urgent?.8+.2*Math.sin(t*3+i):1;
+    const r=(i===0?9:(urgent?7:5)*(.8+.5*rnd(i+11)))*f;
+    glow(ctx,q.x,q.y,r*3.6,urgent?ACC:PRI,(urgent?.42:.2)*f*pulse);
+    glow(ctx,q.x,q.y,r*1.2,urgent?'255,170,140':INK,(urgent?.9:.6)*f);
+    ctx.fillStyle=`rgba(255,248,238,${.95*f})`; ctx.beginPath(); ctx.arc(q.x,q.y,i===0?2.6:1.5,0,7); ctx.fill();
+  }
+  ctx.globalCompositeOperation='source-over';
+}
+
+// ---------- F: CAMPO DE ASTEROIDES — cada tarea es un asteroide propio, en nube suelta ----------
+function vF(ctx,c,n,p,t){
+  const span=64+9*n, spread=26+2.6*n;
+  // polvo fino entre rocas
+  for(let i=0;i<90;i++){
+    const q=cloudPos(c,i+1,90,span*1.05,t*.5,spread*1.1);
+    ctx.fillStyle=`rgba(${SEC},${.12*(1-q.u*.7)})`; ctx.beginPath(); ctx.arc(q.x,q.y,.8+rnd(i)*1.4,0,7); ctx.fill();
+  }
+  for(let i=n-1;i>=0;i--){
+    const q=cloudPos(c,i,n,span,t,spread), urgent=i<p, f=1-q.u*.4;
+    const r=(i===0?10:(4.5+6*rnd(i+21)))*f*(urgent&&i?1.15:1), pts=6+Math.floor(rnd(i+31)*4), rot=t*(.25+.5*rnd(i+41))*(rnd(i+51)>.5?1:-1)+i;
+    if(urgent) glow(ctx,q.x,q.y,r*3,ACC,.30*f);
+    ctx.save(); ctx.translate(q.x,q.y); ctx.rotate(rot);
+    ctx.beginPath();
+    for(let k=0;k<pts;k++){ const a=k/pts*Math.PI*2, rr=r*(.68+.45*rnd(i*13+k)); k?ctx.lineTo(Math.cos(a)*rr,Math.sin(a)*rr):ctx.moveTo(Math.cos(a)*rr,Math.sin(a)*rr); }
+    ctx.closePath(); ctx.clip();
+    const lx=(c.sun.x-q.x), ly=(c.sun.y-q.y), ll=Math.hypot(lx,ly)||1, cr=Math.cos(-rot), sr=Math.sin(-rot);
+    const gx=(lx/ll*cr-ly/ll*sr)*r*.5, gy=(lx/ll*sr+ly/ll*cr)*r*.5;
+    const rg=ctx.createRadialGradient(gx,gy,r*.1,0,0,r*1.35);
+    rg.addColorStop(0,urgent?'rgb(255,190,160)':'rgb(235,215,195)'); rg.addColorStop(.55,urgent?'rgb(170,80,62)':'rgb(125,105,98)'); rg.addColorStop(1,'rgb(32,24,28)');
+    ctx.fillStyle=rg; ctx.fillRect(-r*2,-r*2,r*4,r*4);
+    if(r>5){ ctx.fillStyle='rgba(20,12,14,.4)'; ctx.beginPath(); ctx.arc(-r*.2,r*.15,r*.2,0,7); ctx.fill(); }
+    ctx.restore();
+  }
+}
+
+const VARS=[
+  {id:'v0',fn:v0,t:'ACTUAL (referencia)',d:'Línea fina + halo + punto. Solo la longitud de la cola dice algo.'},
+  {id:'A', fn:vA,t:'A · ROCA',d:'Meteorito rocoso que gira, con cráteres, polvo curvo y cola de iones. Tamaño y cola crecen con las tareas; las P1 lo hacen brillar al rojo.'},
+  {id:'B', fn:vB,t:'B · BOLA DE FUEGO',d:'Plasma con chispas. El color es la urgencia: ámbar con pocas P1 → rojo vivo con muchas. Cola ∝ tareas.'},
+  {id:'C', fn:vC,t:'C · ENJAMBRE',d:'Una roca por tarea. La cabeza es la más prioritaria; las P1 son grandes y rojas. Se cuenta a ojo.'},
+  {id:'E', fn:vE,t:'E · POLVO ESTELAR',d:'Nube difusa de polvo: cada tarea es una mota luminosa con su propio resplandor, a la deriva dentro de la nube. Las P1 laten en rojo; la más prioritaria va en cabeza.'},
+  {id:'F', fn:vF,t:'F · CAMPO DE ASTEROIDES',d:'Sin cola lineal: una nube suelta de asteroides, uno por tarea, cada uno con su forma y giro. Las P1 son más grandes y con brasa roja.'},
+  {id:'D', fn:vD,t:'D · CUENTAS',d:'Cola segmentada: una cuenta por tarea, las P1 rojas primero. Anillo que late si hay urgentes. Lo más legible y sobrio.'},
+];
+const grid=$('grid');
+for(const v of VARS){
+  const card=document.createElement('div'); card.className='card';
+  card.innerHTML=`<canvas width="${W}" height="${H}"></canvas><div class="cap"><h2>${v.t}</h2><p>${v.d}</p></div>`;
+  grid.appendChild(card); v.ctx=card.querySelector('canvas').getContext('2d');
+}
+
+function label(ctx,c,n,p){
+  const bx=Math.max(10,Math.min(W-250,c.x-8)), by=c.ty>.2?c.y-96:c.y+22;
+  ctx.fillStyle='rgba(0,0,0,.62)'; ctx.beginPath(); ctx.roundRect(bx-10,by-8,246,78,8); ctx.fill();
+  ctx.font='11px ui-monospace,monospace'; ctx.fillStyle=`rgba(${INK},.7)`; ctx.textBaseline='top';
+  ctx.fillText(`${n} TAREAS PENDIENTES${p?` · ${p} URGENTES`:''}`,bx,by);
+  ctx.font='12px ui-monospace,monospace';
+  ['Terminar informe de prácticas','Pedir cita en el dentista','Revisar PR de caelestia'].slice(0,Math.min(3,n)).forEach((s,i)=>{
+    ctx.fillStyle=i<p?`rgba(${ACC},.95)`:`rgba(${INK},${.9-.15*i})`; ctx.fillText(`${i+1}  ${s}`,bx,by+18+i*17); });
+}
+
+let t0=performance.now(), tNow=st.t;
+function frame(now){
+  if(st.live) tNow=st.t+(now-t0)/1000;
+  for(const v of VARS){
+    const ctx=v.ctx, c=scene(ctx,tNow);
+    if(st.n>0){ ctx.save(); ctx.translate(c.x,c.y); ctx.scale(st.z,st.z); ctx.translate(-c.x,-c.y); v.fn(ctx,c,st.n,st.p,tNow); ctx.restore(); if(st.hover) label(ctx,c,st.n,st.p); }
+    else { ctx.fillStyle=`rgba(${INK},.5)`; ctx.font='12px ui-monospace,monospace'; ctx.fillText('Sin tareas → sin cometa',20,28); }
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
