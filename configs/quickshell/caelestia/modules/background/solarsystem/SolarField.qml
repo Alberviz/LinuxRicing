@@ -20,8 +20,17 @@ pragma ComponentBehavior: Bound
 // Todo color sale de la paleta inyectada (roles m3*). Cero hex fijos.
 // El shader: shaders/solarfield.frag(.qsb). Recompilar tras editarlo:
 //   /usr/lib/qt6/bin/qsb --qt6 -o solarfield.frag.qsb solarfield.frag
+//
+// AGUJERO NEGRO (B10-B, docs/gargantua-mockup): ya no es analítico. Cadena propia:
+//   bhgeo   — raymarch de Schwarzschild (2x2, 3 texturas RGBA32F) en la CAJA del agujero.
+//             live:false: SOLO se recalcula si cambia la geometría (_bhGeoKey), nunca por frame.
+//   bhshade — sombreado por frame (vetas, motas, rampa de 5 roles del tema, anillo), sigue a `time`.
+//   bhbloom — bloom ¼ + ⅛ · bhcomp — ACES por luminancia → textura premultiplicada `bhTex`
+//   que solarfield.frag compone delante del fondo (y oscurece con focusAmt como antes).
+// Recompilar: for f in bhnoise bhgeo bhshade bhbloom bhcomp; do qsb --qt6 -o shaders/$f.frag.qsb shaders/$f.frag; done
 
 import QtQuick
+import qs.services
 
 Item {
     id: root
@@ -62,6 +71,23 @@ Item {
     readonly property point _bhCenter: _l ? Qt.point(_l.bh.x, _l.bh.y)
                                           : Qt.point(width * 0.86, height * 0.09)
     readonly property real _bhRadius: _l ? _l.bh.R : height * 0.26
+
+    // --- Agujero B10-B: geometría (6°, giro -0.30, r_out 10.5, gravedad débil lejos) ---
+    readonly property real _bhShadow: Math.round(_bhRadius * 1.03)   // radio de la sombra (b_crit) en px
+    readonly property real _bhTiltB: -0.30
+    readonly property real _bhElev: 6 * Math.PI / 180
+    readonly property real _bhROut: 10.5
+    readonly property real _bhWeakR: 3.0
+    // caja de pantalla que cubre disco + resplandor (recortada a la pantalla)
+    readonly property rect _bhBox: {
+        const R = _bhShadow, cx = _bhCenter.x, cy = _bhCenter.y;
+        const x0 = Math.max(0, Math.floor(cx - 3.8 * R)), x1 = Math.min(width, Math.ceil(cx + 2.0 * R));
+        const y0 = Math.max(0, Math.floor(cy - 2.0 * R)), y1 = Math.min(height, Math.ceil(cy + 1.9 * R));
+        return Qt.rect(x0, y0, Math.max(16, x1 - x0), Math.max(16, y1 - y0));
+    }
+    readonly property string _bhGeoKey: [_bhBox.x, _bhBox.y, _bhBox.width, _bhBox.height,
+                                         Math.round(_bhCenter.x), Math.round(_bhCenter.y), _bhShadow].join(",")
+    on_BhGeoKeyChanged: bhGeoRebuild.restart()
     // El giro se deriva del `time` continuo (que avanza a ~30 fps), NO del
     // layout de Sim (que se recalcula a ~10 fps): así el beaming/Doppler del
     // disco es fluido aunque las posiciones de los soles se refresquen despacio.
@@ -103,6 +129,137 @@ Item {
     Behavior on _linesSlow { NumberAnimation { duration: 700 } }
     readonly property real _linesEnergy: Math.max(_linesFast, _linesSlow)
 
+    // ===================== AGUJERO B10-B (fuera de pantalla: todo visible:false) =====================
+    // Recalcular la caché geométrica: agrupa cambios seguidos (layout de Sim a ~10 Hz) en uno.
+    Timer {
+        id: bhGeoRebuild
+        interval: 120
+        onTriggered: { bhGeoA.scheduleUpdate(); bhGeoB.scheduleUpdate(); bhGeoH.scheduleUpdate() }
+    }
+    Item {
+        id: bhChain
+        width: root._bhBox.width
+        height: root._bhBox.height
+
+        // ruido periódico (una vez)
+        ShaderEffect {
+            id: bhNoiseFx
+            width: 256; height: 256
+            fragmentShader: Qt.resolvedUrl("shaders/bhnoise.frag.qsb")
+        }
+        ShaderEffectSource {
+            id: bhNoise
+            visible: false
+            sourceItem: bhNoiseFx; hideSource: true; live: false
+            textureSize: Qt.size(256, 256); wrapMode: ShaderEffectSource.Repeat; smooth: true
+            Component.onCompleted: scheduleUpdate()
+        }
+
+        // caché geométrica: 3 salidas del MISMO raymarch (outSel 0, 1, 2)
+        component BhGeo: ShaderEffect {
+            width: bhChain.width; height: bhChain.height
+            fragmentShader: Qt.resolvedUrl("shaders/bhgeo.frag.qsb")
+            property real outSel: 0
+            property real elev: root._bhElev
+            property real bhRadius: root._bhShadow
+            property real bhTilt: root._bhTiltB
+            property size resolution: Qt.size(width, height)
+            property point bhCenter: root._bhCenter
+            property point boxOrigin: Qt.point(root._bhBox.x, root._bhBox.y)
+            property real rOut: root._bhROut
+            property real weakR: root._bhWeakR
+        }
+        component BhCache: ShaderEffectSource {
+            visible: false
+            hideSource: true; live: false; smooth: false
+            textureSize: Qt.size(bhChain.width, bhChain.height); format: ShaderEffectSource.RGBA32F
+            Component.onCompleted: scheduleUpdate()
+        }
+        BhGeo { id: bhGeoFxA; outSel: 0 }
+        BhGeo { id: bhGeoFxB; outSel: 1 }
+        BhGeo { id: bhGeoFxH; outSel: 2 }
+        BhCache { id: bhGeoA; sourceItem: bhGeoFxA }
+        BhCache { id: bhGeoB; sourceItem: bhGeoFxB }
+        BhCache { id: bhGeoH; sourceItem: bhGeoFxH }
+
+        // sombreado por frame (sigue a `time`, que ya avanza a los fps de calma del motor)
+        ShaderEffect {
+            id: bhShade
+            width: bhChain.width; height: bhChain.height
+            fragmentShader: Qt.resolvedUrl("shaders/bhshade.frag.qsb")
+            property var geoA: bhGeoA
+            property var geoB: bhGeoB
+            property var geoH: bhGeoH
+            property var noiseTex: bhNoise
+            property real time: root.time
+            property real bhRadius: root._bhShadow
+            property real bhTilt: root._bhTiltB
+            property size resolution: Qt.size(width, height)
+            property point bhCenter: root._bhCenter
+            property color colPrimary: Colours.palette.m3primary
+            property color colInk: Colours.palette.m3onSurface
+            property color colOnPC: Colours.palette.m3onPrimaryContainer
+            property color colPC: Colours.palette.m3primaryContainer
+            property color colTert: Colours.palette.m3tertiary
+            property point boxOrigin: Qt.point(root._bhBox.x, root._bhBox.y)
+            property real rOut: root._bhROut
+        }
+        ShaderEffectSource {
+            id: bhScene
+            visible: false
+            sourceItem: bhShade; hideSource: true
+            textureSize: Qt.size(bhChain.width, bhChain.height); format: ShaderEffectSource.RGBA16F
+            smooth: true; mipmap: true
+        }
+        // bloom ¼ y ⅛ (separable)
+        component BhBlur: ShaderEffect {
+            fragmentShader: Qt.resolvedUrl("shaders/bhbloom.frag.qsb")
+            property var src
+            property point dir
+            property point texel: Qt.point(1 / width, 1 / height)
+            property real threshold: 0
+            property real spread: 1.5
+        }
+        component BhTex: ShaderEffectSource {
+            visible: false
+            hideSource: true; format: ShaderEffectSource.RGBA16F; smooth: true
+            textureSize: Qt.size(sourceItem.width, sourceItem.height)
+        }
+        BhBlur { id: bhBlurH;  width: Math.ceil(bhChain.width / 4); height: Math.ceil(bhChain.height / 4); src: bhScene; dir: Qt.point(1, 0); threshold: 1 }
+        BhTex  { id: bhBlurHT; sourceItem: bhBlurH }
+        BhBlur { id: bhBlurV;  width: bhBlurH.width; height: bhBlurH.height; src: bhBlurHT; dir: Qt.point(0, 1) }
+        BhTex  { id: bhBlurVT; sourceItem: bhBlurV }
+        BhBlur { id: bhBlurH2; width: Math.ceil(bhChain.width / 8); height: Math.ceil(bhChain.height / 8); src: bhScene; dir: Qt.point(1, 0); threshold: 1; spread: 2.4 }
+        BhTex  { id: bhBlurH2T; sourceItem: bhBlurH2 }
+        BhBlur { id: bhBlurV2; width: bhBlurH2.width; height: bhBlurH2.height; src: bhBlurH2T; dir: Qt.point(0, 1); spread: 2.4 }
+        BhTex  { id: bhBlurV2T; sourceItem: bhBlurV2 }
+        // composite: ACES por luminancia, bloom lavanda (tertiary), salida premultiplicada
+        ShaderEffect {
+            id: bhComp
+            width: bhChain.width; height: bhChain.height
+            fragmentShader: Qt.resolvedUrl("shaders/bhcomp.frag.qsb")
+            property var scene: bhScene
+            property var bloom: bhBlurVT
+            property var bloom2: bhBlurV2T
+            readonly property color _t: Colours.palette.m3tertiary
+            property color tint: Qt.tint(Qt.rgba(1, 1, 1, 1), Qt.rgba(_t.r, _t.g, _t.b, 0.55))
+            property real exposure: 0.8
+            property real bloomAmt: 1.4
+            property size resolution: Qt.size(width, height)
+            property point bhCenter: root._bhCenter
+            property real bhRadius: root._bhShadow
+            // bordes de caja que coinciden con el de pantalla: sin desvanecer el resplandor
+            property point edgeOpen: Qt.point(root._bhBox.x <= 0 ? 1e4 : 0,
+                                              root._bhBox.y + root._bhBox.height >= root.height ? 1e4 : 0)
+        }
+        ShaderEffectSource {
+            id: bhOut
+            visible: false
+            sourceItem: bhComp; hideSource: true
+            textureSize: Qt.size(bhChain.width, bhChain.height); smooth: true
+        }
+    }
+
     ShaderEffect {
         anchors.fill: parent
         fragmentShader: Qt.resolvedUrl("shaders/solarfield.frag.qsb")
@@ -117,7 +274,10 @@ Item {
 
         property real bhRadius: root._bhRadius
         property real bhSpin: root._bhSpin
-        property real bhTilt: -0.489
+        property real bhTilt: root._bhTiltB
+        property var bhTex: bhOut
+        property point bhBoxOrigin: Qt.point(root._bhBox.x, root._bhBox.y)
+        property size bhBoxSize: Qt.size(root._bhBox.width, root._bhBox.height)
 
         property real sun0Radius: root.confRadius
         property real sun1Radius: root.lauraRadius
