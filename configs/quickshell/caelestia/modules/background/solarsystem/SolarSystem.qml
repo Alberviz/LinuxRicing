@@ -131,14 +131,9 @@ Item {
     property real _sunPulse: 0
     property real _sunWave: 0
 
-    // ¿El puntero está sobre el disco (+8 px) o la etiqueta de un astro?
-    function _hitAstro(p, x, y, r, ly, name, S) {
-        if (Math.hypot(p.x - x, p.y - y) < r + 8 * S) return true;
-        if (!name || !name.length) return false;
-        const gap = r + 26 * S, w = name.length * 10.5 * S;
-        const left = x + gap + w + 8 > root.width;
-        const x0 = left ? x - gap - w : x + gap;
-        return p.x >= x0 - 4 && p.x <= x0 + w + 4 && Math.abs(p.y - ly) < 12 * S + 4;
+    // ¿El puntero está sobre el disco (+8 px) del astro? (la etiqueta NO cuenta)
+    function _hitAstro(p, x, y, r, S) {
+        return Math.hypot(p.x - x, p.y - y) < r + 8 * S;
     }
     function _updateZone(p) {
         const L = root._layout;
@@ -155,12 +150,12 @@ Item {
         if (found === "")
             for (let i = 0; i < L.suns.length && found === ""; i++) {
                 const sun = L.suns[i];
-                if (_hitAstro(p, sun.x, sun.y, sun.r, sun.y, root._labelNames[sun.id], S)) found = "s:" + sun.id;
+                if (_hitAstro(p, sun.x, sun.y, sun.r, S)) found = "s:" + sun.id;
             }
         if (found === "")
             for (let j = 0; j < L.bodies.length; j++) {
                 const b = L.bodies[j];
-                if (_hitAstro(p, b.x, b.y, b.r, b.ly, root._bodyName(b), S)) { found = "b:" + b.id; break; }
+                if (_hitAstro(p, b.x, b.y, b.r, S)) { found = "b:" + b.id; break; }
             }
         if (found === "" && L.bh && Math.hypot(p.x - L.bh.x, p.y - L.bh.y) < L.bh.R * 1.12)
             found = "bh";
@@ -1014,7 +1009,7 @@ Item {
                     // Clic: solo el disco (+8 px) y su etiqueta, no la zona alrededor.
                     x: sunWrap.s ? sunWrap.s.x - sunWrap.s.r - 8 : 0
                     y: sunWrap.s ? sunWrap.s.y - sunWrap.s.r - 8 : 0
-                    width: sunWrap.s ? sunWrap.s.r * 2 + 16 + 30 + 13 * 10.5 + sunWrap.s.r : 0
+                    width: sunWrap.s ? sunWrap.s.r * 2 + 16 : 0
                     height: sunWrap.s ? sunWrap.s.r * 2 + 16 : 0
                     onClicked: root.configClicked()
                 }
