@@ -1,0 +1,164 @@
+#version 440
+// mockB6.frag — PASE DE SOMBREADO (por frame). Lee la caché de mockB5_geo.frag:
+//   geoA/B: tramos de la capa fina (r̄, φ̄, ∫ρ dt, Doppler cosθ)
+//   geoH: bruma (r̄, φ̄, luminancia, y/H + 10·submuestras en el horizonte)
+// Física del brillo: T(r) ∝ r^-3/4 con labio interior, Doppler g = 1/(γ(1-β·cosθ)) con
+// β ∝ r^-1/2, intensidad ∝ g³·T⁴ y color de la rampa del tema por T_obs = g·T.
+// Grano y carriles: ruido anisótropo de textura periódica (noise5), estirado en la dirección orbital, advectado con
+// rotación kepleriana (dos fases cruzadas para que la cizalla no crezca sin fin).
+// Salida HDR lineal; alfa = máscara de bloom (0 en sombra pura).
+layout(location = 0) in vec2 qt_TexCoord0;
+layout(location = 0) out vec4 fragColor;
+layout(std140, binding = 0) uniform buf {
+    mat4  qt_Matrix;
+    float qt_Opacity;
+    float time;
+    float bhRadius;
+    float bhTilt;
+    vec2  resolution;
+    vec2  bhCenter;
+    vec4  colPrimary;   // m3primary
+    vec4  colInk;       // m3onSurface
+    float dbg;          // 0 normal · 1 solo capa fina · 2 solo bruma · 3 datos de caché
+};
+layout(binding = 1) uniform sampler2D geoA;
+layout(binding = 2) uniform sampler2D geoB;
+layout(binding = 3) uniform sampler2D geoH;
+layout(binding = 4) uniform sampler2D noiseTex;
+const float KG = 1.68;
+const float R_ISCO = 1.8;
+const float R_OUT_T = 11.0;
+const float K_THIN = 60.0;
+const float TAU = 6.28318530718;
+
+vec3 lit(vec3 c, float k){ return mix(c, vec3(1.0), k); }
+vec3 dk(vec3 c, float k){ return c * (1.0 - k); }
+vec3 toLin(vec3 c){ return pow(c, vec3(2.2)); }
+
+float hash21(vec2 p){ p = fract(p*vec2(123.34, 456.21)); p += dot(p, p+45.32); return fract(p.x*p.y); }
+vec2  hash22(vec2 p){ float n = sin(dot(p, vec2(41.0, 289.0))); return fract(vec2(262144.0, 32768.0)*n); }
+void starfield(inout vec3 acc, vec2 frag, vec3 ink){
+    vec3 sc = lit(ink, 0.45);
+    float cell = 54.0;
+    vec2 id = floor(frag / cell);
+    for (int oy=-1; oy<=1; oy++)
+    for (int ox=-1; ox<=1; ox++){
+        vec2 cid = id + vec2(ox, oy);
+        vec2 rnd = hash22(cid);
+        if (rnd.x > 0.40) continue;
+        vec2 spos = (cid + hash22(cid+3.7)) * cell;
+        float b = fract(rnd.y * 91.7);
+        float pr = distance(frag, spos);
+        float s  = b < 0.7 ? 0.9 : 1.7;
+        acc += sc * smoothstep(s, 0.0, pr) * (0.14 + b*0.55);
+    }
+}
+
+// rampa de temperatura, solo roles del tema: dk(P) frío → P → lit(P) caliente
+vec3 ramp(float x){
+    vec3 P = toLin(colPrimary.rgb);
+    vec3 c0 = dk(P, 0.85), c1 = dk(P, 0.45), c2 = P, c3 = lit(P, 0.80);
+    if (x < 0.33) return mix(c0, c1, x / 0.33);
+    if (x < 0.66) return mix(c1, c2, (x - 0.33) / 0.33);
+    return mix(c2, c3, (x - 0.66) / 0.34);
+}
+
+float omegaK(float r){ return 0.55 * pow(r / R_ISCO, -1.5); }
+
+// textura advectada (muestrea noise5: periódica en φ, un fetch por octava):
+// x = vetas (capa fina), y = grano anisótropo (largo en φ, fino en r), z = carriles, w = grumos.
+// u = φ/2π·m con m entero (sin costura); yn = altura media y/H de la bruma (rompe las horquillas).
+vec4 flowTex(float r, float phi, float seed, bool full, float yn){
+    const float T = 18.0;
+    vec4 acc = vec4(0.0); float w2 = 0.0;
+    float rr = r / 2.54;
+    float v = rr / 16.0;
+    for (int k = 0; k < 2; k++){
+        float ph = fract(time / T + 0.5 * float(k) + seed * 0.37);
+        float w  = 1.0 - abs(2.0 * ph - 1.0);
+        float u  = (phi - omegaK(r) * (ph - 0.5) * T) / TAU;
+        float s  = float(k) * 0.37 + seed * 0.21;
+        vec2 ys = yn * vec2(0.13, 0.07);
+        vec4 n;
+        n.x = full ? (0.55 * texture(noiseTex, vec2(u + s,        v * 4.5 + s)).r
+                    + 0.45 * texture(noiseTex, vec2(2.0*u + s + 0.3, v * 11.0)).r) : 0.5;
+        n.y = 0.6 * texture(noiseTex, vec2(4.0*u + s + ys.x * 2.0, v * 22.0 + ys.y * 2.0)).g
+            + 0.4 * texture(noiseTex, vec2(6.0*u + s + 0.5 + ys.x * 3.5, v * 38.0 + ys.y * 3.5)).g;
+        n.z = texture(noiseTex, vec2(u + s + 0.7 + ys.x, v * 5.0 + ys.y)).b;
+        n.w = texture(noiseTex, vec2(u + s + 0.2 + ys.x * 0.8, v * 3.0)).a;
+        acc += w * (n - 0.5);
+        w2 += w * w;
+    }
+    return 0.5 + acc / sqrt(w2);
+}
+
+float dopplerG(float r, float dop){
+    float beta = 0.42 * sqrt(R_ISCO / r);
+    float gam = inversesqrt(1.0 - beta * beta);
+    float grav = mix(1.0, sqrt(max(1.0 - (KG / 1.5) / r, 0.05)), 0.3);
+    return grav / (gam * (1.0 - beta * dop));
+}
+
+// un tramo de la capa fina → (rgb emitido, opacidad)
+vec4 shadeThin(vec4 s, float dop, float seed){
+    float rc = max(s.x, R_ISCO * 0.95);
+    float wt = s.z;
+    vec4 n = flowTex(rc, s.y, seed, true, 0.0);
+    float D = smoothstep(5.0, 10.0, rc);                       // 0 vetas lisas · 1 polvo
+    float veins = 0.55 + 0.9 * smoothstep(0.20, 0.85, n.x);
+    float dust  = (0.5 + 0.9 * smoothstep(0.30, 0.80, n.w)) * (0.55 + 0.9 * n.y);
+    float lane  = smoothstep(0.50, 0.80, n.z) * D;
+    float dens  = mix(veins, dust, D) * (1.0 - 0.85 * lane);
+    float tau = K_THIN * dens * wt;
+    if (tau < 1e-5) return vec4(0.0);
+    float lip = smoothstep(R_ISCO * 0.96, R_ISCO * 1.10, rc);
+    float T = pow(rc / R_ISCO, -0.75) * lip;
+    float g = dopplerG(rc, dop);
+    float Tobs = g * T;
+    // T⁴ propia + irradiación de la luz central sobre la superficie (∝ r^-1.5): el exterior queda luminoso
+    float T4 = T*T*T*T + 0.28 * pow(rc / R_ISCO, -1.2) * lip;
+    float I = 14.0 * g*g*g * T4 * (0.8 + 0.4 * n.y);
+    vec3 col = ramp(clamp(0.62 * Tobs + 0.08 * (n.x - 0.5), 0.0, 1.0)) * I;
+    col = mix(col, col * (0.55 + 0.9 * n.y), D);               // grano en el polvo
+    float fade = 1.0 - smoothstep(0.55 * R_OUT_T, R_OUT_T, rc + (n.w - 0.5) * 3.0);
+    return vec4(col, (1.0 - exp(-tau)) * fade);
+}
+
+void main(){
+    vec2 frag = qt_TexCoord0 * resolution;
+    vec4 hz = texture(geoH, qt_TexCoord0);
+    float hq = floor((hz.w + 5.0) / 10.0);
+    float hit = hq * 0.25;                 // fracción de submuestras que caen al horizonte
+    float yn = hz.w - 10.0 * hq;
+    vec3 E = vec3(0.0);
+    float Tr = 1.0;
+    vec4 s0 = texture(geoA, qt_TexCoord0);
+    if (s0.z > 1e-6){
+        vec4 c = shadeThin(s0, s0.w, 0.0);
+        E += c.a * c.rgb; Tr *= 1.0 - c.a;
+    }
+    vec4 s1 = texture(geoB, qt_TexCoord0);
+    if (Tr > 0.01 && s1.z > 1e-6){
+        vec4 c = shadeThin(s1, s1.w, 1.0);
+        E += Tr * c.a * c.rgb; Tr *= 1.0 - c.a;
+    }
+    // bruma (ya integrada y ocluida en la caché): grano rayado + carriles oscuros + grumos
+    if (hz.z > 1e-6 && (dbg < 0.5 || dbg > 1.5)){
+        vec4 n = flowTex(max(hz.x, 2.0), hz.y, 3.0, false, yn);
+        float grain = 0.12 + 2.2 * n.y * n.y;
+        float lane  = 1.0 - 0.9 * smoothstep(0.40, 0.72, n.z);
+        float clump = 0.45 + 1.1 * smoothstep(0.2, 0.85, n.w);
+        float x = clamp(0.10 + 0.30 * pow(5.0 / max(hz.x, 2.0), 0.75) + 0.15 * (n.y - 0.5), 0.0, 1.0);
+        E += ramp(x) * hz.z * 0.06 * grain * lane * clump;
+    }
+    // estrellas solo donde se ve el fondo
+    float vis = (1.0 - hit) * Tr * exp(-4.0 * hz.z);
+    vec3 bg = vec3(0.0);
+    if (vis > 0.01){ vec3 st = vec3(0.0); starfield(st, frag, colInk.rgb); bg = toLin(min(st, vec3(1.0))); }
+    vec3 col = E + vis * bg;
+    if (dbg > 2.5) col = vec3(s0.x / 12.0, hz.z * 3.0, 0.5 + 0.1 * yn);
+    else if (dbg > 1.5) col = vec3(hz.z * 2.0);
+    // máscara de bloom SUAVE: solo se apaga donde se ve el horizonte sin nada delante
+    float bm = 1.0 - hit * Tr * exp(-8.0 * dot(E, vec3(0.2126, 0.7152, 0.0722)));
+    fragColor = vec4(col, bm);
+}
