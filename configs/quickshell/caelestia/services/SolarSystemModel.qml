@@ -278,6 +278,20 @@ Singleton {
     // ---------- Adaptador: música (cava) ----------
     ServiceRef { service: Audio.cava }
 
+    // En pausa el temporizador de abajo no corre: sin esto el progreso se quedaría en 0 tras
+    // reiniciar el shell (o moverse la canción) y el agujero volvería a «todo encendido».
+    Timer {
+        interval: 1000; repeat: true; triggeredOnStart: true
+        running: root.enabled && !root.musicPlaying
+        onTriggered: {
+            const p = Players.active;
+            p?.positionChanged();
+            const pos = (p && typeof p.position === "number") ? p.position : 0;
+            const len = (p && typeof p.length === "number") ? p.length : 0;
+            root._musicProgress = (len > 0 && !isNaN(pos)) ? Math.max(0, Math.min(1, pos / len)) : 0;
+        }
+    }
+
     Timer {
         interval: 40; repeat: true
         running: root.enabled && root.musicPlaying

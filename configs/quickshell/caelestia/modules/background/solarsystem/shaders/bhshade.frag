@@ -47,8 +47,7 @@ const float R_ISCO = 1.95;
 const float B_CRIT = 2.9098;
 const float K_THIN = 60.0;
 const float TAU = 6.28318530718;
-const float DIM_OFF = 0.10;
-const float DIM_OFF_FRANJA = 0.20;  // la franja (tramo 0) es lo más grande: algo menos apagada para no desaparecer al empezar      // brillo de la parte de bóveda/anillo aún no recorrida por la canción
+const float DIM_OFF = 0.15;      // una sola atenuación para franja, bóveda y anillo: si no, se ve un escalón en su unión      // brillo de la parte de bóveda/anillo aún no recorrida por la canción
 
 vec3 lit(vec3 c, float k){ return mix(c, vec3(1.0), k); }
 vec3 dk(vec3 c, float k){ return c * (1.0 - k); }
@@ -239,11 +238,10 @@ void main(){
     float fill = 1.0 - smoothstep(musicProgress - 0.04, musicProgress + 0.02, tAng);
     float dh = (tAng - musicProgress + 0.01) / 0.03;
     float head = exp(-0.5 * dh * dh);                       // cabeza del trazo
-    float gain  = mix(1.0, mix(DIM_OFF, 1.0, fill) * (1.0 + 0.6 * head), musicActive);
-    float gainF = mix(1.0, mix(DIM_OFF_FRANJA, 1.0, fill) * (1.0 + 0.3 * head), musicActive);
+    float gain  = mix(1.0, mix(DIM_OFF, 1.0, fill) * (1.0 + 0.4 * head), musicActive);
     if (s0.z > 1e-6){
         vec4 c = shadeThin(s0, s0.w, 0.0, J0);
-        c.rgb *= gainF;
+        c.rgb *= gain;
         E += c.a * c.rgb; Tr *= 1.0 - c.a;
     }
     if (Tr > 0.01 && s1.z > 1e-6){
