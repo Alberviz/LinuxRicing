@@ -315,6 +315,29 @@ if [ "$SELECTED_RGB" = true ]; then
         fi
     fi
 
+    # 6g. Hooks de Antigravity CLI para las notificaciones de agentes.
+    #     Fusiona configs/gemini/hooks.json en ~/.gemini/config/hooks.json de forma idempotente.
+    GEMINI_HOOKS_SRC="$BASE_DIR/configs/gemini/hooks.json"
+    GEMINI_HOOKS_DST="$HOME/.gemini/config/hooks.json"
+    if [ -f "$GEMINI_HOOKS_SRC" ]; then
+        mkdir -p "$HOME/.gemini/config"
+        if [ ! -f "$GEMINI_HOOKS_DST" ]; then
+            cp "$GEMINI_HOOKS_SRC" "$GEMINI_HOOKS_DST"
+            echo -e "  ${SUCCESS}✔ Hooks de agent-notify instalados en ~/.gemini/config/hooks.json${RESET}"
+        elif command -v jq >/dev/null 2>&1; then
+            if jq -e '."caelestia-agent-notify"' "$GEMINI_HOOKS_DST" >/dev/null 2>&1; then
+                echo -e "  ${SUCCESS}✔ Hooks de agent-notify ya presentes en ~/.gemini/config/hooks.json${RESET}"
+            else
+                cp "$GEMINI_HOOKS_DST" "$GEMINI_HOOKS_DST.bak.$(date +%s)"
+                tmp_hooks="$(mktemp)"
+                jq -s '.[0] * .[1]' "$GEMINI_HOOKS_DST" "$GEMINI_HOOKS_SRC" > "$tmp_hooks" \
+                    && mv "$tmp_hooks" "$GEMINI_HOOKS_DST" \
+                    && echo -e "  ${SUCCESS}✔ Hooks de agent-notify añadidos a ~/.gemini/config/hooks.json${RESET}" \
+                    || echo -e "  ${WARNING}ℹ No se pudieron fusionar los hooks de Antigravity${RESET}"
+            fi
+        fi
+    fi
+
     echo -e "  ${SUCCESS}✔ Controladores RGB y batería instalados${RESET}"
 else
     echo -e "${WARNING}ℹ Componentes RGB omitidos para este dispositivo.${RESET}"

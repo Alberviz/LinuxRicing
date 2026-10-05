@@ -6,7 +6,7 @@
 Description=Laura — asistente de voz local
 After=graphical-session.target pipewire.service
 Wants=pipewire.service
-ConditionACPower=true
+# ConditionACPower=true
 
 [Service]
 Type=simple
