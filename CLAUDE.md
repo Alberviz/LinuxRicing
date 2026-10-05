@@ -133,7 +133,7 @@ tasks-index scan                                            # fuerza el refresco
 
 `set` busca por coincidencia aproximada: si el nombre es ambiguo devuelve `candidatos` y no toca
 nada. Los repos registrados están en `~/.config/caelestia/task-repos.json` (`LinuxRicing`,
-`Universidad`, `Minecraft`, `OpenGym`, `BarberBot`, `GymBot`, `Hackathon`, `JoseoKings`, `VuelosViajes`, `WebLaura`, `WebLauraDedicatorias`); un repo nuevo = una línea ahí + su `Backlog/`.
+`Universidad`, `Minecraft`, `Gym`, `BarberBot`, `VuelosViajes`, `WebLaura`); un repo nuevo = una línea ahí + su `Backlog/`.
 
 **Reglas**
 - **Tarea = lo que Alberto te pide explícitamente** («apunta…», «añade una tarea…»). Las ideas

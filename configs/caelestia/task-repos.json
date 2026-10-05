@@ -16,29 +16,14 @@
     "vault": "vault"
   },
   {
-    "nombre": "OpenGym",
-    "backlog": "~/proyectos/opengym-fork/Backlog",
-    "vault": "opengym-fork"
+    "nombre": "Gym",
+    "backlog": "~/gym-bot/Backlog",
+    "vault": "gym-bot"
   },
   {
     "nombre": "BarberBot",
     "backlog": "~/barber-bot/Backlog",
     "vault": "barber-bot"
-  },
-  {
-    "nombre": "GymBot",
-    "backlog": "~/gym-bot/Backlog",
-    "vault": "gym-bot"
-  },
-  {
-    "nombre": "Hackathon",
-    "backlog": "~/hackathon/Backlog",
-    "vault": "hackathon"
-  },
-  {
-    "nombre": "JoseoKings",
-    "backlog": "~/JoseoKings-Hackyeah/Backlog",
-    "vault": "JoseoKings-Hackyeah"
   },
   {
     "nombre": "VuelosViajes",
@@ -49,10 +34,5 @@
     "nombre": "WebLaura",
     "backlog": "~/web-laura/Backlog",
     "vault": "web-laura"
-  },
-  {
-    "nombre": "WebLauraDedicatorias",
-    "backlog": "~/web-laura-dedicatorias/Backlog",
-    "vault": "web-laura-dedicatorias"
   }
 ]
