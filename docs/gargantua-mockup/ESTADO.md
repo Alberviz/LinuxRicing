@@ -32,23 +32,27 @@ Rama: `feat/gargantua-lut` (sin mergear a `main`). Última actualización: 2026-
   - `comparativa-todas.png`
   - `B10-vs-gemini.png`
 
+## Hecho el 2026-10-05 (sesión Claude Sonnet 5.5) — SIN verificar en vivo (pantalla apagada)
+
+- **Música (commit `12267fe`):** `bhshade.frag` recibe `musicActive/Progress/Bass/Treble`, `beatAge`, `beatSeed`.
+  - El progreso enciende en sentido horario desde las 12 la bóveda (tramo 1) y el anillo de fotones como un solo trazo; lo no recorrido queda al 25 % (`DIM_OFF`) y la cabeza brilla un poco.
+  - Con `musicActive = 0` (silencio, sin canción) todo igual que lo aprobado. En pausa se queda donde está.
+  - Graves → disco interior; golpe → punto caliente kepleriano que se apaga; agudos → grano. Falta la onda gravitacional al cambiar de canción.
+- **Aliasing (commit `6ab1dfb`):** cada octava de ruido se funde con su media según la huella del píxel (`aaw`); menos motas en la punta de la cola.
+- **Overlay viejo:** `musicVariant` por defecto 0, que ahora es `BhReadout.qml` (tiempo, título y artista dentro de la sombra, por encima de la franja). Los arcos grises no se han podido confirmar como suyos: si siguen, mirar el Canvas fino de `SolarSystem.qml`.
+- **Arnés de pruebas sin pantalla:** `qml6` con `QT_QPA_PLATFORM=wayland` y `QT_FORCE_STDERR_LOGGING=1` renderiza a PNG aunque el monitor esté apagado (con `offscreen` sale en blanco; `grim` se cuelga con DPMS apagado). Se vio un artefacto de bloom abajo a la derecha que parece del arnés, no confirmado en vivo.
+- **CPU de `qs` medida:** 42 % de un núcleo en reposo sin música.
+
 ## Pendiente, en orden
 
-1. **Aliasing en vivo**, lo más visible: las vetas de la cola y del creciente inferior hacen un patrón de peine/moiré, y la cola acaba en una lluvia de puntos negros. Hace falta un filtro de la frecuencia del ruido según la derivada (`fwidth` de r,φ), menos motas en la punta de la cola y quizá algo más de bloom.
-2. **Quitar los arcos grises viejos** abajo a la derecha del agujero. Vienen de `MusicHole.qml`, que sigue con la geometría antigua: retirarlos o adaptarlos.
-3. **Anillo de fotones:** Alberto quiere mejorarlo. Ahora tiene poco hueco respecto al creciente y asoma una astilla blanca junto a la franja, a la izquierda de la sombra. Hay que preguntarle qué cambiaría (grosor, brillo, hueco).
-4. **Bóveda cortada** por el borde superior de la pantalla. Valorar bajar un poco el centro sin romper la composición; preguntar a Alberto.
-5. **Sincronización con la música**, todavía no hecha (`musicProgress`/`musicLines` no están conectados). Plan acordado:
-   - graves → brillo y temperatura del disco interior;
-   - golpe de ritmo → punto caliente que orbita (kepleriano) y se apaga;
-   - agudos → brillo fino del grano;
-   - progreso de la canción → el anillo de fotones se enciende en sentido horario;
-   - cambio de canción → onda gravitacional;
-   - silencio → disco en reposo.
-   Todo sutil, sin destellos y con ganancia automática.
-6. **Rendimiento:** medir en frío el pase por frame en la Intel UHD 770; en el mockup eran ~6 ms. No hay `intel_gpu_top` instalado: si Alberto lo instala, se puede medir.
+1. **Verificar en vivo con música:** progreso, tenue 25 % (¿más o menos?), cabeza del trazo, punto caliente y que el bloom no se desboque con graves fuertes.
+2. **Arcos grises** abajo a la derecha: confirmar si han desaparecido con la variante 0.
+3. **Anillo de fotones:** Alberto quiere mejorarlo (poco hueco con el creciente, astilla blanca a la izquierda de la sombra). Preguntarle qué cambiaría.
+4. **Bóveda cortada** por el borde superior. Valorar bajar un poco el centro; preguntar.
+5. **Onda gravitacional** al cambiar de canción (no hecha).
+6. **Rendimiento:** con música el reloj de `bhShade` sube a ~25 Hz (lo que cambian las propiedades de música); medir en la Intel UHD 770 y gatear si pesa.
 7. **Merge** de `feat/gargantua-lut` a `main` cuando Alberto lo dé por bueno.
-8. **Fuera de este proyecto:** `qs` gasta ~30% de CPU con cualquier agujero, el viejo o el nuevo, y no baja al reiniciar. Viene de otra parte del shell. Va en la tarea del backlog «Arreglar rendimiento y uso de la tarjeta gráfica». El widget de rendimiento tiene su propia tarea para que muestre también la GPU Intel.
+8. **Fuera de este proyecto:** `qs` gasta ~30-40 % de CPU con cualquier agujero. Va en la tarea «Arreglar rendimiento y uso de la tarjeta gráfica».
 
 ## Historia rápida (por qué está hecho así)
 
