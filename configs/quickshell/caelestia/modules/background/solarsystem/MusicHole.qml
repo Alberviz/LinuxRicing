@@ -63,7 +63,7 @@ Item {
 
     // Catálogo de nombres de variantes
     readonly property var variantNames: [
-        "Disco desnudo (sin overlay)",
+        "Lectura discreta (título y tiempo)",
         "Órbita de Acreción + Espectro",
         "Minimalista Clásico + Anillo GPU",
         "Ondas Gravitacionales / Vinilo",
@@ -79,8 +79,23 @@ Item {
         onTriggered: badge.opacity = 0
     }
 
-    // Variante 0 = «disco desnudo» (sin overlay, ver mockup O9): todo lo lleva
-    // el disco de acreción del shader, esta capa no dibuja nada.
+    // Variante 0 = lectura discreta: el progreso ya lo cuenta la bóveda del shader, así que aquí solo
+    // va el nombre (BhReadout), por encima de la franja del disco y dentro de la sombra visible.
+    BhReadout {
+        visible: root.variant === 0
+        width: root.radius * 1.05
+        x: root.width / 2 - width / 2 - root.radius * 0.10
+        y: root.height / 2 - root.radius * 0.10 - height / 2
+        title: Players.active?.trackTitle || ""
+        artist: Players.active?.trackArtist || ""
+        position: root.position
+        length: root.length
+        playing: root.isPlaying
+        colInk: root.colInk
+        colPrimary: root.colPrimary
+        fontFamily: root.fontFamily
+    }
+
     function nextVariant() {
         root.variant = (root.variant + 1) % 7;
         badge.opacity = 1;

@@ -76,10 +76,13 @@ vec3 ramp(float x){
 
 float omegaK(float r){ return 0.55 * pow(r / R_ISCO, -1.5); }
 
+// peso de antialias: 1 con ≤0.15 periodos/píxel, 0 a partir de 0.40 (Nyquist en 0.5)
+float aaw(float f){ return 1.0 - smoothstep(0.15, 0.40, f); }
+
 // textura advectada (muestrea noise5: periódica en φ, un fetch por octava):
 // x = vetas (capa fina), y = grano anisótropo (largo en φ, fino en r), z = carriles, w = grumos.
 // u = φ/2π·m con m entero (sin costura); yn = altura media y/H de la bruma (rompe las horquillas).
-vec4 flowTex(float r, float phi, float seed, bool full, float yn, float rsc){
+vec4 flowTex(float r, float phi, float seed, bool full, float yn, float rsc, float dv){
     const float T = 18.0;
     vec4 acc = vec4(0.0); float w2 = 0.0;
     float rr = r / 2.54;
@@ -91,10 +94,12 @@ vec4 flowTex(float r, float phi, float seed, bool full, float yn, float rsc){
         float s  = float(k) * 0.37 + seed * 0.21;
         vec2 ys = yn * vec2(0.13, 0.07);
         vec4 n;
-        n.x = full ? (0.55 * texture(noiseTex, vec2(u + s,        v * 9.0 + s)).r
-                    + 0.45 * texture(noiseTex, vec2(2.0*u + s + 0.3, v * 26.0)).r) : 0.5;
-        n.y = 0.6 * texture(noiseTex, vec2(4.0*u + s + ys.x * 2.0, v * 22.0 + ys.y * 2.0)).g
-            + 0.4 * texture(noiseTex, vec2(6.0*u + s + 0.5 + ys.x * 3.5, v * 38.0 + ys.y * 3.5)).g;
+        // antialias: cada octava se funde con su media (0.5) cuando el píxel cubre más de ~medio periodo
+        float a1 = aaw(dv * 9.0), a2 = aaw(dv * 26.0), a3 = aaw(dv * 22.0), a4 = aaw(dv * 38.0);
+        n.x = full ? (0.55 * mix(0.5, texture(noiseTex, vec2(u + s,        v * 9.0 + s)).r, a1)
+                    + 0.45 * mix(0.5, texture(noiseTex, vec2(2.0*u + s + 0.3, v * 26.0)).r, a2)) : 0.5;
+        n.y = 0.6 * mix(0.5, texture(noiseTex, vec2(4.0*u + s + ys.x * 2.0, v * 22.0 + ys.y * 2.0)).g, a3)
+            + 0.4 * mix(0.5, texture(noiseTex, vec2(6.0*u + s + 0.5 + ys.x * 3.5, v * 38.0 + ys.y * 3.5)).g, a4);
         n.z = texture(noiseTex, vec2(u + s + 0.7 + ys.x, v * 5.0 + ys.y)).b;
         n.w = texture(noiseTex, vec2(u + s + 0.2 + ys.x * 0.8, v * 3.0)).a;
         acc += w * (n - 0.5);
@@ -159,12 +164,16 @@ float specks(float r, float phi, vec4 J, float dd){
 vec4 shadeThin(vec4 s, float dop, float seed, vec4 J){
     float rc = max(s.x, R_ISCO * 0.95);
     float wt = s.z;
-    vec4 n = flowTex(rc, s.y, seed, true, 0.0, 1.0);
-    // vetas concéntricas muy finas
+    // huella del píxel: r por píxel (→ unidades de v) y φ por píxel (→ unidades de u)
+    float dv = length(J.xy) / 2.54 / 16.0;
+    float du = length(J.zw) / TAU;
+    vec4 n = flowTex(rc, s.y, seed, true, 0.0, 1.0, max(dv, du * 0.5));
+    // vetas concéntricas muy finas (atenuadas donde el píxel no las resuelve)
     float uf = (s.y - 0.02 * time) / TAU;
     float vf = rc / 2.54 / 16.0;
-    float fv = 0.6 * texture(noiseTex, vec2(3.0 * uf + seed * 0.3, vf * 70.0)).r
-             + 0.4 * texture(noiseTex, vec2(5.0 * uf + 0.37, vf * 150.0)).g;
+    float av1 = aaw(max(dv * 70.0, du * 3.0)), av2 = aaw(max(dv * 150.0, du * 5.0));
+    float fv = 0.6 * mix(0.5, texture(noiseTex, vec2(3.0 * uf + seed * 0.3, vf * 70.0)).r, av1)
+             + 0.4 * mix(0.5, texture(noiseTex, vec2(5.0 * uf + 0.37, vf * 150.0)).g, av2);
     float vein = 0.6 + 0.8 * smoothstep(0.22, 0.80, fv) * (0.85 + 0.3 * n.x);
     float dens = 0.9 + 0.2 * n.w;
     float tau = K_THIN * dens * wt;
@@ -194,7 +203,7 @@ vec4 shadeThin(vec4 s, float dop, float seed, vec4 J){
     vec3 col = ramp(clamp(1.0 - pow(rn, 0.6) + 0.15 * (g - 1.0), 0.0, 1.0)) * I;
     // polvo: motas fijas en el disco, en bandas radiales de grano fino
     float band = smoothstep(0.40, 0.70, texture(noiseTex, vec2(0.13, vf * 40.0)).b);
-    float dd = (0.6 + 0.5 * smoothstep(0.6, 0.95, rn)) * smoothstep(0.25, 0.6, rn) * (0.25 + 1.0 * band) * (0.6 + 0.8 * n.w);
+    float dd = (0.6 - 0.3 * smoothstep(0.6, 0.95, rn)) * smoothstep(0.25, 0.6, rn) * (0.25 + 1.0 * band) * (0.6 + 0.8 * n.w);
     col *= 1.0 - 0.92 * specks(rc, s.y, J, dd);
     // borde exterior que se deshace en partículas
     float fade = 1.0 - smoothstep(0.6 * R_OUT_T, R_OUT_T, rc + (n.w - 0.5) * 0.3 * R_OUT_T);
