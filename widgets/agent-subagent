@@ -82,6 +82,9 @@ def main():
         hook = json.loads(raw) if raw.strip() else {}
     except Exception:
         hook = {}
+    try: (RT / "agent-subagent-last.json").write_text(raw or "")
+    except Exception: pass
+    hint = sys.argv[2] if len(sys.argv) > 2 else ""   # hook pre|post (Gemini)
     global AGY
     AGY = "conversationId" in hook or "workspacePaths" in hook
     name = hook.get("hook_event_name") or hook.get("hookEventName") or hook.get("event") or ""
@@ -91,11 +94,12 @@ def main():
     if ev == "hook":
         if name == "SubagentStart": ev = "start"
         elif name == "SubagentStop": ev = "stop"
-        elif name in ("PreToolUse", "PostToolUse"):
+        elif name in ("PreToolUse", "PostToolUse", "PreTool", "PostTool",
+                      "PreToolCall", "PostToolCall") or hint in ("pre", "post"):
             tl = tool.lower()
             if tl not in ("agent", "task") and "subagent" not in tl:
                 return
-            ev = "start" if name == "PreToolUse" else "stop"
+            ev = "start" if (name.startswith("Pre") or hint == "pre") else "stop"
         else:
             return
     addr = window_address()
