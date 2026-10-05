@@ -1,9 +1,11 @@
 pragma ComponentBehavior: Bound
 
-// TasksWidget — tareas de todos los repos, abajo a la derecha del escritorio.
-// Variante A de la maqueta: agrupadas por repo. Sin animaciones: solo se repinta
-// cuando cambia Tasks (cada 30 s como mucho). Cada fila es un TaskLine (estado,
-// título, prioridad). Cabecera: botón de transparencia y botón que abre «Hoy».
+// TasksWidget — tareas de todos los repos, debajo del reloj del escritorio.
+// PLEGADO (por defecto): solo «TAREAS» con el recuento y una flecha, en la misma
+// tipografía de instrumento que las etiquetas del sistema solar. Un clic lo despliega:
+// lista agrupada por repo con TaskLine (estado, título, prioridad), botón de
+// transparencia y botón que abre «Hoy» en Obsidian. Sin animaciones: solo se repinta
+// cuando cambia Tasks (cada 30 s como mucho) o al plegar/desplegar.
 
 import QtQuick
 import QtQuick.Layouts
@@ -17,6 +19,8 @@ StyledRect {
 
     readonly property int maxRows: 8
     readonly property int extra: Math.max(0, Tasks.tareas.length - maxRows)
+    readonly property bool abierto: Tasks.widgetExpandido
+    readonly property int enCurso: Tasks.tareas.filter(t => t.estado === "en-curso").length
 
     // Filas: cabecera de repo ({grupo}) seguida de sus tareas ({t}).
     readonly property var filas: {
@@ -36,10 +40,11 @@ StyledRect {
     }
 
     visible: Tasks.tareas.length > 0
-    implicitWidth: 420
+    implicitWidth: abierto ? 420 : head.implicitWidth + Tokens.padding.large * 2
     implicitHeight: col.implicitHeight + Tokens.padding.large * 2
     radius: Tokens.rounding.large
-    color: Tasks.widgetTransparente ? "transparent" : Qt.alpha(Colours.palette.m3surfaceContainer, 0.82)
+    // Plegado: sin tarjeta, solo texto. Desplegado: tarjeta, salvo en modo transparente.
+    color: abierto && !Tasks.widgetTransparente ? Qt.alpha(Colours.palette.m3surfaceContainer, 0.94) : "transparent"
 
     ColumnLayout {
         id: col
@@ -49,16 +54,50 @@ StyledRect {
         spacing: Tokens.spacing.small
 
         RowLayout {
-            Layout.fillWidth: true
+            id: head
 
-            StyledText {
+            Layout.fillWidth: true
+            spacing: Tokens.spacing.small
+
+            // Título + recuento + flecha: todo el bloque pliega/despliega.
+            RowLayout {
+                spacing: Tokens.spacing.small
+
+                StyledText {
+                    text: "TAREAS"
+                    color: Colours.palette.m3primary
+                    font.family: Tokens.font.mono.small.family
+                    font.pixelSize: 13
+                    font.letterSpacing: 3
+                }
+
+                StyledText {
+                    text: root.enCurso > 0 ? `${Tasks.pendientes} · ${root.enCurso} EN CURSO` : `${Tasks.pendientes}`
+                    color: Colours.palette.m3outline
+                    font.family: Tokens.font.mono.small.family
+                    font.pixelSize: 11
+                    font.letterSpacing: 2
+                }
+
+                MaterialIcon {
+                    text: root.abierto ? "expand_less" : "expand_more"
+                    fontStyle: Tokens.font.icon.small
+                    color: Colours.palette.m3outline
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: Tasks.setWidgetExpandido(!root.abierto)
+                }
+            }
+
+            Item {
                 Layout.fillWidth: true
-                text: `${Tasks.pendientes} tareas`
-                color: Colours.palette.m3primary
-                font: Tokens.font.title.small
             }
 
             StyledRect {
+                visible: root.abierto
                 implicitWidth: 28
                 implicitHeight: 28
                 radius: Tokens.rounding.full
@@ -79,6 +118,7 @@ StyledRect {
             }
 
             StyledRect {
+                visible: root.abierto
                 implicitWidth: 28
                 implicitHeight: 28
                 radius: Tokens.rounding.full
@@ -100,7 +140,7 @@ StyledRect {
         }
 
         Repeater {
-            model: root.filas
+            model: root.abierto ? root.filas : []
 
             delegate: ColumnLayout {
                 id: item
@@ -128,7 +168,7 @@ StyledRect {
         }
 
         StyledText {
-            visible: root.extra > 0
+            visible: root.abierto && root.extra > 0
             text: `+${root.extra} más (clic en el cometa)`
             color: Colours.palette.m3outline
             font: Tokens.font.label.small

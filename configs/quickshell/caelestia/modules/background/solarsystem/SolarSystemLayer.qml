@@ -122,15 +122,15 @@ Variants {
             }
         }
 
-        // Widget de tareas abajo a la derecha. Fuera del Loader: se ve también en
-        // modo ahorro / fondo negro (no tiene animaciones ni shader).
+        // Widget de tareas debajo del reloj (arriba a la izquierda). Fuera del Loader: se
+        // ve también en modo ahorro / fondo negro (no tiene animaciones ni shader).
+        // Márgenes alineados con el reloj de Background.qml. Los bordes inferior (~230 px)
+        // y derecho (~70 px) no reciben clics: los tapa la capa de drawers de Caelestia.
         TasksWidget {
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            // Los bordes derecho (~70 px) e inferior (~230 px) no reciben clics aquí: los tapa
-            // la capa de drawers de Caelestia. El widget debe quedar por dentro de ambos.
-            anchors.rightMargin: 100
-            anchors.bottomMargin: 260
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.leftMargin: 104
+            anchors.topMargin: 180
         }
 
         TasksPanel {
