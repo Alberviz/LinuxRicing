@@ -182,6 +182,7 @@ Item {
 
     // --- Interacción con Configuración (sol/planeta secundario) ---
     signal configClicked()
+    signal cometClicked()
 
     readonly property var _confSun: {
         if (!_layout || !_layout.suns) return null;
@@ -932,6 +933,17 @@ Item {
                     horizontalAlignment: cometTasks.onLeft ? Text.AlignRight : Text.AlignLeft
                 }
             }
+        }
+
+        // Clic en la cabeza del cometa: abre el panel de tareas.
+        MouseArea {
+            visible: cometLayer.c !== null
+            x: cometLayer.c ? cometLayer.c.x - 24 * cometLayer.sc : 0
+            y: cometLayer.c ? cometLayer.c.y - 24 * cometLayer.sc : 0
+            width: 48 * cometLayer.sc
+            height: 48 * cometLayer.sc
+            cursorShape: Qt.PointingHandCursor
+            onClicked: root.cometClicked()
         }
     }
 

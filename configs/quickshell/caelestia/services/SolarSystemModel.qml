@@ -149,10 +149,10 @@ Singleton {
     property real _musicAvgSlow: 0.0
     property real _musicProgress: 0.0
     property real _musicBurstAge: 999.0
-    property int _pendingTasks: 0
+    property int _pendingTasks: Tasks.pendientes
     // Tareas pendientes del backlog, ordenadas por prioridad: [{prio, title}].
     // La vista las usa para el cometa (longitud de cola y las 3 próximas).
-    property var taskList: []
+    property var taskList: Tasks.tareas.map(t => ({ prio: t.prioridad, title: t.titulo }))
     readonly property bool _lauraActive: (Agents.runningAgents || []).length > 0
 
     // Batería real de los tres periféricos. null = desconectado (cuerpo apagado,
@@ -547,39 +547,6 @@ Singleton {
         }
 
         return out;
-    }
-
-    // ---------- Adaptador: tareas pendientes del backlog ----------
-    Process {
-        id: taskCount
-        // «<prioridad>\t<título>» de cada nota con `estado: pendiente` (solo el
-        // frontmatter), ordenadas por prioridad (1 urgente … 5 algún día).
-        command: ["sh", "-c",
-            "cd \"$HOME/LinuxRicing/vault/Backlog\" 2>/dev/null || exit 0; "
-            + "for f in *.md; do [ -f \"$f\" ] || continue; "
-            + "awk -v n=\"${f%.md}\" 'NR==1&&$0!=\"---\"{exit} NR>1&&$0==\"---\"{exit} "
-            + "/^estado:/{e=$2} /^prioridad:/{p=$2} END{if(e==\"pendiente\")print (p==\"\"?5:p) \"\\t\" n}' \"$f\"; "
-            + "done | sort -n -s -k1,1"]
-        stdout: StdioCollector {
-            onStreamFinished: {
-                const out = [];
-                const lines = text.split("\n");
-                for (let i = 0; i < lines.length; i++) {
-                    const ln = lines[i];
-                    if (!ln.length) continue;
-                    const k = ln.indexOf("\t");
-                    if (k < 0) continue;
-                    const ps = ln.slice(0, k);
-                    out.push({ prio: ps === "alta" ? 1 : (parseInt(ps, 10) || 5), title: ln.slice(k + 1) });
-                }
-                root.taskList = out;
-                root._pendingTasks = out.length;
-            }
-        }
-    }
-    Timer {
-        interval: 60000; running: true; repeat: true; triggeredOnStart: true
-        onTriggered: taskCount.running = true
     }
 
     // ---------- Lunas: subagentes en curso por sesión ----------

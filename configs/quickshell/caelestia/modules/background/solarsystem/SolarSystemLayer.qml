@@ -48,6 +48,9 @@ Variants {
         // Lo que se enciende/apaga es su CONTENIDO (el Loader de abajo).
         visible: true
 
+        // Panel completo de tareas (se abre con clic en el cometa).
+        property bool tasksPanelOpen: false
+
         // El sistema solar entero — shader GPU, capa Canvas y el FrameAnimation —
         // se DESCARGA (no se pausa: Loader.active) cuando:
         //   · el modo ahorro está activo (batería / perfil power-saver / <20 %), o
@@ -66,6 +69,7 @@ Variants {
                 onConfigClicked: {
                     ShellState.rgbControl?.open();
                 }
+                onCometClicked: win.tasksPanelOpen = true
 
                 config: SolarSystemModel.config
                 values: SolarSystemModel.values
@@ -110,6 +114,23 @@ Variants {
                 colInk: Colours.palette.m3onSurface
                 colVoid: Qt.darker(Colours.palette.m3surface, 3)
             }
+        }
+
+        // Widget de tareas abajo a la derecha. Fuera del Loader: se ve también en
+        // modo ahorro / fondo negro (no tiene animaciones ni shader).
+        TasksWidget {
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            // Los bordes derecho (~70 px) e inferior (~230 px) no reciben clics aquí: los tapa
+            // la capa de drawers de Caelestia. El widget debe quedar por dentro de ambos.
+            anchors.rightMargin: 100
+            anchors.bottomMargin: 260
+        }
+
+        TasksPanel {
+            anchors.fill: parent
+            open: win.tasksPanelOpen
+            onClosed: win.tasksPanelOpen = false
         }
     }
 }
