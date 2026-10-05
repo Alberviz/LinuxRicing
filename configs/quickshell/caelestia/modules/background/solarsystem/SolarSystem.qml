@@ -155,7 +155,7 @@ Item {
         if (found === "")
             for (let j = 0; j < L.bodies.length; j++) {
                 const b = L.bodies[j];
-                if (_hitAstro(p, b.x, b.y, b.r, S)) { found = "b:" + b.id; break; }
+                if (_hitAstro(p, b.x, b.y, b.r * (b.provider === "gemini" ? 1.55 : 1.0), S)) { found = "b:" + b.id; break; }
             }
         if (found === "" && L.bh && Math.hypot(p.x - L.bh.x, p.y - L.bh.y) < L.bh.R * 1.12)
             found = "bh";
