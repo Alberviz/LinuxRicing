@@ -38,6 +38,7 @@ Rama: `feat/gargantua-lut` (sin mergear a `main`). Última actualización: 2026-
   - El progreso enciende en sentido horario desde las 12 la bóveda (tramo 1) y el anillo de fotones como un solo trazo; lo no recorrido queda al 25 % (`DIM_OFF`) y la cabeza brilla un poco.
   - Con `musicActive = 0` (silencio, sin canción) todo igual que lo aprobado. En pausa se queda donde está.
   - Graves → disco interior; golpe → punto caliente kepleriano que se apaga; agudos → grano. Falta la onda gravitacional al cambiar de canción.
+- **Progreso verificado en vivo (commits `b2582bc` y siguiente):** lo no recorrido al 10 % (`DIM_OFF`) y 20 % en la franja (`DIM_OFF_FRANJA`); el progreso recorre franja, bóveda y anillo con borde degradado. Los arcos grises eran estrellas lensadas del `starfield` de `solarfield.frag` (ya omitidas a <1.9R), no de `MusicHole`. Limitación: en pausa un `seek` no se ve hasta que vuelve a sonar (el temporizador del modelo solo corre sonando).
 - **Aliasing (commit `6ab1dfb`):** cada octava de ruido se funde con su media según la huella del píxel (`aaw`); menos motas en la punta de la cola.
 - **Overlay viejo:** `musicVariant` por defecto 0, que ahora es `BhReadout.qml` (tiempo, título y artista dentro de la sombra, por encima de la franja). Los arcos grises no se han podido confirmar como suyos: si siguen, mirar el Canvas fino de `SolarSystem.qml`.
 - **Arnés de pruebas sin pantalla:** `qml6` con `QT_QPA_PLATFORM=wayland` y `QT_FORCE_STDERR_LOGGING=1` renderiza a PNG aunque el monitor esté apagado (con `offscreen` sale en blanco; `grim` se cuelga con DPMS apagado). Se vio un artefacto de bloom abajo a la derecha que parece del arnés, no confirmado en vivo.
@@ -45,14 +46,13 @@ Rama: `feat/gargantua-lut` (sin mergear a `main`). Última actualización: 2026-
 
 ## Pendiente, en orden
 
-1. **Verificar en vivo con música:** progreso, tenue 25 % (¿más o menos?), cabeza del trazo, punto caliente y que el bloom no se desboque con graves fuertes.
-2. **Arcos grises** abajo a la derecha: confirmar si han desaparecido con la variante 0.
-3. **Anillo de fotones:** Alberto quiere mejorarlo (poco hueco con el creciente, astilla blanca a la izquierda de la sombra). Preguntarle qué cambiaría.
-4. **Bóveda cortada** por el borde superior. Valorar bajar un poco el centro; preguntar.
-5. **Onda gravitacional** al cambiar de canción (no hecha).
-6. **Rendimiento:** con música el reloj de `bhShade` sube a ~25 Hz (lo que cambian las propiedades de música); medir en la Intel UHD 770 y gatear si pesa.
-7. **Merge** de `feat/gargantua-lut` a `main` cuando Alberto lo dé por bueno.
-8. **Fuera de este proyecto:** `qs` gasta ~30-40 % de CPU con cualquier agujero. Va en la tarea «Arreglar rendimiento y uso de la tarjeta gráfica».
+1. **Verificar a ojo golpe y graves** (punto caliente, bloom con graves fuertes); el progreso ya está verificado.
+2. **Anillo de fotones:** Alberto quiere mejorarlo (poco hueco con el creciente, astilla blanca a la izquierda de la sombra). Preguntarle qué cambiaría.
+3. **Bóveda cortada** por el borde superior. Valorar bajar un poco el centro; preguntar.
+4. **Onda gravitacional** al cambiar de canción (no hecha).
+5. **Rendimiento:** con música el reloj de `bhShade` sube a ~25 Hz (lo que cambian las propiedades de música); medir en la Intel UHD 770 y gatear si pesa.
+6. **Merge** de `feat/gargantua-lut` a `main` cuando Alberto lo dé por bueno.
+7. **Fuera de este proyecto:** `qs` gasta ~30-40 % de CPU con cualquier agujero. Va en la tarea «Arreglar rendimiento y uso de la tarjeta gráfica».
 
 ## Historia rápida (por qué está hecho así)
 

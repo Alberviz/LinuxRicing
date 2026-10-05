@@ -47,7 +47,8 @@ const float R_ISCO = 1.95;
 const float B_CRIT = 2.9098;
 const float K_THIN = 60.0;
 const float TAU = 6.28318530718;
-const float DIM_OFF = 0.10;      // brillo de la parte de bóveda/anillo aún no recorrida por la canción
+const float DIM_OFF = 0.10;
+const float DIM_OFF_FRANJA = 0.20;  // la franja (tramo 0) es lo más grande: algo menos apagada para no desaparecer al empezar      // brillo de la parte de bóveda/anillo aún no recorrida por la canción
 
 vec3 lit(vec3 c, float k){ return mix(c, vec3(1.0), k); }
 vec3 dk(vec3 c, float k){ return c * (1.0 - k); }
@@ -231,18 +232,20 @@ void main(){
     vec4 s0 = texture(geoA, qt_TexCoord0);
     vec4 s1 = texture(geoB, qt_TexCoord0);
     vec4 J0 = jac(s0), J1 = jac(s1);
-    if (s0.z > 1e-6){
-        vec4 c = shadeThin(s0, s0.w, 0.0, J0);
-        E += c.a * c.rgb; Tr *= 1.0 - c.a;
-    }
-    // progreso de la canción: el reloj de pantalla (horario desde las 12) enciende la bóveda y el anillo
+    // progreso de la canción: el reloj de pantalla (horario desde las 12) enciende la franja, la bóveda y el anillo
     // como un único trazo de luz; lo que falta por recorrer queda tenue pero visible.
     float tAng = atan(frag.x - bhCenter.x, -(frag.y - bhCenter.y)) / TAU;
     tAng += tAng < 0.0 ? 1.0 : 0.0;
-    float fill = 1.0 - smoothstep(musicProgress - 0.008, musicProgress + 0.008, tAng);
-    float dh = (tAng - musicProgress) / 0.02;
+    float fill = 1.0 - smoothstep(musicProgress - 0.04, musicProgress + 0.02, tAng);
+    float dh = (tAng - musicProgress + 0.01) / 0.03;
     float head = exp(-0.5 * dh * dh);                       // cabeza del trazo
-    float gain = mix(1.0, mix(DIM_OFF, 1.0, fill) * (1.0 + 0.6 * head), musicActive);
+    float gain  = mix(1.0, mix(DIM_OFF, 1.0, fill) * (1.0 + 0.6 * head), musicActive);
+    float gainF = mix(1.0, mix(DIM_OFF_FRANJA, 1.0, fill) * (1.0 + 0.3 * head), musicActive);
+    if (s0.z > 1e-6){
+        vec4 c = shadeThin(s0, s0.w, 0.0, J0);
+        c.rgb *= gainF;
+        E += c.a * c.rgb; Tr *= 1.0 - c.a;
+    }
     if (Tr > 0.01 && s1.z > 1e-6){
         vec4 c = shadeThin(s1, s1.w, 1.0, J1);
         c.rgb *= gain;
