@@ -247,21 +247,16 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
     // 4. horizonte de sucesos — negro puro
     over(acc, colV, smoothstep(1.03, 0.985, dS));
 
-    // 5. anillo de fotones: pista tenue + arco de PROGRESO de la canción
-    //    (de las 12 en punto, en sentido horario, 0..360° = 0..100 %). Nada de pulso.
+    // 5. anillo grande (fotones + halo): circular completo; la parte ya recorrida de la
+    //    canción (desde las 12 en punto, sentido horario) es algo más luminosa. Sin pulso.
     {
         float dRot = length(pr) / R;
-        over(acc, lit(P, 0.55), smoothstep(0.14, 0.0, abs(dRot - 1.11)) * 0.24);
         float ang = mod(atan(rel.x, -rel.y) + TAU, TAU);       // 0 arriba, horario
         float head = clamp(musicProgress, 0.0, 1.0) * TAU;
-        float ringW = smoothstep(0.020, 0.0, abs(dRot - 1.06));
-        over(acc, lit(P, 0.80), ringW * 0.22);                  // pista (siempre, tenue)
-        if (musicProgress > 0.0005) {
-            float inArc = 1.0 - smoothstep(head - 0.012, head, ang);
-            over(acc, lit(P, 0.97), ringW * inArc * 0.95);
-            float dh = length(vec2(dRot - 1.06, (ang - head) * 1.06)) ;
-            over(acc, vec3(1.0), smoothstep(0.045, 0.0, dh) * 0.9);   // cabeza
-        }
+        float done = (musicProgress > 0.0005) ? 1.0 - smoothstep(head - 0.05, head + 0.05, ang) : 0.0;
+        float k = mix(1.0, 1.55, done);
+        over(acc, lit(P, 0.55), smoothstep(0.14, 0.0, abs(dRot - 1.11)) * 0.17 * k);
+        over(acc, lit(P, 0.90), smoothstep(0.020, 0.0, abs(dRot - 1.06)) * 0.50 * k);
     }
 
     // 5b. líneas finas concéntricas: única parte que reacciona a la música,
