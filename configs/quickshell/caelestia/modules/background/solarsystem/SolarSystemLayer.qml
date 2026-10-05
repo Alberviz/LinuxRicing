@@ -97,6 +97,12 @@ Variants {
                     "otro": Colours.palette[SolarSystemModel.providerPaletteRole["otro"]]
                 })
 
+                providerCandidates: {
+                    const P = Colours.palette;
+                    return [P.m3secondary, P.m3error, P.m3success, P.m3primaryFixedDim, P.m3secondaryFixedDim,
+                            P.m3tertiaryFixedDim, P.term1, P.term2, P.term3, P.term4, P.term5, P.term6,
+                            P.term9, P.term10, P.term12, P.term13, P.term14];
+                }
                 colPrimary: Colours.palette.m3primary
                 colSecondary: Colours.palette.m3secondary
                 colPrimaryC: Colours.palette.m3primaryContainer

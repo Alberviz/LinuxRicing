@@ -42,6 +42,8 @@ layout(std140, binding = 0) uniform buf {
     vec4  cOnSurface;
     vec4  cOutline;
     vec4  cError;
+    vec4  cClaude;    // color elegido en vivo para Claude
+    vec4  cGemini;    // color elegido en vivo para Gemini
 };
 
 const float PI = 3.14159265359;
@@ -105,111 +107,61 @@ vec2 ringE(vec2 q, float rx, float ry, float deg, float hw, float aa){
     return vec2(1.0 - smoothstep(hw - aa, hw + aa, dist), p.y);
 }
 
-float ashHeight(vec2 q){
-    float w = fbm(q * 1.6 + 4.0);
-    float dunes = 0.5 + 0.5 * sin((q.y + 0.35 * q.x) * 11.0 + w * 6.0);
-    return clamp(0.6 * dunes + 0.5 * (w - 0.4), 0.0, 1.0);
+// bola de luz simple (misma familia que los soles): núcleo claro, borde en el color
+// del proveedor y halo suave. Premultiplicado. ql en unidades del orbe (R = 1).
+vec4 lightOrb(vec2 ql, vec3 c, float aaq){
+    vec4 o = vec4(0.0);
+    float d = length(ql);
+    float halo = exp(-max(d - 1.0, 0.0) * 3.4) * step(1.0, d + 0.5);
+    over(o, c, halo * 0.42);
+    float body = 1.0 - smoothstep(1.0 - aaq, 1.0 + aaq, d);
+    vec3 col = mix(mix(c, vec3(1.0), 0.80), c, smoothstep(0.0, 0.95, d));
+    over(o, col, body);
+    return o;
 }
 
-// ---- CLAUDE: doble anillo cruzado sobre un mundo de ceniza volcánica apagada ----
-// Roles: secondary / sDeep / outline (capas de ceniza);
-// anillos: tertiary / tertiaryContainer / secondary / onSurface.
+// ---- CLAUDE: orbe de luz con la CRUZ de doble anillo ----
+// Color: cClaude (lo elige SolarSystem.qml en vivo del tema, ver pickProviderColors).
 vec4 planetClaude(vec2 q, float aa){
     vec4 acc = vec4(0.0);
-    const float W = 0.045;   // grosor mínimo legible de los trazos finos
-    vec2 r1 = ringE(q, 1.50, 0.34, -22.0, 0.060, aa);
-    vec2 r1b = ringE(q, 1.38, 0.31, -22.0, W * 0.5, aa);
-    vec2 r1c = ringE(q, 1.62, 0.37, -22.0, W * 0.4, aa);
-    vec2 r2 = ringE(q, 1.26, 0.29, 22.0, 0.040, aa);
-    vec2 r2b = ringE(q, 1.16, 0.27, 22.0, W * 0.4, aa);
+    vec3 c = cClaude.rgb;
+    vec3 rc = mix(c, vec3(1.0), 0.45);
+    vec2 r1 = ringE(q, 1.50, 0.34, -22.0, 0.035, aa);
+    vec2 r1g = ringE(q, 1.50, 0.34, -22.0, 0.10, aa);
+    vec2 r2 = ringE(q, 1.28, 0.29, 22.0, 0.030, aa);
+    vec2 r2g = ringE(q, 1.28, 0.29, 22.0, 0.09, aa);
     float d = length(q);
     float behind = step(1.0, d);
-    // atrás
-    over(acc, cTertiary.rgb, r1.x * 0.8 * step(r1.y, 0.0) * behind);
-    over(acc, cTertiaryC.rgb, r1b.x * 0.8 * step(r1b.y, 0.0) * behind);
-    over(acc, cTertiary.rgb, r1c.x * 0.5 * step(r1c.y, 0.0) * behind);
-    over(acc, cSecondary.rgb, r2.x * 0.8 * step(r2.y, 0.0) * behind);
-    over(acc, cOnSurface.rgb, r2b.x * 0.55 * step(r2b.y, 0.0) * behind);
-    // cuerpo de ceniza
-    float body = 1.0 - smoothstep(1.0 - aa, 1.0 + aa, d);
-    if (body > 0.0) {
-        // ceniza volcánica apagada: capas/dunas en secondary · sDeep · outline, grano fino
-        // y relieve con LUZ RASANTE (diferencia de altura hacia la luz), no con color.
-        float t = clamp(length(q - vec2(-0.28, -0.40)) / 1.7, 0.0, 1.0);
-        vec3 col = mix(cSecondary.rgb, deep(cSecondary.rgb), t);
-        float h0 = ashHeight(q);
-        float h1 = ashHeight(q + vec2(-0.035, -0.045));          // hacia la luz (arriba-izq.)
-        float relief = clamp((h1 - h0) * 6.0, -1.0, 1.0);
-        col = mix(col, cOutline.rgb, smoothstep(0.35, 0.9, h0) * 0.45);
-        col = mix(col, deep(cSecondary.rgb), smoothstep(0.0, 0.35, 0.5 - h0) * 0.35);
-        col *= 1.0 + relief * 0.38;
-        col *= 0.94 + 0.12 * hash(floor(q * 46.0));              // grano
-        col = shadeSphere(col, q);
-        // el sombreado oscurece también las grietas del lado nocturno: justo lo esperado
-        over(acc, col, body);
-    }
-    over(acc, cTertiaryC.rgb, 0.55 * (1.0 - smoothstep(0.0, 0.05, abs(d - 1.03))));
-    // delante
-    over(acc, cTertiary.rgb, r1.x * step(0.0, r1.y));
-    over(acc, cTertiaryC.rgb, r1b.x * step(0.0, r1b.y));
-    over(acc, cTertiary.rgb, r1c.x * 0.6 * step(0.0, r1c.y));
-    over(acc, cSecondary.rgb, r2.x * step(0.0, r2.y));
-    over(acc, cOnSurface.rgb, r2b.x * 0.7 * step(0.0, r2b.y));
+    over(acc, c, (r1g.x * 0.14 + r1.x * 0.45) * step(r1.y, 0.0) * behind);
+    over(acc, c, (r2g.x * 0.14 + r2.x * 0.45) * step(r2.y, 0.0) * behind);
+    vec4 orb = lightOrb(q, c, aa);
+    over(acc, orb.rgb / max(orb.a, 1e-4), orb.a);
+    over(acc, rc, (r1g.x * 0.18 + r1.x * 0.90) * step(0.0, r1.y));
+    over(acc, rc, (r2g.x * 0.18 + r2.x * 0.90) * step(0.0, r2.y));
     return acc;
 }
 
-// ---- GEMINI: doble cuerpo «Reloj de arena» (Ash y Ember Twin) ----
-// Gemelo de arena (tertiaryContainer → tDeep, cráteres) + gemelo de roca (primary,
-// estratos, borde primary) unidos por una columna de arena (tertiaryContainer).
+// ---- GEMINI: dos orbes de luz gemelos muy juntos ----
+// Color: cGemini (distinto de Claude; ver pickProviderColors).
 vec4 planetGemini(vec2 q, float aa){
     vec4 acc = vec4(0.0);
-    const float SG = 1.3;                 // escala del conjunto
-    vec2 p = q / SG;                      // unidades del diseño (R = 1)
+    const float SG = 1.3;
+    vec2 p = q / SG;
     float aap = aa / SG;
-    // columna de arena (detrás de los gemelos): cintura en el centro
+    vec3 c = cGemini.rgb;
+    // puente de luz entre los gemelos
     float ax = abs(p.x);
     if (ax < 0.30) {
         float h = 0.05 + 0.13 * pow(ax / 0.30, 1.5);
-        float yc = mix(0.0, 0.0, 0.0);
-        float dy = abs(p.y - (p.x > 0.0 ? 0.0 : 0.0));
-        float core = 1.0 - smoothstep(h - aap, h + aap, dy);
-        float soft = 1.0 - smoothstep(h, h + 0.10, dy);
-        over(acc, cTertiaryC.rgb, soft * 0.30);
-        over(acc, cTertiaryC.rgb, core * 0.65);
+        float dy = abs(p.y);
+        over(acc, c, (1.0 - smoothstep(h, h + 0.14, dy)) * 0.30);
     }
-    // gemelo de arena (izquierda)
-    {
-        vec2 c = vec2(-0.58, -0.04); float R = 0.54;
-        vec2 ql = (p - c) / R; float dl = length(ql);
-        float body = 1.0 - smoothstep(1.0 - aap / R, 1.0 + aap / R, dl);
-        if (body > 0.0) {
-            float t = clamp(length(ql - vec2(-0.28, -0.40)) / 1.7, 0.0, 1.0);
-            vec3 col = mix(cTertiaryC.rgb, deep(cTertiary.rgb), t);
-            float rip = 0.5 + 0.5 * sin(ql.x * 7.0 + fbm(ql * 2.0) * 5.0);
-            col = mix(col, deep(cTertiary.rgb), rip * 0.18);
-            col = mix(col, deep(cTertiary.rgb), ell(ql, vec2(-0.20, 0.20), vec2(0.26, 0.26)) * 0.7);
-            col = mix(col, deep(cTertiary.rgb), ell(ql, vec2(0.30, -0.30), vec2(0.14, 0.14)) * 0.6);
-            col = shadeSphere(col, ql);
-            over(acc, col, body);
-        }
-    }
-    // gemelo de roca (derecha)
-    {
-        vec2 c = vec2(0.58, 0.05); float R = 0.54;
-        vec2 ql = (p - c) / R; float dl = length(ql);
-        float body = 1.0 - smoothstep(1.0 - aap / R, 1.0 + aap / R, dl);
-        if (body > 0.0) {
-            float t = clamp(length(ql - vec2(-0.28, -0.40)) / 1.7, 0.0, 1.0);
-            vec3 col = mix(cPrimary.rgb, deep(cPrimary.rgb), t);
-            float y = ql.y + (fbm(vec2(ql.x * 2.0, ql.y * 3.0)) - 0.5) * 0.08;
-            col = mix(col, cOnSurface.rgb, band(y, -0.40, 0.16, 0.05) * 0.5);
-            col = mix(col, cPrimaryC.rgb, band(y, 0.10, 0.22, 0.05) * 0.8);
-            col = mix(col, deep(cPrimary.rgb), band(y, 0.50, 0.50, 0.05) * 0.8);
-            col = shadeSphere(col, ql);
-            over(acc, col, body);
-        }
-        over(acc, cPrimary.rgb, 0.6 * (1.0 - smoothstep(0.0, 0.07, abs(dl - 1.04))) );
-    }
+    float R = 0.54;
+    vec2 cl = vec2(-0.58, -0.03), cr = vec2(0.58, 0.04);
+    vec4 oa = lightOrb((p - cl) / R, c, aap / R);
+    vec4 ob = lightOrb((p - cr) / R, mix(c, vec3(1.0), 0.18), aap / R);
+    over(acc, oa.rgb / max(oa.a, 1e-4), oa.a);
+    over(acc, ob.rgb / max(ob.a, 1e-4), ob.a);
     return acc;
 }
 
