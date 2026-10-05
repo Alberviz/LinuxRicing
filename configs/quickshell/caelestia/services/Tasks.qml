@@ -17,9 +17,12 @@ Singleton {
     property var avisos: []
     property string hoyUri: ""
 
-    // El widget sin tarjeta de fondo (solo texto sobre el escritorio). Persistido en
-    // desktop-state.json junto al resto de preferencias del escritorio.
+    // El widget sin tarjeta de fondo (solo texto sobre el escritorio). Se persiste en un
+    // fichero propio (tasks-widget.json): desktop-state.json lo comparten otros servicios
+    // y varias instancias de Quickshell, y un snapshot viejo pisaba estas claves.
     property bool widgetTransparente: false
+    // Desplegado (lista) o plegado (solo «TAREAS» y el recuento). Persistido igual.
+    property bool widgetExpandido: false
     property bool _stateLoaded: false
 
     // Lista plana: en curso primero, luego por prioridad.
@@ -68,6 +71,15 @@ Singleton {
 
     function setWidgetTransparente(v: bool): void {
         root.widgetTransparente = v;
+        root._guardar("transparente", v);
+    }
+
+    function setWidgetExpandido(v: bool): void {
+        root.widgetExpandido = v;
+        root._guardar("expandido", v);
+    }
+
+    function _guardar(clave: string, valor): void {
         if (!root._stateLoaded)
             return;
         // Read-modify-write: conservar las claves ajenas del fichero.
@@ -77,7 +89,7 @@ Singleton {
             if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
                 cur = parsed;
         } catch (e) {}
-        cur.tasksWidgetTransparent = v;
+        cur[clave] = valor;
         stateView.setText(JSON.stringify(cur, null, 2) + "\n");
     }
 
@@ -106,17 +118,19 @@ Singleton {
     FileView {
         id: stateView
 
-        path: `${Quickshell.env("HOME")}/.config/caelestia/desktop-state.json`
+        path: `${Quickshell.env("HOME")}/.config/caelestia/tasks-widget.json`
         printErrors: false
         watchChanges: true
         onFileChanged: reload()
         onLoaded: {
             try {
                 const d = JSON.parse(text());
-                if (typeof d.tasksWidgetTransparent === "boolean")
-                    root.widgetTransparente = d.tasksWidgetTransparent;
+                if (typeof d.transparente === "boolean")
+                    root.widgetTransparente = d.transparente;
+                if (typeof d.expandido === "boolean")
+                    root.widgetExpandido = d.expandido;
             } catch (e) {
-                console.warn("Tasks: desktop-state.json inválido:", e);
+                console.warn("Tasks: tasks-widget.json inválido:", e);
             }
             root._stateLoaded = true;
         }
