@@ -325,6 +325,21 @@ if [ "$SELECTED_RGB" = true ]; then
             > "$HOME/.config/caelestia/agents-config.json"
     fi
 
+    # 6e'. Lunas del sistema solar: helper de subagentes + hooks SubagentStart/Stop.
+    if [ -f "$BASE_DIR/widgets/agent-subagent" ]; then
+        cp -u "$BASE_DIR/widgets/agent-subagent" "$HOME/.local/bin/agent-subagent"
+        chmod +x "$HOME/.local/bin/agent-subagent"
+        echo -e "  ${SUCCESS}✔ agent-subagent instalado en ~/.local/bin${RESET}"
+        if command -v jq >/dev/null 2>&1 && [ -f "$HOME/.claude/settings.json" ] \
+           && ! jq -e '.hooks.SubagentStart' "$HOME/.claude/settings.json" >/dev/null 2>&1; then
+            tmp_sa="$(mktemp)"
+            jq -s '.[0] * {hooks: (.[0].hooks + {SubagentStart: .[1].hooks.SubagentStart, SubagentStop: .[1].hooks.SubagentStop})}' \
+                "$HOME/.claude/settings.json" "$BASE_DIR/configs/claude/agent-hooks.json" > "$tmp_sa" \
+                && mv "$tmp_sa" "$HOME/.claude/settings.json" \
+                && echo -e "  ${SUCCESS}✔ Hooks SubagentStart/Stop añadidos${RESET}"
+        fi
+    fi
+
     # 6f. Hooks de Claude Code para las notificaciones de agentes.
     #     Fusiona configs/claude/agent-hooks.json en ~/.claude/settings.json de forma
     #     idempotente (solo añade UserPromptSubmit/Stop si no están ya). Sin jq -> aviso.

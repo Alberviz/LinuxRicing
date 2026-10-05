@@ -84,7 +84,7 @@ Singleton {
 
     // config = disposición + periféricos conectados + terminales en vivo.
     readonly property var config: {
-        const _deps = [Agents.runningAgents, Agents.completedAgents, Agents.sessions, Agents.wsMap];
+        const _deps = [Agents.runningAgents, Agents.completedAgents, Agents.sessions, Agents.wsMap, root._subagents];
         const base = root.userConfig || root.defaultConfig;
         const bodies = (base.bodies || []).slice();
         const extra = root._deviceBodies().concat(root._terminalBodies());
@@ -536,6 +536,7 @@ Singleton {
                     alertSignal: isDone ? ("alert:" + bid) : undefined,
                     provider: provider,
                     startTime: a.startTime,
+                    moons: (root._subagents && root._subagents[root._normAddr(a.address)]) || 0,
                     activitySignal: "term:" + bid,
                     providerSignal: "provider:" + bid,
                     sizeSignal: "size:" + bid
@@ -579,6 +580,26 @@ Singleton {
     Timer {
         interval: 60000; running: true; repeat: true; triggeredOnStart: true
         onTriggered: taskCount.running = true
+    }
+
+    // ---------- Lunas: subagentes en curso por sesión ----------
+    // `widgets/agent-subagent` (hooks SubagentStart/Stop de Claude, Pre/PostToolUse
+    // de Antigravity) publica {address: nº} en $XDG_RUNTIME_DIR. Sin polling.
+    property var _subagents: ({})
+    FileView {
+        path: `${Quickshell.env("XDG_RUNTIME_DIR") || "/tmp"}/agent-subagents.json`
+        printErrors: false
+        watchChanges: true
+        onFileChanged: reload()
+        onLoaded: {
+            try {
+                const d = JSON.parse(text());
+                root._subagents = (d && typeof d === "object") ? d : {};
+            } catch (e) {
+                root._subagents = {};
+            }
+        }
+        onLoadFailed: root._subagents = ({})
     }
 
     // ---------- Config del usuario ----------

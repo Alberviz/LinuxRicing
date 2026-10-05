@@ -151,7 +151,7 @@ Item {
                 const b = L.bodies[j];
                 if (_hitAstro(p, b.x, b.y, b.r, b.ly, root._bodyName(b), S)) { found = "b:" + b.id; break; }
             }
-        if (found === "" && L.bh && Math.hypot(p.x - L.bh.x, p.y - L.bh.y) < L.bh.R * 1.25)
+        if (found === "" && L.bh && Math.hypot(p.x - L.bh.x, p.y - L.bh.y) < L.bh.R * 1.12)
             found = "bh";
         if (found !== hoverId) hoverId = found;
     }
@@ -626,7 +626,7 @@ Item {
             // - session (idle): atenuado/apagado (0.42)
             // - done (terminado): parpadea con _donePulse (0.60 .. 1.0)
             // - running / device: brillo pleno (1.0)
-            opacity: root._dimK * root._dimOf(root._zoneOfBody(bodyItem.b)) * (isSession ? 0.42 : (isDone ? (0.60 + 0.40 * root._donePulse) : 1.0))
+            opacity: root._dimK * root._dimOf(root._zoneOfBody(bodyItem.b)) * (isSession ? (b && b.kind === "agent" ? 0.78 : 0.42) : (isDone ? (0.60 + 0.40 * root._donePulse) : 1.0))
 
             // Aro de alerta (batería < 20 %). Loader: si el cuerpo no está en
             // alerta el binding del pulso NI EXISTE.
@@ -699,7 +699,27 @@ Item {
             // rotación del terminador hacia su ancla). `live: false` → el
             // render-target se pinta UNA vez (y al subir `_texRev`); la rotación
             // es un transform del scene-graph, no obliga a repintar la FBO.
+            // PLANETA de IA (dirección A del mockup, en GPU): Claude terroso, Gemini
+            // gaseoso con anillo, otros teñidos con el color del proveedor. El
+            // item mide 4·R (sitio para atmósfera y anillo); el tamaño de R ya
+            // refleja el % de contexto (Sim.js).
+            ShaderEffect {
+                visible: bodyItem.b !== null && bodyItem.b.kind === "agent"
+                anchors.centerIn: parent
+                width: bodyItem.width * 2
+                height: width
+                blending: true
+                fragmentShader: Qt.resolvedUrl("shaders/planet.frag.qsb")
+                readonly property string prov: bodyItem.b ? (bodyItem.b.provider || "otro") : "otro"
+                property real kind: prov === "claude" ? 0 : (prov === "gemini" ? 1 : 2)
+                property real unused0: 0
+                property real unused1: 0
+                property color tint: root.agentProviderColours[prov] !== undefined
+                    ? root.agentProviderColours[prov] : root.colLaura
+            }
+
             ShaderEffectSource {
+                visible: bodyItem.b !== null && bodyItem.b.kind !== "agent"
                 anchors.fill: parent
                 live: false
                 hideSource: true
@@ -713,6 +733,51 @@ Item {
         }
     }
 
+
+
+    // ===================== LUNAS (subagentes en curso) =====================
+    // Una luna por subagente que la sesión de IA tiene lanzado; desaparece al
+    // terminar (el modelo publica el recuento). Shape/Rectangle en el scene graph.
+    Repeater {
+        model: root._layout ? root._layout.bodies.length : 0
+        delegate: Item {
+            id: moonHost
+            required property int index
+            readonly property var b: root._layout ? root._layout.bodies[index] : null
+            anchors.fill: parent
+            opacity: root._dimK * root._dimOf(root._zoneOfBody(moonHost.b))
+            Repeater {
+                model: moonHost.b && moonHost.b.moonList ? moonHost.b.moonList.length : 0
+                delegate: Item {
+                    id: moonItem
+                    required property int index
+                    readonly property var m: moonHost.b.moonList[index]
+                    anchors.fill: parent
+                    readonly property color mc: root._lit(root._bodyCol(moonHost.b), 0.35)
+                    Shape {
+                        anchors.fill: parent
+                        ShapePath {
+                            strokeColor: Qt.rgba(moonItem.mc.r, moonItem.mc.g, moonItem.mc.b, 0.10)
+                            strokeWidth: 0.6
+                            fillColor: "transparent"
+                            PathAngleArc {
+                                centerX: moonHost.b.x; centerY: moonHost.b.y
+                                radiusX: moonItem.m.orbR; radiusY: moonItem.m.orbR * 0.6
+                                startAngle: 0; sweepAngle: 360
+                            }
+                        }
+                    }
+                    Rectangle {
+                        x: moonItem.m.x - moonItem.m.r
+                        y: moonItem.m.y - moonItem.m.r
+                        width: moonItem.m.r * 2; height: width; radius: width / 2
+                        color: moonItem.mc
+                        opacity: 0.9
+                    }
+                }
+            }
+        }
+    }
 
     // ===================== COMETA DE TAREAS =====================
     // Un único cometa en órbita elíptica amplia y lenta alrededor del binario.
@@ -866,7 +931,9 @@ Item {
                 required property int index
                 readonly property var s: root._layout ? root._layout.suns[index] : null
                 readonly property bool isConfig: sunWrap.s !== null && sunWrap.s.id === "config"
-                property bool hovered: false
+                // Hover SOLO sobre el propio astro (disco +8 px o etiqueta): lo decide
+                // el HoverHandler global (hoverId), no un rectángulo de zona.
+                readonly property bool hovered: sunWrap.s !== null && root.hoverId === "s:" + sunWrap.s.id
 
                 anchors.fill: parent
                 readonly property real zone: sunWrap.s ? root.amountOf("s:" + sunWrap.s.id) : 0
@@ -915,12 +982,11 @@ Item {
                     visible: sunWrap.isConfig
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    x: root.configClickX
-                    y: root.configClickY
-                    width: root.configClickW
-                    height: root.configClickH
-                    onEntered: sunWrap.hovered = true
-                    onExited: sunWrap.hovered = false
+                    // Clic: solo el disco (+8 px) y su etiqueta, no la zona alrededor.
+                    x: sunWrap.s ? sunWrap.s.x - sunWrap.s.r - 8 : 0
+                    y: sunWrap.s ? sunWrap.s.y - sunWrap.s.r - 8 : 0
+                    width: sunWrap.s ? sunWrap.s.r * 2 + 16 + 30 + 13 * 10.5 + sunWrap.s.r : 0
+                    height: sunWrap.s ? sunWrap.s.r * 2 + 16 : 0
                     onClicked: root.configClicked()
                 }
             }

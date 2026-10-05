@@ -21,6 +21,28 @@
           }
         ]
       }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/.local/bin/agent-subagent\" hook >/dev/null 2>&1 || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/.local/bin/agent-subagent\" hook >/dev/null 2>&1 || true",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

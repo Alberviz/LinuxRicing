@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+"""agent-subagent — lunas del sistema solar: cuenta los subagentes en curso de cada
+sesión de IA y lo publica en $XDG_RUNTIME_DIR/agent-subagents.json
+({"<address normalizada de la ventana>": N}). SolarSystemModel lo vigila con un
+FileView (sin polling).
+
+Uso (lo llaman los hooks, JSON del hook por stdin):
+  agent-subagent start|stop     fuerza el evento
+  agent-subagent hook           deduce el evento de `hook_event_name`:
+      Claude Code   SubagentStart / SubagentStop (id = agent_id)
+                    PreToolUse / PostToolUse con tool_name Agent|Task
+      Antigravity   PreToolUse / PostToolUse cuyo tool contenga «subagent»
+                    (id = tool_use_id / toolCallId)
+Siempre sale con 0: un hook nunca debe romper la sesión.
+"""
+import json, os, subprocess, sys, time
+from pathlib import Path
+
+AGY = False
+RT = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp"))
+DIR = RT / "agent-subagents"
+OUT = RT / "agent-subagents.json"
+STALE = 45 * 60          # un subagente «colgado» más de 45 min se descarta
+
+
+def norm(a):
+    s = str(a or "").lower()
+    return s[2:] if s.startswith("0x") else s
+
+
+def ppid_of(pid):
+    try:
+        return int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[1])
+    except Exception:
+        return 0
+
+
+def window_address():
+    if os.environ.get("AGENT_SUBAGENT_ADDR"):      # pruebas
+        return norm(os.environ["AGENT_SUBAGENT_ADDR"])
+    try:
+        clients = json.loads(subprocess.run(["hyprctl", "clients", "-j"], capture_output=True,
+                                            text=True, timeout=3).stdout or "[]")
+    except Exception:
+        return ""
+    by_pid = {c.get("pid"): c for c in clients if c.get("pid")}
+    pid = os.getppid()
+    for _ in range(12):
+        if pid in by_pid:
+            return norm(by_pid[pid].get("address"))
+        pid = ppid_of(pid)
+        if pid <= 1:
+            break
+    return ""
+
+
+def publish():
+    counts = {}
+    now = time.time()
+    if DIR.exists():
+        for d in DIR.iterdir():
+            if not d.is_dir():
+                continue
+            n = 0
+            for f in d.iterdir():
+                if now - f.stat().st_mtime > STALE:
+                    f.unlink(missing_ok=True)
+                else:
+                    n += 1
+            if n:
+                counts[d.name] = n
+            else:
+                try: d.rmdir()
+                except OSError: pass
+    OUT.write_text(json.dumps(counts))
+
+
+def main():
+    ev = sys.argv[1] if len(sys.argv) > 1 else "hook"
+    try:
+        raw = "" if sys.stdin.isatty() else sys.stdin.read()
+        hook = json.loads(raw) if raw.strip() else {}
+    except Exception:
+        hook = {}
+    global AGY
+    AGY = "conversationId" in hook or "workspacePaths" in hook
+    name = hook.get("hook_event_name") or hook.get("hookEventName") or hook.get("event") or ""
+    tool = str(hook.get("tool_name") or hook.get("toolName") or "")
+    sid = str(hook.get("agent_id") or hook.get("tool_use_id") or hook.get("toolCallId")
+              or hook.get("tool_call_id") or "")
+    if ev == "hook":
+        if name == "SubagentStart": ev = "start"
+        elif name == "SubagentStop": ev = "stop"
+        elif name in ("PreToolUse", "PostToolUse"):
+            tl = tool.lower()
+            if tl not in ("agent", "task") and "subagent" not in tl:
+                return
+            ev = "start" if name == "PreToolUse" else "stop"
+        else:
+            return
+    addr = window_address()
+    if not addr or not sid:
+        return
+    d = DIR / addr
+    d.mkdir(parents=True, exist_ok=True)
+    f = d / "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in sid)
+    if ev == "start":
+        f.write_text(str(int(time.time())))
+    else:
+        f.unlink(missing_ok=True)
+    publish()
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception:
+        pass
+    if AGY:
+        sys.stdout.write("{}\n")   # Antigravity exige JSON válido por stdout
+    sys.exit(0)

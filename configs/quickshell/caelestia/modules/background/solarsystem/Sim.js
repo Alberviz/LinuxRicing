@@ -79,9 +79,9 @@ var LAYOUTS = {
     //     cola del agujero negro), soles más separados, órbitas de satélites
     //     ~+20 % sobre la 1. Períodos ∝ separación (misma velocidad aparente).
     4: {
-        baryFx: 0.29, baryFy: 0.64,
-        binK: 6.2, binPeriod: 380, binTilt: -0.15,
-        orbitMul: 1.4, beltRxFrac: 0.20, orbitAlpha: 0.15
+        baryFx: 0.37, baryFy: 0.60,
+        binK: 8.5, binPeriod: 520, binTilt: -0.15,
+        orbitMul: 1.7, beltRxFrac: 0.20, orbitAlpha: 0.15
     }
 };
 
@@ -251,8 +251,10 @@ function computeLayout(state, geom) {
         // Dispositivo: tamaño según % de batería (0.13 .. 0.26 de host.r).
         // Agente: masa estelar según ventana de contexto acumulada (sizeF: 0.05 asteroide / satélite .. 1.0 gigante masivo).
         // A 95% de contexto, el cuerpo triplica con creces su radio (0.11 .. 0.41 de host.r) para visibilidad imponente.
+        // Agente = PLANETA: el % de contexto se expresa con el tamaño, de 0.6× a 2×
+        // del radio base (host.r·0.5). Dispositivo: según batería.
         var baseR = isDevice ? host.r * (0.13 + 0.13 * sizeF)
-                             : host.r * ((running ? 0.13 : 0.11) + 0.28 * sizeF);
+                             : host.r * 0.5 * (0.6 + 1.4 * sizeF);
 
         // Semieje vertical de la órbita, RECORTADO para no invadir la franja
         // inferior de ~200 px (la órbita se achata por abajo, no se traslada).
@@ -263,7 +265,25 @@ function computeLayout(state, geom) {
         var by = host.y + Math.sin(oa) * orbV;
         if (by > yFloor - baseR) by = yFloor - baseR;
 
+        // Lunas = subagentes en curso de esta sesión (b.moons). Cada una orbita su
+        // planeta con fase integrada (respeta la velocidad por astro del hover).
+        var moonList = [];
+        var nMoons = isDevice ? 0 : Math.min(5, (b.moons | 0));
+        for (var mk = 0; mk < nMoons; mk++) {
+            var mkey = b.id + "#m" + mk;
+            if (_bodyPhases[mkey] === undefined) _bodyPhases[mkey] = mk * 2.1;
+            _bodyPhases[mkey] += (2 * Math.PI / (9 + 2.5 * mk)) * dt * speedMul;
+            var mr = baseR * (1.75 + 0.45 * mk) + 5 * S;
+            moonList.push({
+                x: host.x + Math.cos(oa) * orb + Math.cos(_bodyPhases[mkey]) * mr,
+                y: by + Math.sin(_bodyPhases[mkey]) * mr * 0.6,
+                r: Math.max(2.8 * S, baseR * 0.24),
+                orbR: mr
+            });
+        }
+
         bodies.push({
+            moonList: moonList,
             id: b.id,
             // Nombre legible y proveedor de IA: pasan tal cual desde `config`
             // (los pone SolarSystemModel). Sólo se copian; Sim.js no los inventa.
@@ -354,9 +374,9 @@ function computeLayout(state, geom) {
     if (!_cometInit) { _cometPhase = 1.1; _cometInit = true; }
     _cometPhase += (2 * Math.PI / 420) * dt * zComet;
     if (nTasks > 0) {
-        var ccx = bary.x + 0.10 * w, ccy = bary.y - 0.09 * h;
-        var crx = 0.30 * w;
-        var cry = Math.min(0.30 * h, (yFloor - 24 * S) - ccy);
+        var ccx = bary.x + 0.06 * w, ccy = bary.y - 0.04 * h;
+        var crx = 0.27 * w;
+        var cry = Math.min(0.27 * h, (yFloor - 24 * S) - ccy);
         var ctilt = -0.10;
         var cth = _cometPhase;
         var clx = Math.cos(cth) * crx, cly = Math.sin(cth) * cry;
