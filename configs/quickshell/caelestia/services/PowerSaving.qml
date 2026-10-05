@@ -18,9 +18,10 @@ Singleton {
     // Permite desactivar manualmente el modo ahorro (ej: demostración o máximo rendimiento en batería)
     property bool manualOverride: false
 
-    // Modo activo: en batería o batería crítica, salvo anulación manual.
-    // Elegir power-saver a mano con AC NO activa el ahorro extremo (solo cambia el perfil).
-    readonly property bool active: !manualOverride && (onBattery || isLowBattery)
+    // Modo activo (60 Hz, turbo off, servicios/LEDs fuera): power-saver elegido a mano
+    // (con o sin AC), o batería / batería baja salvo anulación manual.
+    // La dGPU NO depende de esto: siempre queda en runtime PM `auto` (ver caelestia-power-root).
+    readonly property bool active: isSaverProfile || (!manualOverride && (onBattery || isLowBattery))
 
     FileView {
         id: stateView
@@ -93,33 +94,68 @@ Singleton {
         }
     }
 
+    // Aplica la matriz completa de forma idempotente según `active`.
     function checkState(): void {
-        const prevActive = wasActive;
         wasActive = active;
         if (active) {
-            if (UPower.onBattery && PowerProfiles.profile !== PowerProfile.PowerSaver) {
-                previousProfile = PowerProfiles.profile;
-                autoSwitchedProfile = true;
-                PowerProfiles.profile = PowerProfile.PowerSaver;
-            }
             applyHyprlandConfs();
             applyPowerTweaks();
             applyLauraPowerSaving();
         } else {
-            // Al salir del ahorro: restaurar el perfil si lo pusimos nosotros, o si venimos
-            // de estar activos y ya hay AC (autoSwitchedProfile se pierde al reiniciar el shell).
-            // Al arrancar enchufado (prevActive=false) no se toca el perfil.
-            if (PowerProfiles.profile === PowerProfile.PowerSaver && (autoSwitchedProfile || (prevActive && !onBattery)))
-                PowerProfiles.profile = previousProfile;
-            autoSwitchedProfile = false;
             restoreHyprlandConfs();
             restorePowerTweaks();
             restoreLauraPowerSaving();
         }
     }
 
-    onActiveChanged: checkState()
-    Component.onCompleted: checkState()
+    // Transición de corriente: en batería fuerza power-saver (recordando el perfil);
+    // al enchufar lo restaura. Es independiente de `active` para que también funcione
+    // cuando el saver ya era el perfil activo (active no cambia en el enchufe).
+    property bool wasOnBattery: onBattery
+    function handleAcChange(): void {
+        if (onBattery) {
+            if (!manualOverride && PowerProfiles.profile !== PowerProfile.PowerSaver) {
+                previousProfile = PowerProfiles.profile;
+                autoSwitchedProfile = true;
+                PowerProfiles.profile = PowerProfile.PowerSaver;
+            }
+        } else if (wasOnBattery && PowerProfiles.profile === PowerProfile.PowerSaver) {
+            PowerProfiles.profile = previousProfile;
+            autoSwitchedProfile = false;
+        }
+        wasOnBattery = onBattery;
+        stateTimer.restart();
+    }
+
+    // Agrupa eventos casi simultáneos (enchufe + cambio de perfil + active) en una sola aplicación.
+    Timer {
+        id: stateTimer
+
+        interval: 400
+        onTriggered: root.checkState()
+    }
+
+    onOnBatteryChanged: handleAcChange()
+    onIsLowBatteryChanged: stateTimer.restart()
+    onActiveChanged: stateTimer.restart()
+    Component.onCompleted: {
+        // Arrancar en batería sin saver: forzarlo. Arrancar con AC no toca el perfil.
+        if (onBattery && !manualOverride && PowerProfiles.profile !== PowerProfile.PowerSaver) {
+            previousProfile = PowerProfiles.profile;
+            autoSwitchedProfile = true;
+            PowerProfiles.profile = PowerProfile.PowerSaver;
+        }
+        checkState();
+    }
+
+    // Cambio de perfil (también estando enchufado): reaplicar la matriz.
+    Connections {
+        function onProfileChanged(): void {
+            stateTimer.restart();
+        }
+
+        target: PowerProfiles
+    }
 
     Connections {
         function onConfigReloaded(): void {

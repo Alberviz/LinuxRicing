@@ -8,6 +8,27 @@ KBD_LED="/sys/class/leds/platform::kbd_backlight/brightness"
 STATE_DIR="/run/caelestia-power"
 KBD_STATE="$STATE_DIR/kbd_brightness"
 
+# dGPU NVIDIA: runtime PM en `auto` SIEMPRE (batería y AC). Es "disponible bajo
+# demanda": el driver la suspende (D3) cuando nadie la usa y la despierta al
+# necesitarla. NO se fuerza `on` (la mantendría encendida) ni se desactiva el
+# dispositivo (apagarla del todo exige modo integrated + reinicio). Idempotente;
+# recorre todas las funciones PCI NVIDIA (VGA 01:00.0 + audio HDMI 01:00.1).
+nvidia_pm_auto() {
+    local d
+    for d in /sys/bus/pci/devices/*; do
+        [ "$(cat "$d/vendor" 2>/dev/null)" = "0x10de" ] || continue
+        [ -w "$d/power/control" ] && echo auto > "$d/power/control" 2>/dev/null || true
+    done
+}
+
+nvidia_status() {
+    local d
+    for d in /sys/bus/pci/devices/*; do
+        [ "$(cat "$d/vendor" 2>/dev/null)" = "0x10de" ] || continue
+        echo "  ${d##*/}: control=$(cat "$d/power/control" 2>/dev/null) status=$(cat "$d/power/runtime_status" 2>/dev/null)"
+    done
+}
+
 case "${1:-}" in
     on)
         # 1. Desactivar Intel Turbo Boost (evita picos de 55W+ a 5.0 GHz)
@@ -25,10 +46,8 @@ case "${1:-}" in
             echo 1 > /sys/module/snd_hda_intel/parameters/power_save 2>/dev/null || true
         fi
 
-        # 4. Asegurar runtime PM auto para dGPU NVIDIA (permite suspender a D3cold)
-        if [ -f /sys/bus/pci/devices/0000:01:00.0/power/control ]; then
-            echo auto > /sys/bus/pci/devices/0000:01:00.0/power/control 2>/dev/null || true
-        fi
+        # 4. dGPU NVIDIA: runtime PM auto (se suspende en cuanto nadie la use)
+        nvidia_pm_auto
 
         # 5. Apagar teclado retroiluminado, guardando el brillo para restaurarlo en `off`.
         #    Solo se guarda si no hay ya un valor guardado (dos `on` seguidos no guardan 0).
@@ -60,7 +79,11 @@ case "${1:-}" in
             echo 0 > /sys/module/snd_hda_intel/parameters/power_save 2>/dev/null || true
         fi
 
-        # 4. Restaurar brillo del teclado retroiluminado (solo si `on` lo guardó)
+        # 4. dGPU NVIDIA: también `auto` (disponible bajo demanda). Antes `off` no la
+        #    tocaba, así que cualquier estado previo (p. ej. `on` forzado) quedaba pegado.
+        nvidia_pm_auto
+
+        # 5. Restaurar brillo del teclado retroiluminado (solo si `on` lo guardó)
         if [ -f "$KBD_STATE" ]; then
             saved="$(cat "$KBD_STATE" 2>/dev/null || true)"
             if [[ "$saved" =~ ^[0-9]+$ ]] && [ -f "$KBD_LED" ]; then
@@ -78,8 +101,8 @@ case "${1:-}" in
         iw dev wlan0 get power_save 2>/dev/null || echo "N/A"
         echo -n "Audio Power Save: "
         cat /sys/module/snd_hda_intel/parameters/power_save 2>/dev/null || echo "N/A"
-        echo -n "NVIDIA Runtime PM: "
-        cat /sys/bus/pci/devices/0000:01:00.0/power/runtime_status 2>/dev/null || echo "N/A"
+        echo "NVIDIA Runtime PM:"
+        nvidia_status
         ;;
 
     *)
