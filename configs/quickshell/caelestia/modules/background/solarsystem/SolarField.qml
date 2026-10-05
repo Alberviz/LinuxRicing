@@ -253,6 +253,19 @@ Item {
         BhTex  { id: bhBlurH2T; sourceItem: bhBlurH2 }
         BhBlur { id: bhBlurV2; width: bhBlurH2.width; height: bhBlurH2.height; src: bhBlurH2T; dir: Qt.point(0, 1); spread: 2.4 }
         BhTex  { id: bhBlurV2T; sourceItem: bhBlurV2 }
+        // suavizado de bordes contra el vacío: desenfoque de la escena completa (rgb + alfa) a media resolución;
+        // bhcomp solo lo usa donde la cobertura cambia de golpe y fuera del radio de la sombra
+        component BhSoft: ShaderEffect {
+            fragmentShader: Qt.resolvedUrl("shaders/bhsoft.frag.qsb")
+            property var src
+            property point dir
+            property point texel: Qt.point(1 / width, 1 / height)
+            property real sigma: 5
+        }
+        BhSoft { id: bhSoftH; width: Math.ceil(bhChain.width / 2); height: Math.ceil(bhChain.height / 2); src: bhScene; dir: Qt.point(1, 0) }
+        BhTex  { id: bhSoftHT; sourceItem: bhSoftH }
+        BhSoft { id: bhSoftV; width: bhSoftH.width; height: bhSoftH.height; src: bhSoftHT; dir: Qt.point(0, 1) }
+        BhTex  { id: bhSoftVT; sourceItem: bhSoftV }
         // composite: ACES por luminancia, bloom lavanda (tertiary), salida premultiplicada
         ShaderEffect {
             id: bhComp
@@ -261,6 +274,9 @@ Item {
             property var scene: bhScene
             property var bloom: bhBlurVT
             property var bloom2: bhBlurV2T
+            property var soft: bhSoftVT
+            property real softAmt: 1.0
+            property point boxOrigin: Qt.point(root._bhBox.x, root._bhBox.y)
             readonly property color _t: Colours.palette.m3tertiary
             property color tint: Qt.tint(Qt.rgba(1, 1, 1, 1), Qt.rgba(_t.r, _t.g, _t.b, 0.55))
             property real exposure: 0.8

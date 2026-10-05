@@ -11,14 +11,25 @@ layout(std140, binding = 0) uniform buf {
     vec2  bhCenter;
     float bhRadius;
     vec4  tint;
+    vec2  boxOrigin;    // px de pantalla de la esquina de la caja
+    float softAmt;      // 0..1: cuánto se difuminan los bordes contra el vacío (0 = como antes)
     vec2  edgeOpen;     // 1e4 en los ejes cuyo borde de caja coincide con el de pantalla (no desvanecer)
 };
 layout(binding = 1) uniform sampler2D scene;
 layout(binding = 2) uniform sampler2D bloom;
 layout(binding = 3) uniform sampler2D bloom2;
+layout(binding = 4) uniform sampler2D soft;
 vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14), 0.0, 1.0); }
 void main(){
     vec4 sc = texture(scene, qt_TexCoord0);
+    // bordes contra el vacío: donde la cobertura difiere de su versión desenfocada hay una silueta; ahí se usa la
+    // versión desenfocada (difuminado largo). En el interior (alfa 1 en ambas) y junto a la sombra no cambia nada.
+    vec4 sf = texture(soft, qt_TexCoord0);
+    // solo hacia fuera: el borde interior junto a la sombra (≈ bhRadius) y lo que cae dentro se queda nítido
+    float dpx = length(boxOrigin + qt_TexCoord0 * resolution - bhCenter);
+    float outer = smoothstep(1.08 * bhRadius, 1.3 * bhRadius, dpx);
+    float ek = smoothstep(0.01, 0.35, abs(sc.a - sf.a)) * softAmt * outer;
+    sc = mix(sc, sf, ek);
     // máscara del bloom: fuera solo de la sombra pura (cobertura total y oscuro)
     float bm = 1.0 - step(0.99, sc.a) * exp(-8.0 * dot(sc.rgb, vec3(0.2126, 0.7152, 0.0722)));
     // el resplandor se desvanece en los bordes de la caja que no son borde de pantalla
