@@ -40,6 +40,7 @@ Rama: `feat/gargantua-lut` (sin mergear a `main`). Última actualización: 2026-
   - Graves → disco interior; golpe → punto caliente kepleriano que se apaga; agudos → grano. Falta la onda gravitacional al cambiar de canción.
 - **Progreso verificado en vivo (commits `b2582bc` y siguiente):** lo no recorrido al 10 % (`DIM_OFF`) y 20 % en la franja (`DIM_OFF_FRANJA`); el progreso recorre franja, bóveda y anillo con borde degradado. Los arcos grises eran estrellas lensadas del `starfield` de `solarfield.frag` (ya omitidas a <1.9R), no de `MusicHole`. Limitación: en pausa un `seek` no se ve hasta que vuelve a sonar (el temporizador del modelo solo corre sonando).
 - **Bordes suaves (commit siguiente):** pase `bhsoft.frag` (gauss rgb+alfa a ½ res, sigma 5) y `bhcomp` lo mezcla solo donde la cobertura cambia de golpe y a más de ~1.08·bhRadius del centro (el borde junto a la sombra y el interior siguen nítidos). `softAmt` en `SolarField.qml` lo regula (1 = pleno, 0 = como antes). Cuesta 4 pases más a ½ res; medir con el resto de rendimiento.
+- **Animaciones (commit siguiente):** reposo = ondas de densidad espirales (3 brazos, `0.12 rad/s`), respiración de 34 s del brillo interior y destello que recorre el anillo cada 45 s. Música = onda de choque por golpe (dos a la vez, ≥0.35 s entre golpes), giro del disco ×1.0-1.9 con la energía (`ftime`, tiempo de flujo integrado en `SolarField`) y onda gravitacional al cambiar de canción (progreso <5 % tras >15 %). Sin verificar a ojo en movimiento con golpes reales; en reposo se vio cambio entre capturas.
 - **Caída de luz (commit `089fca3`):** `2.4·exp(-6.5·rn)+0.02` en `shadeThin`.
 - **Aliasing (commit `6ab1dfb`):** cada octava de ruido se funde con su media según la huella del píxel (`aaw`); menos motas en la punta de la cola.
 - **Overlay viejo:** `musicVariant` por defecto 0, que ahora es `BhReadout.qml` (tiempo, título y artista dentro de la sombra, por encima de la franja). Los arcos grises no se han podido confirmar como suyos: si siguen, mirar el Canvas fino de `SolarSystem.qml`.
@@ -51,7 +52,7 @@ Rama: `feat/gargantua-lut` (sin mergear a `main`). Última actualización: 2026-
 1. **Verificar a ojo golpe y graves** (punto caliente, bloom con graves fuertes); el progreso ya está verificado.
 2. **Anillo de fotones:** Alberto quiere mejorarlo (poco hueco con el creciente, astilla blanca a la izquierda de la sombra). Preguntarle qué cambiaría.
 3. **Bóveda cortada** por el borde superior. Valorar bajar un poco el centro; preguntar.
-4. **Onda gravitacional** al cambiar de canción (no hecha).
+4. **Ajustar a ojo** las animaciones nuevas (amplitud de las ondas de densidad 0.30, ondas de choque 0.8, onda gravitacional 1.3).
 5. **Rendimiento:** con música el reloj de `bhShade` sube a ~25 Hz (lo que cambian las propiedades de música); medir en la Intel UHD 770 y gatear si pesa.
 6. **Merge** de `feat/gargantua-lut` a `main` cuando Alberto lo dé por bueno.
 7. **Fuera de este proyecto:** `qs` gasta ~30-40 % de CPU con cualquier agujero. Va en la tarea «Arreglar rendimiento y uso de la tarjeta gráfica».

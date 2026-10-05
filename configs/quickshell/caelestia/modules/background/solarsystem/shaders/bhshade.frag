@@ -36,6 +36,10 @@ layout(std140, binding = 0) uniform buf {
     float musicTreble;  // 0..1
     float beatAge;      // s desde el último golpe (999 = ninguno)
     float beatSeed;     // 0..1, fase de nacimiento del punto caliente
+    float ftime;        // tiempo de flujo del disco: igual que `time` pero acelera con la energía de la música
+    float beatAgeA;     // s desde el último golpe (para la onda de choque) y desde el anterior
+    float beatAgeB;
+    float waveAge;      // s desde el cambio de canción (onda gravitacional); 999 = ninguna
 };
 layout(binding = 1) uniform sampler2D geoA;
 layout(binding = 2) uniform sampler2D geoB;
@@ -88,7 +92,7 @@ vec4 flowTex(float r, float phi, float seed, bool full, float yn, float rsc, flo
     float rr = r / 2.54;
     float v = rr / 16.0 * rsc;            // rsc < 1: menos dependencia de r (cola: sin espigas)
     for (int k = 0; k < 2; k++){
-        float ph = fract(time / T + 0.5 * float(k) + seed * 0.37);
+        float ph = fract(ftime / T + 0.5 * float(k) + seed * 0.37);
         float w  = 1.0 - abs(2.0 * ph - 1.0);
         float u  = (phi - omegaK(r) * (ph - 0.5) * T) / TAU;
         float s  = float(k) * 0.37 + seed * 0.21;
@@ -106,6 +110,12 @@ vec4 flowTex(float r, float phi, float seed, bool full, float yn, float rsc, flo
         w2 += w * w;
     }
     return 0.5 + acc / sqrt(w2);
+}
+
+// anillo de luz que se expande por el disco: nace en el labio y viaja a v unidades/s con ancho w
+float ringWave(float rc, float age, float v, float w){
+    float d = (rc - (R_ISCO + age * v)) / w;
+    return exp(-d * d);
 }
 
 float dopplerG(float r, float dop){
@@ -141,7 +151,7 @@ float speckLayer(float r, float phi, vec4 J, float Nr, float prob, float rmin, f
     float ir = floor(r * Nr);
     float rowR = (ir + 0.5) / Nr;
     float nphi = max(floor(TAU * rowR * Nr * 3.0), 3.0);
-    float a = phi - omegaK(rowR) * time * 0.25;
+    float a = phi - omegaK(rowR) * ftime * 0.25;
     float u = fract(a / TAU) * nphi;
     vec2 id = vec2(ir, floor(u));
     if (h12(id + seed) > prob) return 0.0;
@@ -169,7 +179,7 @@ vec4 shadeThin(vec4 s, float dop, float seed, vec4 J){
     float du = length(J.zw) / TAU;
     vec4 n = flowTex(rc, s.y, seed, true, 0.0, 1.0, max(dv, du * 0.5));
     // vetas concéntricas muy finas (atenuadas donde el píxel no las resuelve)
-    float uf = (s.y - 0.02 * time) / TAU;
+    float uf = (s.y - 0.02 * ftime) / TAU;
     float vf = rc / 2.54 / 16.0;
     float av1 = aaw(max(dv * 70.0, du * 3.0)), av2 = aaw(max(dv * 150.0, du * 5.0));
     float fv = 0.6 * mix(0.5, texture(noiseTex, vec2(3.0 * uf + seed * 0.3, vf * 70.0)).r, av1)
@@ -200,6 +210,16 @@ vec4 shadeThin(vec4 s, float dop, float seed, vec4 J){
                           + 0.9 * exp(-(rc - R_ISCO) * 2.5));
     I *= 1.0 + 0.35 * musicBass * mAct * inner;
     I += lip * gS * 1.1 * hot * mAct;
+    // reposo: ondas de densidad espirales (3 brazos, giran despacio) que dan movimiento visible en TODO el disco,
+    // y respiración muy lenta del brillo interior. Nada de esto toca el labio junto a la sombra.
+    float spiral = sin(3.0 * (s.y - 0.12 * ftime) + 2.6 * log(rc / R_ISCO));
+    I *= 1.0 + 0.30 * spiral * smoothstep(0.05, 0.30, rn) * (1.0 - smoothstep(0.85, 1.0, rn));
+    I *= 1.0 + 0.10 * inner * sin(time * TAU / 34.0);
+    // música: onda de choque por golpe (la anterior sigue su camino) y onda gravitacional al cambiar de canción
+    float shock = ringWave(rc, beatAgeA, 4.2, 0.55) * exp(-beatAgeA / 1.3) * smoothstep(0.0, 0.05, beatAgeA)
+                + 0.6 * ringWave(rc, beatAgeB, 4.2, 0.55) * exp(-beatAgeB / 1.3);
+    I += lip * gS * 0.8 * shock * mAct;
+    I += lip * gS * 1.3 * ringWave(rc, waveAge, 2.6, 1.1) * exp(-waveAge / 3.0) * smoothstep(0.0, 0.2, waveAge);
     vec3 col = ramp(clamp(1.0 - pow(rn, 0.6) + 0.15 * (g - 1.0), 0.0, 1.0)) * I;
     // polvo: motas fijas en el disco, en bandas radiales de grano fino
     float band = smoothstep(0.40, 0.70, texture(noiseTex, vec2(0.13, vf * 40.0)).b);
@@ -207,7 +227,7 @@ vec4 shadeThin(vec4 s, float dop, float seed, vec4 J){
     col *= 1.0 - 0.92 * specks(rc, s.y, J, dd);
     // borde exterior que se deshace en partículas
     float fade = 1.0 - smoothstep(0.6 * R_OUT_T, R_OUT_T, rc + (n.w - 0.5) * 0.3 * R_OUT_T);
-    vec4 pc = diskCell(rc, s.y - 0.02 * time, 38.0);
+    vec4 pc = diskCell(rc, s.y - 0.02 * ftime, 38.0);
     float ph = h12(pc.xy + 4.7);
     float part = smoothstep(ph - 0.10, ph + 0.10, fade * 1.7) * (0.7 + 0.6 * h12(pc.xy + 9.1));
     fade = mix(part * fade * 1.4, fade, smoothstep(0.12, 0.40, fade));
@@ -254,7 +274,10 @@ void main(){
         float Rp = bhRadius / B_CRIT;
         float dpx = length(frag - bhCenter) - 0.9 * B_CRIT * Rp;
         float ring = exp(-0.5 * dpx * dpx / 0.64);
-        E += Tr * ring * ramp(1.0) * 3.0 * gain;
+        float da = abs(fract(tAng - fract(time / 45.0) + 0.5) - 0.5) / 0.03;      // destello que recorre el anillo cada 45 s
+        float sparkle = 1.0 + 0.8 * exp(-0.5 * da * da);
+        float wavePulse = 1.0 + 1.5 * exp(-waveAge / 1.5) * smoothstep(0.0, 0.1, waveAge);
+        E += Tr * ring * ramp(1.0) * 3.0 * gain * sparkle * wavePulse;
     }
     // alfa = cobertura: lo que tapa el fondo (disco + horizonte)
     fragColor = vec4(E, 1.0 - Tr * (1.0 - hit));

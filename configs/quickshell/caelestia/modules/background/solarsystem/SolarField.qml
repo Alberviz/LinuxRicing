@@ -138,9 +138,37 @@ Item {
     // fase de nacimiento del punto caliente: una nueva en cada golpe (la edad vuelve a ~0)
     property real _beatSeed: 0.37
     property real _lastBurstAge: 999
+    // instantes (en `time`) de los dos últimos golpes → ondas de choque que se solapan sin saltos;
+    // mínimo 0.35 s entre golpes para que no se amontonen
+    property real _beatT0: -1e6
+    property real _beatT1: -1e6
+    readonly property real _beatAgeA: Math.min(999, time - _beatT0)
+    readonly property real _beatAgeB: Math.min(999, time - _beatT1)
     onMusicBurstAgeChanged: {
-        if (musicBurstAge < _lastBurstAge - 0.01) _beatSeed = Math.random();
+        if (musicBurstAge < _lastBurstAge - 0.01) {
+            _beatSeed = Math.random();
+            if (time - _beatT0 > 0.35) { _beatT1 = _beatT0; _beatT0 = time; }
+        }
         _lastBurstAge = musicBurstAge;
+    }
+    // onda gravitacional: el progreso vuelve casi a 0 desde bastante avanzado = canción nueva (o reinicio)
+    property real _waveT: -1e6
+    property real _lastProg: 0
+    readonly property real _waveAge: Math.min(999, time - _waveT)
+    onMusicProgressChanged: {
+        if (musicProgress < 0.05 && _lastProg > 0.15) _waveT = time;
+        _lastProg = musicProgress;
+    }
+    // tiempo de flujo del disco: como `time`, pero con música el giro se acelera hasta ×1.9 según la energía
+    // (en silencio avanza igual que `time`, así que el aspecto en reposo no cambia)
+    property real _flowT: 0
+    property real _lastT: -1
+    onTimeChanged: {
+        if (_lastT >= 0) {
+            const dt = time - _lastT;
+            if (dt > 0 && dt < 2) _flowT += dt * (1 + 0.9 * _musicActive * Math.min(1, music));
+        }
+        _lastT = time;
     }
 
     // ===================== AGUJERO B10-B (fuera de pantalla: todo visible:false) =====================
@@ -223,6 +251,10 @@ Item {
             property real musicTreble: root.musicTreble
             property real beatAge: root.musicBurstAge
             property real beatSeed: root._beatSeed
+            property real ftime: root._flowT
+            property real beatAgeA: root._beatAgeA
+            property real beatAgeB: root._beatAgeB
+            property real waveAge: root._waveAge
         }
         ShaderEffectSource {
             id: bhScene
