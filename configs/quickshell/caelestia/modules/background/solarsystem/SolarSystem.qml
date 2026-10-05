@@ -82,65 +82,83 @@ Item {
             _frozenAccum += (_t - _frozenAccum) - _tFreeze; // suma el rato congelado
     }
 
-    // --- HOVER POR ZONAS ---
-    // Zonas: "laura" (Laura + sesiones), "config" (Configuración + periféricos),
-    // "comet" (cometa de tareas) y "bh" (agujero negro). La zona bajo el puntero
-    // se calcula SOLO cuando el puntero se mueve (HoverHandler.onPointChanged).
-    // Cada zona tiene un `amount` 0..1 con transición de 600 ms: de él cuelgan la
-    // velocidad del tiempo de la zona (×1 → ×0.25), la opacidad de sus órbitas,
-    // el fundido de sus etiquetas y la atenuación (70 %) del resto.
-    property string hoverZone: ""
-    property real zLaura: hoverZone === "laura" ? 1 : 0
-    property real zConfig: hoverZone === "config" ? 1 : 0
-    property real zComet: hoverZone === "comet" ? 1 : 0
-    property real zBh: hoverZone === "bh" ? 1 : 0
-    Behavior on zLaura { NumberAnimation { duration: 600; easing.type: Easing.InOutCubic } }
-    Behavior on zConfig { NumberAnimation { duration: 600; easing.type: Easing.InOutCubic } }
-    Behavior on zComet { NumberAnimation { duration: 600; easing.type: Easing.InOutCubic } }
-    Behavior on zBh { NumberAnimation { duration: 600; easing.type: Easing.InOutCubic } }
-    readonly property real hoverAny: Math.max(zLaura, zConfig, zComet, zBh)
-    // Factor de atenuación de un elemento de la zona con amount `z`: 1 si es el
-    // enfocado, hasta 0.70 si hay otra zona enfocada.
+    // --- HOVER PRECISO POR ASTRO ---
+    // Solo el astro bajo el puntero (su disco + ~8 px, o su etiqueta) se enfoca:
+    // ids "s:laura", "s:config", "b:<id>" (satélites), "comet" y "bh". La
+    // selección se calcula SOLO cuando el puntero se mueve (HoverHandler). El
+    // astro enfocado tiene un `amount` 0..1 con transición de 600 ms (el que
+    // pierde el foco se desvanece aparte): de él cuelgan la velocidad de SU
+    // tiempo (×1 → ×0.25), su órbita, su etiqueta con detalle y la atenuación
+    // (70 %) del resto.
+    property string hoverId: ""
+    property string _prevId: ""
+    property real _aCur: 0
+    property real _aPrev: 0
+    NumberAnimation { id: fadeIn; target: root; property: "_aCur"; to: 1; duration: 600; easing.type: Easing.InOutCubic }
+    NumberAnimation { id: fadeOut; target: root; property: "_aPrev"; to: 0; duration: 600; easing.type: Easing.InOutCubic }
+    onHoverIdChanged: {
+        fadeIn.stop(); fadeOut.stop();
+        _prevId = _lastId; _aPrev = _aCur;
+        _lastId = hoverId;
+        _aCur = 0;
+        if (_prevId !== "") fadeOut.start();
+        if (hoverId !== "") fadeIn.start();
+    }
+    property string _lastId: ""
+    function amountOf(id) {
+        return id === hoverId ? _aCur : (id === _prevId ? _aPrev : 0);
+    }
+    readonly property real hoverAny: Math.max(_aCur, _aPrev)
+    readonly property real zLaura: amountOf("s:laura")
+    readonly property real zConfig: amountOf("s:config")
+    readonly property real zComet: amountOf("comet")
+    readonly property real zBh: amountOf("bh")
+    // Factor de atenuación de un elemento con amount `z`: 1 si es el enfocado,
+    // hasta 0.70 si hay otro astro enfocado.
     function _dimOf(z) { return 1 - 0.30 * Math.max(0, hoverAny - z); }
-    function _zoneOfBody(b) { return (b && b.kind === "device") ? zConfig : zLaura; }
+    function _zoneOfBody(b) { return b ? amountOf("b:" + b.id) : 0; }
     // Giro del disco del agujero negro, INTEGRADO (velocidad variable por hover).
     property real bhPhase: 0
 
+    // ¿El puntero está sobre el disco (+8 px) o la etiqueta de un astro?
+    function _hitAstro(p, x, y, r, ly, name, S) {
+        if (Math.hypot(p.x - x, p.y - y) < r + 8 * S) return true;
+        if (!name || !name.length) return false;
+        const gap = r + 26 * S, w = name.length * 10.5 * S;
+        const left = x + gap + w + 8 > root.width;
+        const x0 = left ? x - gap - w : x + gap;
+        return p.x >= x0 - 4 && p.x <= x0 + w + 4 && Math.abs(p.y - ly) < 12 * S + 4;
+    }
     function _updateZone(p) {
         const L = root._layout;
-        if (!L) { hoverZone = ""; return; }
+        if (!L) { hoverId = ""; return; }
         const S = L.scale;
+        let found = "";
         const c = L.comet;
         if (c) {
             // Distancia al segmento cabeza→punta de la cola (cabeza y cola cuentan).
             const sx = c.tx * c.len, sy = c.ty * c.len;
             const t = Math.max(0, Math.min(1, ((p.x - c.x) * sx + (p.y - c.y) * sy) / (sx * sx + sy * sy)));
-            if (Math.hypot(p.x - (c.x + sx * t), p.y - (c.y + sy * t)) < 26 * S) { hoverZone = "comet"; return; }
+            if (Math.hypot(p.x - (c.x + sx * t), p.y - (c.y + sy * t)) < 22 * S) found = "comet";
         }
-        let best = "", bestS = 1;
-        for (let i = 0; i < L.suns.length; i++) {
-            const sun = L.suns[i];
-            const dx = p.x - sun.x, dy = p.y - sun.y;
-            const rr = sun.r * 2.8;
-            const sc = (dx * dx + dy * dy) / (rr * rr);
-            if (sc < bestS) { bestS = sc; best = sun.id; }
-        }
-        for (let j = 0; j < L.bodies.length; j++) {
-            const b = L.bodies[j];
-            if (b.orbX === undefined) continue;
-            const ax = b.orbX + 16 * S, ay = b.orbV + 16 * S;
-            const dx = p.x - b.hostx, dy = p.y - b.hosty;
-            const sc = (dx * dx) / (ax * ax) + (dy * dy) / (ay * ay);
-            if (sc < bestS) { bestS = sc; best = (b.kind === "device") ? "config" : "laura"; }
-        }
-        if (best === "" && L.bh && Math.hypot(p.x - L.bh.x, p.y - L.bh.y) < L.bh.R * 1.7)
-            best = "bh";
-        if (best !== hoverZone) hoverZone = best;
+        if (found === "")
+            for (let i = 0; i < L.suns.length && found === ""; i++) {
+                const sun = L.suns[i];
+                if (_hitAstro(p, sun.x, sun.y, sun.r, sun.y, root._labelNames[sun.id], S)) found = "s:" + sun.id;
+            }
+        if (found === "")
+            for (let j = 0; j < L.bodies.length; j++) {
+                const b = L.bodies[j];
+                if (_hitAstro(p, b.x, b.y, b.r, b.ly, root._bodyName(b), S)) { found = "b:" + b.id; break; }
+            }
+        if (found === "" && L.bh && Math.hypot(p.x - L.bh.x, p.y - L.bh.y) < L.bh.R * 1.25)
+            found = "bh";
+        if (found !== hoverId) hoverId = found;
     }
     HoverHandler {
         id: zoneHover
         onPointChanged: root._updateZone(point.position)
-        onHoveredChanged: if (!hovered) root.hoverZone = ""
+        onHoveredChanged: if (!hovered) root.hoverId = ""
     }
 
     // --- Estado ---
@@ -284,13 +302,19 @@ Item {
         return 0.30 + 0.22 * k;
     }
 
+    // Velocidad del tiempo por astro (solo el enfocado y el que acaba de soltarse).
+    function _speeds() {
+        const sp = { comet: 1 - 0.75 * zComet, body: {} };
+        if (hoverId.indexOf("b:") === 0) sp.body[hoverId.slice(2)] = 1 - 0.75 * _aCur;
+        if (_prevId.indexOf("b:") === 0) sp.body[_prevId.slice(2)] = 1 - 0.75 * _aPrev;
+        return sp;
+    }
     function _recompute() {
         if (width <= 0 || height <= 0)
             return;
         root._layout = Sim.computeLayout({
             t: root.simTime, values: root.values, config: root.config,
-            zoneSpeed: { laura: 1 - 0.75 * root.zLaura, config: 1 - 0.75 * root.zConfig,
-                         comet: 1 - 0.75 * root.zComet }
+            zoneSpeed: root._speeds()
         }, root._geom());
         root._rescanPulseFlags();
     }
@@ -845,7 +869,7 @@ Item {
                 property bool hovered: false
 
                 anchors.fill: parent
-                readonly property real zone: (sunWrap.s && sunWrap.s.id === "laura") ? root.zLaura : root.zConfig
+                readonly property real zone: sunWrap.s ? root.amountOf("s:" + sunWrap.s.id) : 0
                 opacity: ((root.lauraActive && sunWrap.s && sunWrap.s.id === "laura")
                     ? 1 : root._dimK) * root._dimOf(zone)
                 Behavior on opacity { NumberAnimation { duration: 380; easing.type: Easing.OutCubic } }
@@ -981,7 +1005,7 @@ Item {
     // en reposo bastan ~6 fps. Hover/transición de zona o de foco-Laura: `targetFps`;
     // música sonando (cava va a 25 Hz) o agente «terminado» parpadeando: 30. Timer (no FrameAnimation): no despierta a
     // cada vsync y el intervalo es regulable.
-    readonly property bool _hovering: hoverZone !== "" || hoverAny > 0.001
+    readonly property bool _hovering: hoverId !== "" || hoverAny > 0.001
         || Math.abs(lauraFocus - (lauraActive ? 1 : 0)) > 0.001
     readonly property real _fps: _hovering ? (targetFps > 0 ? targetFps : 60)
         : (fastRate ? Math.min(30, targetFps > 0 ? targetFps : 30) : (_anyDone ? 30 : 6))

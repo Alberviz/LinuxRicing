@@ -157,8 +157,7 @@ function computeLayout(state, geom) {
     // Velocidad del tiempo POR ZONA (hover): 1 = normal, 0.25 = zona enfocada.
     // La fase se INTEGRA con esta velocidad variable → al cambiar no hay salto.
     var zs = state.zoneSpeed || {};
-    var zLaura = (typeof zs.laura === "number") ? zs.laura : 1;
-    var zConf = (typeof zs.config === "number") ? zs.config : 1;
+    var zBody = zs.body || {};
     var zComet = (typeof zs.comet === "number") ? zs.comet : 1;
     var cfg = state.config || { anchors: [], bodies: [] };
     var w = geom.w, h = geom.h;
@@ -243,7 +242,7 @@ function computeLayout(state, geom) {
         per *= C.orbitMul;
         var phase = (b.phase != null ? b.phase : (i * 2.399));
         var speedMul = ((b.anchor === "laura" && !lauraLit) ? 0.5 : 1.0)
-                     * (isDevice ? zConf : zLaura);
+                     * (typeof zBody[b.id] === "number" ? zBody[b.id] : 1);
         if (_bodyPhases[b.id] === undefined) _bodyPhases[b.id] = phase;
         _bodyPhases[b.id] += (2 * Math.PI / per) * dt * speedMul;
         var oa = _bodyPhases[b.id];
