@@ -33,6 +33,14 @@ no de Alberto:**
   sesiones» de `vault/🎯 Hoy.md`: `- **<fecha> · <agente>** — <qué hiciste>`.
 - Los proyectos grandes siguen viviendo en `Roadmap Maestro de Innovaciones.md`; el
   Backlog es la rodaja accionable y enlaza al roadmap.
+- **Tareas de varios repos:** `widgets/tasks-index` (`~/.local/bin/tasks-index`) agrupa en
+  `~/.cache/tasks.json` las notas `Backlog/*.md` de todos los repos registrados en
+  `~/.config/caelestia/task-repos.json` (plantilla: `configs/caelestia/task-repos.json`). Para
+  que un repo nuevo salga en el widget y en el cometa: una línea en ese registro y su
+  `Backlog/` con la misma convención de frontmatter. Para cambiar el estado o crear una tarea
+  desde un script o agente usa `tasks-index set|add` (solo toca la línea `estado:`); lo leen el
+  widget de tareas, el cometa del sistema solar y las tools de Laura. Diseño en
+  `docs/superpowers/specs/2026-10-05-sistema-tareas-design.md`.
 
 ## Conocimiento de hardware
 
