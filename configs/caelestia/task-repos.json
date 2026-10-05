@@ -1,5 +1,5 @@
 [
-  {"nombre": "LinuxRicing", "backlog": "~/LinuxRicing/vault/Backlog", "vault": "vault"},
+  {"nombre": "LinuxRicing", "backlog": "~/LinuxRicing/vault/Backlog", "vault": "vault", "inicio": "🎯 Hoy"},
   {"nombre": "Universidad", "backlog": "~/Documentos/Universidad/Backlog", "vault": "Universidad"},
   {"nombre": "Minecraft", "backlog": "~/minecraft-server/vault/Backlog", "vault": "vault"},
   {"nombre": "OpenGym", "backlog": "~/proyectos/opengym-fork/Backlog", "vault": "opengym-fork"}

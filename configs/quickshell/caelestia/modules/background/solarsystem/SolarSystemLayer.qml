@@ -121,8 +121,10 @@ Variants {
         TasksWidget {
             anchors.right: parent.right
             anchors.bottom: parent.bottom
-            anchors.rightMargin: 32
-            anchors.bottomMargin: 32
+            // Los bordes derecho (~70 px) e inferior (~230 px) no reciben clics aquí: los tapa
+            // la capa de drawers de Caelestia. El widget debe quedar por dentro de ambos.
+            anchors.rightMargin: 100
+            anchors.bottomMargin: 260
         }
 
         TasksPanel {

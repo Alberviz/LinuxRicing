@@ -2,8 +2,8 @@ pragma ComponentBehavior: Bound
 
 // TasksWidget — tareas de todos los repos, abajo a la derecha del escritorio.
 // Variante A de la maqueta: agrupadas por repo. Sin animaciones: solo se repinta
-// cuando cambia Tasks (cada 30 s como mucho). Casilla = marcar hecha; clic en el
-// título = abrir la nota en Obsidian; el botón de la cabecera abre la nota «Hoy».
+// cuando cambia Tasks (cada 30 s como mucho). Cada fila es un TaskLine (estado,
+// título, prioridad). Cabecera: botón de transparencia y botón que abre «Hoy».
 
 import QtQuick
 import QtQuick.Layouts
@@ -35,15 +35,11 @@ StyledRect {
         return out;
     }
 
-    function abrirObsidian(): void {
-        Quickshell.execDetached(["xdg-open", "obsidian://open?vault=vault&file=%F0%9F%8E%AF%20Hoy"]);
-    }
-
     visible: Tasks.tareas.length > 0
-    implicitWidth: 360
+    implicitWidth: 420
     implicitHeight: col.implicitHeight + Tokens.padding.large * 2
     radius: Tokens.rounding.large
-    color: Qt.alpha(Colours.palette.m3surfaceContainer, 0.82)
+    color: Tasks.widgetTransparente ? "transparent" : Qt.alpha(Colours.palette.m3surfaceContainer, 0.82)
 
     ColumnLayout {
         id: col
@@ -70,6 +66,26 @@ StyledRect {
 
                 MaterialIcon {
                     anchors.centerIn: parent
+                    text: Tasks.widgetTransparente ? "opacity" : "blur_on"
+                    fontStyle: Tokens.font.icon.small
+                    color: Colours.palette.m3onSurface
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: Tasks.setWidgetTransparente(!Tasks.widgetTransparente)
+                }
+            }
+
+            StyledRect {
+                implicitWidth: 28
+                implicitHeight: 28
+                radius: Tokens.rounding.full
+                color: Colours.palette.m3surfaceContainerHigh
+
+                MaterialIcon {
+                    anchors.centerIn: parent
                     text: "open_in_new"
                     fontStyle: Tokens.font.icon.small
                     color: Colours.palette.m3onSurface
@@ -78,7 +94,7 @@ StyledRect {
                 MouseArea {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: root.abrirObsidian()
+                    onClicked: Tasks.abrirHoy()
                 }
             }
         }
@@ -103,42 +119,10 @@ StyledRect {
                     font: Tokens.font.label.small
                 }
 
-                RowLayout {
+                TaskLine {
                     visible: !item.esGrupo
                     Layout.fillWidth: true
-                    spacing: Tokens.spacing.small
-
-                    MaterialIcon {
-                        text: "check_box_outline_blank"
-                        fontStyle: Tokens.font.icon.small
-                        color: Colours.palette.m3onSurfaceVariant
-
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: Tasks.marcarHecha(item.modelData.t)
-                        }
-                    }
-
-                    StyledText {
-                        Layout.fillWidth: true
-                        text: item.esGrupo ? "" : item.modelData.t.titulo
-                        elide: Text.ElideRight
-                        color: !item.esGrupo && item.modelData.t.estado === "en-curso" ? Colours.palette.m3primary : Colours.palette.m3onSurface
-                        font: Tokens.font.label.medium
-
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: Tasks.abrir(item.modelData.t)
-                        }
-                    }
-
-                    StyledText {
-                        text: item.esGrupo ? "" : `P${item.modelData.t.prioridad}`
-                        color: Colours.palette.m3outline
-                        font: Tokens.font.label.small
-                    }
+                    tarea: item.esGrupo ? ({ titulo: "", estado: "pendiente", prioridad: 0, repo: "" }) : item.modelData.t
                 }
             }
         }

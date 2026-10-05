@@ -136,45 +136,12 @@ Item {
                 spacing: Tokens.spacing.small
                 model: root.lista
 
-                delegate: RowLayout {
-                    id: row
-
+                delegate: TaskLine {
                     required property var modelData
 
                     width: ListView.view.width
-                    spacing: Tokens.spacing.small
-
-                    MaterialIcon {
-                        text: "check_box_outline_blank"
-                        fontStyle: Tokens.font.icon.small
-                        color: Colours.palette.m3onSurfaceVariant
-
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: Tasks.marcarHecha(row.modelData)
-                        }
-                    }
-
-                    StyledText {
-                        Layout.fillWidth: true
-                        text: row.modelData.titulo
-                        elide: Text.ElideRight
-                        color: row.modelData.estado === "en-curso" ? Colours.palette.m3primary : Colours.palette.m3onSurface
-                        font: Tokens.font.label.medium
-
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: Tasks.abrir(row.modelData)
-                        }
-                    }
-
-                    StyledText {
-                        text: `${row.modelData.repo} · P${row.modelData.prioridad}`
-                        color: Colours.palette.m3outline
-                        font: Tokens.font.label.small
-                    }
+                    mostrarRepo: true
+                    tarea: modelData
                 }
             }
         }

@@ -15,6 +15,12 @@ Singleton {
 
     property var repos: []
     property var avisos: []
+    property string hoyUri: ""
+
+    // El widget sin tarjeta de fondo (solo texto sobre el escritorio). Persistido en
+    // desktop-state.json junto al resto de preferencias del escritorio.
+    property bool widgetTransparente: false
+    property bool _stateLoaded: false
 
     // Lista plana: en curso primero, luego por prioridad.
     readonly property var tareas: {
@@ -37,9 +43,42 @@ Singleton {
         Quickshell.execDetached(["xdg-open", t.uri]);
     }
 
-    function marcarHecha(t): void {
-        setProc.command = ["sh", "-c", "\"$HOME/.local/bin/tasks-index\" set \"$1\" \"$2\" hecha", "sh", t.repo, t.titulo];
+    function abrirHoy(): void {
+        if (root.hoyUri !== "")
+            Quickshell.execDetached(["xdg-open", root.hoyUri]);
+    }
+
+    // pendiente -> en-curso -> hecha
+    function siguienteEstado(estado: string): string {
+        return estado === "pendiente" ? "en-curso" : "hecha";
+    }
+
+    function etiquetaEstado(estado: string): string {
+        return estado === "en-curso" ? "en curso" : estado;
+    }
+
+    function cambiarEstado(t, estado: string): void {
+        setProc.command = ["sh", "-c", "\"$HOME/.local/bin/tasks-index\" set \"$1\" \"$2\" \"$3\"", "sh", t.repo, t.titulo, estado];
         setProc.running = true;
+    }
+
+    function marcarHecha(t): void {
+        root.cambiarEstado(t, "hecha");
+    }
+
+    function setWidgetTransparente(v: bool): void {
+        root.widgetTransparente = v;
+        if (!root._stateLoaded)
+            return;
+        // Read-modify-write: conservar las claves ajenas del fichero.
+        let cur = {};
+        try {
+            const parsed = JSON.parse(stateView.text());
+            if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+                cur = parsed;
+        } catch (e) {}
+        cur.tasksWidgetTransparent = v;
+        stateView.setText(JSON.stringify(cur, null, 2) + "\n");
     }
 
     Process {
@@ -51,6 +90,7 @@ Singleton {
                     const d = JSON.parse(text);
                     root.repos = d.repos;
                     root.avisos = d.avisos;
+                    root.hoyUri = d.hoy || "";
                 } catch (e) {
                     console.warn("Tasks: JSON inválido de tasks-index:", e);
                 }
@@ -61,6 +101,26 @@ Singleton {
     Process {
         id: setProc
         onExited: root.refresh()
+    }
+
+    FileView {
+        id: stateView
+
+        path: `${Quickshell.env("HOME")}/.config/caelestia/desktop-state.json`
+        printErrors: false
+        watchChanges: true
+        onFileChanged: reload()
+        onLoaded: {
+            try {
+                const d = JSON.parse(text());
+                if (typeof d.tasksWidgetTransparent === "boolean")
+                    root.widgetTransparente = d.tasksWidgetTransparent;
+            } catch (e) {
+                console.warn("Tasks: desktop-state.json inválido:", e);
+            }
+            root._stateLoaded = true;
+        }
+        onLoadFailed: root._stateLoaded = true
     }
 
     Timer {

@@ -20,6 +20,7 @@ from pathlib import Path
 
 REPOS_FILE = Path.home() / ".config/caelestia/task-repos.json"
 CACHE_FILE = Path.home() / ".cache/tasks.json"
+OBSIDIAN_FILE = Path.home() / ".config/obsidian/obsidian.json"
 ESTADOS = ("pendiente", "en-curso", "hecha", "idea")
 FM_RE = re.compile(r"\A---\n(.*?)\n---\n", re.S)
 
@@ -40,6 +41,28 @@ def load_repos() -> list[dict]:
     for r in repos:
         r["_dir"] = Path(os.path.expanduser(r["backlog"]))
     return repos
+
+
+def obsidian_vaults() -> list[tuple[Path, str]]:
+    """[(raíz del vault, id)] según la config de Obsidian, de la raíz más profunda a la más corta."""
+    try:
+        d = json.loads(OBSIDIAN_FILE.read_text(encoding="utf-8"))["vaults"]
+    except (OSError, ValueError, KeyError):
+        return []
+    out = [(Path(v["path"]), vid) for vid, v in d.items()]
+    return sorted(out, key=lambda x: len(x[0].parts), reverse=True)
+
+
+def obsidian_uri(path: Path, vaults, fallback_vault: str) -> str:
+    """URI obsidian:// a una nota. Usa el id del vault (el nombre puede repetirse: dos vaults
+    se llaman «vault») y la ruta relativa real; si Obsidian no conoce el vault, cae al nombre."""
+    for root, vid in vaults:
+        try:
+            rel = path.relative_to(root)
+        except ValueError:
+            continue
+        return f"obsidian://open?vault={vid}&file={urllib.parse.quote(str(rel.with_suffix('')))}"
+    return f"obsidian://open?vault={urllib.parse.quote(fallback_vault)}&file={urllib.parse.quote('Backlog/' + path.stem)}"
 
 
 def parse_frontmatter(text: str) -> dict | None:
@@ -64,8 +87,12 @@ def norm_prio(v) -> int:
 
 
 def scan() -> dict:
-    out = {"generado": datetime.now().isoformat(timespec="seconds"), "avisos": [], "repos": []}
+    out = {"generado": datetime.now().isoformat(timespec="seconds"), "avisos": [], "hoy": "", "repos": []}
+    vaults = obsidian_vaults()
     for r in load_repos():
+        if r.get("inicio") and not out["hoy"]:
+            nota = r["_dir"].parent / f"{r['inicio']}.md"
+            out["hoy"] = obsidian_uri(nota, vaults, r["vault"])
         d = r["_dir"]
         repo = {"nombre": r["nombre"], "vault": r["vault"], "hechas": 0, "ideas": 0, "tareas": []}
         if d.is_dir():
@@ -84,12 +111,11 @@ def scan() -> dict:
                 if estado == "idea":
                     repo["ideas"] += 1
                     continue
-                rel = urllib.parse.quote(f"Backlog/{f.stem}")
                 repo["tareas"].append({
                     "id": f"{r['nombre']}/{f.stem}", "titulo": f.stem, "estado": estado,
                     "prioridad": norm_prio(fm.get("prioridad")), "area": fm.get("area", ""),
                     "esfuerzo": fm.get("esfuerzo", ""), "ruta": str(f),
-                    "uri": f"obsidian://open?vault={urllib.parse.quote(r['vault'])}&file={rel}",
+                    "uri": obsidian_uri(f, vaults, r["vault"]),
                 })
         repo["tareas"].sort(key=lambda t: (t["estado"] != "en-curso", t["prioridad"], t["titulo"]))
         out["repos"].append(repo)
