@@ -225,11 +225,22 @@ def get_k7_ultra_battery():
             return (last_bat if last_bat else None), "Cargando"
         return None
 
+    # Base 1001: la telemetría llega por dos vías: reportes push 0x13/0xE2
+    # (dec[4]==1 => cargando, dec[5]=%) y el Feature Report 0x06 (dec[11]=%,
+    # dec[12]==1 => cargando). Muchas respuestas llegan a ceros (pulso RF de
+    # 3.65 s) y los push 0xE5/0x2B se cuelan delante, así que hay que drenar
+    # TODOS los reportes pendientes y reintentar ~2 s en vez de quedarse con la
+    # primera lectura.
     for node in nodes:
         try:
             fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
-
-            for attempt in range(4):
+        except Exception:
+            continue
+        bat = None
+        charging = None
+        try:
+            deadline = time.time() + 2.0
+            while time.time() < deadline:
                 req = bytearray([0x11, 0x06 ^ 0xFF] + [0xFF] * 19)
                 try:
                     fcntl.ioctl(fd, HIDIOCSFEATURE(len(req)), req)
@@ -237,50 +248,42 @@ def get_k7_ultra_battery():
                     pass
                 time.sleep(0.025)
 
-                # Check for incoming pushed report 0x13
-                r, _, _ = select.select([fd], [], [], 0.02)
-                if r:
-                    d = os.read(fd, 64)
+                # Drenar reportes push pendientes
+                while select.select([fd], [], [], 0.02)[0]:
+                    try:
+                        d = os.read(fd, 64)
+                    except Exception:
+                        break
                     if len(d) >= 6 and d[0] == 0x13:
                         dec13 = [d[0]] + [b ^ 0xFF for b in d[1:]]
-                        if (dec13[1] == 0xE2 or d[1] == 0x1D) and 0 < dec13[5] <= 100:
+                        if dec13[1] == 0xE2 and 0 < dec13[5] <= 100:
                             bat = dec13[5]
-                            is_charging = (dec13[3] == 2 or dec13[4] == 1 or bool(cable_nodes))
-                            st = "Cargando" if is_charging else "Descargando"
-                            os.close(fd)
-                            cache["k7_battery"] = bat
-                            cache["k7_status"] = st
-                            save_cache(cache)
-                            return bat, st
+                            charging = bool(dec13[3] == 2 or dec13[4] == 1)
 
-                # Read Feature Report 0x11 response
                 buf = bytearray([0x11] + [0] * 63)
                 try:
                     fcntl.ioctl(fd, HIDIOCGFEATURE(len(buf)), buf)
                     dec = [buf[0]] + [b ^ 0xFF for b in buf[1:]]
-                    if len(dec) >= 13 and dec[0] == 0x11 and dec[1] == 0x06:
-                        vid = dec[2] | (dec[3] << 8)
-                        if vid == 0x3837:
-                            bat = dec[11]
-                            charge_st = dec[12]
-                            if 0 < bat <= 100:
-                                is_charging = (charge_st == 1 or bool(cable_nodes))
-                                st = "Cargando" if is_charging else "Descargando"
-                                os.close(fd)
-                                cache["k7_battery"] = bat
-                                cache["k7_status"] = st
-                                save_cache(cache)
-                                return bat, st
+                    if (len(dec) >= 13 and dec[0] == 0x11 and dec[1] == 0x06
+                            and (dec[2] | (dec[3] << 8)) == 0x3837 and 0 < dec[11] <= 100):
+                        bat = dec[11]
+                        charging = bool(charging or dec[12] == 1)
                 except Exception:
                     pass
 
+                # Salir en cuanto haya evidencia de carga; si no, seguir hasta
+                # el deadline por si el pulso de carga aún no ha llegado.
+                if bat is not None and charging:
+                    break
+        finally:
             os.close(fd)
-        except Exception:
-            pass
+        if bat is not None:
+            st = "Cargando" if charging else "Descargando"
+            cache["k7_battery"] = bat
+            cache["k7_status"] = st
+            save_cache(cache)
+            return bat, st
 
-    fb = _cable_fallback()
-    if fb is not None:
-        return fb
     if last_bat:
         return last_bat, "En reposo"
     return None, "Sin respuesta"

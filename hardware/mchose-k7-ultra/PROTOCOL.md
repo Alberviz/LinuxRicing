@@ -66,6 +66,13 @@ Encabezado observado en capturas: `[0x2B, 0x01, TARGET, 0x00]` +
   sondeo el cable no llegó a conectarse, así que el layout exacto de `4150` sigue sin
   verificar en vivo.)
 
+- **Bytes reales en la base (2026-10-05, ratón al 65 %)** — descargando:
+  Feature `dec = 11 06 37 38 50 41 1c 05 05 00 09 41 00 ..` y push
+  `13 e2 01 01 00 41 01 03 06 28 4b 37`; cargando: Feature `dec[12]=01` y push
+  `dec[4]=01` (`13 e2 01 01 01 41 ...`). Además llegan push `13 e5 06 ..` y
+  `13 e5 2b ..` que no llevan batería, y ~50 % de los Feature vuelven a ceros
+  (`11 06 00 ..`): hay que drenar todos los push y reintentar ~2 s.
+
 Referencia de implementación: `get_k7_ultra_battery()` en `rgb/mchose-battery`
 (Linux) y `rgb/mchose-battery-windows.py` (Windows).
 
