@@ -194,6 +194,7 @@ Item {
     // Énfasis del satélite, derivado de su radio y contexto (acotado). Anclas van a 1.0.
     function _bodyEmphasis(b) {
         if (!b) return 0.35;
+        if (b.kind === "device") return 0.6;
         if (b.status === "done") return 1.0;
         if (b.running) return 0.85;
         if (b.status === "session") {
@@ -229,22 +230,26 @@ Item {
     property bool _anyAlert: false
     property bool _anyRunning: false
     property bool _anyDone: false
+    property bool _anyCharging: false
+    property real _chargePulse: 0.5
     property real _alertPulse: 0.75
     property real _ringPulse: 0.5
     property real _donePulse: 0.5
     property real _accPulse: 0
     function _rescanPulseFlags() {
-        let aa = false, ar = false, ad = false;
+        let aa = false, ar = false, ad = false, ac = false;
         const L = root._layout;
         if (L)
             for (let i = 0; i < L.bodies.length; i++) {
                 if (L.bodies[i].alert > 0.5) aa = true;
                 if (L.bodies[i].running) ar = true;
                 if (L.bodies[i].status === "done") ad = true;
+                if (L.bodies[i].charging) ac = true;
             }
         root._anyAlert = aa;
         root._anyRunning = ar;
         root._anyDone = ad;
+        root._anyCharging = ac;
     }
 
     // ---------------- Órbitas y estelas: ahora en GPU vía QtQuick.Shapes ----------------
@@ -281,6 +286,78 @@ Item {
         id: orbitsLayer
         anchors.fill: parent
         opacity: root._dimK
+
+        // Órbita COMPARTIDA del binario: las dos trayectorias de los soles (elipses
+        // con foco común en el baricentro), la marca del baricentro y la cuerda
+        // que une a los soles. Estático salvo la cuerda (se recoloca con _layout).
+        Shape {
+            id: binTrace
+            anchors.fill: parent
+            readonly property var bn: root._layout ? root._layout.bin : null
+            readonly property real k: root._layout ? root._layout.scale : 1.0
+            visible: bn !== null
+            transform: Rotation {
+                origin.x: binTrace.bn ? binTrace.bn.bx : 0
+                origin.y: binTrace.bn ? binTrace.bn.by : 0
+                angle: binTrace.bn ? binTrace.bn.tilt * 180 / Math.PI : 0
+            }
+            ShapePath {
+                strokeColor: Qt.rgba(root.colLaura.r, root.colLaura.g, root.colLaura.b, 0.26)
+                strokeWidth: 1.2 * binTrace.k
+                fillColor: "transparent"
+                PathAngleArc {
+                    centerX: binTrace.bn ? binTrace.bn.bx : 0
+                    centerY: binTrace.bn ? binTrace.bn.by : 0
+                    radiusX: binTrace.bn ? binTrace.bn.aLaura : 0
+                    radiusY: binTrace.bn ? binTrace.bn.aLaura * (1 - binTrace.bn.ecc) : 0
+                    startAngle: 0; sweepAngle: 360
+                }
+            }
+            ShapePath {
+                strokeColor: Qt.rgba(root.colPrimary.r, root.colPrimary.g, root.colPrimary.b, 0.26)
+                strokeWidth: 1.2 * binTrace.k
+                fillColor: "transparent"
+                PathAngleArc {
+                    centerX: binTrace.bn ? binTrace.bn.bx : 0
+                    centerY: binTrace.bn ? binTrace.bn.by : 0
+                    radiusX: binTrace.bn ? binTrace.bn.aConf : 0
+                    radiusY: binTrace.bn ? binTrace.bn.aConf * (1 - binTrace.bn.ecc) : 0
+                    startAngle: 0; sweepAngle: 360
+                }
+            }
+        }
+        Shape {
+            id: binChord
+            anchors.fill: parent
+            readonly property var bn: binTrace.bn
+            readonly property real k: binTrace.k
+            visible: bn !== null
+            // Cuerda sol-sol pasando por el baricentro.
+            ShapePath {
+                strokeColor: Qt.rgba(root.colInk.r, root.colInk.g, root.colInk.b, 0.14)
+                strokeWidth: 1 * binChord.k
+                strokeStyle: ShapePath.DashLine
+                dashPattern: [3, 5]
+                fillColor: "transparent"
+                startX: root._layout && root._layout.suns[0] ? root._layout.suns[0].x : 0
+                startY: root._layout && root._layout.suns[0] ? root._layout.suns[0].y : 0
+                PathLine {
+                    x: root._layout && root._layout.suns[1] ? root._layout.suns[1].x : 0
+                    y: root._layout && root._layout.suns[1] ? root._layout.suns[1].y : 0
+                }
+            }
+            // Baricentro: cruz pequeña.
+            ShapePath {
+                strokeColor: Qt.rgba(root.colInk.r, root.colInk.g, root.colInk.b, 0.35)
+                strokeWidth: 1 * binTrace.k
+                fillColor: "transparent"
+                startX: (binTrace.bn ? binTrace.bn.bx : 0) - 5 * binTrace.k
+                startY: binTrace.bn ? binTrace.bn.by : 0
+                PathLine { x: (binTrace.bn ? binTrace.bn.bx : 0) + 5 * binTrace.k; y: binTrace.bn ? binTrace.bn.by : 0 }
+                PathMove { x: binTrace.bn ? binTrace.bn.bx : 0; y: (binTrace.bn ? binTrace.bn.by : 0) - 5 * binTrace.k }
+                PathLine { x: binTrace.bn ? binTrace.bn.bx : 0; y: (binTrace.bn ? binTrace.bn.by : 0) + 5 * binTrace.k }
+            }
+        }
 
         Repeater {
             model: root._layout ? root._layout.bodies.length : 0
@@ -466,6 +543,21 @@ Item {
                     radius: width / 2
                     color: "transparent"
                     border.color: root._a(root.colError, 0.3 + 0.6 * root._alertPulse)
+                    border.width: 1.5
+                }
+            }
+
+            // Cargando (campo `charging` de mchose-battery): único movimiento
+            // permitido en un dispositivo — pulso MUY suave (~7 s de ciclo).
+            Loader {
+                anchors.centerIn: parent
+                active: bodyItem.b !== null && bodyItem.b.charging === true
+                sourceComponent: Rectangle {
+                    width: bodyItem.width + 10 * (root._layout ? root._layout.scale : 1.0)
+                    height: width
+                    radius: width / 2
+                    color: "transparent"
+                    border.color: Qt.rgba(root.colPrimary.r, root.colPrimary.g, root.colPrimary.b, 0.18 + 0.32 * root._chargePulse)
                     border.width: 1.5
                 }
             }
@@ -696,7 +788,7 @@ Item {
                 root._recompute();
             }
             // Pulsos de UI: sólo si hay algún cuerpo que los use, y a ~25 fps.
-            if (root._anyAlert || root._anyRunning || root._anyDone) {
+            if (root._anyAlert || root._anyRunning || root._anyDone || root._anyCharging) {
                 root._accPulse += dt;
                 if (root._accPulse >= 0.04) {
                     root._accPulse = 0;
@@ -704,6 +796,8 @@ Item {
                         root._alertPulse = 0.5 + 0.5 * Math.sin(root._t * 1.4);
                     if (root._anyRunning)
                         root._ringPulse = 0.5 + 0.5 * Math.sin(root._t * 0.7);
+                    if (root._anyCharging)
+                        root._chargePulse = 0.5 + 0.5 * Math.sin(root._t * 0.9);
                     if (root._anyDone)
                         root._donePulse = 0.5 + 0.5 * Math.sin(root._t * 4.2);
                 }

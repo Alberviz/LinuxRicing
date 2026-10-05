@@ -71,12 +71,21 @@ var LAYOUTS = {
         baryFx: 0.17, baryFy: 0.53,
         binK: 6.5, binPeriod: 397, binTilt: -0.42,
         orbitMul: 1.40, beltRxFrac: 0.205, orbitAlpha: 0.16
+    },
+    // 4 — BINARIO AMPLIO, abajo-izquierda (oct-2026). Con más planetas todo se
+    //     veía junto: baricentro bajado y a la izquierda (lejos del reloj y de la
+    //     cola del agujero negro), soles más separados, órbitas de satélites
+    //     ~+20 % sobre la 1. Períodos ∝ separación (misma velocidad aparente).
+    4: {
+        baryFx: 0.29, baryFy: 0.64,
+        binK: 6.2, binPeriod: 380, binTilt: -0.15,
+        orbitMul: 1.4, beltRxFrac: 0.20, orbitAlpha: 0.15
     }
 };
 
 var D = {
     // >>> INTERRUPTOR DE DISPOSICIÓN <<<  (1 conservadora · 2 hueco · 3 diagonal)
-    layoutVariant: 1,
+    layoutVariant: 4,
 
     // Cuerpos sintéticos para medir rendimiento (0 = ninguno). Deja 0 en commits.
     testBodies: 0,
@@ -253,7 +262,9 @@ function computeLayout(state, geom) {
             name: b.name,
             provider: b.provider,
             ws: b.ws,
-            status: b.status || (running ? "running" : "done"),
+            // Un dispositivo NO está «terminado»: status "device" (si no, hereda
+            // el halo y el parpadeo de «¡hecho!» de los agentes).
+            status: b.status || (isDevice ? "device" : (running ? "running" : "done")),
             kind: isDevice ? "device" : "agent",
             contextRatio: isDevice ? undefined : sizeF,
             hostx: host.x, hosty: host.y,
@@ -264,6 +275,7 @@ function computeLayout(state, geom) {
             alert: alert,
             batt: act,
             battKnown: b.battKnown !== false,
+            charging: isDevice && bool(values, b.chargingSignal, false),
             // Geometría de la órbita para la traza + la estela de cometa (la
             // dibuja la capa fina en Canvas). orbX/orbV = semiejes; oa = ángulo
             // actual; el cuerpo avanza en +oa.

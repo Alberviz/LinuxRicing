@@ -101,9 +101,9 @@ Singleton {
     function _deviceBodies() {
         const b = root._batt || {};
         const specs = [
-            { id: "headset", orbitK: 2.0, phase: 0.4, period: 80 },
-            { id: "mouse", orbitK: 2.9, phase: 2.6, period: 88 },
-            { id: "keyboard", orbitK: 3.7, phase: 4.6, period: 96 }
+            { id: "headset", orbitK: 2.4, phase: 0.4, period: 120 },
+            { id: "mouse", orbitK: 3.6, phase: 2.6, period: 170 },
+            { id: "keyboard", orbitK: 4.8, phase: 4.6, period: 230 }
         ];
         const out = [];
         for (let i = 0; i < specs.length; i++) {
@@ -116,6 +116,7 @@ Singleton {
                 activitySignal: "batt:" + s.id,
                 alertSignal: "battLow:" + s.id,
                 sizeSignal: "batt:" + s.id,
+                chargingSignal: "charging:" + s.id,
                 name: (root._battNames && root._battNames[s.id]) ? root._battNames[s.id] : ""
             });
         }
@@ -123,7 +124,7 @@ Singleton {
         for (let j = 0; j < bt.length; j++) {
             out.push({
                 id: "dev-bt-" + bt[j].id, kind: "planet", anchor: "config",
-                orbitK: 4.4 + 0.7 * j, phase: 1.3 + 1.7 * j, period: 104 + 8 * j,
+                orbitK: 5.8 + 1.0 * j, phase: 1.3 + 1.7 * j, period: 290 + 40 * j,
                 activitySignal: "batt:bt:" + bt[j].id,
                 alertSignal: "battLow:bt:" + bt[j].id,
                 sizeSignal: "batt:bt:" + bt[j].id,
@@ -158,6 +159,7 @@ Singleton {
     // solo un aro; nunca un porcentaje inventado — principio 5).
     property var _batt: ({ headset: null, mouse: null, keyboard: null })
     property var _battNames: ({ headset: "", mouse: "", keyboard: "" })
+    property var _charging: ({ headset: false, mouse: false, keyboard: false })
 
     // Dispositivos Bluetooth CONECTADOS que mchose-battery no cubre (p. ej.
     // unos auriculares BT genéricos). Se deduplican por nombre: un MCHOSE/Akko
@@ -233,6 +235,9 @@ Singleton {
             "battLow:headset": typeof b.headset === "number" && b.headset < 20,
             "battLow:mouse": typeof b.mouse === "number" && b.mouse < 20,
             "battLow:keyboard": typeof b.keyboard === "number" && b.keyboard < 20,
+            "charging:headset": !!root._charging.headset,
+            "charging:mouse": !!root._charging.mouse,
+            "charging:keyboard": !!root._charging.keyboard,
 
             // LED: refleja si la zona está gestionada por el sync de tema
             // (RgbConfig.devices). No es "encendida" en sentido físico, pero sí
@@ -384,6 +389,8 @@ Singleton {
                         keyboard: pick(d.keyboard)
                     };
                     const nm = o => (o && o.name) ? o.name : "";
+                    const ch = o => !!(o && o.connected && o.charging === true);
+                    root._charging = { headset: ch(d.headset), mouse: ch(d.mouse), keyboard: ch(d.keyboard) };
                     root._battNames = { headset: nm(d.headset), mouse: nm(d.mouse), keyboard: nm(d.keyboard) };
                 } catch (e) {
                     // salida vacía o inválida: se conservan los últimos valores
@@ -496,7 +503,7 @@ Singleton {
 
                 // Base orbital según el número de workspace:
                 // ws 1 -> 1.9, ws 2 -> 2.6, ws 3 -> 3.3, ws 4 -> 4.0, ws 5 -> 4.7, ws 6 -> 5.4
-                const baseOrbitK = 1.9 + (ws - 1) * 0.70;
+                const baseOrbitK = 2.0 + (ws - 1) * 0.85;
 
                 // Micro-desfase radial de carril si hay múltiples agentes en el mismo workspace
                 // (slot - (count - 1) / 2) * 0.12 (aprox ±7 px en 1080p para pasar en paralelo)
@@ -508,8 +515,8 @@ Singleton {
                 // - terminado (done): velocidad media (~60s - 76s)
                 // - reposo (idle/session): gira muy pausado y lento (~160s - 196s)
                 const period = isRunning
-                    ? (36 + (ws % 3) * 5)
-                    : (isDone ? (60 + (ws % 3) * 8) : (160 + (ws % 3) * 18));
+                    ? (80 + (ws % 3) * 8)
+                    : (isDone ? (110 + (ws % 3) * 10) : (160 + (ws % 3) * 18));
 
                 // Fase inicial distribuida en el círculo para los agentes del mismo workspace
                 const phase = ((slot / count) * 2 * Math.PI + (ws * 1.3)) % (2 * Math.PI);
