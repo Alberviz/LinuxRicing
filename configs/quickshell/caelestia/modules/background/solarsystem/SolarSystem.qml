@@ -38,6 +38,14 @@ Item {
     property color colError: "#f97758"         // alerta de batería < 20 %
     property color colBelt: "#54453d"          // cinturón de tareas
     property color colInk: "#f8e1d6"           // estrellas
+    // Roles extra de la paleta (diseño D «Paleta viva»): todo en vivo desde el tema.
+    property color colSecondary: "#b9c8da"
+    property color colPrimaryC: "#385571"
+    property color colSecondaryC: "#2f3d4b"
+    property color colTertiaryC: "#d2ccfd"
+    property color colSurface: "#0c0e12"
+    property color colSurfaceC: "#161a1f"
+    property color colOutline: "#70767e"
     property color colVoid: "#050302"          // horizonte de sucesos (darker(m3surface, 3))
     readonly property color _hot: _lit(colPrimary, 0.86)
 
@@ -119,6 +127,9 @@ Item {
     function _zoneOfBody(b) { return b ? amountOf("b:" + b.id) : 0; }
     // Giro del disco del agujero negro, INTEGRADO (velocidad variable por hover).
     property real bhPhase: 0
+    // Latido lento de la corona de Laura (≈6 s) y fase de las ondas de escucha (≈9 s).
+    property real _sunPulse: 0
+    property real _sunWave: 0
 
     // ¿El puntero está sobre el disco (+8 px) o la etiqueta de un astro?
     function _hitAstro(p, x, y, r, ly, name, S) {
@@ -559,6 +570,34 @@ Item {
         }
     }
 
+    // ===================== DECORACIÓN DE LOS SOLES (sun.frag) =====================
+    // Laura: rayos, corona que late despacio, puntos y ondas de escucha. Config:
+    // estrella de 4 puntas, facetas hexagonales y aro dentado. GPU, sin blur.
+    Repeater {
+        model: root._layout ? root._layout.suns.length : 0
+        delegate: ShaderEffect {
+            id: sunFx
+            required property int index
+            readonly property var s: root._layout ? root._layout.suns[index] : null
+            readonly property bool isLaura: s !== null && s.id === "laura"
+            visible: s !== null
+            x: (s ? s.x : 0) - width / 2
+            y: (s ? s.y : 0) - height / 2
+            width: (s ? s.r : 0) * 4.8
+            height: width
+            opacity: root._dimK * root._dimOf(root.amountOf("s:" + (s ? s.id : "")))
+            blending: true
+            fragmentShader: Qt.resolvedUrl("shaders/sun.frag.qsb")
+            property real kind: isLaura ? 0 : 1
+            property real pulse: root._sunPulse
+            property real wave: root._sunWave
+            property real listening: root.lauraActive ? 1 : 0
+            property color cMain: isLaura ? root.colLaura : root.colPrimary
+            property color cContainer: isLaura ? root.colTertiaryC : root.colPrimaryC
+            property color cOnSurface: root.colInk
+        }
+    }
+
     // Texturas base para planetas (generadas una vez; se repintan sólo al
     // cambiar tamaño o paleta, y entonces suben `_texRev`).
     Canvas {
@@ -703,32 +742,22 @@ Item {
             // gaseoso con anillo, otros teñidos con el color del proveedor. El
             // item mide 4·R (sitio para atmósfera y anillo); el tamaño de R ya
             // refleja el % de contexto (Sim.js).
-            ShaderEffect {
-                visible: bodyItem.b !== null && bodyItem.b.kind === "agent"
+            // Cuerpo en GPU (planet.frag): planeta de IA por proveedor, o luna con
+            // glifo y arco de batería si es un periférico. Cambiar el diseño de un
+            // proveedor = editar su función en planet.frag (kind 0 Claude, 1 Gemini,
+            // 2 otros).
+            PlanetFx {
+                visible: bodyItem.b !== null
                 anchors.centerIn: parent
-                width: bodyItem.width * 2
-                height: width
-                blending: true
-                fragmentShader: Qt.resolvedUrl("shaders/planet.frag.qsb")
+                pal: root
+                bodyRadius: bodyItem.b ? bodyItem.b.r : 10
                 readonly property string prov: bodyItem.b ? (bodyItem.b.provider || "otro") : "otro"
-                property real kind: prov === "claude" ? 0 : (prov === "gemini" ? 1 : 2)
-                property real unused0: 0
-                property real unused1: 0
-                property color tint: root.agentProviderColours[prov] !== undefined
-                    ? root.agentProviderColours[prov] : root.colLaura
-            }
-
-            ShaderEffectSource {
-                visible: bodyItem.b !== null && bodyItem.b.kind !== "agent"
-                anchors.fill: parent
-                live: false
-                hideSource: true
-                sourceItem: (bodyItem.b && bodyItem.b.kind === "device") ? texDevice : texAgent
-                sourceRect: Qt.rect(0, 0, 128, 128)
-                rotation: bodyItem.b ? Math.atan2(bodyItem.b.hosty - bodyItem.b.y, bodyItem.b.hostx - bodyItem.b.x) * 180 / Math.PI : 0
-                property int rev: root._texRev
-                onRevChanged: scheduleUpdate()
-                Component.onCompleted: scheduleUpdate()
+                readonly property bool isDev: bodyItem.b !== null && bodyItem.b.kind === "device"
+                kind: isDev ? 4 : (prov === "claude" ? 0 : (prov === "gemini" ? 1 : 2))
+                ctxAlert: (!isDev && bodyItem.b && typeof bodyItem.b.contextRatio === "number")
+                    ? Math.max(0, Math.min(1, (bodyItem.b.contextRatio - 0.85) / 0.10)) : 0
+                batt: bodyItem.b && typeof bodyItem.b.batt === "number" ? bodyItem.b.batt : 0
+                glyph: bodyItem.b ? (bodyItem.b.id === "dev-mouse" ? 1 : (bodyItem.b.id === "dev-headset" ? 2 : 3)) : 3
             }
         }
     }
@@ -767,12 +796,12 @@ Item {
                             }
                         }
                     }
-                    Rectangle {
-                        x: moonItem.m.x - moonItem.m.r
-                        y: moonItem.m.y - moonItem.m.r
-                        width: moonItem.m.r * 2; height: width; radius: width / 2
-                        color: moonItem.mc
-                        opacity: 0.9
+                    PlanetFx {
+                        pal: root
+                        kind: 3
+                        bodyRadius: moonItem.m.r
+                        x: moonItem.m.x - width / 2
+                        y: moonItem.m.y - height / 2
                     }
                 }
             }
@@ -789,7 +818,7 @@ Item {
         anchors.fill: parent
         readonly property var c: root._layout ? root._layout.comet : null
         readonly property real sc: root._layout ? root._layout.scale : 1
-        readonly property color tint: root._lit(root.colInk, 0.1)
+        readonly property color tint: root.colInk
         visible: c !== null
         opacity: root._dimK * root._dimOf(root.zComet) * (0.72 + 0.28 * root.zComet)
 
@@ -826,8 +855,8 @@ Item {
             rotation: cometLayer.c ? Math.atan2(cometLayer.c.ty, cometLayer.c.tx) * 180 / Math.PI : 0
             gradient: Gradient {
                 orientation: Gradient.Horizontal
-                GradientStop { position: 0; color: Qt.rgba(root.colLaura.r, root.colLaura.g, root.colLaura.b, 0.30) }
-                GradientStop { position: 1; color: Qt.rgba(root.colLaura.r, root.colLaura.g, root.colLaura.b, 0) }
+                GradientStop { position: 0; color: Qt.rgba(root.colSecondary.r, root.colSecondary.g, root.colSecondary.b, 0.30) }
+                GradientStop { position: 1; color: Qt.rgba(root.colSecondary.r, root.colSecondary.g, root.colSecondary.b, 0) }
             }
         }
         Rectangle {
@@ -839,8 +868,8 @@ Item {
             rotation: cometLayer.c ? Math.atan2(cometLayer.c.ty, cometLayer.c.tx) * 180 / Math.PI : 0
             gradient: Gradient {
                 orientation: Gradient.Horizontal
-                GradientStop { position: 0; color: Qt.rgba(root.colPrimary.r, root.colPrimary.g, root.colPrimary.b, 0.70) }
-                GradientStop { position: 1; color: Qt.rgba(root.colPrimary.r, root.colPrimary.g, root.colPrimary.b, 0) }
+                GradientStop { position: 0; color: Qt.rgba(root.colInk.r, root.colInk.g, root.colInk.b, 0.85) }
+                GradientStop { position: 1; color: Qt.rgba(root.colSecondary.r, root.colSecondary.g, root.colSecondary.b, 0) }
             }
         }
         // Cabeza: halo + núcleo.
@@ -849,7 +878,7 @@ Item {
             y: (cometLayer.c ? cometLayer.c.y : 0) - height / 2
             width: (cometLayer.c ? cometLayer.c.r : 0) * 4
             height: width; radius: width / 2
-            color: Qt.rgba(cometLayer.tint.r, cometLayer.tint.g, cometLayer.tint.b, 0.10)
+            color: Qt.rgba(root.colPrimary.r, root.colPrimary.g, root.colPrimary.b, 0.40)
         }
         Rectangle {
             x: (cometLayer.c ? cometLayer.c.x : 0) - width / 2
@@ -1090,6 +1119,8 @@ Item {
             root._t += dt;
             if (root.lauraActive)
                 return;                          // sistema congelado: nada que recalcular
+            root._sunPulse = 0.5 + 0.5 * Math.sin(root._t * 2 * Math.PI / 6);
+            root._sunWave = (root._t / 9) % 1;
             root.bhPhase += dt * (2 * Math.PI / 150) * (1 - 0.75 * root.zBh);
             root._recompute();
             // Pulsos de UI: sólo si hay algún cuerpo que los use.

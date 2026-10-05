@@ -94,10 +94,17 @@ Variants {
                 })
 
                 colPrimary: Colours.palette.m3primary
+                colSecondary: Colours.palette.m3secondary
+                colPrimaryC: Colours.palette.m3primaryContainer
+                colSecondaryC: Colours.palette.m3secondaryContainer
+                colTertiaryC: Colours.palette.m3tertiaryContainer
+                colSurface: Colours.palette.m3surface
+                colSurfaceC: Colours.palette.m3surfaceContainer
+                colOutline: Colours.palette.m3outline
                 // Laura = m3tertiaryFixedDim (oro apagado). El m3tertiary del scheme
                 // tonalspot es casi blanco y no contrasta con el disco cálido ni con
                 // el núcleo blanco-caliente del agujero (decisión D-3).
-                colLaura: Colours.palette.m3tertiaryFixedDim
+                colLaura: Colours.palette.m3tertiary
                 colError: Colours.palette.m3error
                 colBelt: Colours.palette.m3outlineVariant
                 colInk: Colours.palette.m3onSurface

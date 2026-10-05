@@ -253,7 +253,7 @@ function computeLayout(state, geom) {
         // A 95% de contexto, el cuerpo triplica con creces su radio (0.11 .. 0.41 de host.r) para visibilidad imponente.
         // Agente = PLANETA: el % de contexto se expresa con el tamaño, de 0.6× a 2×
         // del radio base (host.r·0.5). Dispositivo: según batería.
-        var baseR = isDevice ? host.r * (0.13 + 0.13 * sizeF)
+        var baseR = isDevice ? host.r * (0.26 + 0.14 * sizeF)
                              : host.r * 0.5 * (0.6 + 1.4 * sizeF);
 
         // Semieje vertical de la órbita, RECORTADO para no invadir la franja
