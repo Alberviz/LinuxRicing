@@ -105,8 +105,14 @@ vec2 ringE(vec2 q, float rx, float ry, float deg, float hw, float aa){
     return vec2(1.0 - smoothstep(hw - aa, hw + aa, dist), p.y);
 }
 
-// ---- CLAUDE: doble anillo cruzado sobre un mundo de lava y ceniza ----
-// Roles: tertiaryContainer (ascuas), tDeep (roca caliente), surface (ceniza);
+float ashHeight(vec2 q){
+    float w = fbm(q * 1.6 + 4.0);
+    float dunes = 0.5 + 0.5 * sin((q.y + 0.35 * q.x) * 11.0 + w * 6.0);
+    return clamp(0.6 * dunes + 0.5 * (w - 0.4), 0.0, 1.0);
+}
+
+// ---- CLAUDE: doble anillo cruzado sobre un mundo de ceniza volcánica apagada ----
+// Roles: secondary / sDeep / outline (capas de ceniza);
 // anillos: tertiary / tertiaryContainer / secondary / onSurface.
 vec4 planetClaude(vec2 q, float aa){
     vec4 acc = vec4(0.0);
@@ -124,16 +130,20 @@ vec4 planetClaude(vec2 q, float aa){
     over(acc, cTertiary.rgb, r1c.x * 0.5 * step(r1c.y, 0.0) * behind);
     over(acc, cSecondary.rgb, r2.x * 0.8 * step(r2.y, 0.0) * behind);
     over(acc, cOnSurface.rgb, r2b.x * 0.55 * step(r2b.y, 0.0) * behind);
-    // cuerpo: lava (radial tDeep → surface) con grietas incandescentes y ascuas
+    // cuerpo de ceniza
     float body = 1.0 - smoothstep(1.0 - aa, 1.0 + aa, d);
     if (body > 0.0) {
-        vec3 col = mix(deep(cTertiary.rgb), cSurface.rgb, smoothstep(0.0, 1.2, d));
-        float e = voroEdge(q * 1.6 + 3.0);
-        float crack = 1.0 - smoothstep(0.0, 0.09, e);
-        float glow = 1.0 - smoothstep(0.0, 0.22, e);
-        float lum = 0.75 + 0.25 * fbm(q * 3.0 + 9.0);        // ascuas: variación estática, sin parpadeo
-        col = mix(col, cTertiaryC.rgb, glow * 0.32 * lum);
-        col = mix(col, cTertiaryC.rgb, crack * 0.95 * lum);
+        // ceniza volcánica apagada: capas/dunas en secondary · sDeep · outline, grano fino
+        // y relieve con LUZ RASANTE (diferencia de altura hacia la luz), no con color.
+        float t = clamp(length(q - vec2(-0.28, -0.40)) / 1.7, 0.0, 1.0);
+        vec3 col = mix(cSecondary.rgb, deep(cSecondary.rgb), t);
+        float h0 = ashHeight(q);
+        float h1 = ashHeight(q + vec2(-0.035, -0.045));          // hacia la luz (arriba-izq.)
+        float relief = clamp((h1 - h0) * 6.0, -1.0, 1.0);
+        col = mix(col, cOutline.rgb, smoothstep(0.35, 0.9, h0) * 0.45);
+        col = mix(col, deep(cSecondary.rgb), smoothstep(0.0, 0.35, 0.5 - h0) * 0.35);
+        col *= 1.0 + relief * 0.38;
+        col *= 0.94 + 0.12 * hash(floor(q * 46.0));              // grano
         col = shadeSphere(col, q);
         // el sombreado oscurece también las grietas del lado nocturno: justo lo esperado
         over(acc, col, body);
@@ -153,13 +163,13 @@ vec4 planetClaude(vec2 q, float aa){
 // estratos, borde primary) unidos por una columna de arena (tertiaryContainer).
 vec4 planetGemini(vec2 q, float aa){
     vec4 acc = vec4(0.0);
-    const float SG = 1.2;                 // escala del conjunto
+    const float SG = 1.3;                 // escala del conjunto
     vec2 p = q / SG;                      // unidades del diseño (R = 1)
     float aap = aa / SG;
     // columna de arena (detrás de los gemelos): cintura en el centro
     float ax = abs(p.x);
-    if (ax < 0.74) {
-        float h = 0.028 + 0.30 * pow(ax / 0.74, 1.7);
+    if (ax < 0.30) {
+        float h = 0.05 + 0.13 * pow(ax / 0.30, 1.5);
         float yc = mix(0.0, 0.0, 0.0);
         float dy = abs(p.y - (p.x > 0.0 ? 0.0 : 0.0));
         float core = 1.0 - smoothstep(h - aap, h + aap, dy);
@@ -169,7 +179,7 @@ vec4 planetGemini(vec2 q, float aa){
     }
     // gemelo de arena (izquierda)
     {
-        vec2 c = vec2(-0.80, -0.06); float R = 0.54;
+        vec2 c = vec2(-0.58, -0.04); float R = 0.54;
         vec2 ql = (p - c) / R; float dl = length(ql);
         float body = 1.0 - smoothstep(1.0 - aap / R, 1.0 + aap / R, dl);
         if (body > 0.0) {
@@ -185,7 +195,7 @@ vec4 planetGemini(vec2 q, float aa){
     }
     // gemelo de roca (derecha)
     {
-        vec2 c = vec2(0.80, 0.08); float R = 0.54;
+        vec2 c = vec2(0.58, 0.05); float R = 0.54;
         vec2 ql = (p - c) / R; float dl = length(ql);
         float body = 1.0 - smoothstep(1.0 - aap / R, 1.0 + aap / R, dl);
         if (body > 0.0) {
