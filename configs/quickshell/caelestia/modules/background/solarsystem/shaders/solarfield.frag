@@ -269,11 +269,11 @@ vec4 blackHole(vec2 frag, vec2 bhC, float R, float tilt, float beam,
         float ctr = time * 0.05 + 1.2;
         float dA = abs(mod(aR - ctr + PI, TAU) - PI);
         float open = 1.0 - smoothstep(0.9 + 1.3 * L, 1.3 + 1.3 * L, dA);
-        over(acc, lit(P, 0.85), smoothstep(0.011, 0.0, abs(dRot - 1.62)) * open * (0.10 + 0.34 * L));
+        over(acc, lit(P, 0.85), smoothstep(0.011, 0.0, abs(dRot - 1.62)) * open * (0.10 + 0.34 * L) * 0.35);
         // segundo arco, opuesto, más fino y lejano
         float dB = abs(mod(aR - ctr, TAU) - PI);
         float open2 = 1.0 - smoothstep(0.5 + 0.9 * L, 0.9 + 0.9 * L, dB);
-        over(acc, lit(P, 0.75), smoothstep(0.008, 0.0, abs(dRot - 2.05)) * open2 * (0.07 + 0.26 * L));
+        over(acc, lit(P, 0.75), smoothstep(0.008, 0.0, abs(dRot - 2.05)) * open2 * (0.07 + 0.26 * L) * 0.35);
     }
 
     // 6. labio interior caliente (ISCO), estable

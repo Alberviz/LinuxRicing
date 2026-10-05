@@ -39,19 +39,10 @@ Variants {
         anchors.left: true
         anchors.right: true
 
-        Region {
-            id: clickMask
-
-            Region {
-                x: solarLoader.item ? Math.round(solarLoader.item.configClickX) : 0
-                y: solarLoader.item ? Math.round(solarLoader.item.configClickY) : 0
-                width: solarLoader.item ? Math.round(solarLoader.item.configClickW) : 0
-                height: solarLoader.item ? Math.round(solarLoader.item.configClickH) : 0
-            }
-        }
-
-        // Interacción con el planeta Configuración; fuera de él, click-through total.
-        mask: clickMask
+        // Sin máscara de input: la ventana recibe el puntero sobre el escritorio
+        // vacío (hover por zonas del sistema solar + clic en Configuración). Es la
+        // capa Background: las ventanas y las capas de encima siguen recibiendo
+        // sus eventos primero.
 
         // Esta ventana ES el fondo negro del escritorio: siempre presente y opaca.
         // Lo que se enciende/apaga es su CONTENIDO (el Loader de abajo).
@@ -78,6 +69,7 @@ Variants {
 
                 config: SolarSystemModel.config
                 values: SolarSystemModel.values
+                taskList: SolarSystemModel.taskList
                 active: SolarSystemModel.anyActivity
                 fastRate: SolarSystemModel.musicPlaying
                 musicVariant: SolarSystemModel.musicVariant

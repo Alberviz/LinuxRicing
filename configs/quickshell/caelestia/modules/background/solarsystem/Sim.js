@@ -25,6 +25,8 @@
 var _lastT = 0;
 var _bodyPhases = {};
 var _init = false;
+var _cometPhase = 0;
+var _cometInit = false;
 
 function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
 function num(values, name, dflt) {
@@ -152,6 +154,12 @@ function computeLayout(state, geom) {
     _init = true;
 
     var values = state.values || {};
+    // Velocidad del tiempo POR ZONA (hover): 1 = normal, 0.25 = zona enfocada.
+    // La fase se INTEGRA con esta velocidad variable → al cambiar no hay salto.
+    var zs = state.zoneSpeed || {};
+    var zLaura = (typeof zs.laura === "number") ? zs.laura : 1;
+    var zConf = (typeof zs.config === "number") ? zs.config : 1;
+    var zComet = (typeof zs.comet === "number") ? zs.comet : 1;
     var cfg = state.config || { anchors: [], bodies: [] };
     var w = geom.w, h = geom.h;
     var S = h / 1080;
@@ -234,7 +242,8 @@ function computeLayout(state, geom) {
         var orb = host.r * orbK * C.orbitMul;
         per *= C.orbitMul;
         var phase = (b.phase != null ? b.phase : (i * 2.399));
-        var speedMul = (b.anchor === "laura" && !lauraLit) ? 0.5 : 1.0;
+        var speedMul = ((b.anchor === "laura" && !lauraLit) ? 0.5 : 1.0)
+                     * (isDevice ? zConf : zLaura);
         if (_bodyPhases[b.id] === undefined) _bodyPhases[b.id] = phase;
         _bodyPhases[b.id] += (2 * Math.PI / per) * dt * speedMul;
         var oa = _bodyPhases[b.id];
@@ -327,25 +336,43 @@ function computeLayout(state, geom) {
         if (!moved) break;
     }
 
-    // --- Cinturón circumbinario de tareas ---
-    var tasks = clamp01(num(values, "tasks", 0));
-    var beltCfg = null;
-    for (var j = 0; j < cfgBodies.length; j++)
-        if ((cfgBodies[j].kind || "") === "belt") beltCfg = cfgBodies[j];
-    var beltRxFrac = (beltCfg && beltCfg.rxFrac != null ? beltCfg.rxFrac : C.beltRxFrac);
+    // --- Cinturón circumbinario: ELIMINADO (sustituido por el cometa de tareas) ---
+    // Se conserva el objeto con density 0 para que el shader lo salte (early-out).
+    var beltRxFrac = C.beltRxFrac;
     var belt = {
         cx: bary.x, cy: bary.y,
-        rx: beltRxFrac * w,
-        ry: beltRxFrac * w * 0.42,
-        tilt: C.binTilt + 0.1,
-        n: Math.round(28 + tasks * 72),
-        // Período ∝ radio del cinturón (misma velocidad angular aparente).
-        spin: (2 * Math.PI / (D.beltPeriodFrac * beltRxFrac / 0.14)) * t,
-        // Densidad para el shader (el cinturón lo pinta la GPU desde v3.1). Suelo
-        // decorativo bajo para que la composición no quede vacía sin tareas;
-        // crece con la señal real `tasks`.
-        density: 0.10 + 0.90 * tasks
+        rx: beltRxFrac * w, ry: beltRxFrac * w * 0.42,
+        tilt: C.binTilt + 0.1, n: 0, spin: 0, density: 0
     };
+
+    // --- Cometa de tareas ---
+    // Un único cometa en una elipse amplia y lenta (~7 min/vuelta) alrededor del
+    // binario. La cola apunta contra el avance y crece con las tareas pendientes.
+    // Sin tareas, sin cometa. La fase se integra (velocidad variable por hover).
+    var nTasks = Math.max(0, Math.floor(num(values, "taskCount", 0)));
+    var comet = null;
+    if (!_cometInit) { _cometPhase = 1.1; _cometInit = true; }
+    _cometPhase += (2 * Math.PI / 420) * dt * zComet;
+    if (nTasks > 0) {
+        var ccx = bary.x + 0.10 * w, ccy = bary.y - 0.09 * h;
+        var crx = 0.30 * w;
+        var cry = Math.min(0.30 * h, (yFloor - 24 * S) - ccy);
+        var ctilt = -0.10;
+        var cth = _cometPhase;
+        var clx = Math.cos(cth) * crx, cly = Math.sin(cth) * cry;
+        var cct = Math.cos(ctilt), cst = Math.sin(ctilt);
+        var vx = -Math.sin(cth) * crx, vy = Math.cos(cth) * cry;   // dirección de avance
+        var vxr = vx * cct - vy * cst, vyr = vx * cst + vy * cct;
+        var vl = Math.sqrt(vxr * vxr + vyr * vyr) || 1;
+        comet = {
+            x: ccx + clx * cct - cly * cst,
+            y: ccy + clx * cst + cly * cct,
+            tx: -vxr / vl, ty: -vyr / vl,                           // cola: contra el avance
+            len: (46 + 14 * Math.min(nTasks, 18)) * S,
+            r: 4.5 * S, n: nTasks,
+            cx: ccx, cy: ccy, rx: crx, ry: cry, tilt: ctilt
+        };
+    }
 
     // --- Cajas del contenido, estables frame a frame (salen de constantes) ---
     // Se separan la del AGUJERO NEGRO y la del BINARIO: cada una va a su propio
@@ -387,7 +414,7 @@ function computeLayout(state, geom) {
         musicProgress: clamp01(num(values, "musicProgress", 0)),
         variant: D.layoutVariant, orbitAlpha: C.orbitAlpha,
         bh: bh, bary: bary, bhSpin: (2 * Math.PI / D.bhSpinPeriod) * t,
-        suns: suns, bodies: bodies, belt: belt, bin: bin,
+        suns: suns, bodies: bodies, belt: belt, bin: bin, comet: comet,
         bhBounds: bhBounds, binBounds: binBounds, bounds: bounds
     };
 }

@@ -65,7 +65,10 @@ Item {
     // El giro se deriva del `time` continuo (que avanza a ~30 fps), NO del
     // layout de Sim (que se recalcula a ~10 fps): así el beaming/Doppler del
     // disco es fluido aunque las posiciones de los soles se refresquen despacio.
-    readonly property real _bhSpin: (2 * Math.PI / 150) * time
+    // Fase del disco INTEGRADA por la vista (velocidad variable en hover); si no
+    // la cablea, cae al derivado de `time`.
+    property real bhPhase: -1
+    readonly property real _bhSpin: bhPhase >= 0 ? bhPhase : (2 * Math.PI / 150) * time
 
     // Cinturón de tareas: geometría del layout de Sim (baricentro FIJO, radios),
     // pero el GIRO se deriva del `time` continuo → rota fluido a 60 fps aunque

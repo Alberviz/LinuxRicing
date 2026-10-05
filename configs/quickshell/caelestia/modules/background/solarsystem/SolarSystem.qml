@@ -29,6 +29,8 @@ Item {
     // --- Entradas de datos ---
     property var config: ({ anchors: [], bodies: [] })
     property var values: ({})
+    // Tareas pendientes [{prio, title}] ordenadas por prioridad (cometa de tareas).
+    property var taskList: []
 
     // --- Paleta (roles de Colours.palette.m3*) — para el shader y la capa fina ---
     property color colPrimary: "#f7b999"       // disco del agujero, sol Configuración
@@ -78,6 +80,67 @@ Item {
             _tFreeze = _t - _frozenAccum;                 // dónde congelamos
         else
             _frozenAccum += (_t - _frozenAccum) - _tFreeze; // suma el rato congelado
+    }
+
+    // --- HOVER POR ZONAS ---
+    // Zonas: "laura" (Laura + sesiones), "config" (Configuración + periféricos),
+    // "comet" (cometa de tareas) y "bh" (agujero negro). La zona bajo el puntero
+    // se calcula SOLO cuando el puntero se mueve (HoverHandler.onPointChanged).
+    // Cada zona tiene un `amount` 0..1 con transición de 600 ms: de él cuelgan la
+    // velocidad del tiempo de la zona (×1 → ×0.25), la opacidad de sus órbitas,
+    // el fundido de sus etiquetas y la atenuación (70 %) del resto.
+    property string hoverZone: ""
+    property real zLaura: hoverZone === "laura" ? 1 : 0
+    property real zConfig: hoverZone === "config" ? 1 : 0
+    property real zComet: hoverZone === "comet" ? 1 : 0
+    property real zBh: hoverZone === "bh" ? 1 : 0
+    Behavior on zLaura { NumberAnimation { duration: 600; easing.type: Easing.InOutCubic } }
+    Behavior on zConfig { NumberAnimation { duration: 600; easing.type: Easing.InOutCubic } }
+    Behavior on zComet { NumberAnimation { duration: 600; easing.type: Easing.InOutCubic } }
+    Behavior on zBh { NumberAnimation { duration: 600; easing.type: Easing.InOutCubic } }
+    readonly property real hoverAny: Math.max(zLaura, zConfig, zComet, zBh)
+    // Factor de atenuación de un elemento de la zona con amount `z`: 1 si es el
+    // enfocado, hasta 0.70 si hay otra zona enfocada.
+    function _dimOf(z) { return 1 - 0.30 * Math.max(0, hoverAny - z); }
+    function _zoneOfBody(b) { return (b && b.kind === "device") ? zConfig : zLaura; }
+    // Giro del disco del agujero negro, INTEGRADO (velocidad variable por hover).
+    property real bhPhase: 0
+
+    function _updateZone(p) {
+        const L = root._layout;
+        if (!L) { hoverZone = ""; return; }
+        const S = L.scale;
+        const c = L.comet;
+        if (c) {
+            // Distancia al segmento cabeza→punta de la cola (cabeza y cola cuentan).
+            const sx = c.tx * c.len, sy = c.ty * c.len;
+            const t = Math.max(0, Math.min(1, ((p.x - c.x) * sx + (p.y - c.y) * sy) / (sx * sx + sy * sy)));
+            if (Math.hypot(p.x - (c.x + sx * t), p.y - (c.y + sy * t)) < 26 * S) { hoverZone = "comet"; return; }
+        }
+        let best = "", bestS = 1;
+        for (let i = 0; i < L.suns.length; i++) {
+            const sun = L.suns[i];
+            const dx = p.x - sun.x, dy = p.y - sun.y;
+            const rr = sun.r * 2.8;
+            const sc = (dx * dx + dy * dy) / (rr * rr);
+            if (sc < bestS) { bestS = sc; best = sun.id; }
+        }
+        for (let j = 0; j < L.bodies.length; j++) {
+            const b = L.bodies[j];
+            if (b.orbX === undefined) continue;
+            const ax = b.orbX + 16 * S, ay = b.orbV + 16 * S;
+            const dx = p.x - b.hostx, dy = p.y - b.hosty;
+            const sc = (dx * dx) / (ax * ax) + (dy * dy) / (ay * ay);
+            if (sc < bestS) { bestS = sc; best = (b.kind === "device") ? "config" : "laura"; }
+        }
+        if (best === "" && L.bh && Math.hypot(p.x - L.bh.x, p.y - L.bh.y) < L.bh.R * 1.7)
+            best = "bh";
+        if (best !== hoverZone) hoverZone = best;
+    }
+    HoverHandler {
+        id: zoneHover
+        onPointChanged: root._updateZone(point.position)
+        onHoveredChanged: if (!hovered) root.hoverZone = ""
     }
 
     // --- Estado ---
@@ -208,7 +271,11 @@ Item {
     function _recompute() {
         if (width <= 0 || height <= 0)
             return;
-        root._layout = Sim.computeLayout({ t: root.simTime, values: root.values, config: root.config }, root._geom());
+        root._layout = Sim.computeLayout({
+            t: root.simTime, values: root.values, config: root.config,
+            zoneSpeed: { laura: 1 - 0.75 * root.zLaura, config: 1 - 0.75 * root.zConfig,
+                         comet: 1 - 0.75 * root.zComet }
+        }, root._geom());
         root._rescanPulseFlags();
     }
     function _paintDyn() {
@@ -272,6 +339,7 @@ Item {
         musicBurstAge: root.musicBurstAge
         lauraFocus: root.lauraFocus
         lauraAmp: root.lauraAmplitude
+        bhPhase: root.bhPhase
         layout: root._layout
         colPrimary: root.colPrimary
         colLaura: root.colLaura
@@ -296,13 +364,14 @@ Item {
             readonly property var bn: root._layout ? root._layout.bin : null
             readonly property real k: root._layout ? root._layout.scale : 1.0
             visible: bn !== null
+            opacity: root._dimOf(Math.max(root.zLaura, root.zConfig))
             transform: Rotation {
                 origin.x: binTrace.bn ? binTrace.bn.bx : 0
                 origin.y: binTrace.bn ? binTrace.bn.by : 0
                 angle: binTrace.bn ? binTrace.bn.tilt * 180 / Math.PI : 0
             }
             ShapePath {
-                strokeColor: Qt.rgba(root.colLaura.r, root.colLaura.g, root.colLaura.b, 0.26)
+                strokeColor: Qt.rgba(root.colLaura.r, root.colLaura.g, root.colLaura.b, 0.03 + 0.32 * root.zLaura)
                 strokeWidth: 1.2 * binTrace.k
                 fillColor: "transparent"
                 PathAngleArc {
@@ -314,7 +383,7 @@ Item {
                 }
             }
             ShapePath {
-                strokeColor: Qt.rgba(root.colPrimary.r, root.colPrimary.g, root.colPrimary.b, 0.26)
+                strokeColor: Qt.rgba(root.colPrimary.r, root.colPrimary.g, root.colPrimary.b, 0.03 + 0.32 * root.zConfig)
                 strokeWidth: 1.2 * binTrace.k
                 fillColor: "transparent"
                 PathAngleArc {
@@ -326,39 +395,6 @@ Item {
                 }
             }
         }
-        Shape {
-            id: binChord
-            anchors.fill: parent
-            readonly property var bn: binTrace.bn
-            readonly property real k: binTrace.k
-            visible: bn !== null
-            // Cuerda sol-sol pasando por el baricentro.
-            ShapePath {
-                strokeColor: Qt.rgba(root.colInk.r, root.colInk.g, root.colInk.b, 0.14)
-                strokeWidth: 1 * binChord.k
-                strokeStyle: ShapePath.DashLine
-                dashPattern: [3, 5]
-                fillColor: "transparent"
-                startX: root._layout && root._layout.suns[0] ? root._layout.suns[0].x : 0
-                startY: root._layout && root._layout.suns[0] ? root._layout.suns[0].y : 0
-                PathLine {
-                    x: root._layout && root._layout.suns[1] ? root._layout.suns[1].x : 0
-                    y: root._layout && root._layout.suns[1] ? root._layout.suns[1].y : 0
-                }
-            }
-            // Baricentro: cruz pequeña.
-            ShapePath {
-                strokeColor: Qt.rgba(root.colInk.r, root.colInk.g, root.colInk.b, 0.35)
-                strokeWidth: 1 * binTrace.k
-                fillColor: "transparent"
-                startX: (binTrace.bn ? binTrace.bn.bx : 0) - 5 * binTrace.k
-                startY: binTrace.bn ? binTrace.bn.by : 0
-                PathLine { x: (binTrace.bn ? binTrace.bn.bx : 0) + 5 * binTrace.k; y: binTrace.bn ? binTrace.bn.by : 0 }
-                PathMove { x: binTrace.bn ? binTrace.bn.bx : 0; y: (binTrace.bn ? binTrace.bn.by : 0) - 5 * binTrace.k }
-                PathLine { x: binTrace.bn ? binTrace.bn.bx : 0; y: (binTrace.bn ? binTrace.bn.by : 0) + 5 * binTrace.k }
-            }
-        }
-
         Repeater {
             model: root._layout ? root._layout.bodies.length : 0
             delegate: Item {
@@ -367,6 +403,8 @@ Item {
                 readonly property var b: root._layout ? root._layout.bodies[index] : null
                 visible: b !== null && b.orbX !== undefined
                 anchors.fill: parent
+                readonly property real zone: root._zoneOfBody(b)
+                opacity: root._dimOf(zone)
 
                 readonly property bool dev: b ? b.kind === "device" : false
                 readonly property color col: dev ? root.colPrimary : root.colLaura
@@ -385,6 +423,8 @@ Item {
                     : (dev ? Math.min(0.75, baseA * 4.5)
                            : (isDone ? Math.min(0.70, baseA * 3.8) : Math.min(0.18, baseA * 0.9)))
 
+                // Estelas: en calma, a ~45 %; con hover en la zona, plenas.
+                readonly property real trailK: 0.45 + 0.55 * zone
                 readonly property real deg: b ? (b.oa * 180 / Math.PI) : 0
                 readonly property real spanDeg: isRunning
                     ? (1.30 * 180 / Math.PI)
@@ -397,8 +437,9 @@ Item {
 
                     // 1 · Elipse orbital completa
                     ShapePath {
+                        // Calma: casi invisible (~0.03). Con hover en su zona: ~0.35.
                         strokeColor: Qt.rgba(orbitItem.col.r, orbitItem.col.g, orbitItem.col.b,
-                                             orbitItem.baseA * (orbitItem.isRunning ? 1.35 : (orbitItem.dev ? 1.0 : (orbitItem.isDone ? 0.90 : 0.35))))
+                                             0.03 + 0.32 * orbitItem.zone)
                         strokeWidth: (orbitItem.isRunning ? 1.4 : (orbitItem.isSession ? 0.75 : 1.0)) * orbitItem.scaleFactor
                         fillColor: "transparent"
                         PathAngleArc {
@@ -413,7 +454,7 @@ Item {
 
                     // 2 · Estela de cometa (cola lejana)
                     ShapePath {
-                        strokeColor: Qt.rgba(orbitItem.col.r, orbitItem.col.g, orbitItem.col.b, orbitItem.headA * 0.20)
+                        strokeColor: Qt.rgba(orbitItem.col.r, orbitItem.col.g, orbitItem.col.b, orbitItem.headA * 0.20 * orbitItem.trailK)
                         strokeWidth: (2.4 * 0.5) * orbitItem.scaleFactor
                         fillColor: "transparent"
                         capStyle: ShapePath.RoundCap
@@ -429,7 +470,7 @@ Item {
 
                     // 3 · Estela de cometa (cola media)
                     ShapePath {
-                        strokeColor: Qt.rgba(orbitItem.col.r, orbitItem.col.g, orbitItem.col.b, orbitItem.headA * 0.50)
+                        strokeColor: Qt.rgba(orbitItem.col.r, orbitItem.col.g, orbitItem.col.b, orbitItem.headA * 0.50 * orbitItem.trailK)
                         strokeWidth: (2.4 * 0.75) * orbitItem.scaleFactor
                         fillColor: "transparent"
                         capStyle: ShapePath.RoundCap
@@ -445,7 +486,7 @@ Item {
 
                     // 4 · Estela de cometa (cabeza luminosa junto al planeta)
                     ShapePath {
-                        strokeColor: Qt.rgba(orbitItem.col.r, orbitItem.col.g, orbitItem.col.b, orbitItem.headA * 0.95)
+                        strokeColor: Qt.rgba(orbitItem.col.r, orbitItem.col.g, orbitItem.col.b, orbitItem.headA * 0.95 * orbitItem.trailK)
                         strokeWidth: 2.4 * orbitItem.scaleFactor
                         fillColor: "transparent"
                         capStyle: ShapePath.RoundCap
@@ -530,7 +571,7 @@ Item {
             // - session (idle): atenuado/apagado (0.42)
             // - done (terminado): parpadea con _donePulse (0.60 .. 1.0)
             // - running / device: brillo pleno (1.0)
-            opacity: root._dimK * (isSession ? 0.42 : (isDone ? (0.60 + 0.40 * root._donePulse) : 1.0))
+            opacity: root._dimK * root._dimOf(root._zoneOfBody(bodyItem.b)) * (isSession ? 0.42 : (isDone ? (0.60 + 0.40 * root._donePulse) : 1.0))
 
             // Aro de alerta (batería < 20 %). Loader: si el cuerpo no está en
             // alerta el binding del pulso NI EXISTE.
@@ -617,6 +658,139 @@ Item {
         }
     }
 
+
+    // ===================== COMETA DE TAREAS =====================
+    // Un único cometa en órbita elíptica amplia y lenta alrededor del binario.
+    // Cola contra el avance, longitud ∝ tareas pendientes. Sin tareas, no existe.
+    // Todo Rectangle/Shape (GPU, scene graph): sin Canvas ni bucles propios — se
+    // mueve con el `_layout` que ya recalcula el reloj existente.
+    Item {
+        id: cometLayer
+        anchors.fill: parent
+        readonly property var c: root._layout ? root._layout.comet : null
+        readonly property real sc: root._layout ? root._layout.scale : 1
+        readonly property color tint: root._lit(root.colInk, 0.1)
+        visible: c !== null
+        opacity: root._dimK * root._dimOf(root.zComet) * (0.72 + 0.28 * root.zComet)
+
+        // Órbita (casi invisible; sube con hover).
+        Shape {
+            anchors.fill: parent
+            transform: Rotation {
+                origin.x: cometLayer.c ? cometLayer.c.cx : 0
+                origin.y: cometLayer.c ? cometLayer.c.cy : 0
+                angle: cometLayer.c ? cometLayer.c.tilt * 180 / Math.PI : 0
+            }
+            ShapePath {
+                strokeColor: Qt.rgba(cometLayer.tint.r, cometLayer.tint.g, cometLayer.tint.b, 0.03 + 0.32 * root.zComet)
+                strokeWidth: 1 * cometLayer.sc
+                fillColor: "transparent"
+                PathAngleArc {
+                    centerX: cometLayer.c ? cometLayer.c.cx : 0
+                    centerY: cometLayer.c ? cometLayer.c.cy : 0
+                    radiusX: cometLayer.c ? cometLayer.c.rx : 0
+                    radiusY: cometLayer.c ? cometLayer.c.ry : 0
+                    startAngle: 0; sweepAngle: 360
+                }
+            }
+        }
+
+        // Cola de polvo (ancha, tenue) y cola de iones (fina, más viva).
+        Rectangle {
+            x: cometLayer.c ? cometLayer.c.x : 0
+            y: (cometLayer.c ? cometLayer.c.y : 0) - height / 2
+            width: cometLayer.c ? cometLayer.c.len : 0
+            height: 9 * cometLayer.sc
+            radius: height / 2
+            transformOrigin: Item.Left
+            rotation: cometLayer.c ? Math.atan2(cometLayer.c.ty, cometLayer.c.tx) * 180 / Math.PI : 0
+            gradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop { position: 0; color: Qt.rgba(root.colLaura.r, root.colLaura.g, root.colLaura.b, 0.30) }
+                GradientStop { position: 1; color: Qt.rgba(root.colLaura.r, root.colLaura.g, root.colLaura.b, 0) }
+            }
+        }
+        Rectangle {
+            x: cometLayer.c ? cometLayer.c.x : 0
+            y: (cometLayer.c ? cometLayer.c.y : 0) - height / 2
+            width: cometLayer.c ? cometLayer.c.len * 1.2 : 0
+            height: 2 * cometLayer.sc
+            transformOrigin: Item.Left
+            rotation: cometLayer.c ? Math.atan2(cometLayer.c.ty, cometLayer.c.tx) * 180 / Math.PI : 0
+            gradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop { position: 0; color: Qt.rgba(root.colPrimary.r, root.colPrimary.g, root.colPrimary.b, 0.70) }
+                GradientStop { position: 1; color: Qt.rgba(root.colPrimary.r, root.colPrimary.g, root.colPrimary.b, 0) }
+            }
+        }
+        // Cabeza: halo + núcleo.
+        Rectangle {
+            x: (cometLayer.c ? cometLayer.c.x : 0) - width / 2
+            y: (cometLayer.c ? cometLayer.c.y : 0) - height / 2
+            width: (cometLayer.c ? cometLayer.c.r : 0) * 4
+            height: width; radius: width / 2
+            color: Qt.rgba(cometLayer.tint.r, cometLayer.tint.g, cometLayer.tint.b, 0.10)
+        }
+        Rectangle {
+            x: (cometLayer.c ? cometLayer.c.x : 0) - width / 2
+            y: (cometLayer.c ? cometLayer.c.y : 0) - height / 2
+            width: (cometLayer.c ? cometLayer.c.r : 0) * 1.6
+            height: width; radius: width / 2
+            color: cometLayer.tint
+        }
+
+        // Las 3 próximas tareas, solo al enfocar el cometa (con velo oscuro para
+        // leerse sobre órbitas y etiquetas).
+        Rectangle {
+            visible: cometTasks.visible
+            opacity: root.zComet
+            x: cometTasks.x - 12
+            y: cometTasks.y - 9
+            width: cometTasks.width + 24
+            height: cometTasks.height + 18
+            radius: 8
+            color: Qt.rgba(0, 0, 0, 0.62)
+        }
+        Column {
+            id: cometTasks
+            visible: root.zComet > 0.01 && cometLayer.c !== null
+            opacity: root.zComet
+            spacing: 4
+            // Debajo de la cabeza (o encima si la cola apunta hacia abajo), sin pisar la cola.
+            readonly property bool onLeft: false
+            x: cometLayer.c ? Math.max(8, Math.min(root.width - 340, cometLayer.c.x - 8)) : 0
+            y: cometLayer.c
+                ? Math.max(8, Math.min(root.height - height - 8,
+                    cometLayer.c.ty > 0.2 ? cometLayer.c.y - 22 * cometLayer.sc - height
+                                          : cometLayer.c.y + 22 * cometLayer.sc))
+                : 0
+            Text {
+                text: cometLayer.c ? (cometLayer.c.n + (cometLayer.c.n === 1 ? " TAREA PENDIENTE" : " TAREAS PENDIENTES")) : ""
+                color: cometLayer.tint
+                opacity: 0.7
+                font.family: root.labelFont
+                font.pixelSize: 11
+                font.letterSpacing: 2
+                horizontalAlignment: cometTasks.onLeft ? Text.AlignRight : Text.AlignLeft
+                width: Math.max(implicitWidth, 240)
+            }
+            Repeater {
+                model: Math.min(3, root.taskList.length)
+                delegate: Text {
+                    required property int index
+                    text: (index + 1) + "  " + (root.taskList[index] ? root.taskList[index].title : "")
+                    color: cometLayer.tint
+                    opacity: 0.9 - 0.15 * index
+                    font.family: root.labelFont
+                    font.pixelSize: 12
+                    elide: Text.ElideRight
+                    width: 340
+                    horizontalAlignment: cometTasks.onLeft ? Text.AlignRight : Text.AlignLeft
+                }
+            }
+        }
+    }
+
     // ===================== ETIQUETAS (BodyLabel, variante C) =====================
     // Último hijo → por encima del shader y de los cuerpos. Una etiqueta por sol,
     // una por el agujero negro y una por satélite. Bindings puros: se recolocan
@@ -640,8 +814,9 @@ Item {
                 property bool hovered: false
 
                 anchors.fill: parent
-                opacity: (root.lauraActive && sunWrap.s && sunWrap.s.id === "laura")
-                    ? 1 : root._dimK
+                readonly property real zone: (sunWrap.s && sunWrap.s.id === "laura") ? root.zLaura : root.zConfig
+                opacity: ((root.lauraActive && sunWrap.s && sunWrap.s.id === "laura")
+                    ? 1 : root._dimK) * root._dimOf(zone)
                 Behavior on opacity { NumberAnimation { duration: 380; easing.type: Easing.OutCubic } }
 
                 // Anillo sutil de hover interactivo para el planeta/sol de Configuración
@@ -673,7 +848,8 @@ Item {
                     targetRadius: sunWrap.s ? sunWrap.s.r : 0
                     title: sunWrap.s ? (root._labelNames[sunWrap.s.id] || "") : ""
                     subtitle: ""
-                    emphasis: (sunWrap.isConfig && sunWrap.hovered) ? 1.0 : 0.55
+                    // Calma: una línea tenue. En hover de su zona, algo más marcada.
+                    emphasis: (sunWrap.isConfig && sunWrap.hovered) ? 1.0 : (0.18 + 0.40 * sunWrap.zone)
                     col: sunWrap.s
                         ? (sunWrap.s.id === "laura" ? root.colLaura : root.colPrimary)
                         : root.colInk
@@ -702,7 +878,7 @@ Item {
             id: bhWrap
             readonly property var bh: root._layout ? root._layout.bh : null
             anchors.fill: parent
-            opacity: root._dimK
+            opacity: root._dimK * root._dimOf(root.zBh)
 
             MusicHole {
                 center: bhWrap.bh ? Qt.point(bhWrap.bh.x, bhWrap.bh.y) : Qt.point(0,0)
@@ -731,8 +907,10 @@ Item {
                 required property int index
                 readonly property var b: root._layout ? root._layout.bodies[index] : null
                 anchors.fill: parent
-                opacity: root._dimK
-                visible: satWrap.b !== null && root._bodyName(satWrap.b).length > 0
+                // Sin etiqueta en calma: aparece con fundido al enfocar su zona.
+                readonly property real zone: root._zoneOfBody(satWrap.b)
+                opacity: root._dimK * zone
+                visible: zone > 0.01 && satWrap.b !== null && root._bodyName(satWrap.b).length > 0
 
                 BodyLabel {
                     variant: "B"
@@ -782,6 +960,7 @@ Item {
             root._t += dt;                       // reloj del shader: Capped a targetFps (60 fps por defecto)
             if (root.lauraActive)
                 return;                          // sistema congelado: nada que recalcular
+            root.bhPhase += dt * (2 * Math.PI / 150) * (1 - 0.75 * root.zBh);
             root._accSim += dt;
             if (root._accSim >= 0.033) {          // ~30 fps: posiciones (Sim)
                 root._accSim = 0;

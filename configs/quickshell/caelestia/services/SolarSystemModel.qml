@@ -75,11 +75,8 @@ Singleton {
             // (ver _terminalBodies / _deviceBodies). Un cuerpo sin señal no se
             // pinta (principio 5).
 
-            // --- cinturón circumbinario de tareas ---
-            {
-                id: "tasks", kind: "belt", anchor: "barycenter", rxFrac: 0.14,
-                activitySignal: "tasks"
-            }
+            // (El antiguo cinturón de tareas se sustituyó por el cometa de tareas:
+            // lo dibuja la vista a partir de `taskList`.)
         ]
     })
 
@@ -153,6 +150,9 @@ Singleton {
     property real _musicProgress: 0.0
     property real _musicBurstAge: 999.0
     property int _pendingTasks: 0
+    // Tareas pendientes del backlog, ordenadas por prioridad: [{prio, title}].
+    // La vista las usa para el cometa (longitud de cola y las 3 próximas).
+    property var taskList: []
     readonly property bool _lauraActive: (Agents.runningAgents || []).length > 0
 
     // Batería real de los tres periféricos. null = desconectado (cuerpo apagado,
@@ -227,6 +227,7 @@ Singleton {
             musicBurstAge: musicBurstAge,
             lauraActive: lauraActive,
             tasks: Math.min(1, pending / 12),
+            taskCount: pending,
 
             // Batería: fracción 0..1 para tamaño/actividad; bool para la alerta.
             "batt:headset": root._battFrac(b.headset),
@@ -549,13 +550,28 @@ Singleton {
     // ---------- Adaptador: tareas pendientes del backlog ----------
     Process {
         id: taskCount
+        // «<prioridad>\t<título>» de cada nota con `estado: pendiente` (solo el
+        // frontmatter), ordenadas por prioridad (1 urgente … 5 algún día).
         command: ["sh", "-c",
-            "grep -rl 'estado: pendiente' \"$HOME/LinuxRicing/vault/Backlog\" 2>/dev/null | wc -l"]
+            "cd \"$HOME/LinuxRicing/vault/Backlog\" 2>/dev/null || exit 0; "
+            + "for f in *.md; do [ -f \"$f\" ] || continue; "
+            + "awk -v n=\"${f%.md}\" 'NR==1&&$0!=\"---\"{exit} NR>1&&$0==\"---\"{exit} "
+            + "/^estado:/{e=$2} /^prioridad:/{p=$2} END{if(e==\"pendiente\")print (p==\"\"?5:p) \"\\t\" n}' \"$f\"; "
+            + "done | sort -n -s -k1,1"]
         stdout: StdioCollector {
             onStreamFinished: {
-                const n = parseInt(text.trim(), 10);
-                if (!isNaN(n))
-                    root._pendingTasks = n;
+                const out = [];
+                const lines = text.split("\n");
+                for (let i = 0; i < lines.length; i++) {
+                    const ln = lines[i];
+                    if (!ln.length) continue;
+                    const k = ln.indexOf("\t");
+                    if (k < 0) continue;
+                    const ps = ln.slice(0, k);
+                    out.push({ prio: ps === "alta" ? 1 : (parseInt(ps, 10) || 5), title: ln.slice(k + 1) });
+                }
+                root.taskList = out;
+                root._pendingTasks = out.length;
             }
         }
     }
