@@ -190,6 +190,17 @@ def get_v9_pro_battery():
         return last_bat, "En reposo"
     return None, "Sin respuesta"
 
+def _usb_present(vid, pid):
+    """True si hay un dispositivo USB vid:pid enumerado (sysfs), con o sin hidraw."""
+    for d in glob.glob("/sys/bus/usb/devices/*"):
+        try:
+            with open(f"{d}/idVendor") as f1, open(f"{d}/idProduct") as f2:
+                if int(f1.read(), 16) == vid and int(f2.read(), 16) == pid:
+                    return True
+        except Exception:
+            pass
+    return False
+
 def get_k7_ultra_battery():
     fresh = fresh_cache_reading("k7")
     if fresh is not None:
@@ -199,9 +210,20 @@ def get_k7_ultra_battery():
     last_bat = cache.get("k7_battery")
     last_status = cache.get("k7_status", "Descargando")
 
-    nodes = glob_hidraw_nodes(0x3837, 0x1001, iface=2) or glob_hidraw_nodes(0x3837, 0x1001)
-    if not nodes:
+    # Con el cable enchufado el ratón enumera como 3837:4150 (no 1001). Se
+    # prioriza el cable; el 1001 es el receptor 2.4G.
+    cable_nodes = (glob_hidraw_nodes(0x3837, 0x4150, iface=2)
+                   or glob_hidraw_nodes(0x3837, 0x4150))
+    cable_usb = _usb_present(0x3837, 0x4150)
+    nodes = cable_nodes or glob_hidraw_nodes(0x3837, 0x1001, iface=2) or glob_hidraw_nodes(0x3837, 0x1001)
+    if not nodes and not cable_usb:
         return None, "Desconectado"
+
+    def _cable_fallback():
+        # Cable presente pero sin lectura HID válida: sigue cargando.
+        if cable_usb or cable_nodes:
+            return (last_bat if last_bat else None), "Cargando"
+        return None
 
     for node in nodes:
         try:
@@ -223,7 +245,7 @@ def get_k7_ultra_battery():
                         dec13 = [d[0]] + [b ^ 0xFF for b in d[1:]]
                         if (dec13[1] == 0xE2 or d[1] == 0x1D) and 0 < dec13[5] <= 100:
                             bat = dec13[5]
-                            is_charging = (dec13[3] == 2 or dec13[4] == 1)
+                            is_charging = (dec13[3] == 2 or dec13[4] == 1 or bool(cable_nodes))
                             st = "Cargando" if is_charging else "Descargando"
                             os.close(fd)
                             cache["k7_battery"] = bat
@@ -242,7 +264,7 @@ def get_k7_ultra_battery():
                             bat = dec[11]
                             charge_st = dec[12]
                             if 0 < bat <= 100:
-                                is_charging = (charge_st == 1)
+                                is_charging = (charge_st == 1 or bool(cable_nodes))
                                 st = "Cargando" if is_charging else "Descargando"
                                 os.close(fd)
                                 cache["k7_battery"] = bat
@@ -256,6 +278,9 @@ def get_k7_ultra_battery():
         except Exception:
             pass
 
+    fb = _cable_fallback()
+    if fb is not None:
+        return fb
     if last_bat:
         return last_bat, "En reposo"
     return None, "Sin respuesta"
@@ -534,9 +559,9 @@ def main():
                 "name": "MCHOSE K7 Ultra",
                 "battery": k7_bat,
                 "status": k7_st,
-                "mode": "2.4G Inalámbrico" if (k7_bat is not None and k7_st != "Desconectado") else "Desconectado",
+                "mode": ("Cable USB" if (k7_st == "Cargando" and _usb_present(0x3837, 0x4150)) else "2.4G Inalámbrico") if (k7_st != "Desconectado" and (k7_bat is not None or k7_st == "Cargando")) else "Desconectado",
                 "charging": (k7_st == "Cargando"),
-                "connected": (k7_bat is not None and k7_st != "Desconectado")
+                "connected": ((k7_bat is not None or k7_st == "Cargando") and k7_st != "Desconectado")
             },
             "keyboard": {
                 "name": "Akko 5075B",

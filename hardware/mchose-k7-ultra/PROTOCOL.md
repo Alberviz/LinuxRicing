@@ -57,6 +57,15 @@ Encabezado observado en capturas: `[0x2B, 0x01, TARGET, 0x00]` +
   - `dec[12]` = **estado de carga**: `0x00` descargando · `0x01` ⚡ cargando
     (en la base `PID 0x1001` o por cable `PID 0x4150`).
 
+- Ejemplo real (dongle 1001, batería 65 %): `dec = 11 06 37 38 50 41 1c 05 05 00 09 41 00`
+  (`dec[11]=0x41`, `dec[12]=0`). A veces la respuesta llega toda a ceros (pulso RF
+  perdido): reintentar.
+- **Detección de carga por cable (2026-10-05):** al enchufar el cable el ratón enumera
+  como `3837:4150`, no como `1001`. El lector debe buscar ambos PIDs; si el USB `4150`
+  existe, el ratón se está cargando aunque el reporte HID no se lea. (En la sesión de
+  sondeo el cable no llegó a conectarse, así que el layout exacto de `4150` sigue sin
+  verificar en vivo.)
+
 Referencia de implementación: `get_k7_ultra_battery()` en `rgb/mchose-battery`
 (Linux) y `rgb/mchose-battery-windows.py` (Windows).
 
