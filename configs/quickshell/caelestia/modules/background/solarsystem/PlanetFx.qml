@@ -28,6 +28,4 @@ ShaderEffect {
     property color cOnSurface: pal.colInk
     property color cOutline: pal.colOutline
     property color cError: pal.colError
-    property color cClaude: pal.claudeCol
-    property color cGemini: pal.geminiCol
 }

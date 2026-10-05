@@ -42,8 +42,6 @@ layout(std140, binding = 0) uniform buf {
     vec4  cOnSurface;
     vec4  cOutline;
     vec4  cError;
-    vec4  cClaude;    // color elegido en vivo para Claude
-    vec4  cGemini;    // color elegido en vivo para Gemini
 };
 
 const float PI = 3.14159265359;
@@ -107,62 +105,39 @@ vec2 ringE(vec2 q, float rx, float ry, float deg, float hw, float aa){
     return vec2(1.0 - smoothstep(hw - aa, hw + aa, dist), p.y);
 }
 
-// bola de luz simple (misma familia que los soles): núcleo claro, borde en el color
-// del proveedor y halo suave. Premultiplicado. ql en unidades del orbe (R = 1).
-vec4 lightOrb(vec2 ql, vec3 c, float aaq){
+// esfera lisa con sombreado suave (D) y un halo tenue del color del rol.
+vec4 smoothSphere(vec2 ql, vec3 c, float aaq){
     vec4 o = vec4(0.0);
     float d = length(ql);
-    float halo = exp(-max(d - 1.0, 0.0) * 3.4) * step(1.0, d + 0.5);
-    over(o, c, halo * 0.42);
+    over(o, c, exp(-max(d - 1.0, 0.0) * 4.0) * 0.30 * step(1.0, d + 0.5));
     float body = 1.0 - smoothstep(1.0 - aaq, 1.0 + aaq, d);
-    vec3 col = mix(mix(c, vec3(1.0), 0.80), c, smoothstep(0.0, 0.95, d));
+    float t = clamp(length(ql - vec2(-0.28, -0.40)) / 1.7, 0.0, 1.0);
+    vec3 col = mix(c, deep(c), t);
+    float sh = length(ql - vec2(-0.28, -0.40)) / 1.8;
+    col = mix(col, cSurface.rgb, smoothstep(0.4, 1.0, sh) * 0.85);
     over(o, col, body);
     return o;
 }
 
-// ---- CLAUDE: orbe de luz con la CRUZ de doble anillo ----
-// Color: cClaude (lo elige SolarSystem.qml en vivo del tema, ver pickProviderColors).
+// ---- CLAUDE: esfera lisa (secondary) con la CRUZ de doble anillo fina y tenue («Susurro») ----
 vec4 planetClaude(vec2 q, float aa){
     vec4 acc = vec4(0.0);
-    vec3 c = cClaude.rgb;
-    vec3 rc = mix(c, vec3(1.0), 0.45);
-    vec2 r1 = ringE(q, 1.50, 0.34, -22.0, 0.035, aa);
-    vec2 r1g = ringE(q, 1.50, 0.34, -22.0, 0.10, aa);
-    vec2 r2 = ringE(q, 1.28, 0.29, 22.0, 0.030, aa);
-    vec2 r2g = ringE(q, 1.28, 0.29, 22.0, 0.09, aa);
-    float d = length(q);
-    float behind = step(1.0, d);
-    over(acc, c, (r1g.x * 0.14 + r1.x * 0.45) * step(r1.y, 0.0) * behind);
-    over(acc, c, (r2g.x * 0.14 + r2.x * 0.45) * step(r2.y, 0.0) * behind);
-    vec4 orb = lightOrb(q, c, aa);
-    over(acc, orb.rgb / max(orb.a, 1e-4), orb.a);
-    over(acc, rc, (r1g.x * 0.18 + r1.x * 0.90) * step(0.0, r1.y));
-    over(acc, rc, (r2g.x * 0.18 + r2.x * 0.90) * step(0.0, r2.y));
+    vec3 c = cSecondary.rgb;
+    vec2 r1 = ringE(q, 1.50, 0.34, -22.0, 0.022, aa);
+    vec2 r2 = ringE(q, 1.28, 0.29, 22.0, 0.018, aa);
+    float behind = step(1.0, length(q));
+    over(acc, c, r1.x * 0.22 * step(r1.y, 0.0) * behind);
+    over(acc, c, r2.x * 0.22 * step(r2.y, 0.0) * behind);
+    vec4 sp = smoothSphere(q, c, aa);
+    over(acc, sp.rgb / max(sp.a, 1e-4), sp.a);
+    over(acc, c, r1.x * 0.40 * step(0.0, r1.y));
+    over(acc, c, r2.x * 0.40 * step(0.0, r2.y));
     return acc;
 }
 
-// ---- GEMINI: dos orbes de luz gemelos muy juntos ----
-// Color: cGemini (distinto de Claude; ver pickProviderColors).
+// ---- GEMINI: esfera lisa (tertiaryContainer), sin gemela ni anillo ----
 vec4 planetGemini(vec2 q, float aa){
-    vec4 acc = vec4(0.0);
-    const float SG = 1.3;
-    vec2 p = q / SG;
-    float aap = aa / SG;
-    vec3 c = cGemini.rgb;
-    // puente de luz entre los gemelos
-    float ax = abs(p.x);
-    if (ax < 0.30) {
-        float h = 0.05 + 0.13 * pow(ax / 0.30, 1.5);
-        float dy = abs(p.y);
-        over(acc, c, (1.0 - smoothstep(h, h + 0.14, dy)) * 0.30);
-    }
-    float R = 0.54;
-    vec2 cl = vec2(-0.58, -0.03), cr = vec2(0.58, 0.04);
-    vec4 oa = lightOrb((p - cl) / R, c, aap / R);
-    vec4 ob = lightOrb((p - cr) / R, mix(c, vec3(1.0), 0.18), aap / R);
-    over(acc, oa.rgb / max(oa.a, 1e-4), oa.a);
-    over(acc, ob.rgb / max(ob.a, 1e-4), ob.a);
-    return acc;
+    return smoothSphere(q, cTertiaryC.rgb, aa);
 }
 
 vec3 planetOther(vec2 q, float t){

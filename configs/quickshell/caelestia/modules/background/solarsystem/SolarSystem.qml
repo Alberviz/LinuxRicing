@@ -46,42 +46,9 @@ Item {
     property color colSurface: "#0c0e12"
     property color colSurfaceC: "#161a1f"
     property color colOutline: "#70767e"
-    // Candidatos de color para los proveedores de IA (roles de acento del tema y
-    // colores de terminal), cableados por SolarSystemLayer.
-    property var providerCandidates: []
-    // ELECCIÓN EN VIVO DE COLORES (Claude / Gemini). Regla: de los candidatos se
-    // descartan los grises/apagados (saturación < 0.25 o luminosidad fuera de
-    // 0.45..0.92: han de brillar como los soles) y los que repiten a Laura
-    // (tertiary) o a Configuración (primary) —distancia de tono < 0.07 con
-    // luminosidad parecida—. Del resto se toma el PAR con mayor distancia
-    // combinada: 1.0·distancia de tono circular (0..1) + 0.6·diferencia de
-    // luminosidad. Claude es el más cálido (tono más cercano al naranja ~0.07) y
-    // Gemini el otro. Se recalcula al cambiar el tema.
-    function _hueDist(a, b) { const d = Math.abs(a - b); return Math.min(d, 1 - d) * 2; }
-    function _isLike(c, ref) {
-        return _hueDist(c.hslHue, ref.hslHue) < 0.14 && Math.abs(c.hslLightness - ref.hslLightness) < 0.25;
-    }
-    readonly property var _providerPair: {
-        const cs = [];
-        const list = providerCandidates || [];
-        for (let i = 0; i < list.length; i++) {
-            const c = list[i];
-            if (!c || c.hslSaturation < 0.25 || c.hslLightness < 0.45 || c.hslLightness > 0.92) continue;
-            if (_isLike(c, colLaura) || _isLike(c, colPrimary)) continue;
-            cs.push(c);
-        }
-        let best = null, bs = -1;
-        for (let i = 0; i < cs.length; i++)
-            for (let j = i + 1; j < cs.length; j++) {
-                const sc = _hueDist(cs[i].hslHue, cs[j].hslHue) + 0.6 * Math.abs(cs[i].hslLightness - cs[j].hslLightness);
-                if (sc > bs) { bs = sc; best = [cs[i], cs[j]]; }
-            }
-        if (!best) return [colSecondary, colInk];     // sin candidatos: valores seguros del tema
-        const w = c => Math.min(Math.abs(c.hslHue - 0.07), 1 - Math.abs(c.hslHue - 0.07));
-        return w(best[0]) <= w(best[1]) ? best : [best[1], best[0]];
-    }
-    readonly property color claudeCol: _providerPair[0]
-    readonly property color geminiCol: _providerPair[1]
+    // Colores de proveedor: Claude = secondary, Gemini = tertiaryContainer (roles en vivo).
+    readonly property color claudeCol: colSecondary
+    readonly property color geminiCol: colTertiaryC
     property color colVoid: "#050302"          // horizonte de sucesos (darker(m3surface, 3))
     readonly property color _hot: _lit(colPrimary, 0.86)
 
@@ -191,7 +158,7 @@ Item {
         if (found === "")
             for (let j = 0; j < L.bodies.length; j++) {
                 const b = L.bodies[j];
-                if (_hitAstro(p, b.x, b.y, b.r * (b.provider === "gemini" ? 1.45 : 1.0), S)) { found = "b:" + b.id; break; }
+                if (_hitAstro(p, b.x, b.y, b.r, S)) { found = "b:" + b.id; break; }
             }
         if (found === "" && L.bh && Math.hypot(p.x - L.bh.x, p.y - L.bh.y) < L.bh.R * 1.12)
             found = "bh";
