@@ -26,7 +26,7 @@ Singleton {
     // queda negro sin el sistema solar, PERO sin tocar el perfil de CPU ni
     // Hyprland (eso es el modo ahorro, PowerSaving) — sólo se descarga la vista.
     property bool enabled: true
-    property int musicVariant: 2
+    property int musicVariant: 0
     property int targetFps: 60
 
     // v3: el wallpaper se apaga y el escritorio queda sobre fondo negro

@@ -65,7 +65,7 @@ Item {
     property bool reduceMotion: false
     property bool active: false                // ¿hay un agente en curso? (sube el ritmo del Sim)
     property bool fastRate: false              // ¿música sonando? (sube el ritmo del Sim)
-    property int musicVariant: 2               // Variante de visualizador en agujero negro (0..6, 0=sin overlay)
+    property int musicVariant: 0               // Variante de visualizador en agujero negro (0..6, 0=sin overlay)
     property int targetFps: 60                 // Límite de FPS para el fondo (evita 144 Hz innecesarios en iGPU)
 
     // --- Modo Laura activa (D-12) ---

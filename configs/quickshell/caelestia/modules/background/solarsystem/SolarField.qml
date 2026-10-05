@@ -129,6 +129,20 @@ Item {
     Behavior on _linesSlow { NumberAnimation { duration: 700 } }
     readonly property real _linesEnergy: Math.max(_linesFast, _linesSlow)
 
+    // --- Música en el agujero ---
+    // Hay música con progreso → el agujero pasa de «todo encendido» (aspecto aprobado) a «relleno
+    // por progreso». En pausa se queda donde está; sin canción vuelve a todo encendido.
+    readonly property bool _musicOn: musicProgress > 0.0005
+    property real _musicActive: _musicOn ? 1 : 0
+    Behavior on _musicActive { NumberAnimation { duration: 700; easing.type: Easing.InOutQuad } }
+    // fase de nacimiento del punto caliente: una nueva en cada golpe (la edad vuelve a ~0)
+    property real _beatSeed: 0.37
+    property real _lastBurstAge: 999
+    onMusicBurstAgeChanged: {
+        if (musicBurstAge < _lastBurstAge - 0.01) _beatSeed = Math.random();
+        _lastBurstAge = musicBurstAge;
+    }
+
     // ===================== AGUJERO B10-B (fuera de pantalla: todo visible:false) =====================
     // Recalcular la caché geométrica: agrupa cambios seguidos (layout de Sim a ~10 Hz) en uno.
     Timer {
@@ -203,6 +217,12 @@ Item {
             property color colTert: Colours.palette.m3tertiary
             property point boxOrigin: Qt.point(root._bhBox.x, root._bhBox.y)
             property real rOut: root._bhROut
+            property real musicActive: root._musicActive
+            property real musicProgress: root._progressSmooth
+            property real musicBass: root.musicBass
+            property real musicTreble: root.musicTreble
+            property real beatAge: root.musicBurstAge
+            property real beatSeed: root._beatSeed
         }
         ShaderEffectSource {
             id: bhScene

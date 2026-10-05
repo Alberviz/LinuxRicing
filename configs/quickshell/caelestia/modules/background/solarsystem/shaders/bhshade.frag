@@ -29,6 +29,13 @@ layout(std140, binding = 0) uniform buf {
     vec4  colTert;      // m3tertiary
     vec2  boxOrigin;    // px de pantalla de la esquina de la caja
     float rOut;
+    // música (0 en silencio: aspecto aprobado, todo encendido)
+    float musicActive;  // 0..1, hay canción con progreso
+    float musicProgress;// 0..1, vuelta horaria desde las 12
+    float musicBass;    // 0..1
+    float musicTreble;  // 0..1
+    float beatAge;      // s desde el último golpe (999 = ninguno)
+    float beatSeed;     // 0..1, fase de nacimiento del punto caliente
 };
 layout(binding = 1) uniform sampler2D geoA;
 layout(binding = 2) uniform sampler2D geoB;
@@ -40,6 +47,7 @@ const float R_ISCO = 1.95;
 const float B_CRIT = 2.9098;
 const float K_THIN = 60.0;
 const float TAU = 6.28318530718;
+const float DIM_OFF = 0.25;      // brillo de la parte de bóveda/anillo aún no recorrida por la canción
 
 vec3 lit(vec3 c, float k){ return mix(c, vec3(1.0), k); }
 vec3 dk(vec3 c, float k){ return c * (1.0 - k); }
@@ -167,7 +175,22 @@ vec4 shadeThin(vec4 s, float dop, float seed, vec4 J){
     // LUZ ARTÍSTICA: caída suave a ojo (∝ r^-0.9) + resplandor del labio interior; Doppler suavizado
     float rn = clamp((rc - R_ISCO) / (R_OUT_T - R_ISCO), 0.0, 1.0);
     // gradiente de dentro a fuera a ojo: muy brillante junto al agujero, cae suave y no llega a negro
-    float I = lip * gS * ((1.5 * exp(-4.0 * rn) + 0.16) * vein * (0.85 + 0.3 * n.y) + 0.9 * exp(-(rc - R_ISCO) * 2.5));
+    // música: los agudos afinan el grano, los graves empujan el disco interior y cada golpe deja
+    // un punto caliente que orbita (kepleriano) y se apaga. Todo sutil y a 0 en silencio.
+    float mAct = musicActive;
+    float inner = exp(-(rc - R_ISCO) * 0.9);
+    float hot = 0.0;
+    if (mAct > 0.0 && beatAge < 4.0){
+        const float rh = 3.2;
+        float ph = beatSeed * TAU + omegaK(rh) * beatAge;
+        float dphi = abs(mod(s.y - ph + 0.5 * TAU, TAU) - 0.5 * TAU);
+        float dr = (rc - rh) / 0.55, dp = dphi * rh / 0.8;
+        hot = exp(-(dr * dr + dp * dp)) * exp(-beatAge / 1.1) * smoothstep(0.0, 0.08, beatAge);
+    }
+    float I = lip * gS * ((1.5 * exp(-4.0 * rn) + 0.16) * vein * (0.85 + (0.3 + 0.35 * musicTreble * mAct) * n.y)
+                          + 0.9 * exp(-(rc - R_ISCO) * 2.5));
+    I *= 1.0 + 0.35 * musicBass * mAct * inner;
+    I += lip * gS * 1.1 * hot * mAct;
     vec3 col = ramp(clamp(1.0 - pow(rn, 0.6) + 0.15 * (g - 1.0), 0.0, 1.0)) * I;
     // polvo: motas fijas en el disco, en bandas radiales de grano fino
     float band = smoothstep(0.40, 0.70, texture(noiseTex, vec2(0.13, vf * 40.0)).b);
@@ -203,8 +226,17 @@ void main(){
         vec4 c = shadeThin(s0, s0.w, 0.0, J0);
         E += c.a * c.rgb; Tr *= 1.0 - c.a;
     }
+    // progreso de la canción: el reloj de pantalla (horario desde las 12) enciende la bóveda y el anillo
+    // como un único trazo de luz; lo que falta por recorrer queda tenue pero visible.
+    float tAng = atan(frag.x - bhCenter.x, -(frag.y - bhCenter.y)) / TAU;
+    tAng += tAng < 0.0 ? 1.0 : 0.0;
+    float fill = 1.0 - smoothstep(musicProgress - 0.008, musicProgress + 0.008, tAng);
+    float dh = (tAng - musicProgress) / 0.012;
+    float head = exp(-0.5 * dh * dh);                       // cabeza del trazo
+    float gain = mix(1.0, mix(DIM_OFF, 1.0, fill) * (1.0 + 0.45 * head), musicActive);
     if (Tr > 0.01 && s1.z > 1e-6){
         vec4 c = shadeThin(s1, s1.w, 1.0, J1);
+        c.rgb *= gain;
         E += Tr * c.a * c.rgb; Tr *= 1.0 - c.a;
     }
     // anillo de fotones (artístico): círculo fino a 0.9·b_crit dentro de la sombra, detrás de la franja
@@ -212,7 +244,7 @@ void main(){
         float Rp = bhRadius / B_CRIT;
         float dpx = length(frag - bhCenter) - 0.9 * B_CRIT * Rp;
         float ring = exp(-0.5 * dpx * dpx / 0.64);
-        E += Tr * ring * ramp(1.0) * 3.0;
+        E += Tr * ring * ramp(1.0) * 3.0 * gain;
     }
     // alfa = cobertura: lo que tapa el fondo (disco + horizonte)
     fragColor = vec4(E, 1.0 - Tr * (1.0 - hit));
