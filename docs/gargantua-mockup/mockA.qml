@@ -11,7 +11,8 @@ Window {
     color: "black"
 
     property int variantIdx: 0
-    readonly property var names: ["A1-tema", "A2-calido"]
+    readonly property var names: ["A3-tema", "A3-test-rojo", "A3-test-verde"]
+    readonly property var primaries: ["#acc9ea", "#ffb4a9", "#a6d395"]
     readonly property string outDir: Qt.resolvedUrl(".").toString().replace("file://", "")
 
     Item {
@@ -23,15 +24,17 @@ Window {
             id: scene
             width: 1920; height: 1080
             fragmentShader: Qt.resolvedUrl("mockA.frag.qsb")
-            property var lensLUT0: Image { source: Qt.resolvedUrl("../../configs/quickshell/caelestia/modules/background/solarsystem/shaders/lens_lut_order0.png"); smooth: true; mipmap: false }
-            property var lensLUT1: Image { source: Qt.resolvedUrl("../../configs/quickshell/caelestia/modules/background/solarsystem/shaders/lens_lut_order1.png"); smooth: true; mipmap: false }
+            property var lutR0:  Image { source: Qt.resolvedUrl("lut_edge_o0_r.png");  smooth: true }
+            property var lutAz0: Image { source: Qt.resolvedUrl("lut_edge_o0_az.png"); smooth: true }
+            property var lutR1:  Image { source: Qt.resolvedUrl("lut_edge_o1_r.png");  smooth: true }
+            property var lutAz1: Image { source: Qt.resolvedUrl("lut_edge_o1_az.png"); smooth: true }
             property real time: 41.0
-            property real variant: win.variantIdx
+            property real variantUnused: 0
             property real bhRadius: 290        // sombra ≈ 1.03·281 px (R = 0.26·h) como en vivo
             property real bhTilt: -0.489
             property size resolution: Qt.size(1920, 1080)
             property point bhCenter: Qt.point(0.86 * 1920, 0.09 * 1080)   // Sim.js: bhFx/bhFy
-            property color colPrimary: "#acc9ea"   // m3primary del tema actual
+            property color colPrimary: win.primaries[win.variantIdx]   // m3primary (tema actual o primario de prueba)
             property color colInk: "#e1e6ef"       // m3onSurface
         }
         ShaderEffectSource {
@@ -95,7 +98,7 @@ Window {
             var p = win.outDir + win.names[win.variantIdx] + ".png"
             res.saveToFile(p)
             console.log("saved " + p)
-            if (win.variantIdx === 0) { win.variantIdx = 1; shot.restart() }
+            if (win.variantIdx < 2) { win.variantIdx++; shot.restart() }
             else Qt.quit()
         })
     }
