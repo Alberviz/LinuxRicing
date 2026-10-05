@@ -1,6 +1,58 @@
 [
-  {"nombre": "LinuxRicing", "backlog": "~/LinuxRicing/vault/Backlog", "vault": "vault", "inicio": "🎯 Hoy"},
-  {"nombre": "Universidad", "backlog": "~/Documentos/Universidad/Backlog", "vault": "Universidad"},
-  {"nombre": "Minecraft", "backlog": "~/minecraft-server/vault/Backlog", "vault": "vault"},
-  {"nombre": "OpenGym", "backlog": "~/proyectos/opengym-fork/Backlog", "vault": "opengym-fork"}
+  {
+    "nombre": "LinuxRicing",
+    "backlog": "~/LinuxRicing/vault/Backlog",
+    "vault": "vault",
+    "inicio": "🎯 Hoy"
+  },
+  {
+    "nombre": "Universidad",
+    "backlog": "~/Documentos/Universidad/Backlog",
+    "vault": "Universidad"
+  },
+  {
+    "nombre": "Minecraft",
+    "backlog": "~/minecraft-server/vault/Backlog",
+    "vault": "vault"
+  },
+  {
+    "nombre": "OpenGym",
+    "backlog": "~/proyectos/opengym-fork/Backlog",
+    "vault": "opengym-fork"
+  },
+  {
+    "nombre": "BarberBot",
+    "backlog": "~/barber-bot/Backlog",
+    "vault": "barber-bot"
+  },
+  {
+    "nombre": "GymBot",
+    "backlog": "~/gym-bot/Backlog",
+    "vault": "gym-bot"
+  },
+  {
+    "nombre": "Hackathon",
+    "backlog": "~/hackathon/Backlog",
+    "vault": "hackathon"
+  },
+  {
+    "nombre": "JoseoKings",
+    "backlog": "~/JoseoKings-Hackyeah/Backlog",
+    "vault": "JoseoKings-Hackyeah"
+  },
+  {
+    "nombre": "VuelosViajes",
+    "backlog": "~/vuelos-viajes/Backlog",
+    "vault": "vuelos-viajes"
+  },
+  {
+    "nombre": "WebLaura",
+    "backlog": "~/web-laura/Backlog",
+    "vault": "web-laura"
+  },
+  {
+    "nombre": "WebLauraDedicatorias",
+    "backlog": "~/web-laura-dedicatorias/Backlog",
+    "vault": "web-laura-dedicatorias"
+  }
 ]
