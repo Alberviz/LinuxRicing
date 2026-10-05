@@ -128,8 +128,8 @@ vec4 planetClaude(vec2 q, float aa){
     float body = 1.0 - smoothstep(1.0 - aa, 1.0 + aa, d);
     if (body > 0.0) {
         vec3 col = mix(deep(cTertiary.rgb), cSurface.rgb, smoothstep(0.0, 1.2, d));
-        float e = voroEdge(q * 2.3 + 3.0);
-        float crack = 1.0 - smoothstep(0.0, 0.07, e);
+        float e = voroEdge(q * 1.6 + 3.0);
+        float crack = 1.0 - smoothstep(0.0, 0.09, e);
         float glow = 1.0 - smoothstep(0.0, 0.22, e);
         float lum = 0.75 + 0.25 * fbm(q * 3.0 + 9.0);        // ascuas: variación estática, sin parpadeo
         col = mix(col, cTertiaryC.rgb, glow * 0.32 * lum);
