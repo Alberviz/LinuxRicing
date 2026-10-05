@@ -61,6 +61,7 @@ Item {
     property var agentProviderColours: ({})
 
     property bool paused: false
+    property bool onBattery: false             // con cargador: tasa completa siempre
     property bool reduceMotion: false
     property bool active: false                // ¿hay un agente en curso? (sube el ritmo del Sim)
     property bool fastRate: false              // ¿música sonando? (sube el ritmo del Sim)
@@ -787,8 +788,8 @@ Item {
                     Shape {
                         anchors.fill: parent
                         ShapePath {
-                            strokeColor: Qt.rgba(moonItem.mc.r, moonItem.mc.g, moonItem.mc.b, 0.10)
-                            strokeWidth: 0.6
+                            strokeColor: Qt.rgba(moonItem.mc.r, moonItem.mc.g, moonItem.mc.b, 0.24)
+                            strokeWidth: 0.7
                             fillColor: "transparent"
                             PathAngleArc {
                                 centerX: moonHost.b.x; centerY: moonHost.b.y
@@ -1114,8 +1115,11 @@ Item {
     // cada vsync y el intervalo es regulable.
     readonly property bool _hovering: hoverId !== "" || hoverAny > 0.001
         || Math.abs(lauraFocus - (lauraActive ? 1 : 0)) > 0.001
-    readonly property real _fps: _hovering ? (targetFps > 0 ? targetFps : 60)
-        : (fastRate ? Math.min(30, targetFps > 0 ? targetFps : 30) : (_anyDone ? 30 : 6))
+    readonly property real _fullFps: targetFps > 0 ? targetFps : 60
+    // Enchufado (!onBattery): SIEMPRE tasa completa. En batería: ritmo adaptativo.
+    readonly property real _fps: !onBattery ? _fullFps
+        : (_hovering ? _fullFps
+        : (fastRate ? Math.min(30, _fullFps) : (_anyDone ? 30 : 6)))
     Timer {
         id: clock
         repeat: true

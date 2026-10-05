@@ -81,6 +81,7 @@ Variants {
                 // En modo juego el shell congela sus animaciones; el sistema solar
                 // hace lo mismo para no competir por GPU.
                 paused: GameMode.enabled
+                onBattery: PowerSaving.onBattery
 
                 // Modo Laura activa (D-12): al hablarle a Laura, el sistema se
                 // congela y oscurece y Laura brilla latiendo con su voz.

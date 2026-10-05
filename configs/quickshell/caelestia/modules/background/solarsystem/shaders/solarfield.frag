@@ -314,8 +314,8 @@ vec4 sun(vec2 frag, vec2 c, float r, vec3 col, bool promin, float boost, float t
 
     // corona (dos capas radiales)
     float breath = 1.0 + 0.03*sin(tm*0.35);
-    float co1 = pow(smoothstep(3.2*breath, 0.35, rn), 1.7) * (0.12 + 0.7*boost);
-    float co2 = pow(smoothstep(1.7*breath, 0.40, rn), 2.0) * (0.30 + 0.6*boost);
+    float co1 = pow(smoothstep(3.2*breath, 0.35, rn), 1.7) * (0.7*boost);  // sin halo difuso en reposo (solo en foco-Laura)
+    float co2 = pow(smoothstep(1.7*breath, 0.40, rn), 2.0) * (0.6*boost);
     over(acc, col, co1);
     over(acc, col, co2);
 
