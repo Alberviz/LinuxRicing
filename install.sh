@@ -213,6 +213,22 @@ if [ "$SELECTED_WIDGETS" = true ]; then
         fi
     fi
 
+    # 3e. Aislamiento de WhatsApp (karere) para proteger la batería de la dGPU NVIDIA.
+    if [ -f "$BASE_DIR/widgets/karere-wrapper" ]; then
+        if sudo install -m 0755 -o root -g root "$BASE_DIR/widgets/karere-wrapper" /usr/local/bin/karere 2>/dev/null; then
+            echo -e "  ${SUCCESS}✔ /usr/local/bin/karere (wrapper de aislamiento dGPU para WhatsApp)${RESET}"
+        fi
+    fi
+
+    # 3f. Drop-in de Ollama: arrancar solo en corriente alterna (ConditionACPower=true).
+    if [ -f "$BASE_DIR/configs/system/ollama-ac-power.conf" ] && [ -d /etc/systemd/system ]; then
+        sudo mkdir -p /etc/systemd/system/ollama.service.d 2>/dev/null || true
+        if sudo install -m 0644 -o root -g root "$BASE_DIR/configs/system/ollama-ac-power.conf" /etc/systemd/system/ollama.service.d/ac-power.conf 2>/dev/null; then
+            sudo systemctl daemon-reload 2>/dev/null || true
+            echo -e "  ${SUCCESS}✔ /etc/systemd/system/ollama.service.d/ac-power.conf (ConditionACPower=true)${RESET}"
+        fi
+    fi
+
     # Control de batería Lenovo (Modo Conservación 80% + "Cargar al 100%").
     # El popout de batería de Caelestia y el lanzador GTK llaman a este binario.
     if [ -f "$BASE_DIR/widgets/lenovo-battery-control" ]; then

@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# ==============================================================================
+#  karere-wrapper — Aísla WhatsApp Web (GTK4/WebKit/Vulkan) de la dGPU NVIDIA
+# ==============================================================================
+#  Evita que WhatsApp despierte la NVIDIA RTX 4050 al estar en batería o modo ahorro.
+#  Fuerza el uso exclusivo de la iGPU Intel (Vulkan/EGL/DRI).
+# ==============================================================================
+
+set -uo pipefail
+
+is_on_battery() {
+    # 1. Comprobar AC adapter en sysfs
+    for ac in /sys/class/power_supply/AC* /sys/class/power_supply/ADP*; do
+        if [ -f "$ac/online" ] && [ "$(cat "$ac/online" 2>/dev/null)" = "0" ]; then
+            return 0
+        fi
+    done
+    # 2. Comprobar perfil de energía
+    if command -v powerprofilesctl >/dev/null 2>&1; then
+        if [ "$(powerprofilesctl get 2>/dev/null)" = "power-saver" ]; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# Si estamos en batería, modo ahorro, o no se ha forzado dGPU explícitamente:
+if is_on_battery || [ "${FORCE_DGPU:-0}" != "1" ]; then
+    if [ -f /usr/share/vulkan/icd.d/intel_icd.json ]; then
+        export VK_DRIVER_FILES="/usr/share/vulkan/icd.d/intel_icd.json"
+        export VK_ICD_FILENAMES="/usr/share/vulkan/icd.d/intel_icd.json"
+    fi
+    if [ -f /usr/share/glvnd/egl_vendor.d/50_mesa.json ]; then
+        export __EGL_VENDOR_LIBRARY_FILENAMES="/usr/share/glvnd/egl_vendor.d/50_mesa.json"
+    fi
+    export DRI_PRIME="pci-0000_00_02_0"
+    export CUDA_VISIBLE_DEVICES=""
+    export __NV_PRIME_RENDER_OFFLOAD=0
+fi
+
+REAL_BIN="/usr/bin/karere"
+if [ ! -x "$REAL_BIN" ]; then
+    REAL_BIN=$(type -a -p karere 2>/dev/null | grep -v "/usr/local/bin/karere" | head -n 1)
+fi
+
+exec "$REAL_BIN" "$@"

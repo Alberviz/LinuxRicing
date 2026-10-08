@@ -45,6 +45,8 @@ StyledRect {
         }
     }
 
+    readonly property int targetHz: PowerSaving.active ? 60 : 144
+
     function modeExternalOnly(): void {
         root.close();
         Quickshell.execDetached(["hyprctl", "eval", "hl.monitor({ output = 'eDP-2', disabled = true }); hl.monitor({ output = 'HDMI-A-1', mode = '1920x1080@144', position = '0x0', scale = 1, disabled = false })"]);
@@ -53,20 +55,20 @@ StyledRect {
 
     function modeExtend(): void {
         root.close();
-        Quickshell.execDetached(["hyprctl", "eval", "hl.monitor({ output = 'HDMI-A-1', mode = '1920x1080@144', position = '1920x0', scale = 1, disabled = false }); hl.monitor({ output = 'eDP-2', mode = '1920x1080@144', position = '0x0', scale = 1, disabled = false })"]);
-        Quickshell.execDetached(["notify-send", "-a", "Pantalla", "-i", "video-display", "Modo: Pantallas Extendidas", "Doble monitor activo a 144Hz."]);
+        Quickshell.execDetached(["hyprctl", "eval", `hl.monitor({ output = 'HDMI-A-1', mode = '1920x1080@144', position = '1920x0', scale = 1, disabled = false }); hl.monitor({ output = 'eDP-2', mode = '1920x1080@${root.targetHz}', position = '0x0', scale = 1, disabled = false })`]);
+        Quickshell.execDetached(["notify-send", "-a", "Pantalla", "-i", "video-display", "Modo: Pantallas Extendidas", `Doble monitor activo (portátil a ${root.targetHz}Hz).`]);
     }
 
     function modeMirror(): void {
         root.close();
-        Quickshell.execDetached(["hyprctl", "eval", "hl.monitor({ output = 'eDP-2', mode = '1920x1080@144', position = 'auto', scale = 1, disabled = false }); hl.monitor({ output = 'HDMI-A-1', mode = '1920x1080@144', position = 'auto', scale = 1, mirror = 'eDP-2', disabled = false })"]);
-        Quickshell.execDetached(["notify-send", "-a", "Pantalla", "-i", "video-display", "Modo: Duplicado / Espejo", "Ambas pantallas en espejo a 144Hz."]);
+        Quickshell.execDetached(["hyprctl", "eval", `hl.monitor({ output = 'eDP-2', mode = '1920x1080@${root.targetHz}', position = 'auto', scale = 1, disabled = false }); hl.monitor({ output = 'HDMI-A-1', mode = '1920x1080@${root.targetHz}', position = 'auto', scale = 1, mirror = 'eDP-2', disabled = false })`]);
+        Quickshell.execDetached(["notify-send", "-a", "Pantalla", "-i", "video-display", "Modo: Duplicado / Espejo", `Ambas pantallas en espejo a ${root.targetHz}Hz.`]);
     }
 
     function modeLaptopOnly(): void {
         root.close();
-        Quickshell.execDetached(["hyprctl", "eval", "hl.monitor({ output = 'HDMI-A-1', disabled = true }); hl.monitor({ output = 'eDP-2', mode = '1920x1080@144', position = '0x0', scale = 1, disabled = false })"]);
-        Quickshell.execDetached(["notify-send", "-a", "Pantalla", "-i", "video-display", "Modo: Solo Portátil", "Monitor externo deshabilitado.\nPanel integrado a 144Hz."]);
+        Quickshell.execDetached(["hyprctl", "eval", `hl.monitor({ output = 'HDMI-A-1', disabled = true }); hl.monitor({ output = 'eDP-2', mode = '1920x1080@${root.targetHz}', position = '0x0', scale = 1, disabled = false })`]);
+        Quickshell.execDetached(["notify-send", "-a", "Pantalla", "-i", "video-display", "Modo: Solo Portátil", `Monitor externo deshabilitado.\nPanel integrado a ${root.targetHz}Hz.`]);
     }
 
     ColumnLayout {

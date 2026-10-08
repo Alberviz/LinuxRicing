@@ -61,6 +61,11 @@ case "${1:-}" in
             fi
             echo 0 > "$KBD_LED" 2>/dev/null || true
         fi
+
+        # 6. Detener Ollama en batería para evitar que cargue modelos y mantenga la GPU despierta
+        if systemctl is-active --quiet ollama.service 2>/dev/null; then
+            systemctl stop ollama.service 2>/dev/null || true
+        fi
         ;;
 
     off)
@@ -91,6 +96,9 @@ case "${1:-}" in
             fi
             rm -f "$KBD_STATE"
         fi
+
+        # 6. Restaurar Ollama en corriente alterna
+        systemctl start ollama.service 2>/dev/null || true
         ;;
 
     status)
@@ -101,6 +109,7 @@ case "${1:-}" in
         iw dev wlan0 get power_save 2>/dev/null || echo "N/A"
         echo -n "Audio Power Save: "
         cat /sys/module/snd_hda_intel/parameters/power_save 2>/dev/null || echo "N/A"
+        echo "Ollama Service: $(systemctl is-active ollama.service 2>/dev/null || true)"
         echo "NVIDIA Runtime PM:"
         nvidia_status
         ;;

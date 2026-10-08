@@ -60,14 +60,30 @@ def get_monitors():
     except Exception:
         return "eDP-2", "HDMI-A-1"
 
+def get_target_hz():
+    try:
+        with open("/sys/class/power_supply/ACAD/online") as f:
+            if f.read().strip() == "0":
+                return "60"
+    except Exception:
+        pass
+    try:
+        out = subprocess.check_output(["powerprofilesctl", "get"], text=True, stderr=subprocess.DEVNULL).strip()
+        if out == "power-saver":
+            return "60"
+    except Exception:
+        pass
+    return "144"
+
 internal, external = get_monitors()
 colors = get_m3_colors()
+hz = get_target_hz()
 
 options = [
     "🖥️   Solo monitor externo (Apagar pantalla del portátil)",
-    "🔀  Extender pantallas (Doble monitor a 144Hz)",
-    "🪞   Duplicar / Espejo (144Hz en ambas pantallas)",
-    "💻  Solo pantalla del portátil",
+    f"🔀  Extender pantallas (Doble monitor, portátil a {hz}Hz)",
+    f"🪞   Duplicar / Espejo ({hz}Hz)",
+    f"💻  Solo pantalla del portátil ({hz}Hz)",
     "❌  Cancelar",
 ]
 
@@ -92,9 +108,9 @@ except Exception:
 if "Solo monitor externo" in res:
     subprocess.run(["hyprctl", "eval", f"hl.monitor({{ output = '{internal}', disabled = true }}); hl.monitor({{ output = '{external}', mode = '1920x1080@144', position = '0x0', scale = 1, disabled = false }})"])
 elif "Extender pantallas" in res:
-    subprocess.run(["hyprctl", "eval", f"hl.monitor({{ output = '{external}', mode = '1920x1080@144', position = '1920x0', scale = 1, disabled = false }}); hl.monitor({{ output = '{internal}', mode = '1920x1080@144', position = '0x0', scale = 1, disabled = false }})"])
+    subprocess.run(["hyprctl", "eval", f"hl.monitor({{ output = '{external}', mode = '1920x1080@144', position = '1920x0', scale = 1, disabled = false }}); hl.monitor({{ output = '{internal}', mode = '1920x1080@{hz}', position = '0x0', scale = 1, disabled = false }})"])
 elif "Duplicar" in res:
-    subprocess.run(["hyprctl", "eval", f"hl.monitor({{ output = '{internal}', mode = '1920x1080@144', position = 'auto', scale = 1, disabled = false }}); hl.monitor({{ output = '{external}', mode = '1920x1080@144', position = 'auto', scale = 1, mirror = '{internal}', disabled = false }})"])
+    subprocess.run(["hyprctl", "eval", f"hl.monitor({{ output = '{internal}', mode = '1920x1080@{hz}', position = 'auto', scale = 1, disabled = false }}); hl.monitor({{ output = '{external}', mode = '1920x1080@{hz}', position = 'auto', scale = 1, mirror = '{internal}', disabled = false }})"])
 elif "Solo pantalla del portátil" in res:
-    subprocess.run(["hyprctl", "eval", f"hl.monitor({{ output = '{external}', disabled = true }}); hl.monitor({{ output = '{internal}', mode = '1920x1080@144', position = '0x0', scale = 1, disabled = false }})"])
+    subprocess.run(["hyprctl", "eval", f"hl.monitor({{ output = '{external}', disabled = true }}); hl.monitor({{ output = '{internal}', mode = '1920x1080@{hz}', position = '0x0', scale = 1, disabled = false }})"])
 PYEOF

@@ -145,7 +145,9 @@ Singleton {
             autoSwitchedProfile = true;
             PowerProfiles.profile = PowerProfile.PowerSaver;
         }
-        checkState();
+        if (active) {
+            checkState();
+        }
     }
 
     // Cambio de perfil (también estando enchufado): reaplicar la matriz.
@@ -159,8 +161,10 @@ Singleton {
 
     Connections {
         function onConfigReloaded(): void {
-            if (root.active)
+            if (root.active) {
                 root.applyHyprlandConfs();
+                root.applyPowerTweaks();
+            }
         }
 
         target: Hypr
