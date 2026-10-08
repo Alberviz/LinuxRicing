@@ -229,6 +229,13 @@ if [ "$SELECTED_WIDGETS" = true ]; then
         fi
     fi
 
+    # 3g. Wrapper de nvidia-smi: evita despertar la GPU en batería por el efecto observador.
+    if [ -f "$BASE_DIR/widgets/nvidia-smi-wrapper" ]; then
+        if sudo install -m 0755 -o root -g root "$BASE_DIR/widgets/nvidia-smi-wrapper" /usr/local/bin/nvidia-smi 2>/dev/null; then
+            echo -e "  ${SUCCESS}✔ /usr/local/bin/nvidia-smi (wrapper anti-despertar en batería)${RESET}"
+        fi
+    fi
+
     # Control de batería Lenovo (Modo Conservación 80% + "Cargar al 100%").
     # El popout de batería de Caelestia y el lanzador GTK llaman a este binario.
     if [ -f "$BASE_DIR/widgets/lenovo-battery-control" ]; then

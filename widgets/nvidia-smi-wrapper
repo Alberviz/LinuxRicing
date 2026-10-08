@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# ==============================================================================
+#  nvidia-smi — Wrapper de protección contra el 'efecto observador' en batería
+# ==============================================================================
+#  Evita que consultas cotidianas despierten la dGPU NVIDIA (que consume 11W al
+#  abrir /dev/nvidia0). Si estamos en batería, informa del estado sin despertar
+#  el chip, salvo que se use --force.
+# ==============================================================================
+
+set -uo pipefail
+
+is_on_battery() {
+    for ac in /sys/class/power_supply/AC* /sys/class/power_supply/ADP*; do
+        if [ -f "$ac/online" ] && [ "$(cat "$ac/online" 2>/dev/null)" = "0" ]; then
+            return 0
+        fi
+    done
+    if command -v powerprofilesctl >/dev/null 2>&1; then
+        if [ "$(powerprofilesctl get 2>/dev/null)" = "power-saver" ]; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# Si estamos en batería y no se pasa flag --force:
+if is_on_battery && [ "${1:-}" != "--force" ]; then
+    cat << "EOF"
+⚡ NVIDIA dGPU en reposo (Modo Batería / Ahorro de Energía)
+   Estado PCI: suspendida (D3cold / 0W reales).
+   Para forzar la lectura del hardware (despertará la gráfica a ~11W):
+      nvidia-smi --force
+EOF
+    exit 0
+fi
+
+# Eliminar el primer argumento si era --force
+if [ "${1:-}" = "--force" ]; then
+    shift
+fi
+
+exec /usr/bin/nvidia-smi "$@"

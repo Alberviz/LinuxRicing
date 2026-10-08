@@ -36,14 +36,60 @@ set_refresh_rate() {
     done
 }
 
+set_gpu_env() {
+    export VK_DRIVER_FILES="/usr/share/vulkan/icd.d/intel_icd.json"
+    export VK_ICD_FILENAMES="/usr/share/vulkan/icd.d/intel_icd.json"
+    export __EGL_VENDOR_LIBRARY_FILENAMES="/usr/share/glvnd/egl_vendor.d/50_mesa.json"
+    export DRI_PRIME="pci-0000_00_02_0"
+    export CUDA_VISIBLE_DEVICES=""
+    export __NV_PRIME_RENDER_OFFLOAD="0"
+
+    if command -v hyprctl >/dev/null 2>&1; then
+        hyprctl setenv VK_DRIVER_FILES "$VK_DRIVER_FILES" >/dev/null 2>&1 || true
+        hyprctl setenv VK_ICD_FILENAMES "$VK_ICD_FILENAMES" >/dev/null 2>&1 || true
+        hyprctl setenv __EGL_VENDOR_LIBRARY_FILENAMES "$__EGL_VENDOR_LIBRARY_FILENAMES" >/dev/null 2>&1 || true
+        hyprctl setenv DRI_PRIME "$DRI_PRIME" >/dev/null 2>&1 || true
+        hyprctl setenv CUDA_VISIBLE_DEVICES "$CUDA_VISIBLE_DEVICES" >/dev/null 2>&1 || true
+        hyprctl setenv __NV_PRIME_RENDER_OFFLOAD "$__NV_PRIME_RENDER_OFFLOAD" >/dev/null 2>&1 || true
+    fi
+
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl --user import-environment VK_DRIVER_FILES VK_ICD_FILENAMES __EGL_VENDOR_LIBRARY_FILENAMES DRI_PRIME CUDA_VISIBLE_DEVICES __NV_PRIME_RENDER_OFFLOAD >/dev/null 2>&1 || true
+    fi
+}
+
+unset_gpu_env() {
+    local env_vars=(
+        VK_DRIVER_FILES
+        VK_ICD_FILENAMES
+        __EGL_VENDOR_LIBRARY_FILENAMES
+        DRI_PRIME
+        CUDA_VISIBLE_DEVICES
+        __NV_PRIME_RENDER_OFFLOAD
+    )
+
+    if command -v hyprctl >/dev/null 2>&1; then
+        for v in "${env_vars[@]}"; do
+            hyprctl setenv "$v" "" >/dev/null 2>&1 || true
+        done
+    fi
+
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl --user unset-environment "${env_vars[@]}" >/dev/null 2>&1 || true
+    fi
+}
+
 case "${1:-status}" in
     on)
-        # 1. Aplicar tweaks de hardware privilegiados
+        # 1. Aplicar tweaks de hardware privilegiados (incluye ocultar dGPU)
         if [ -x "$ROOT_HELPER" ]; then
             sudo "$ROOT_HELPER" on
         fi
 
-        # 2. Conmutar monitor interno a 60 Hz
+        # 2. Ocultar dGPU en variables de entorno de la sesión gráfica y D-Bus
+        set_gpu_env
+
+        # 3. Conmutar monitor interno a 60 Hz
         set_refresh_rate 60
 
         # 3. Apagar Bluetooth sólo si NO hay dispositivos conectados (ratón, teclado, auriculares...)
@@ -76,12 +122,15 @@ case "${1:-status}" in
         ;;
 
     off)
-        # 1. Restaurar tweaks de hardware
+        # 1. Restaurar tweaks de hardware (incluye restaurar visibilidad de la dGPU)
         if [ -x "$ROOT_HELPER" ]; then
             sudo "$ROOT_HELPER" off
         fi
 
-        # 2. Restaurar monitor interno a 144 Hz
+        # 2. Restaurar visibilidad de la dGPU en la sesión gráfica
+        unset_gpu_env
+
+        # 3. Restaurar monitor interno a 144 Hz
         set_refresh_rate 144
 
         # 3. Reactivar Bluetooth
