@@ -50,13 +50,17 @@ def _match_repo(repos: list[dict], nombre: str) -> dict | None:
     return None
 
 
+def _lista(titulos: list[str]) -> str:
+    return titulos[0] if len(titulos) == 1 else ", ".join(titulos[:-1]) + " y " + titulos[-1]
+
+
 def _item(r: dict, t: dict) -> dict:
     return {"proyecto": r["nombre"], "titulo": t["titulo"], "estado": t["estado"],
             "prioridad": t["prioridad"]}
 
 
 @tool("listar_tareas",
-      "Lee las tareas pendientes de Alberto («mis tareas», «qué tengo pendiente»). Sin proyecto da un resumen (las principales y cuántas hay por proyecto): díselo brevemente y pregunta «¿quieres las de algún proyecto?». Con proyecto, lista las de ese proyecto. Para cambiar su estado usa cambiar_estado.",
+      "Lee las tareas pendientes de Alberto («mis tareas», «qué tengo pendiente»). Sin proyecto da un resumen; con proyecto, las de ese proyecto. Lee el campo «decir» tal cual, sin añadir ni cambiar nada. Para cambiar su estado usa cambiar_estado.",
       {"repo": {"type": "string", "description": "proyecto (LinuxRicing, Krakount, Universidad…); vacío = resumen"},
        "estado": {"type": "string", "description": "pendiente o en-curso (opcional)"}})
 def listar_tareas(repo: str = "", estado: str = "") -> dict:
@@ -72,15 +76,26 @@ def listar_tareas(repo: str = "", estado: str = "") -> dict:
         ts = [t for t in r["tareas"] if not estado or t["estado"] == estado]
         return {"ok": True, "proyecto": r["nombre"], "tareas": [_item(r, t) for t in ts[:8]],
                 "total": len(ts), "resumen": f"Tareas de {r['nombre']}",
-                "nota": f"Hay {len(ts)} en total; di el total y los títulos de las 3 primeras, en una frase."}
+                "decir": (f"En {r['nombre']} tienes {len(ts)} por hacer. Las más urgentes: "
+                          f"{_lista([t['titulo'] for t in ts[:5]])}." if ts
+                          else f"En {r['nombre']} no tienes nada pendiente."),
+                "nota": "Di el campo «decir» tal cual, sin añadir nada."}
     todas = [(r, t) for r in repos for t in r["tareas"]]
     gen = sorted((p for p in todas if p[1]["estado"] == "en-curso" or p[1]["prioridad"] <= 2),
                  key=lambda p: (p[1]["estado"] != "en-curso", p[1]["prioridad"], p[1]["titulo"]))
+    en_marcha = [(r, t) for r, t in todas if t["estado"] == "en-curso"]
+    por_proy = {r["nombre"]: len(r["tareas"]) for r in repos if r["tareas"]}
+    cola = ", ".join(f"{n} {c}" for n, c in sorted(por_proy.items(), key=lambda kv: -kv[1]))
+    if en_marcha:
+        ini = f"Tienes {len(en_marcha)} en marcha: {_lista([t['titulo'] for _, t in en_marcha[:3]])}."
+    elif gen:
+        ini = f"Lo más urgente: {_lista([t['titulo'] for _, t in gen[:3]])}."
+    else:
+        ini = "No tienes nada en marcha."
     return {"ok": True, "principales": [_item(r, t) for r, t in gen[:5]],
-            "pendientes_por_proyecto": {r["nombre"]: len(r["tareas"]) for r in repos if r["tareas"]},
-            "resumen": "Resumen de tareas",
-            "nota": "Di los títulos de las 3 primeras de 'principales' y cuántas hay por proyecto "
-                    "(solo los números), y termina preguntando «¿quieres las de algún proyecto?»."}
+            "pendientes_por_proyecto": por_proy, "resumen": "Resumen de tareas",
+            "decir": f"{ini} Pendientes por proyecto: {cola}. ¿Quieres las de algún proyecto?",
+            "nota": "Di el campo «decir» tal cual, sin añadir nada."}
 
 
 @tool("crear_tarea", "Apunta una tarea nueva en el backlog de un proyecto («apunta la tarea…»).",
