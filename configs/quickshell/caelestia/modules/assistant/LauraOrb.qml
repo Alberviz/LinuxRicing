@@ -145,7 +145,7 @@ Scope {
 
         readonly property real orbCenterY: screen.height * 0.4
         // Cuánto se aparta el dock a la izquierda cuando el cajón está abierto
-        property real shift: Laura.drawerOpen ? 340 : 0
+        property real shift: Laura.drawerOpen ? 362 : 0
         Behavior on shift {
             NumberAnimation {
                 duration: 350
