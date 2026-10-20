@@ -594,3 +594,32 @@ grupo = "segundo-plano"
 texto = "que Aurora me mire si tengo algún correo importante"
 espera = ["pedir_a_aurora"]
 grupo = "segundo-plano"
+
+[[frase]]
+texto = "dime mis tareas"
+espera = ["listar_tareas"]
+grupo = "tareas"
+
+[[frase]]
+texto = "qué tareas tengo pendientes en Universidad"
+espera = ["listar_tareas"]
+args = [{repo = "Universidad"}]
+grupo = "tareas"
+
+[[frase]]
+texto = "enséñame las tareas de Krakount"
+espera = ["listar_tareas"]
+args = [{repo = "Krakount"}]
+grupo = "tareas"
+
+[[frase]]
+texto = "marca la auditoría KISS como hecha"
+espera = ["cambiar_estado"]
+args = [{tarea = "KISS", estado = "hecha"}]
+grupo = "tareas"
+
+[[frase]]
+texto = "pon en curso lo de seguir avanzando en Laura"
+espera = ["cambiar_estado"]
+args = [{estado = "en-curso"}]
+grupo = "tareas"

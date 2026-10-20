@@ -333,12 +333,14 @@ class JobManager:
         self.on_confirm = on_confirm
         self._live: dict[str, _Live] = {}
         self._lock = threading.Lock()
+        self.launched = 0  # trabajos lanzados en esta vida del daemon (el ciclo lo usa para cerrarse)
 
     # -- API pública
     def start(self, destino: str, peticion: str, motivo: str = "", *, kind: str = "agent",
               pregunta: str = "", ask_voice: bool = True, titulo: str = "") -> str:
         """Crea el trabajo y lo lanza en un hilo. Con `pregunta`, nace en `confirm` y solo
         arranca tras un sí. kind: agent (gemini/claude) | investigar | aurora."""
+        self.launched += 1
         jid = uuid.uuid4().hex[:6]
         meta = {"id": jid, "destino": destino, "kind": kind, "peticion": peticion,
                 "titulo": (titulo or peticion)[:80], "estado": "started", "resumen": "",

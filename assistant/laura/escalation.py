@@ -104,8 +104,8 @@ def voice_yes_no(job_id: str, pregunta: str, mode: str, cancel: threading.Event,
 
 
 def _confirm_and_run_escalation(session: Session, jobs: JobManager, escalation: dict,
-                                mode: str, cancel: threading.Event) -> None:
-    """Modo B: crea el trabajo en estado `confirm` (visible en el orbe, respondible desde
+                                mode: str, cancel: threading.Event) -> bool:
+    """Devuelve True si el trabajo se lanzó (sí). Modo B: crea el trabajo en estado `confirm` (visible en el orbe, respondible desde
     la tarjeta) y pregunta por voz a quién se manda y qué. Voz o tarjeta, lo que llegue
     antes. Tras el sí, el trabajo corre en segundo plano y el ciclo sigue libre."""
     destino = escalation.get("destino", "gemini")
@@ -123,16 +123,17 @@ def _confirm_and_run_escalation(session: Session, jobs: JobManager, escalation: 
     r = voice_yes_no(jid, pregunta, mode, cancel, jobs)
     if cancel.is_set():
         jobs.cancel(jid)
-        return
+        return False
     if r is None:
         ev = jobs.answered_event(jid)
         if ev is not None and ev.is_set():
-            return  # contestado desde la tarjeta
+            return True  # contestado desde la tarjeta: sigue en el orbe
         _say("Lo dejo pendiente en el panel.", mode, cancel)
         session.add("assistant", "Dejé pendiente la confirmación en el panel.")
-        return
+        return True
     msg = (f"Vale, lo he lanzado con {nombre}. Te aviso cuando termine." if r
            else "Vale, no hago nada.")
     session.add("assistant", msg)
     log(f"laura: {msg} (job {jid})")
     _say(msg, mode, cancel)
+    return bool(r)

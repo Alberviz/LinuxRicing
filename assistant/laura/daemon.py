@@ -50,8 +50,10 @@ def _is_stop(text: str) -> bool:
 
 
 def cycle(session: Session, jobs: JobManager, mode: str = "centro",
-          cancel: threading.Event | None = None) -> None:
+          cancel: threading.Event | None = None, first_text: str | None = None) -> None:
     """Un ciclo de asistente.
+
+    `first_text` (depuración, comando `ask`): primera frase ya dada, sin micro.
 
     - modo `barra`: un solo input -> respuesta -> se cierra.
     - modo `centro`: conversación. Tras responder, vuelve a escuchar un
@@ -66,6 +68,7 @@ def cycle(session: Session, jobs: JobManager, mode: str = "centro",
     max_turns = CFG["llm"].get("max_turns", 6)
     first = True
     turns = 0
+    espera_larga = False  # la última respuesta acabó en pregunta: dar más margen para contestar
     turn_cancel = AnyEvent(cancel, OUT.interrupt_ev)  # corta voz y LLM (atajo o barge-in)
     # Si se arranca el ciclo sobre una voz (aviso) que se está cortando, esperar a que calle.
     t_wait = time.monotonic()
@@ -76,17 +79,21 @@ def cycle(session: Session, jobs: JobManager, mode: str = "centro",
             pre = 0.9 if OUT.barged else 0.0  # tras un barge-in, recuperar sus primeras palabras
             OUT.barged = False
             OUT.clear_interrupt()
-            bus.emit(type="state", value="listening", mode=mode)
-            if first and not pre:
-                audio = listen(cancel=cancel)
+            if first_text is not None:
+                text, first_text = first_text, None
             else:
-                audio = listen(max_seconds=CFG["audio"]["max_seconds"],
-                               cancel=cancel, start_grace=None if first else grace,
-                               preroll=pre)
-            if cancel.is_set():
-                break
-            bus.emit(type="state", value="thinking", mode=mode)
-            text = transcribe(audio)
+                bus.emit(type="state", value="listening", mode=mode)
+                if first and not pre:
+                    audio = listen(cancel=cancel)
+                else:
+                    audio = listen(max_seconds=CFG["audio"]["max_seconds"],
+                                   cancel=cancel,
+                                   start_grace=None if first else (grace * 2 if espera_larga else grace),
+                                   preroll=pre)
+                if cancel.is_set():
+                    break
+                bus.emit(type="state", value="thinking", mode=mode)
+                text = transcribe(audio)
             if not text:
                 if first:
                     log("(nada que transcribir)")
@@ -130,6 +137,7 @@ def cycle(session: Session, jobs: JobManager, mode: str = "centro",
                 continue
 
             speech = Speech(turn_cancel, mode) if CFG["llm"].get("stream", True) else None
+            lanzados0 = jobs.launched
             try:
                 reply, actions, escalation = converse(
                     session, text, speech.feed if speech else None, turn_cancel)
@@ -152,10 +160,10 @@ def cycle(session: Session, jobs: JobManager, mode: str = "centro",
             # antes de lanzar nada (lo gestiona esta función aparte, incluye
             # su propio turno de escucha para el sí/no).
             if escalation is not None:
-                _confirm_and_run_escalation(session, jobs, escalation, mode, cancel)
+                lanzo = _confirm_and_run_escalation(session, jobs, escalation, mode, cancel)
                 turns += 1
-                if mode != "centro" or turns >= max_turns:
-                    break
+                if lanzo or mode != "centro" or turns >= max_turns:
+                    break  # trabajo lanzado en segundo plano: el orbe toma el relevo
                 continue
 
             # Sin streaming, o si el streaming no llegó a decir nada, se
@@ -165,6 +173,10 @@ def cycle(session: Session, jobs: JobManager, mode: str = "centro",
                 bus.emit(type="state", value="speaking", mode=mode)
                 speak(reply, cancel)
             turns += 1
+            if jobs.launched > lanzados0:
+                log("trabajo en segundo plano lanzado: cierro el ciclo")
+                break
+            espera_larga = reply.rstrip().endswith("?")
             if mode != "centro" or bye or turns >= max_turns:
                 break
     finally:
@@ -247,7 +259,7 @@ def main() -> None:
                           after=lambda: wake.resume() if wake is not None else None,
                           on_barge=lambda: fire("centro"))
     confirm_q: queue.Queue = queue.Queue()
-    jobs = JobManager(lambda t: announcer.say(t, idle_only=True), on_confirm=confirm_q.put)
+    jobs = JobManager(announcer.say, on_confirm=confirm_q.put)
     jobs_mod.set_manager(jobs)
 
     def confirmer() -> None:
@@ -290,11 +302,11 @@ def main() -> None:
 
     avisos.Scheduler(on_aviso).start()
 
-    def run(mode: str) -> None:
+    def run(mode: str, first_text: str | None = None) -> None:
         if wake is not None:
             wake.pause()
         try:
-            cycle(session, jobs, mode, cancel)
+            cycle(session, jobs, mode, cancel, first_text)
         except Exception as e:  # noqa: BLE001
             log(f"error en el ciclo: {e}")
             notify("Laura", f"error: {e}")
@@ -303,7 +315,7 @@ def main() -> None:
             if wake is not None:
                 wake.resume()
 
-    def fire(mode: str) -> None:
+    def fire(mode: str, first_text: str | None = None) -> None:
         """Arranca un ciclo (o lo cierra si ya hay uno). Lo usan el atajo y la
         palabra de activación."""
         nonlocal worker
@@ -318,7 +330,7 @@ def main() -> None:
         if OUT.speaking():  # aviso hablando: callarlo y pasar a escuchar
             OUT.interrupt()
         cancel.clear()
-        worker = threading.Thread(target=run, args=(mode,), daemon=True)
+        worker = threading.Thread(target=run, args=(mode, first_text), daemon=True)
         worker.start()
 
     wake = _make_wake(on_wake=lambda: fire("centro"))
@@ -334,15 +346,10 @@ def main() -> None:
             mode = data.split(":", 1)[1].strip() if ":" in data else "centro"
             fire(mode if mode in ("centro", "barra") else "centro")
             return None
-        if cmd == "ask":  # depuración: una frase como si la hubiera dicho Alberto (sin voz)
-            def _ask(t=arg):
-                try:
-                    reply, _acts, _esc = converse(session, t)
-                    log(f"ask: {reply}")
-                    bus.emit(type="reply", value=reply)
-                except Exception as e:  # noqa: BLE001
-                    log(f"ask: {e}")
-            threading.Thread(target=_ask, daemon=True).start()
+        if cmd == "ask":  # depuración: una frase como si la hubiera dicho Alberto (ciclo completo, sin micro)
+            if busy():
+                return {"ok": False, "error": "hay un ciclo en curso"}
+            fire("centro", first_text=arg)
             return {"ok": True}
         if cmd == "jobs":
             return {"jobs": [jobs_mod.to_event(m) for m in jobs_mod.list_jobs(500, horas=24)]}
