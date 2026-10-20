@@ -34,5 +34,16 @@
     "nombre": "WebLaura",
     "backlog": "~/web-laura/Backlog",
     "vault": "web-laura"
+  },
+  {
+    "nombre": "Krakount",
+    "backlog": "~/proyectos/krakount/docs/Roadmap/Tareas",
+    "vault": "docs",
+    "estados": {
+      "por hacer": "pendiente",
+      "hecha": "hecha",
+      "descartada": "ignorada"
+    },
+    "prioridad_formato": "P"
   }
 ]
