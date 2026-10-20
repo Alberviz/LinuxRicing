@@ -87,11 +87,20 @@ un panel y en una nota de Obsidian. La voz solo dice lo mínimo.
   Gemini en modo solo lectura y **sin confirmación**, porque no modifica nada y pedirlo ya es
   consentimiento. Con `[background] investigar = "laura"` lo hace localmente (`buscar_web` más un
   resumen con el modelo local). Termina en tarjeta y nota.
-- **Tool `pedir_a_aurora(peticion)`:** llama al API server de Hermes en la Pi (compatible con
-  OpenAI, `http://100.82.69.90:8642/v1/chat/completions` con clave Bearer) como un trabajo más.
+- **Tool `pedir_a_aurora(peticion)`:** es un trabajo más contra el API server de Hermes en la Pi
+  (`http://100.82.69.90:8642`, solo por Tailscale, clave Bearer). Ya está activo y probado: una
+  consulta de Calendar tardó unos 45 s.
   - Sirve para Google Workspace, recados y cualquier cosa larga.
-  - Las escrituras siguen aprobándose en Telegram.
-  - Config en `[aurora]`: `url`, `api_key_env` y `timeout`.
+  - Usa la **Runs API** (`POST /v1/runs`, seguimiento por SSE o sondeo) para poder ver su estado.
+  - **Aprobaciones:** por la API las escrituras de Google NO pasan por Telegram. El run queda en
+    `waiting_for_approval` (evento `approval.request`). Laura pasa el trabajo a `confirm` (orbe
+    ámbar), te pregunta por voz o desde la tarjeta y resuelve con
+    `POST /v1/runs/{id}/approval` (`once` | `deny`).
+  - Usa una sesión fija (`X-Hermes-Session-Key: laura-escritorio`) para que Aurora tenga contexto
+    entre peticiones de Laura.
+  - Config en `[aurora]`: `url` y `timeout`. La clave está en `~/.config/laura/aurora.env`
+    (`AURORA_API_KEY`, chmod 600) y se carga con `EnvironmentFile=` en `laura.service`; nunca va
+    al repo.
 - **Escalada a Gemini o Claude con cambios en código:** sigue pidiendo confirmación, por voz
   **o** desde la tarjeta (estado `confirm`).
 - **Frase al terminar:** Laura dice como mucho una frase («Ya está: …; te lo dejo en el panel»),
@@ -99,10 +108,10 @@ un panel y en una nota de Obsidian. La voz solo dice lo mínimo.
 
 ## Lo que hace Alberto
 
-- En la Pi: `API_SERVER_ENABLED=true` y `API_SERVER_KEY` en `~/.hermes/.env`, y que el API
-  server escuche en la IP de Tailscale (por defecto solo escucha en 127.0.0.1). La clave va a una
-  variable de entorno del servicio `laura`, nunca al repo.
-- Probar qué pasa con las aprobaciones de Telegram cuando la petición llega por la API.
+- Nada en la Pi: el API server ya lo configuró Claude el 2026-10-20 (escucha en la IP de
+  Tailscale, con un drop-in de systemd que espera a `tailscale0`). Está registrado en
+  `~/proyectos/Aurora/Bitacora/2026-10-20.md`.
+- Probar por voz el flujo completo cuando esté construido.
 
 ## Fuera de alcance
 
