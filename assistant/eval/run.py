@@ -6,6 +6,7 @@ No ejecuta herramientas: solo mira que tool_calls pide el modelo en la primera r
 import argparse
 import json
 import statistics
+import subprocess
 import sys
 import time
 import tomllib
@@ -19,6 +20,9 @@ HERE = Path(__file__).resolve().parent
 ASSISTANT = HERE.parent
 sys.path.insert(0, str(ASSISTANT))
 from tools import TOOLS  # noqa: E402
+
+FRASE_TIMEOUT = 30   # s por frase; si se pasa, cuenta como fallo y se sigue
+MAX_CALLS = 4        # más tool_calls que esto = fallo de cascada
 
 CFG = tomllib.loads((ASSISTANT / "config.toml").read_text())["llm"]
 
@@ -65,10 +69,12 @@ def chat(model, texto, think=False):
     t0 = time.perf_counter()
     first = None
     content, calls = "", []
-    with requests.post(CFG["url"], json=body, stream=True, timeout=CFG.get("timeout", 45) * 3) as r:
+    with requests.post(CFG["url"], json=body, stream=True, timeout=(10, FRASE_TIMEOUT)) as r:
         if r.status_code != 200:
             raise RuntimeError(r.text[:200])
         for line in r.iter_lines():
+            if time.perf_counter() - t0 > FRASE_TIMEOUT:
+                raise TimeoutError(f"más de {FRASE_TIMEOUT}s")
             if not line:
                 continue
             d = json.loads(line)
@@ -104,16 +110,21 @@ def evaluar(model, frases, repeat):
             try:
                 content, calls, ttft, total = ask(model, f["texto"], state)
             except Exception as e:
-                content, calls, ttft, total = f"[ERROR {e}]", [], 0, 0
+                content, calls, ttft, total = f"[ERROR {type(e).__name__} {e}]", [], FRASE_TIMEOUT, FRASE_TIMEOUT
+                timeout = True
+            else:
+                timeout = False
             got = [c["function"]["name"] for c in calls]
             gargs = [c["function"].get("arguments") or {} for c in calls]
             want = f["espera"]
-            ok_t = got == want
+            cascada = len(got) > MAX_CALLS
+            ok_t = got == want and not timeout
             ok_a = None
             if want and ok_t and f.get("args"):
                 ok_a = all(args_ok(w, g) for w, g in zip(f["args"], gargs))
             res.append(dict(f=f, got=got, gargs=gargs, ok_t=ok_t, ok_a=ok_a,
-                            fp=(not want and bool(got)), content=content,
+                            fp=(not want and bool(got)), cascada=cascada, timeout=timeout,
+                            sin_tool=(bool(want) and not got and not timeout), content=content,
                             ttft=ttft, total=total))
         print(f"  [{i}/{len(frases)}] {'ok ' if res[-1]['ok_t'] else 'MAL'} {f['texto'][:60]}")
     return res
@@ -132,21 +143,25 @@ def resumen(model, res):
         "herr": sum(r["ok_t"] for r in res) / n * 100,
         "args": (sum(r["ok_a"] for r in con_args) / len(con_args) * 100) if con_args else float("nan"),
         "fp": sum(r["fp"] for r in neg),
+        "sin_tool": sum(r["sin_tool"] for r in res),
+        "cascada": sum(r["cascada"] for r in res),
+        "timeouts": sum(r["timeout"] for r in res),
+        "npos": len(pos),
         "nneg": len(neg),
         "ttft": statistics.median(ttft),
         "ttft95": ttft[min(n - 1, int(n * 0.95))],
         "total": statistics.median(tot),
         "chars": statistics.mean(habladas) if habladas else float("nan"),
         "largas": sum(1 for c in habladas if c > 200),
-        "npos": len(pos),
     }
 
 
 def tabla(rows):
-    h = ["modelo", "herr%", "args%", "falsos+", "ttft med", "ttft p95", "total med", "chars resp", "resp>200"]
+    h = ["modelo", "herr%", "args%", "falsos+", "sin tool", "cascada", "timeout", "ttft med", "ttft p95", "total med", "chars resp", "resp>200"]
     out = [h]
     for s in rows:
         out.append([s["modelo"], f"{s['herr']:.0f}", f"{s['args']:.0f}", f"{s['fp']}/{s['nneg']}",
+                    f"{s['sin_tool']}/{s['npos']}", str(s["cascada"]), str(s["timeouts"]),
                     f"{s['ttft']:.2f}s", f"{s['ttft95']:.2f}s", f"{s['total']:.2f}s",
                     f"{s['chars']:.0f}", str(s["largas"])])
     w = [max(len(r[i]) for r in out) for i in range(len(h))]
@@ -164,9 +179,27 @@ def informe(model, s, res, ruta):
         f = r["f"]
         L += [f"- **{f['texto']}**",
               f"  - esperado: `{f['espera']}` args `{f.get('args', '')}`",
+              f"  - tipo: {'TIMEOUT ' if r['timeout'] else ''}{'SIN-TOOL ' if r['sin_tool'] else ''}{'CASCADA ' if r['cascada'] else ''}{'FALSO+ ' if r['fp'] else ''}".rstrip(),
               f"  - obtenido: `{r['got']}` args `{json.dumps(r['gargs'], ensure_ascii=False)}`"
               + (f" respuesta: «{r['content'][:120]}»" if r["content"] and not r["got"] else "")]
     ruta.write_text("\n".join(L) + "\n")
+
+
+def worktree_daemon_activo():
+    out = subprocess.run(["pgrep", "-af", "laurad.py|laura.daemon|laura/daemon.py"],
+                         capture_output=True, text=True).stdout
+    return [l for l in out.splitlines() if "worktrees/laura-v2" in l and "eval/run.py" not in l]
+
+
+def parar_daemon(reintentos=6, espera=120):
+    for _ in range(reintentos):
+        if not worktree_daemon_activo():
+            subprocess.run(["systemctl", "--user", "stop", "laura"])
+            time.sleep(2)
+            return True
+        print(f"  daemon del worktree activo (otro agente probando voz); espero {espera}s...")
+        time.sleep(espera)
+    return False
 
 
 def main():
@@ -174,6 +207,7 @@ def main():
     ap.add_argument("--model", action="append", help="repetible")
     ap.add_argument("--repeat", type=int, default=1)
     ap.add_argument("--limit", type=int, default=0, help="solo las N primeras frases")
+    ap.add_argument("--no-daemon", action="store_true", help="no parar/arrancar el servicio laura")
     ap.add_argument("--frases", default=str(HERE / "frases.toml"))
     a = ap.parse_args()
     models = a.model or [CFG["model"]]
@@ -182,6 +216,21 @@ def main():
         frases = frases[:a.limit]
     have = installed()
     rows = []
+    parado = False
+    if not a.no_daemon:
+        parado = parar_daemon()
+        if not parado:
+            print("AVISO: daemon del worktree sigue activo; mido sin parar (latencias ruidosas).")
+    try:
+        _bucle(a, models, frases, have, rows)
+    finally:
+        if parado:
+            subprocess.run(["systemctl", "--user", "start", "laura"])
+    if rows:
+        print("\n" + tabla(rows))
+
+
+def _bucle(a, models, frases, have, rows):
     for m in models:
         if have and m not in have and f"{m}:latest" not in have:
             print(f"AVISO: {m} no está descargado (ollama list); se salta.")
@@ -194,8 +243,6 @@ def main():
         rows.append(s)
         (HERE / "results").mkdir(exist_ok=True)
         informe(m, s, res, HERE / "results" / f"{datetime.now():%Y-%m-%d}-{m.replace(':', '_').replace('/', '_')}.md")
-    if rows:
-        print("\n" + tabla(rows))
 
 
 if __name__ == "__main__":

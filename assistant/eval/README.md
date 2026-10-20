@@ -9,7 +9,7 @@ cd assistant
 # opciones: --repeat N (repite cada frase), --limit N (solo las N primeras)
 ```
 
-Usa el system prompt, `num_ctx` y `TOOLS` actuales. Imprime una tabla y guarda el detalle de
+Usa el system prompt, `num_ctx` y `TOOLS` actuales. Antes de medir para el servicio `laura` (libera GPU) y lo arranca al acabar (`--no-daemon` lo evita; si hay un daemon del worktree activo espera y reintenta). Límite de 30 s por frase (timeout = fallo) y más de 4 tool_calls = cascada. «sin tool» = respondió hablando cuando se esperaba herramienta (dice que actuó sin actuar). Resultados por modelo en `results/`. Ojo: otros usos de GPU alteran las latencias.
 fallos en `results/<fecha>-<modelo>.md`. Cierra Laura/otros usos de GPU antes: afectan a las latencias.
 
 ## Añadir frases

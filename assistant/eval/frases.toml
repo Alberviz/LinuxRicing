@@ -329,3 +329,238 @@ grupo = "trampa"
 texto = "mmm eh bueno nada, déjalo"
 espera = []
 grupo = "trampa"
+
+# ---------- fase 2: tools nuevas ----------
+
+[[frase]]
+texto = "qué hora es"
+espera = ["hora_fecha"]
+grupo = "honestidad"
+
+[[frase]]
+texto = "oye, a qué día estamos hoy"
+espera = ["hora_fecha"]
+
+[[frase]]
+texto = "recuerda que mi talla de zapatillas es la 43"
+espera = ["recordar"]
+args = [{hecho = "43"}]
+
+[[frase]]
+texto = "apunta que no me gusta el cilantro"
+espera = ["recordar"]
+args = [{hecho = "cilantro"}]
+
+[[frase]]
+texto = "olvida lo de las zapatillas"
+espera = ["olvidar"]
+args = [{hecho = "zapatilla"}]
+
+[[frase]]
+texto = "qué sabes de mí"
+espera = ["que_sabes_de_mi"]
+
+[[frase]]
+texto = "qué recuerdas de lo que te he contado"
+espera = ["que_sabes_de_mi"]
+
+[[frase]]
+texto = "ponme un temporizador de diez minutos"
+espera = ["temporizador"]
+args = [{minutos = 10}]
+
+[[frase]]
+texto = "avísame en 25 minutos que saque la pizza del horno"
+espera = ["temporizador"]
+args = [{minutos = 25}]
+
+[[frase]]
+texto = "recuérdame llamar a mi madre a las seis y media"
+espera = ["recordatorio"]
+args = [{texto = "madre"}]
+
+[[frase]]
+texto = "recordatorio para mañana a las 9: entregar el trabajo"
+espera = ["recordatorio"]
+args = [{texto = "trabajo"}]
+
+[[frase]]
+texto = "qué avisos tengo puestos"
+espera = ["listar_avisos"]
+
+[[frase]]
+texto = "cuántos temporizadores tengo en marcha"
+espera = ["listar_avisos"]
+
+[[frase]]
+texto = "cancela el temporizador de la pizza"
+espera = ["cancelar_aviso"]
+args = [{aviso = "pizza"}]
+
+[[frase]]
+texto = "cancela todos los avisos"
+espera = ["cancelar_aviso"]
+args = [{aviso = "todos"}]
+
+[[frase]]
+texto = "qué tiempo hace hoy"
+espera = ["tiempo"]
+grupo = "honestidad"
+
+[[frase]]
+texto = "va a llover en Sevilla esta tarde"
+espera = ["tiempo"]
+args = [{lugar = "sevilla"}]
+
+[[frase]]
+texto = "busca en internet quién ganó el último clásico"
+espera = ["buscar_web"]
+
+[[frase]]
+texto = "mira a ver cuánto cuesta una RTX 5070 ahora mismo"
+espera = ["buscar_web"]
+
+[[frase]]
+texto = "enciende las luces de la habitación"
+espera = ["luces"]
+args = [{accion = "encender"}]
+
+[[frase]]
+texto = "apaga la tira led"
+espera = ["luces"]
+args = [{accion = "apagar"}]
+
+[[frase]]
+texto = "pon las luces en rojo"
+espera = ["luces"]
+args = [{accion = "color", color = "rojo"}]
+
+[[frase]]
+texto = "ponme el teclado en azul"
+espera = ["teclado_color"]
+args = [{color = "azul"}]
+
+[[frase]]
+texto = "cambia la luz del teclado a verde"
+espera = ["teclado_color"]
+args = [{color = "verde"}]
+
+[[frase]]
+texto = "abre el selector de pantallas que voy a proyectar"
+espera = ["selector_pantallas"]
+
+[[frase]]
+texto = "quiero duplicar la pantalla en el proyector"
+espera = ["selector_pantallas"]
+
+[[frase]]
+texto = "sube el brillo"
+espera = ["brillo"]
+grupo = "honestidad"
+
+[[frase]]
+texto = "baja el brillo un poco que me deslumbra"
+espera = ["brillo"]
+
+[[frase]]
+texto = "qué brillo tengo puesto ahora"
+espera = ["brillo"]
+args = [{cambio = 0}]
+grupo = "honestidad"
+
+[[frase]]
+texto = "cuánta batería me queda"
+espera = ["bateria"]
+grupo = "honestidad"
+
+[[frase]]
+texto = "estoy cargando el portátil o no"
+espera = ["bateria"]
+
+[[frase]]
+texto = "apaga el wifi"
+espera = ["wifi"]
+args = [{accion = "apagar"}]
+
+[[frase]]
+texto = "estoy conectado al wifi"
+espera = ["wifi"]
+args = [{accion = "estado"}]
+
+[[frase]]
+texto = "enciende el bluetooth"
+espera = ["bluetooth"]
+args = [{accion = "encender"}]
+
+[[frase]]
+texto = "apaga el bluetooth, anda"
+espera = ["bluetooth"]
+args = [{accion = "apagar"}]
+
+[[frase]]
+texto = "cómo va lo que le mandé a Gemini"
+espera = ["estado_trabajos"]
+
+[[frase]]
+texto = "ya ha terminado Claude lo que le pedí"
+espera = ["estado_trabajos"]
+
+[[frase]]
+texto = "cambia el formato de la fecha del widget del reloj para que salga el día de la semana"
+espera = ["escalar_a_gemini"]
+grupo = "escalada-media"
+
+[[frase]]
+texto = "ajusta en la config de hyprland el atajo para el selector de pantallas"
+espera = ["escalar_a_gemini"]
+grupo = "escalada-media"
+
+[[frase]]
+texto = "arregla el script que mide la batería, que da mal el porcentaje"
+espera = ["escalar_a_gemini"]
+grupo = "escalada-media"
+
+[[frase]]
+texto = "haz un tema de colores nuevo para toda la shell: barra, lanzador, notificaciones y widgets"
+espera = ["escalar_a_claude"]
+grupo = "escalada-gorda"
+
+[[frase]]
+texto = "quiero una feature nueva: un panel de métricas de la GPU con histórico, que toque varios archivos de quickshell y un servicio"
+espera = ["escalar_a_claude"]
+grupo = "escalada-gorda"
+
+[[frase]]
+texto = "refactoriza todo el sistema de tareas para que use una base de datos en vez de notas"
+espera = ["escalar_a_claude"]
+grupo = "escalada-gorda"
+
+[[frase]]
+texto = "implementa un modo concentración que oculte widgets, silencie notificaciones y cambie el fondo"
+espera = ["escalar_a_claude"]
+grupo = "escalada-gorda"
+
+[[frase]]
+texto = "qué bonito está el día hoy, da gusto"
+espera = []
+grupo = "trampa"
+
+[[frase]]
+texto = "me da pereza mirar la batería del móvil de mi madre"
+espera = []
+grupo = "trampa"
+
+[[frase]]
+texto = "el otro día me pasó que se me apagó el wifi del hotel"
+espera = []
+grupo = "trampa"
+
+[[frase]]
+texto = "no me acuerdo de qué hora quedamos, ya se lo pregunto yo a Marta"
+espera = []
+grupo = "trampa"
+
+[[frase]]
+texto = "cuéntame algo curioso sobre los pulpos"
+espera = []
+grupo = "charla"
