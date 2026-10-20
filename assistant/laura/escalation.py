@@ -8,6 +8,7 @@ from .audio import listen
 from .config import CFG, bus, log, notify
 from .jobs import NOMBRES, JobManager, run_agy
 from .llm import Session
+from .output import AnyEvent
 from .stt import transcribe
 from .tts import speak
 
@@ -77,10 +78,36 @@ def _say(text: str, mode: str, cancel: threading.Event) -> None:
     speak(text, cancel)
 
 
+def voice_yes_no(job_id: str, pregunta: str, mode: str, cancel: threading.Event,
+                 jobs: JobManager) -> bool | None:
+    """Pregunta por voz y espera la respuesta, o que llegue antes desde la tarjeta
+    (`job-confirm`). Resuelve el trabajo con el sí/no. Devuelve True/False, o None si
+    no hubo respuesta (el trabajo queda pendiente en `confirm`, visible en el orbe)."""
+    ev = jobs.answered_event(job_id)
+    _say(pregunta, mode, cancel)
+    if cancel.is_set() or (ev is not None and ev.is_set()):
+        return None
+    bus.emit(type="state", value="listening", mode=mode)
+    grace = CFG["audio"].get("followup_seconds", 4)
+    audio = listen(max_seconds=CFG["audio"]["max_seconds"], cancel=AnyEvent(cancel, ev),
+                   start_grace=grace)
+    if cancel.is_set() or (ev is not None and ev.is_set()):
+        return None
+    bus.emit(type="state", value="thinking", mode=mode)
+    respuesta = transcribe(audio)
+    bus.emit(type="transcript", value=respuesta or "(sin respuesta)")
+    if not respuesta:
+        return None
+    si = _is_affirmative(respuesta)
+    jobs.confirm(job_id, si)
+    return si
+
+
 def _confirm_and_run_escalation(session: Session, jobs: JobManager, escalation: dict,
                                 mode: str, cancel: threading.Event) -> None:
-    """Modo B: pregunta a Alberto (diciendo a quién y qué) si quiere escalar y,
-    si dice que sí, lanza el trabajo EN SEGUNDO PLANO y devuelve el control."""
+    """Modo B: crea el trabajo en estado `confirm` (visible en el orbe, respondible desde
+    la tarjeta) y pregunta por voz a quién se manda y qué. Voz o tarjeta, lo que llegue
+    antes. Tras el sí, el trabajo corre en segundo plano y el ciclo sigue libre."""
     destino = escalation.get("destino", "gemini")
     nombre = NOMBRES.get(destino, destino)
     peticion = escalation.get("peticion", "")
@@ -91,29 +118,21 @@ def _confirm_and_run_escalation(session: Session, jobs: JobManager, escalation: 
     if len(resumen) > 160:
         resumen = resumen[:157].rstrip() + "…"
     pregunta = f"Esto se me escapa. ¿Se lo mando a {nombre}? Sería: {resumen}."
-    _say(pregunta, mode, cancel)
+    jid = jobs.start(destino, peticion, motivo, pregunta=pregunta, ask_voice=False,
+                     titulo=f"{nombre}: {peticion}")
+    r = voice_yes_no(jid, pregunta, mode, cancel, jobs)
     if cancel.is_set():
+        jobs.cancel(jid)
         return
-
-    bus.emit(type="state", value="listening", mode=mode)
-    grace = CFG["audio"].get("followup_seconds", 4)
-    audio = listen(max_seconds=CFG["audio"]["max_seconds"], cancel=cancel,
-                   start_grace=grace)
-    if cancel.is_set():
+    if r is None:
+        ev = jobs.answered_event(jid)
+        if ev is not None and ev.is_set():
+            return  # contestado desde la tarjeta
+        _say("Lo dejo pendiente en el panel.", mode, cancel)
+        session.add("assistant", "Dejé pendiente la confirmación en el panel.")
         return
-    bus.emit(type="state", value="thinking", mode=mode)
-    respuesta = transcribe(audio)
-    bus.emit(type="transcript", value=respuesta or "(sin respuesta)")
-
-    if not respuesta or not _is_affirmative(respuesta):
-        r = "Vale, no hago nada."
-        log(f"laura: {r}")
-        _say(r, mode, cancel)
-        session.add("assistant", r)
-        return
-
-    jid = jobs.start(destino, peticion, motivo)
-    r = f"Vale, lo he lanzado con {nombre}. Te aviso cuando termine."
-    session.add("assistant", r)
-    log(f"laura: {r} (job {jid})")
-    _say(r, mode, cancel)
+    msg = (f"Vale, lo he lanzado con {nombre}. Te aviso cuando termine." if r
+           else "Vale, no hago nada.")
+    session.add("assistant", msg)
+    log(f"laura: {msg} (job {jid})")
+    _say(msg, mode, cancel)

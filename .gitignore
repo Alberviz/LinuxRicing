@@ -20,3 +20,6 @@ vault/Inbox/attachments/
 
 # Aurora: entorno virtual local
 assistant/.venv
+
+# Notas generadas por Laura (datos personales)
+vault/Laura/

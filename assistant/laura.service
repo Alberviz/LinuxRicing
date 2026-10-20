@@ -10,6 +10,7 @@ Wants=pipewire.service
 
 [Service]
 Type=simple
+EnvironmentFile=-%h/.config/laura/aurora.env
 WorkingDirectory=%h/LinuxRicing/assistant
 ExecStart=%h/LinuxRicing/assistant/.venv/bin/python %h/LinuxRicing/assistant/laurad.py
 Restart=on-failure

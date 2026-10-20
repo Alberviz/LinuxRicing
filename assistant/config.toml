@@ -43,7 +43,8 @@ curso/hecha X» = cambiar_estado. «Recuerda/apunta que…» sobre Alberto = rec
 «Qué sabes de mí» = que_sabes_de_mi; «cómo va / ya terminó lo que mandé» = estado_trabajos;
 «traduce lo copiado» = leer_portapapeles; «pega/escribe aquí» = pegar_texto; «qué dice este
 error» = leer_pantalla. Cuando pida redactar un texto, cópialo con copiar_al_portapapeles y no lo leas entero.
-Datos que no sabes o cambian = buscar_web.
+Datos rápidos que no sabes o cambian = buscar_web; investigar a fondo («investiga…») =
+investigar; Calendar, correo, Drive, recados o «pregúntale/dile a Aurora» = pedir_a_aurora.
 Si no tienes herramienta para algo del ordenador o del código, escala; nunca digas solo
 «no puedo». Cambio medio (un widget, un script, un ajuste: «reloj en 12 horas», «color
 de la barra», «arregla el script de la batería») = escalar_a_gemini. Trabajo gordo
@@ -147,6 +148,20 @@ bin = "~/.local/bin/claude"        # Claude Code CLI
 model = "opus"
 cwd = "~/LinuxRicing"              # directorio de trabajo del agente
 timeout = 1800                     # segundos (trabajos gordos)
+
+# Trabajos en segundo plano (orbe + cajón + notas de Obsidian).
+[background]
+vault = "~/LinuxRicing/vault"   # las notas van a <vault>/Laura/ (en .gitignore)
+investigar = "gemini"          # quién resuelve la tool `investigar`: gemini (agy en solo
+                               # lectura, sin confirmación) | laura (buscar_web + resumen local)
+confirm_timeout = 600          # s esperando un sí/no desde voz o tarjeta antes de cancelar
+
+# Aurora (Hermes en la Pi, por Tailscale). La clave NO va aquí: variable AURORA_API_KEY
+# (~/.config/laura/aurora.env, cargada por laura.service con EnvironmentFile=).
+[aurora]
+url = "http://100.82.69.90:8642"
+timeout = 600                  # s máximos por petición
+session_key = "laura-escritorio"
 
 # Ubicación de Alberto para la tool `tiempo`. Si lat/lon están vacíos se
 # geolocaliza por IP una vez y se cachea en ~/.local/share/laura/ubicacion.json.

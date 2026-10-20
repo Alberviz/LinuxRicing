@@ -98,17 +98,28 @@ def _limpia(s: str) -> str:
     return html.unescape(re.sub(r"<[^>]+>", "", s)).strip()
 
 
+def _url_real(href: str) -> str:
+    """DuckDuckGo envuelve los enlaces: //duckduckgo.com/l/?uddg=<url codificada>."""
+    href = html.unescape(href)
+    q = urllib.parse.urlparse(href).query
+    u = urllib.parse.parse_qs(q).get("uddg", [href])[0]
+    return "https:" + u if u.startswith("//") else u
+
+
 def _ddg(consulta: str) -> list[dict]:
     data = urllib.parse.urlencode({"q": consulta, "kl": "es-es"}).encode()
     req = urllib.request.Request("https://html.duckduckgo.com/html/", data=data,
                                  headers={"User-Agent": _UA})
     with urllib.request.urlopen(req, timeout=10) as r:
         page = r.read().decode("utf-8", "replace")
-    titulos = re.findall(r'<a[^>]*class="result__a"[^>]*>(.*?)</a>', page, re.S)
+    enlaces = re.findall(r'<a[^>]*class="result__a"[^>]*href="([^"]*)"[^>]*>(.*?)</a>', page, re.S)
+    titulos = [t for _, t in enlaces]
+    urls = [_url_real(h) for h, _ in enlaces]
     frags = re.findall(r'<a[^>]*class="result__snippet"[^>]*>(.*?)</a>', page, re.S)
     out = []
     for i, t in enumerate(titulos[:5]):
-        out.append({"titulo": _limpia(t), "fragmento": _limpia(frags[i]) if i < len(frags) else ""})
+        out.append({"titulo": _limpia(t), "fragmento": _limpia(frags[i]) if i < len(frags) else "",
+                    "url": urls[i]})
     return out
 
 
@@ -123,5 +134,6 @@ def buscar_web(consulta: str) -> dict:
         return {"ok": False, "error": f"no pude buscar: {e}"}
     if not res:
         return {"ok": False, "error": "la búsqueda no devolvió resultados"}
-    return {"ok": True, "resultados": res, "resumen": f"Buscar «{consulta}»",
+    return {"ok": True, "resultados": [{"titulo": r["titulo"], "fragmento": r["fragmento"]} for r in res],
+            "resumen": f"Buscar «{consulta}»",
             "nota": "Resume lo esencial en una o dos frases para leerlo en voz alta, sin leer títulos ni enlaces."}

@@ -144,6 +144,29 @@ def _drain_sentences(buf: str) -> tuple[list[str], str]:
     return out, buf
 
 
+def answer_from_sources(tema: str, resultados: list[dict]) -> str:
+    """Respuesta breve en markdown sobre `tema` a partir de resultados de búsqueda
+    (modo `investigar = "laura"`). Si el modelo falla, devuelve los fragmentos tal cual."""
+    ctx = "\n".join(f"- {r['titulo']}: {r['fragmento']}" for r in resultados)
+    try:
+        msgs = [{"role": "system", "content": "Eres un investigador. Respondes en español, claro y sin inventar nada que no esté en los resultados."},
+                {"role": "user", "content": (f"Tema: {tema}\n\nResultados de búsqueda:\n{ctx}\n\n"
+                                             "Escribe un párrafo de 2-3 frases con la respuesta directa y "
+                                             "después, como mucho, 4 viñetas con los detalles más útiles.")}]
+        req = urllib.request.Request(
+            CFG["llm"]["url"],
+            data=json.dumps({"model": CFG["llm"]["model"], "messages": msgs, "stream": False,
+                             "options": {"num_ctx": CFG["llm"].get("num_ctx", 4096)}}).encode(),
+            headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=CFG["llm"].get("timeout", 45) * 2) as resp:
+            txt = (json.loads(resp.read())["message"].get("content") or "").strip()
+        if txt:
+            return txt
+    except Exception as e:  # noqa: BLE001
+        log(f"resumen de la búsqueda falló: {e}")
+    return "\n".join(f"- {r['titulo']}: {r['fragmento']}" for r in resultados)
+
+
 def _ollama_stream(session: Session, cancel: threading.Event | None):
     """Itera la respuesta de Ollama token a token (líneas JSON)."""
     req = urllib.request.Request(CFG["llm"]["url"], data=_ollama_body(session, True),

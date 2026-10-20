@@ -33,12 +33,12 @@ def escalar_a_claude(peticion: str, motivo: str = "") -> dict:
       icon="pending_actions")
 def estado_trabajos() -> dict:
     from ..jobs import list_jobs
-    js = list_jobs(5)
+    js = list_jobs(5, horas=48)
     if not js:
         return {"ok": True, "trabajos": [], "resumen": "Sin trabajos"}
     out = []
     for j in js:
-        t = {"id": j["id"], "destino": j["destino"], "peticion": j["peticion"],
+        t = {"id": j["id"], "destino": j["destino"], "peticion": j["titulo"],
              "estado": j["estado"],
              "hace_minutos": round((time.time() - j["inicio"]) / 60, 1)}
         if j.get("resumen"):

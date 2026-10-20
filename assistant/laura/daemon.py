@@ -1,6 +1,7 @@
 """Daemon: ciclo de conversación, socket de control y arranque."""
 from __future__ import annotations
 
+import json
 import os
 import queue
 import re
@@ -13,7 +14,8 @@ from .bargein import BargeIn
 from .config import CFG, bus, log, notify
 from . import avisos
 from .escalation import (_confirm_and_run_escalation, _handle_auto_escalation,
-                         _match_auto_case)
+                         _match_auto_case, voice_yes_no)
+from . import jobs as jobs_mod
 from .jobs import JobManager, reap_orphans
 from .llm import Session, _mode_switch, converse
 from .stt import transcribe
@@ -183,12 +185,16 @@ class Announcer:
         self._q: queue.Queue = queue.Queue()
         threading.Thread(target=self._loop, daemon=True).start()
 
-    def say(self, text: str) -> None:
-        self._q.put(text)
+    def say(self, text: str, idle_only: bool = False) -> None:
+        """Encola una frase. `idle_only`: si hay un ciclo en marcha cuando le toca, se descarta
+        (los avisos de trabajos terminados no interrumpen ni se acumulan)."""
+        self._q.put((text, idle_only))
 
     def _loop(self) -> None:
         while True:
-            text = self._q.get()
+            text, idle_only = self._q.get()
+            if idle_only and self._busy():
+                continue
             while self._busy():
                 time.sleep(0.5)
             barged = False
@@ -240,7 +246,36 @@ def main() -> None:
                           before=lambda: wake.pause() if wake is not None else None,
                           after=lambda: wake.resume() if wake is not None else None,
                           on_barge=lambda: fire("centro"))
-    jobs = JobManager(announcer.say)
+    confirm_q: queue.Queue = queue.Queue()
+    jobs = JobManager(lambda t: announcer.say(t, idle_only=True), on_confirm=confirm_q.put)
+    jobs_mod.set_manager(jobs)
+
+    def confirmer() -> None:
+        """Un trabajo en marcha (p. ej. Aurora) necesita un sí/no: cuando Laura esté libre
+        lo pregunta por voz. Si lo contestan antes desde la tarjeta, no pregunta."""
+        nonlocal worker
+        while True:
+            meta = confirm_q.get()
+            while busy():
+                time.sleep(0.5)
+            ev = jobs.answered_event(meta["id"])
+            if ev is None or ev.is_set():
+                continue
+            cancel.clear()
+
+            def task(m=meta):
+                try:
+                    voice_yes_no(m["id"], m["pregunta"], "centro", cancel, jobs)
+                except Exception as e:  # noqa: BLE001
+                    log(f"pregunta de confirmación: {e}")
+                finally:
+                    bus.emit(type="state", value="idle", mode="centro")
+
+            worker = threading.Thread(target=task, daemon=True)
+            worker.start()
+            worker.join()
+
+    threading.Thread(target=confirmer, daemon=True).start()
 
     def on_aviso(a: dict) -> None:
         etiqueta = a["texto"]
@@ -290,17 +325,59 @@ def main() -> None:
     if wake is not None:
         wake.start()
 
+    def control(data: str) -> dict | None:
+        """Comandos del socket de control (una línea). Devuelve la respuesta JSON, o None
+        para `activate` (sin respuesta). Contrato: docs/laura-v2/PLAN-ORBE.md."""
+        cmd, _, arg = data.partition(" ")
+        arg = arg.strip()
+        if cmd.startswith("activate"):
+            mode = data.split(":", 1)[1].strip() if ":" in data else "centro"
+            fire(mode if mode in ("centro", "barra") else "centro")
+            return None
+        if cmd == "jobs":
+            return {"jobs": [jobs_mod.to_event(m) for m in jobs_mod.list_jobs(500, horas=24)]}
+        if cmd == "job-cancel":
+            return jobs.cancel(arg)
+        if cmd == "job-confirm":
+            jid, _, ans = arg.partition(" ")
+            if ans.strip() not in ("yes", "no"):
+                return {"ok": False, "error": "uso: job-confirm <id> yes|no"}
+            return jobs.confirm(jid, ans.strip() == "yes")
+        if cmd == "job-read":
+            return jobs.read(arg)
+        if cmd == "job-follow":
+            m = jobs_mod.get_job(arg)
+            if not m:
+                return {"ok": False, "error": "no existe ese trabajo"}
+            raw = jobs_mod.JOBS_DIR / f"{arg}.md"
+            detalle = raw.read_text()[:1500] if raw.exists() else ""
+            session.add("user", (f"Contexto: {m['destino']} trabajó en «{m['titulo']}» (estado {m['estado']}). "
+                                 f"Resumen: {m.get('resumen', '')}\nDetalle:\n{detalle}\n"
+                                 "Alberto quiere seguir hablando de esto."))
+            session.add("assistant", "Entendido, tengo el contexto de ese trabajo. ¿Qué quieres hacer con él?")
+            jobs.read(arg)
+            fire("centro")
+            return {"ok": True}
+        return {"ok": False, "error": f"comando desconocido: {cmd}"}
+
     try:
         while True:
             conn, _ = srv.accept()
             with conn:
-                data = conn.recv(64).decode(errors="ignore").strip()
-            if not data.startswith("activate"):
-                continue
-            mode = data.split(":", 1)[1].strip() if ":" in data else "centro"
-            if mode not in ("centro", "barra"):
-                mode = "centro"
-            fire(mode)
+                conn.settimeout(2)
+                try:
+                    data = b""
+                    while b"\n" not in data and len(data) < 8192:
+                        chunk = conn.recv(4096)
+                        if not chunk:
+                            break
+                        data += chunk
+                    line = data.decode(errors="ignore").strip().splitlines()[0] if data.strip() else ""
+                    resp = control(line) if line else None
+                    if resp is not None:
+                        conn.sendall((json.dumps(resp, ensure_ascii=False) + "\n").encode())
+                except Exception as e:  # noqa: BLE001
+                    log(f"control: {e}")
     except KeyboardInterrupt:
         pass
     finally:
