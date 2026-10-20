@@ -62,6 +62,21 @@ Singleton {
         root.keepIds = ({});
         root.drawerFocusId = "";
     }
+
+    // SUPER+I (hypr-user.lua): `qs -c caelestia ipc call laura toggleDrawer`.
+    IpcHandler {
+        target: "laura"
+        function toggleDrawer(): void {
+            if (root.drawerOpen) {
+                root.closeDrawer();
+                return;
+            }
+            const f = Hypr.focusedMonitor;
+            if (f)
+                root.dockScreen = f.name;
+            root.openDrawer("");
+        }
+    }
     // Un trabajo NUEVO ha arrancado en vivo (no viene de la sincronización).
     signal jobStarted(var job)
     // Un trabajo ha pasado a done / failed en vivo.
