@@ -564,3 +564,33 @@ grupo = "trampa"
 texto = "cuéntame algo curioso sobre los pulpos"
 espera = []
 grupo = "charla"
+
+[[frase]]
+texto = "investiga a fondo cómo funciona el protocolo MCP"
+espera = ["investigar"]
+grupo = "segundo-plano"
+
+[[frase]]
+texto = "quiero que investigues las mejores alternativas a Obsidian"
+espera = ["investigar"]
+grupo = "segundo-plano"
+
+[[frase]]
+texto = "averigua con calma qué novedades trae la última versión de Hyprland"
+espera = ["investigar"]
+grupo = "segundo-plano"
+
+[[frase]]
+texto = "pregúntale a Aurora qué tengo mañana en el calendario"
+espera = ["pedir_a_aurora"]
+grupo = "segundo-plano"
+
+[[frase]]
+texto = "dile a Aurora que me cree un evento mañana a las nueve"
+espera = ["pedir_a_aurora"]
+grupo = "segundo-plano"
+
+[[frase]]
+texto = "que Aurora me mire si tengo algún correo importante"
+espera = ["pedir_a_aurora"]
+grupo = "segundo-plano"
