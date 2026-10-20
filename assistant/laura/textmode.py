@@ -8,8 +8,8 @@ import sys
 
 
 def run_text(text: str, speak_reply: bool = False) -> int:
-    from .llm import converse
-    reply, actions, escalation = converse(text)
+    from .llm import Session, converse
+    reply, actions, escalation = converse(Session(), text)
     if escalation is not None:
         print(f"[escalada Modo B] {escalation}")
     for a in actions:

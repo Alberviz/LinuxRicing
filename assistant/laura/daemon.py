@@ -3,13 +3,17 @@ from __future__ import annotations
 
 import os
 import socket
+import queue
 import threading
+import time
 
 from .audio import listen, load_vad
 from .config import CFG, bus, log, notify
+from . import avisos
 from .escalation import (_confirm_and_run_escalation, _handle_auto_escalation,
                          _match_auto_case)
-from .llm import _mode_switch, _model_now, _quality, converse
+from .jobs import JobManager
+from .llm import Session, _mode_switch, converse
 from .stt import transcribe
 from .tts import Speech, speak
 from .wake import WakeListener, _make_wake
@@ -24,7 +28,8 @@ def _is_farewell(text: str) -> bool:
     return any(k in t for k in _FAREWELL)
 
 
-def cycle(mode: str = "centro", cancel: threading.Event | None = None) -> None:
+def cycle(session: Session, jobs: JobManager, mode: str = "centro",
+          cancel: threading.Event | None = None) -> None:
     """Un ciclo de asistente.
 
     - modo `barra`: un solo input -> respuesta -> se cierra.
@@ -70,7 +75,7 @@ def cycle(mode: str = "centro", cancel: threading.Event | None = None) -> None:
             # pasar por el LLM local ni pedir confirmación.
             auto_case = _match_auto_case(text)
             if auto_case is not None:
-                _handle_auto_escalation(text, auto_case, mode, cancel)
+                _handle_auto_escalation(session, text, auto_case, mode, cancel)
                 turns += 1
                 if mode != "centro" or bye or turns >= max_turns:
                     break
@@ -78,10 +83,10 @@ def cycle(mode: str = "centro", cancel: threading.Event | None = None) -> None:
 
             sw = _mode_switch(text)
             if sw is not None:
-                _quality[0] = sw
+                session.quality = sw
                 r = ("Modo calidad activado." if sw
                      else "Vuelvo al modo rápido.")
-                log(f"laura: {r}  (modelo -> {_model_now()})")
+                log(f"laura: {r}  (modelo -> {session.model_now()})")
                 notify("Laura", r)
                 bus.emit(type="reply", value=r)
                 bus.emit(type="state", value="speaking", mode=mode)
@@ -94,7 +99,7 @@ def cycle(mode: str = "centro", cancel: threading.Event | None = None) -> None:
             speech = Speech(cancel, mode) if CFG["llm"].get("stream", True) else None
             try:
                 reply, actions, escalation = converse(
-                    text, speech.feed if speech else None, cancel)
+                    session, text, speech.feed if speech else None, cancel)
                 # El LLM ya ha terminado de generar; el audio puede seguir
                 # sonando. Publicar aquí lo demás, no tras la voz.
                 if escalation is None:
@@ -102,7 +107,7 @@ def cycle(mode: str = "centro", cancel: threading.Event | None = None) -> None:
                     notify("Laura", reply)
                     bus.emit(type="result", actions=actions)
                 else:
-                    log(f"laura: pide escalar a Gemini (Modo B) -> {escalation}")
+                    log(f"laura: pide escalar (Modo B) -> {escalation}")
             finally:
                 spoken = speech.finish() if speech else ""
             if cancel.is_set():
@@ -112,7 +117,7 @@ def cycle(mode: str = "centro", cancel: threading.Event | None = None) -> None:
             # antes de lanzar nada (lo gestiona esta función aparte, incluye
             # su propio turno de escucha para el sí/no).
             if escalation is not None:
-                _confirm_and_run_escalation(escalation, mode, cancel)
+                _confirm_and_run_escalation(session, jobs, escalation, mode, cancel)
                 turns += 1
                 if mode != "centro" or turns >= max_turns:
                     break
@@ -131,6 +136,41 @@ def cycle(mode: str = "centro", cancel: threading.Event | None = None) -> None:
         bus.emit(type="state", value="idle", mode=mode)
 
 
+class Announcer:
+    """Cola de avisos hablados (temporizadores, recordatorios, trabajos que
+    terminan). Habla aunque no haya ciclo activo; si hay uno en curso, espera
+    a que acabe. `busy()` dice si hay un ciclo en marcha."""
+
+    def __init__(self, busy, before=None, after=None) -> None:
+        self._busy = busy
+        self._before = before
+        self._after = after
+        self._q: queue.Queue = queue.Queue()
+        threading.Thread(target=self._loop, daemon=True).start()
+
+    def say(self, text: str) -> None:
+        self._q.put(text)
+
+    def _loop(self) -> None:
+        while True:
+            text = self._q.get()
+            while self._busy():
+                time.sleep(0.5)
+            try:
+                if self._before:
+                    self._before()
+                bus.emit(type="reply", value=text)
+                bus.emit(type="state", value="speaking", mode="centro")
+                speak(text)
+            except Exception as e:  # noqa: BLE001
+                log(f"error al anunciar: {e}")
+            finally:
+                bus.emit(type="amplitude", value=0.0)
+                bus.emit(type="state", value="idle", mode="centro")
+                if self._after:
+                    self._after()
+
+
 def main() -> None:
     load_vad()
     sock_path = os.path.expandvars(CFG["daemon"]["socket"])
@@ -146,12 +186,34 @@ def main() -> None:
     cancel = threading.Event()
     worker: threading.Thread | None = None
     wake: WakeListener | None = None
+    session = Session()
+
+    def busy() -> bool:
+        return worker is not None and worker.is_alive()
+
+    announcer = Announcer(busy,
+                          before=lambda: wake.pause() if wake is not None else None,
+                          after=lambda: wake.resume() if wake is not None else None)
+    jobs = JobManager(announcer.say)
+
+    def on_aviso(a: dict) -> None:
+        etiqueta = a["texto"]
+        if a["tipo"] == "temporizador":
+            frase = (f"Temporizador de {etiqueta} terminado."
+                     if etiqueta and etiqueta != "temporizador" else "El temporizador ha terminado.")
+        else:
+            frase = f"Recordatorio: {etiqueta}"
+        notify("Laura", frase)
+        bus.emit(type="aviso", value=frase, tipo=a["tipo"], id=a["id"])
+        announcer.say(frase)
+
+    avisos.Scheduler(on_aviso).start()
 
     def run(mode: str) -> None:
         if wake is not None:
             wake.pause()
         try:
-            cycle(mode, cancel)
+            cycle(session, jobs, mode, cancel)
         except Exception as e:  # noqa: BLE001
             log(f"error en el ciclo: {e}")
             notify("Laura", f"error: {e}")

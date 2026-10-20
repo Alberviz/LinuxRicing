@@ -17,6 +17,9 @@ CFG = tomllib.loads((HERE / "config.toml").read_text())
 if CFG["stt"]["device"] == "cpu":
     os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 
+DATA_DIR = Path(os.environ.get("LAURA_DATA", Path.home() / ".local/share/laura"))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
 bus = EventBus(CFG["daemon"]["events_socket"])
 
 
