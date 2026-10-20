@@ -334,6 +334,16 @@ def main() -> None:
             mode = data.split(":", 1)[1].strip() if ":" in data else "centro"
             fire(mode if mode in ("centro", "barra") else "centro")
             return None
+        if cmd == "ask":  # depuración: una frase como si la hubiera dicho Alberto (sin voz)
+            def _ask(t=arg):
+                try:
+                    reply, _acts, _esc = converse(session, t)
+                    log(f"ask: {reply}")
+                    bus.emit(type="reply", value=reply)
+                except Exception as e:  # noqa: BLE001
+                    log(f"ask: {e}")
+            threading.Thread(target=_ask, daemon=True).start()
+            return {"ok": True}
         if cmd == "jobs":
             return {"jobs": [jobs_mod.to_event(m) for m in jobs_mod.list_jobs(500, horas=24)]}
         if cmd == "job-cancel":
