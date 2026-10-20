@@ -82,7 +82,8 @@ def _ollama_body(session: Session, stream: bool) -> bytes:
         "messages": session.messages,
         "tools": tools_mod.TOOLS,
         "stream": stream,
-        "options": {"num_ctx": CFG["llm"].get("num_ctx", 4096)},
+        "options": {"num_ctx": CFG["llm"].get("num_ctx", 4096),
+                    **{k: CFG["llm"][k] for k in ("temperature", "num_predict") if k in CFG["llm"]}},
     }).encode()
 
 
@@ -182,6 +183,22 @@ def _stream_round(session: Session, on_sentence, cancel: threading.Event | None)
     return "".join(parts), calls
 
 
+def _dedupe(calls: list) -> list:
+    """El modelo a veces repite la misma llamada en una ronda (p. ej. bloquear_pantalla
+    dos veces): se ejecuta una sola vez."""
+    vistas: set[str] = set()
+    out = []
+    for c in calls:
+        fn = c["function"]
+        k = json.dumps([fn["name"], fn.get("arguments")], sort_keys=True, default=str)
+        if k in vistas:
+            log(f"tool {fn['name']}: llamada duplicada ignorada")
+            continue
+        vistas.add(k)
+        out.append(c)
+    return out
+
+
 def converse(session: Session, user_text: str, on_sentence=None,
              cancel: threading.Event | None = None
              ) -> tuple[str, list[dict], dict | None]:
@@ -210,6 +227,8 @@ def converse(session: Session, user_text: str, on_sentence=None,
             content, calls = msg.get("content") or "", msg.get("tool_calls") or []
         if not calls:
             return content.strip(), actions, None
+        calls = _dedupe(calls)
+        messages[-1]["tool_calls"] = calls
         for call in calls:
             fn = call["function"]
             args = fn.get("arguments") or {}

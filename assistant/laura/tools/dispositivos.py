@@ -41,7 +41,7 @@ def _hex(color: str) -> str | None:
     return c if re.fullmatch(r"[0-9a-f]{6}", c) else None
 
 
-@tool("luces", "Controla la tira de luces LED (Magic Home) de la habitación: encender, apagar, alternar, cambiar de color o ver su estado.",
+@tool("luces", "Tira de luces LED: encender, apagar, alternar, color o estado.",
       {"accion": {"type": "string", "enum": ["estado", "encender", "apagar", "alternar", "color"]},
        "color": {"type": "string", "description": "con accion=color: nombre (rojo, azul…) o hex (#ff8800)"}},
       required=["accion"], icon="lightbulb")
@@ -73,7 +73,7 @@ def luces(accion: str, color: str = "") -> dict:
                         "color": "Color de las luces"}[accion]}
 
 
-@tool("teclado_color", "Cambia el color de la iluminación del teclado Akko (fondo y, opcional, tira lateral).",
+@tool("teclado_color", "Cambia el color de la iluminación del teclado.",
       {"color": {"type": "string", "description": "nombre (rojo, azul, cian…) o hex (#ff8800)"},
        "color_lateral": {"type": "string", "description": "color de la tira lateral (opcional)"}},
       required=["color"], icon="keyboard")
@@ -95,7 +95,7 @@ def teclado_color(color: str, color_lateral: str = "") -> dict:
     return {"ok": True, "resumen": "Color del teclado"}
 
 
-@tool("selector_pantallas", "Abre el selector de proyección de pantallas (duplicar, extender, solo una).", icon="monitor")
+@tool("selector_pantallas", "Abre el selector de proyección de pantallas.", icon="monitor")
 def selector_pantallas() -> dict:
     exe = _find("display-selector", "widgets/display-selector")
     if not exe:
@@ -104,7 +104,7 @@ def selector_pantallas() -> dict:
     return {"ok": True, "resumen": "Selector de pantallas"}
 
 
-@tool("brillo", "Sube o baja el brillo de la pantalla, o dice el actual (cambio=0).",
+@tool("brillo", "Sube/baja el brillo de pantalla, o dice el actual (cambio=0).",
       {"cambio": {"type": "integer", "description": "puntos de porcentaje: positivo sube, negativo baja, 0 solo consulta"}},
       icon="brightness_6")
 def brillo(cambio: int = 0) -> dict:
@@ -124,7 +124,7 @@ def brillo(cambio: int = 0) -> dict:
     return {"ok": True, "brillo_pct": pct, "resumen": f"Brillo al {pct} %" if pct is not None else "Brillo"}
 
 
-@tool("bateria", "Dice el nivel y estado de la batería del portátil (cargando, descargando).", icon="battery_full")
+@tool("bateria", "Nivel y estado de la batería («cuánta batería queda»).", icon="battery_full")
 def bateria() -> dict:
     if not shutil.which("upower"):
         return {"ok": False, "error": "falta upower"}
@@ -142,7 +142,7 @@ def bateria() -> dict:
             "resumen": f"Batería al {pct.group(1)} %" if pct else "Batería"}
 
 
-@tool("wifi", "Consulta, enciende o apaga el wifi del portátil.",
+@tool("wifi", "Consulta, enciende o apaga el wifi («tengo wifi», «apaga el wifi»).",
       {"accion": {"type": "string", "enum": ["estado", "encender", "apagar"]}},
       required=["accion"], icon="wifi")
 def wifi(accion: str) -> dict:
@@ -163,7 +163,7 @@ def wifi(accion: str) -> dict:
             "resumen": "Wifi " + ("encendido" if on else "apagado")}
 
 
-@tool("bluetooth", "Consulta, enciende o apaga el bluetooth.",
+@tool("bluetooth", "Consulta, enciende o apaga el bluetooth («apaga el bluetooth»).",
       {"accion": {"type": "string", "enum": ["estado", "encender", "apagar"]}},
       required=["accion"], icon="bluetooth")
 def bluetooth(accion: str) -> dict:

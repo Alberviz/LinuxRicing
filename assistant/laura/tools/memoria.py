@@ -6,7 +6,7 @@ from . import tool
 
 
 @tool("recordar",
-      "Guarda un hecho sobre Alberto para recordarlo siempre. Úsala cuando diga «recuerda que…», «apunta que…» sobre sí mismo o sus gustos. Redáctalo en una frase corta en tercera persona o neutra (p. ej. «Su color favorito es el verde»).",
+      "Guarda un hecho sobre Alberto: «recuerda que…», «apunta que no me gusta…». Frase corta.",
       {"hecho": {"type": "string", "description": "el hecho a recordar, en una frase corta"}},
       required=["hecho"], icon="bookmark_add")
 def recordar(hecho: str) -> dict:
@@ -15,7 +15,7 @@ def recordar(hecho: str) -> dict:
             "nota": "Confirma en una frase corta."}
 
 
-@tool("olvidar", "Borra de la memoria lo que Laura sabía de Alberto sobre un tema. Úsala con «olvida que…».",
+@tool("olvidar", "Borra de la memoria un hecho sobre Alberto («olvida que…»).",
       {"hecho": {"type": "string", "description": "el hecho o tema a olvidar"}},
       required=["hecho"], icon="bookmark_remove")
 def olvidar(hecho: str) -> dict:
@@ -25,7 +25,7 @@ def olvidar(hecho: str) -> dict:
     return {"ok": True, "olvidados": b, "resumen": "Olvidado"}
 
 
-@tool("que_sabes_de_mi", "Lista lo que Laura recuerda de Alberto. Úsala con «qué sabes de mí», «qué recuerdas».",
+@tool("que_sabes_de_mi", "Lista lo que recuerdas de Alberto («qué sabes de mí»).",
       icon="psychology")
 def que_sabes_de_mi() -> dict:
     hs = [t for _, t in memory.all_facts()]

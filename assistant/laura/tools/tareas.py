@@ -23,7 +23,7 @@ def _tasks(*args: str) -> dict:
         return {"ok": False, "error": (p.stderr or "tasks-index no respondió").strip()}
 
 
-@tool("listar_tareas", "Lista las tareas pendientes de Alberto de todos sus repos. Úsala cuando pregunte qué tiene que hacer o qué tiene pendiente.",
+@tool("listar_tareas", "Solo LEE las tareas pendientes de Alberto («qué tengo pendiente»). Para cambiar su estado usa cambiar_estado.",
       {"repo": {"type": "string", "description": "limitar a un repo (LinuxRicing, Universidad, Minecraft, OpenGym)"},
        "estado": {"type": "string", "description": "pendiente, en-curso o hecha"}})
 def listar_tareas(repo: str = "", estado: str = "") -> dict:
@@ -45,7 +45,7 @@ def listar_tareas(repo: str = "", estado: str = "") -> dict:
     return {"ok": True, "tareas": out[:15], "total": len(out)}
 
 
-@tool("crear_tarea", "Apunta una tarea nueva en el backlog de un repo (por defecto LinuxRicing).",
+@tool("crear_tarea", "Apunta una tarea nueva en el backlog («apunta la tarea…»).",
       {"titulo": {"type": "string", "description": "título corto de la tarea"},
        "repo": {"type": "string", "description": "repo donde apuntarla"},
        "prioridad": {"type": "integer", "description": "1 urgente … 5 algún día"},
@@ -56,7 +56,7 @@ def crear_tarea(titulo: str, repo: str = "LinuxRicing", prioridad: int = 3, area
 
 
 @tool("cambiar_estado",
-      "Cambia el estado de una tarea existente (pendiente, en-curso, hecha). Si la respuesta trae `candidatos`, pregunta a Alberto cuál de ellos quiere en vez de adivinar.",
+      "Cambia el estado de una tarea: «pon en curso lo del cometa», «marca como hecha X». Si trae candidatos, pregunta cuál.",
       {"tarea": {"type": "string", "description": "título o parte del título de la tarea"},
        "estado": {"type": "string", "description": "pendiente, en-curso o hecha"},
        "repo": {"type": "string", "description": "repo de la tarea"}},

@@ -7,12 +7,9 @@ from . import tool
 
 
 @tool("escalar_a_gemini",
-      "Escala a Gemini las tareas de tamaño MEDIO: cambiar un widget, un script, "
-      "un ajuste de configuración o un fichero concreto del ecosistema. NO la "
-      "uses para preguntas simples ni para buscar datos (para eso está buscar_web). "
-      "No resuelvas tú misma estas peticiones con una respuesta improvisada.",
-      {"peticion": {"type": "string", "description": "la petición de Alberto, resumida en una frase clara"},
-       "motivo": {"type": "string", "description": "por qué no puedes hacerlo tú misma (breve)"}},
+      "Manda a Gemini un cambio de tamaño MEDIO en código o configuración: un widget, un script, un ajuste, un fichero. Ej.: «reloj en formato 12 horas», «color de la barra», «que el widget de tareas muestre las hechas», «arregla el script de la batería». Úsala en vez de decir «no puedo».",
+      {"peticion": {"type": "string", "description": "petición en una frase"},
+       "motivo": {"type": "string", "description": "por qué no puedes tú (breve)"}},
       required=["peticion"], icon="auto_awesome", effect="escalate:gemini")
 def escalar_a_gemini(peticion: str, motivo: str = "") -> dict:
     """Solo marca la intención; el daemon pide confirmación por voz y lanza el
@@ -22,12 +19,9 @@ def escalar_a_gemini(peticion: str, motivo: str = "") -> dict:
 
 
 @tool("escalar_a_claude",
-      "Escala a Claude Code las tareas GORDAS: features nuevas, cambios en varios "
-      "archivos, refactors o cualquier trabajo de programación sustancial. Para "
-      "cambios pequeños o medios usa escalar_a_gemini. No resuelvas tú misma estas "
-      "peticiones.",
-      {"peticion": {"type": "string", "description": "la petición de Alberto, resumida en una frase clara"},
-       "motivo": {"type": "string", "description": "por qué no puedes hacerlo tú misma (breve)"}},
+      "Manda a Claude un trabajo GORDO de programación: feature nueva, varios archivos, refactor, tema o modo completo. Ej.: «tema de colores nuevo para toda la shell», «implementa un modo concentración». Lo medio va a escalar_a_gemini.",
+      {"peticion": {"type": "string", "description": "petición en una frase"},
+       "motivo": {"type": "string", "description": "por qué no puedes tú (breve)"}},
       required=["peticion"], icon="psychology_alt", effect="escalate:claude")
 def escalar_a_claude(peticion: str, motivo: str = "") -> dict:
     return {"ok": True, "escalate": True, "peticion": peticion, "motivo": motivo,
@@ -35,7 +29,7 @@ def escalar_a_claude(peticion: str, motivo: str = "") -> dict:
 
 
 @tool("estado_trabajos",
-      "Dice cómo van los trabajos que Alberto mandó a Gemini o Claude en segundo plano. Úsala con «cómo va lo que mandé».",
+      "Cómo van los trabajos mandados a Gemini/Claude («cómo va lo que mandé», «ya ha terminado Claude»).",
       icon="pending_actions")
 def estado_trabajos() -> dict:
     from ..jobs import list_jobs

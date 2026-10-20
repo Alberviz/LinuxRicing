@@ -63,7 +63,7 @@ def _geocodificar(lugar: str) -> dict | None:
 
 
 @tool("tiempo",
-      "Dice el tiempo actual y la previsión de hoy. Úsala para «qué tiempo hace», «va a llover», «cuánto calor hace». Sin lugar usa la ubicación de Alberto.",
+      "Tiempo meteorológico y previsión («qué tiempo hace», «va a llover»), solo si lo pregunta; no para comentarios sobre el día. Sin lugar usa la ubicación de Alberto.",
       {"lugar": {"type": "string", "description": "ciudad (opcional); vacío = donde vive Alberto"}},
       icon="partly_cloudy_day")
 def tiempo(lugar: str = "") -> dict:
@@ -113,7 +113,7 @@ def _ddg(consulta: str) -> list[dict]:
 
 
 @tool("buscar_web",
-      "Busca en Internet (DuckDuckGo) y devuelve los primeros resultados. Úsala para datos que no sabes o que cambian: noticias, quién/qué es algo, resultados, precios. Resume el resultado en una o dos frases.",
+      "Busca en Internet datos que no sabes o que cambian (noticias, quién es X, resultados). Resume en una o dos frases.",
       {"consulta": {"type": "string", "description": "qué buscar, en pocas palabras"}},
       required=["consulta"], icon="travel_explore")
 def buscar_web(consulta: str) -> dict:

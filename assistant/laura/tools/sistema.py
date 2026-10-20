@@ -14,7 +14,7 @@ def _run(cmd: list[str]) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True)
 
 
-@tool("control_musica", "Controla la reproducción de música/vídeo del sistema.",
+@tool("control_musica", "Controla la música/vídeo: pausar o reanudar, siguiente, anterior, parar («quita la música» = parar).",
       {"accion": {"type": "string", "enum": ["reproducir_pausar", "siguiente", "anterior", "parar"]}},
       required=["accion"], icon="music_note")
 def control_musica(accion: str) -> dict:
@@ -53,14 +53,14 @@ def volumen(porcentaje: int) -> dict:
     return {"ok": r.returncode == 0, "resumen": resumen}
 
 
-@tool("silenciar", "Silencia o quita el silencio del audio del sistema.", icon="volume_off")
+@tool("silenciar", "Silencia o quita el silencio del audio («mutea», «calla el sonido»).", icon="volume_off")
 def silenciar() -> dict:
     """Silencia o quita el silencio del audio."""
     r = _run(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"])
     return {"ok": r.returncode == 0, "resumen": "Silenciar / activar audio"}
 
 
-@tool("abrir_web", "Abre una web en el navegador, o busca en Google si es texto.",
+@tool("abrir_web", "Abre un sitio web (youtube, github.com) en el navegador, o busca en Google si es texto. Para sitios web usa ESTA, no abrir_app.",
       {"consulta": {"type": "string", "description": "una URL (google.com) o algo que buscar"}},
       required=["consulta"], icon="public")
 def abrir_web(consulta: str) -> dict:
@@ -79,7 +79,7 @@ def abrir_web(consulta: str) -> dict:
             "resumen": f"Buscar «{consulta}»" if es_busqueda else "Abrir web"}
 
 
-@tool("abrir_app", "Abre una aplicación instalada por su nombre.",
+@tool("abrir_app", "Abre un programa instalado por su nombre (terminal, archivos, spotify, discord, editor, navegador).",
       {"nombre": {"type": "string", "description": "navegador, terminal, spotify, discord, editor, archivos…"}},
       required=["nombre"], icon="open_in_new", wants_apps=True)
 def abrir_app(nombre: str, _apps: dict | None = None) -> dict:
@@ -110,7 +110,7 @@ def bloquear_pantalla() -> dict:
 
 
 @tool("copiar_al_portapapeles",
-      "Copia un texto al portapapeles del sistema. Úsalo cuando Alberto pida que le redactes/generes un texto, un mensaje, código, o una respuesta larga para pegarla en otro sitio.",
+      "Copia un texto al portapapeles. Úsala cuando pida redactar o generar un texto para pegarlo en otro sitio.",
       {"texto": {"type": "string", "description": "el texto completo que se copia al portapapeles"}},
       required=["texto"], icon="content_copy")
 def copiar_al_portapapeles(texto: str) -> dict:
@@ -122,7 +122,7 @@ def copiar_al_portapapeles(texto: str) -> dict:
 
 
 @tool("leer_portapapeles",
-      "Lee lo que hay ahora mismo en el portapapeles. Úsalo cuando Alberto diga «traduce esto», «resume lo que he copiado», «qué tengo copiado».",
+      "Lee el portapapeles («traduce esto», «resume lo que he copiado», «qué tengo copiado»).",
       icon="content_paste")
 def leer_portapapeles() -> dict:
     """Devuelve el texto que hay ahora mismo en el portapapeles."""
@@ -135,7 +135,7 @@ def leer_portapapeles() -> dict:
 
 
 @tool("pegar_texto",
-      "Escribe un texto en la aplicación que tiene el foco (lo teclea de verdad). Úsalo cuando Alberto pida «pega esto», «escríbelo aquí», «pon el resultado en el documento».",
+      "Escribe un texto en la ventana con foco («pega esto», «escríbelo aquí»).",
       {"texto": {"type": "string", "description": "el texto que se pega en la ventana activa"}},
       required=["texto"], icon="content_paste_go")
 def pegar_texto(texto: str) -> dict:
@@ -167,9 +167,9 @@ def _active_window_geom() -> str | None:
 
 
 @tool("leer_pantalla",
-      "Hace una captura y le pasa OCR para leer el texto que se ve en pantalla. Úsalo para «qué dice este error», «resume lo que hay en pantalla», «saca el código que se ve».",
+      "Hace OCR de la pantalla: «qué dice este error», «lee lo que hay en pantalla».",
       {"zona": {"type": "string", "enum": ["ventana", "todo", "seleccion"],
-                "description": "ventana = la que tiene el foco (por defecto, rápido); todo = pantalla entera; seleccion = Alberto elige un recuadro con el ratón"}},
+                "description": "ventana (por defecto) | todo | seleccion"}},
       icon="document_scanner")
 def leer_pantalla(zona: str = "ventana") -> dict:
     """Captura y OCR (tesseract). `zona`: ventana (la que tiene foco, rápido) |
@@ -207,7 +207,7 @@ def leer_pantalla(zona: str = "ventana") -> dict:
 
 
 @tool("ventanas_abiertas",
-      "Lista las ventanas abiertas (título, aplicación, espacio). Sin capturar nada. Para «qué tengo abierto», «en qué estaba».",
+      "Lista las ventanas abiertas («qué tengo abierto», «en qué estaba»).",
       icon="select_window")
 def ventanas_abiertas() -> dict:
     """Lista las ventanas abiertas (título, aplicación y espacio de trabajo),
@@ -236,7 +236,7 @@ def fecha_hora_texto() -> str:
             f"{n.hour}:{n.minute:02d}")
 
 
-@tool("hora_fecha", "Dice la hora y la fecha actuales. Úsala SIEMPRE para «qué hora es», «qué día es hoy», «a cuánto estamos».",
+@tool("hora_fecha", "Hora y fecha actuales: «qué hora es», «qué día es hoy».",
       icon="schedule")
 def hora_fecha() -> dict:
     n = datetime.now()

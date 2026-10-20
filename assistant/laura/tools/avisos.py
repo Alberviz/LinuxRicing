@@ -17,7 +17,7 @@ def _cuando(due: float) -> str:
     return "a las " + datetime.fromtimestamp(due).strftime("%H:%M")
 
 
-@tool("temporizador", "Pone un temporizador que avisa por voz al terminar. Úsala con «ponme un temporizador de 10 minutos».",
+@tool("temporizador", "Cuenta atrás de DURACIÓN: «avísame/ponme un temporizador en/de N minutos». Para algo a una hora del reloj usa recordatorio.",
       {"minutos": {"type": "number", "description": "duración en minutos (admite decimales, 0.5 = 30 s)"},
        "etiqueta": {"type": "string", "description": "para qué es (opcional), p. ej. «pasta»"}},
       required=["minutos"], icon="timer")
@@ -28,7 +28,7 @@ def temporizador(minutos: float, etiqueta: str = "") -> dict:
 
 
 @tool("recordatorio",
-      "Crea un recordatorio que Laura dirá en voz alta a su hora. Úsala con «recuérdame llamar a mi madre a las 18:30» o «avísame en 20 minutos de sacar la ropa».",
+      "Aviso a una HORA del día («a las 18:30»). Para «en N minutos» usa temporizador.",
       {"texto": {"type": "string", "description": "qué hay que recordar"},
        "hora": {"type": "string", "description": "hora del día «HH:MM» (24 h) o número de minutos desde ahora"}},
       required=["texto", "hora"], icon="alarm")
@@ -48,7 +48,7 @@ def listar_avisos() -> dict:
     return {"ok": True, "avisos": items, "resumen": f"{len(items)} avisos pendientes"}
 
 
-@tool("cancelar_aviso", "Cancela un temporizador o recordatorio por su id o por parte de su texto; «todos» cancela todos.",
+@tool("cancelar_aviso", "Cancela un temporizador o recordatorio por id o texto; «todos» cancela todos.",
       {"aviso": {"type": "string", "description": "id, parte del texto, o «todos»"}},
       required=["aviso"], icon="alarm_off")
 def cancelar_aviso(aviso: str) -> dict:
