@@ -12,11 +12,9 @@ language = "es"
 
 [llm]
 model = "qwen3:4b-instruct"
-model_quality = "qwen2.5:7b-instruct"   # modelo mayor para «modo calidad» (di
-                       # «modo calidad» / «modo rápido» por voz). Vacío =
-                       # desactivado. Requiere `ollama pull qwen2.5:7b-instruct`.
-                       # El 8B se probó y va lento en la RTX 4050 (6 GB) con
-                       # Whisper+Kokoro dentro; el 7B va fino.
+model_quality = ""     # modelo mayor para «modo calidad» (di «modo calidad» / «modo rápido»).
+                       # Vacío = desactivado. En el examen (eval/) qwen2.5:7b sacó 54 %
+                       # frente a 79 % del 4B: el modo calidad empeora, así que se deja off.
 url = "http://localhost:11434/api/chat"
 num_ctx = 6144         # ventana de contexto de Ollama (antes fija a 4096 en código).
                        # Presupuesto VRAM en la RTX 4050 (6 GB) con Whisper+Kokoro
@@ -26,6 +24,7 @@ num_ctx = 6144         # ventana de contexto de Ollama (antes fija a 4096 en có
 stream = true          # voz por frases: Laura empieza a hablar en cuanto tiene la
                        # primera frase, sin esperar a toda la respuesta. false =
                        # sintetizar y reproducir la respuesta entera de una vez.
+num_predict = 400      # tope de tokens por respuesta: corta generaciones que no acaban
 max_tool_rounds = 5
 max_turns = 6          # turnos de conversación en modo centro antes de cerrar solo
 timeout = 45           # segundos por llamada a Ollama antes de rendirse
@@ -33,20 +32,24 @@ history_msgs = 12      # mensajes de historial que se conservan (además del sys
 system_prompt = """
 Eres Laura, el asistente de voz local de Alberto en su escritorio Linux.
 Respondes SIEMPRE en español, en una o dos frases cortas pensadas para leerse en
-voz alta: nada de markdown, listas ni emojis. Si la petición implica una acción
-del ordenador, usa las herramientas disponibles y luego confirma en una frase lo
-que has hecho. Si no puedes hacer algo, dilo claro y breve.
-Cuando Alberto diga «escríbeme…», «redáctame…», «genérame un texto…» o «pásame
-esto…», usa la herramienta copiar_al_portapapeles con el texto completo y luego
-confirma en una frase breve, sin leer en voz alta el texto largo entero.
-Para «traduce/resume esto» o «qué he copiado» usa leer_portapapeles; para «pega
-esto aquí» usa pegar_texto; para «qué dice este error» o «lee la pantalla» usa
-leer_pantalla; para «qué tengo abierto» usa ventanas_abiertas.
-Si la petición es demasiado compleja para ti, implica modificar código o
-configuración del ecosistema (por ejemplo «haz que el reloj marque la hora en
-formato 12 horas»), o está claramente fuera de tus herramientas, usa
-escalar_a_gemini con la petición resumida y un motivo breve; no la resuelvas
-tú misma con un parche improvisado ni te inventes que sí puedes hacerlo.
+voz alta: nada de markdown, listas ni emojis. Si la petición implica una acción o
+consulta del ordenador, usa la herramienta disponible y luego confirma en una frase lo
+que has hecho; nunca digas que lo has hecho sin usar la herramienta, ni contestes de
+memoria el estado de algo (wifi, batería, luces, tareas, trabajos, lo que sabes de
+Alberto): consúltalo.
+Guía: temporizador = dentro de N minutos; recordatorio = a una hora del reloj («a las
+18:30»). Sitios web (youtube, github) = abrir_web; programas = abrir_app. «Pon en
+curso/hecha X» = cambiar_estado. «Recuerda/apunta que…» sobre Alberto = recordar.
+«Qué sabes de mí» = que_sabes_de_mi; «cómo va / ya terminó lo que mandé» = estado_trabajos;
+«traduce lo copiado» = leer_portapapeles; «pega/escribe aquí» = pegar_texto; «qué dice este
+error» = leer_pantalla. Cuando pida redactar un texto, cópialo con copiar_al_portapapeles y no lo leas entero.
+Datos rápidos que no sabes o cambian = buscar_web; investigar a fondo («investiga…») =
+investigar; Calendar, correo, Drive, recados o «pregúntale/dile a Aurora» = pedir_a_aurora.
+Si no tienes herramienta para algo del ordenador o del código, escala; nunca digas solo
+«no puedo». Cambio medio (un widget, un script, un ajuste: «reloj en 12 horas», «color
+de la barra», «arregla el script de la batería») = escalar_a_gemini. Trabajo gordo
+(feature nueva, varios archivos, un tema o modo completo, refactor) = escalar_a_claude.
+Alberto confirma antes; tú pasa la petición resumida y un motivo breve.
 """
 
 [wake]
@@ -58,15 +61,44 @@ threshold = 0.5        # 0..1. Súbelo (0.6-0.7) si hay disparos falsos.
 cooldown = 3.0         # segundos "sordo" tras un disparo (evita re-triggers).
 
 [tts]
-engine = "edge"           # edge (es-ES Elvira/Alvaro) | kokoro (ef_dora/em_alex) | piper (es_ES offline)
-voice = "es-ES-ElviraNeural" # es-ES-ElviraNeural (Castellano España) | ef_dora | es_ES-davefx-medium
+# Motores en laura/engines/ (un fichero por motor): kokoro | piper | edge | http | pocket | omnivoice.
+# Si el principal falla se prueba la cadena `fallbacks` (y si el principal es edge,
+# kokoro entra primero). Un motor que falla se aparca 2 min.
+engine = "kokoro"         # voz local en GPU
+fallbacks = ["piper"]     # respaldo local en CPU
 effect = "jarvis"         # jarvis | subnautica | robot | dry
+
+[tts.kokoro]
+voice = "ef_dora"         # ef_dora | em_alex
+
+[tts.piper]
+voice = "es_ES-davefx-medium"   # modelo en ~/.local/share/piper/voices/
+
+[tts.edge]                # nube de Microsoft (hoy da 403 con edge-tts 7.2.8)
+voice = "es-ES-ElviraNeural"
+
+# Voz propia servida aparte (VoiceStudio en :3900, OmniVoice, PocketTTS…).
+# Para usarla: engine = "http". Ver laura/engines/http.py para el contrato.
+[tts.http]
+url = ""                  # p. ej. "http://localhost:3900/tts"
+format = "json"           # json | form
+text_field = "text"
+ref_audio = ""            # audio de referencia para clonar la voz
+ref_audio_mode = "path"   # path | base64
+ref_text = ""             # transcripción del audio de referencia
+timeout = 60
 
 [audio]
 max_seconds = 15       # tope de grabación de una intervención
 followup_seconds = 4   # si en modo centro no empiezas a hablar en estos segundos, cierra
 silence_ms = 900       # silencio que corta la grabación
 amp_gain = 12.0        # multiplicador RMS->0..1 para la amplitud del overlay
+stop_phrases = ["para", "calla", "cállate", "silencio", "basta"]  # frase EXACTA (con o sin
+                       # «Laura») que cierra el modo centro
+barge_in = false       # interrumpir a Laura hablando encima. Desactivado: sin auriculares
+                       # el eco de los altavoces puede dispararlo
+barge_in_threshold = 0.6  # probabilidad de voz (VAD, 0..1) por bloque
+barge_in_ms = 300      # voz sostenida necesaria para cortar
 
 # Escalada a Gemini (Antigravity) para lo que Laura no sabe/puede resolver sola.
 # Dos modos:
@@ -102,18 +134,41 @@ effort_confirm = "high"               # OJO: en `agy`, el nombre del modelo YA f
                        # juego (mira `agy models` para ver qué sufijo trae cada uno).
 timeout_confirm = 180                 # segundos; puede tardar (agente editando código)
 
+# Desde Laura v2 la búsqueda normal usa la tool `buscar_web` (DuckDuckGo); el
+# Modo A queda como respaldo explícito: solo salta si Alberto lo pide.
 auto_cases = [
-  { nombre = "busqueda_web", keywords = [
-      "busca en internet", "búscame en internet", "búscalo en internet",
-      "qué es", "que es", "quién es", "quien es", "cuándo fue", "cuando fue",
-      "cuánto es", "cuanto es", "cuál es la capital", "cual es la capital",
-      "qué tiempo hace", "que tiempo hace", "noticias de", "resultado del partido",
-  ] },
-  { nombre = "dato_rapido", keywords = [
-      "dato rápido", "dato rapido", "sabes si", "es verdad que", "en qué año",
-      "en que año",
+  { nombre = "pregunta_a_gemini", keywords = [
+      "pregúntale a gemini", "preguntale a gemini", "pregunta a gemini",
+      "consúltalo con gemini", "consultalo con gemini",
   ] },
 ]
+
+[escalation.claude]
+bin = "~/.local/bin/claude"        # Claude Code CLI
+model = "opus"
+cwd = "~/LinuxRicing"              # directorio de trabajo del agente
+timeout = 1800                     # segundos (trabajos gordos)
+
+# Trabajos en segundo plano (orbe + cajón + notas de Obsidian).
+[background]
+vault = "~/LinuxRicing/vault"   # las notas van a <vault>/Laura/ (en .gitignore)
+investigar = "gemini"          # quién resuelve la tool `investigar`: gemini (agy en solo
+                               # lectura, sin confirmación) | laura (buscar_web + resumen local)
+confirm_timeout = 600          # s esperando un sí/no desde voz o tarjeta antes de cancelar
+
+# Aurora (Hermes en la Pi, por Tailscale). La clave NO va aquí: variable AURORA_API_KEY
+# (~/.config/laura/aurora.env, cargada por laura.service con EnvironmentFile=).
+[aurora]
+url = "http://100.82.69.90:8642"
+timeout = 600                  # s máximos por petición
+session_key = "laura-escritorio"
+
+# Ubicación de Alberto para la tool `tiempo`. Si lat/lon están vacíos se
+# geolocaliza por IP una vez y se cachea en ~/.local/share/laura/ubicacion.json.
+[ubicacion]
+ciudad = ""
+lat = ""
+lon = ""
 
 # Apps que Laura puede abrir. clave = como lo dices; valor = comando.
 [apps]

@@ -24,6 +24,15 @@ Scope {
             LauraOverlay {
                 modelData: perScreen.modelData
             }
+
+            // Modo en segundo plano: orbe (convergencia + dock) y cajón lateral
+            LauraOrb {
+                modelData: perScreen.modelData
+            }
+
+            LauraDrawer {
+                modelData: perScreen.modelData
+            }
         }
     }
 }
