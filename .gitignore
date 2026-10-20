@@ -19,4 +19,4 @@ vault/Inbox/attachments/
 .superpowers/
 
 # Aurora: entorno virtual local
-assistant/.venv/
+assistant/.venv
