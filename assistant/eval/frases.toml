@@ -1,0 +1,331 @@
+# Banco de frases para el examen de modelos de Laura.
+# espera = herramientas esperadas en orden ([] = responder sin herramienta).
+# args   = (opcional) lista alineada con `espera`; cada elemento son los args clave
+#          esperados. Cadenas: subcadena sin tildes ni mayusculas. Numeros: exactos.
+# grupo  = etiqueta libre para el desglose ("trampa" cuenta para falsos positivos).
+
+# ---------- musica / volumen / silencio ----------
+[[frase]]
+texto = "oye laura pon pausa a la música"
+espera = ["control_musica"]
+args = [{accion = "reproducir_pausar"}]
+
+[[frase]]
+texto = "dale al play que se ha parado la canción"
+espera = ["control_musica"]
+args = [{accion = "reproducir_pausar"}]
+
+[[frase]]
+texto = "pasa a la siguiente canción anda"
+espera = ["control_musica"]
+args = [{accion = "siguiente"}]
+
+[[frase]]
+texto = "vuelve a la canción anterior"
+espera = ["control_musica"]
+args = [{accion = "anterior"}]
+
+[[frase]]
+texto = "quita la música"
+espera = ["control_musica"]
+args = [{accion = "parar"}]
+
+[[frase]]
+texto = "sube el volumen un poquito, como un diez"
+espera = ["volumen"]
+args = [{porcentaje = 10}]
+
+[[frase]]
+texto = "baja el volumen un veinte por ciento"
+espera = ["volumen"]
+args = [{porcentaje = -20}]
+
+[[frase]]
+texto = "uf, esto suena muy alto, bájalo un 15"
+espera = ["volumen"]
+args = [{porcentaje = -15}]
+
+[[frase]]
+texto = "silencia el audio"
+espera = ["silenciar"]
+
+[[frase]]
+texto = "mutea el sonido un momento"
+espera = ["silenciar"]
+
+[[frase]]
+texto = "quítale el silencio al ordenador"
+espera = ["silenciar"]
+
+# ---------- abrir web / app ----------
+[[frase]]
+texto = "abre google punto com"
+espera = ["abrir_web"]
+args = [{consulta = "google"}]
+
+[[frase]]
+texto = "búscame en el navegador recetas de tortilla de patatas"
+espera = ["abrir_web"]
+args = [{consulta = "tortilla"}]
+
+[[frase]]
+texto = "ábreme youtube"
+espera = ["abrir_web"]
+args = [{consulta = "youtube"}]
+
+[[frase]]
+texto = "abre github punto com"
+espera = ["abrir_web"]
+args = [{consulta = "github"}]
+
+[[frase]]
+texto = "abre el spotify"
+espera = ["abrir_app"]
+args = [{nombre = "spotify"}]
+
+[[frase]]
+texto = "ponme la terminal"
+espera = ["abrir_app"]
+args = [{nombre = "terminal"}]
+
+[[frase]]
+texto = "abre discord, venga"
+espera = ["abrir_app"]
+args = [{nombre = "discord"}]
+
+[[frase]]
+texto = "necesito el explorador de archivos"
+espera = ["abrir_app"]
+args = [{nombre = "archivos"}]
+
+[[frase]]
+texto = "abre el editor de código"
+espera = ["abrir_app"]
+args = [{nombre = "editor"}]
+
+[[frase]]
+texto = "abre el navegador"
+espera = ["abrir_app"]
+args = [{nombre = "navegador"}]
+
+# ---------- pantalla ----------
+[[frase]]
+texto = "hazme una captura de pantalla"
+espera = ["captura_pantalla"]
+
+[[frase]]
+texto = "saca un pantallazo"
+espera = ["captura_pantalla"]
+
+[[frase]]
+texto = "bloquea el ordenador que me voy a comer"
+espera = ["bloquear_pantalla"]
+
+[[frase]]
+texto = "bloquea la pantalla"
+espera = ["bloquear_pantalla"]
+
+[[frase]]
+texto = "qué dice este error que me ha salido"
+espera = ["leer_pantalla"]
+
+[[frase]]
+texto = "lee la pantalla entera y dime qué pone"
+espera = ["leer_pantalla"]
+args = [{zona = "todo"}]
+
+[[frase]]
+texto = "léeme lo que he seleccionado con el ratón"
+espera = ["leer_pantalla"]
+args = [{zona = "seleccion"}]
+
+[[frase]]
+texto = "qué tengo abierto ahora mismo"
+espera = ["ventanas_abiertas"]
+
+[[frase]]
+texto = "en qué estaba trabajando, qué ventanas hay"
+espera = ["ventanas_abiertas"]
+
+# ---------- portapapeles / pegar ----------
+[[frase]]
+texto = "escríbeme un correo corto diciéndole a mi profe que llego tarde y cópialo"
+espera = ["copiar_al_portapapeles"]
+
+[[frase]]
+texto = "redáctame un mensaje de cumpleaños para mi hermana"
+espera = ["copiar_al_portapapeles"]
+
+[[frase]]
+texto = "genérame un texto de presentación para LinkedIn"
+espera = ["copiar_al_portapapeles"]
+
+[[frase]]
+texto = "traduce esto que he copiado al inglés"
+espera = ["leer_portapapeles"]
+
+[[frase]]
+texto = "resúmeme lo que tengo copiado"
+espera = ["leer_portapapeles"]
+
+[[frase]]
+texto = "qué hay en el portapapeles"
+espera = ["leer_portapapeles"]
+
+[[frase]]
+texto = "pega aquí hola qué tal estáis"
+espera = ["pegar_texto"]
+args = [{texto = "hola"}]
+
+[[frase]]
+texto = "escribe en la ventana gracias por todo"
+espera = ["pegar_texto"]
+args = [{texto = "gracias"}]
+
+# ---------- tareas ----------
+[[frase]]
+texto = "qué tengo pendiente"
+espera = ["listar_tareas"]
+
+[[frase]]
+texto = "dime las tareas de la universidad"
+espera = ["listar_tareas"]
+args = [{repo = "universidad"}]
+
+[[frase]]
+texto = "qué tareas tengo en curso"
+espera = ["listar_tareas"]
+args = [{estado = "en-curso"}]
+
+[[frase]]
+texto = "apunta una tarea: comprar un cable HDMI"
+espera = ["crear_tarea"]
+args = [{titulo = "hdmi"}]
+
+[[frase]]
+texto = "añade una tarea urgente de revisar el backup del servidor"
+espera = ["crear_tarea"]
+args = [{titulo = "backup", prioridad = 1}]
+
+[[frase]]
+texto = "apunta en minecraft que hay que arreglar el farm de hierro"
+espera = ["crear_tarea"]
+args = [{titulo = "hierro", repo = "minecraft"}]
+
+[[frase]]
+texto = "marca como hecha la tarea de los planetas"
+espera = ["cambiar_estado"]
+args = [{tarea = "planetas", estado = "hecha"}]
+
+[[frase]]
+texto = "pon en curso lo del cometa"
+espera = ["cambiar_estado"]
+args = [{tarea = "cometa", estado = "en-curso"}]
+
+# ---------- combinaciones ----------
+[[frase]]
+texto = "quita la música y abre Google"
+espera = ["control_musica", "abrir_web"]
+args = [{accion = "parar"}, {consulta = "google"}]
+
+[[frase]]
+texto = "silencia el sonido y haz una captura"
+espera = ["silenciar", "captura_pantalla"]
+
+[[frase]]
+texto = "abre spotify y súbele el volumen un diez"
+espera = ["abrir_app", "volumen"]
+args = [{nombre = "spotify"}, {porcentaje = 10}]
+
+[[frase]]
+texto = "bloquea la pantalla y pon pausa a la música"
+espera = ["bloquear_pantalla", "control_musica"]
+
+[[frase]]
+texto = "abre la terminal y luego el navegador"
+espera = ["abrir_app", "abrir_app"]
+args = [{nombre = "terminal"}, {nombre = "navegador"}]
+
+# ---------- escalar a gemini ----------
+[[frase]]
+texto = "haz que el reloj del escritorio marque la hora en formato doce horas"
+espera = ["escalar_a_gemini"]
+
+[[frase]]
+texto = "cámbiame el color de la barra superior a un azul más oscuro"
+espera = ["escalar_a_gemini"]
+
+[[frase]]
+texto = "modifica el script de la batería para que avise al quince por ciento"
+espera = ["escalar_a_gemini"]
+
+[[frase]]
+texto = "quiero que el widget de tareas muestre también las que están hechas"
+espera = ["escalar_a_gemini"]
+
+# ---------- sin herramienta (conversacion) ----------
+[[frase]]
+texto = "hola laura, buenos días"
+espera = []
+grupo = "charla"
+
+[[frase]]
+texto = "cuéntame un chiste corto"
+espera = []
+grupo = "charla"
+
+[[frase]]
+texto = "gracias, eres la mejor"
+espera = []
+grupo = "charla"
+
+[[frase]]
+texto = "qué te parece si hoy cenamos pizza"
+espera = []
+grupo = "charla"
+
+[[frase]]
+texto = "explícame en dos palabras qué es un bucle for"
+espera = []
+grupo = "charla"
+
+# ---------- trampas (NO deben disparar herramienta) ----------
+[[frase]]
+texto = "esta canción es genial, la verdad"
+espera = []
+grupo = "trampa"
+
+[[frase]]
+texto = "ayer estuve con el volumen muy alto y me dolían los oídos"
+espera = []
+grupo = "trampa"
+
+[[frase]]
+texto = "mi hermano abrió la puerta del garaje"
+espera = []
+grupo = "trampa"
+
+[[frase]]
+texto = "no me hables, estoy en silencio mental"
+espera = []
+grupo = "trampa"
+
+[[frase]]
+texto = "tengo que acabar la tarea de mates esta tarde"
+espera = []
+grupo = "trampa"
+
+[[frase]]
+texto = "uf, qué pantalla más grande tiene el monitor de Pablo"
+espera = []
+grupo = "trampa"
+
+[[frase]]
+texto = "no, no bloquees nada, era una pregunta"
+espera = []
+grupo = "trampa"
+
+[[frase]]
+texto = "mmm eh bueno nada, déjalo"
+espera = []
+grupo = "trampa"
