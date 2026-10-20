@@ -70,15 +70,44 @@ threshold = 0.5        # 0..1. Súbelo (0.6-0.7) si hay disparos falsos.
 cooldown = 3.0         # segundos "sordo" tras un disparo (evita re-triggers).
 
 [tts]
-engine = "edge"           # edge (es-ES Elvira/Alvaro) | kokoro (ef_dora/em_alex) | piper (es_ES offline)
-voice = "es-ES-ElviraNeural" # es-ES-ElviraNeural (Castellano España) | ef_dora | es_ES-davefx-medium
+# Motores en laura/engines/ (un fichero por motor): kokoro | piper | edge | http | pocket | omnivoice.
+# Si el principal falla se prueba la cadena `fallbacks` (y si el principal es edge,
+# kokoro entra primero). Un motor que falla se aparca 2 min.
+engine = "kokoro"         # voz local en GPU
+fallbacks = ["piper"]     # respaldo local en CPU
 effect = "jarvis"         # jarvis | subnautica | robot | dry
+
+[tts.kokoro]
+voice = "ef_dora"         # ef_dora | em_alex
+
+[tts.piper]
+voice = "es_ES-davefx-medium"   # modelo en ~/.local/share/piper/voices/
+
+[tts.edge]                # nube de Microsoft (hoy da 403 con edge-tts 7.2.8)
+voice = "es-ES-ElviraNeural"
+
+# Voz propia servida aparte (VoiceStudio en :3900, OmniVoice, PocketTTS…).
+# Para usarla: engine = "http". Ver laura/engines/http.py para el contrato.
+[tts.http]
+url = ""                  # p. ej. "http://localhost:3900/tts"
+format = "json"           # json | form
+text_field = "text"
+ref_audio = ""            # audio de referencia para clonar la voz
+ref_audio_mode = "path"   # path | base64
+ref_text = ""             # transcripción del audio de referencia
+timeout = 60
 
 [audio]
 max_seconds = 15       # tope de grabación de una intervención
 followup_seconds = 4   # si en modo centro no empiezas a hablar en estos segundos, cierra
 silence_ms = 900       # silencio que corta la grabación
 amp_gain = 12.0        # multiplicador RMS->0..1 para la amplitud del overlay
+stop_phrases = ["para", "calla", "cállate", "silencio", "basta"]  # frase EXACTA (con o sin
+                       # «Laura») que cierra el modo centro
+barge_in = false       # interrumpir a Laura hablando encima. Desactivado: sin auriculares
+                       # el eco de los altavoces puede dispararlo
+barge_in_threshold = 0.6  # probabilidad de voz (VAD, 0..1) por bloque
+barge_in_ms = 300      # voz sostenida necesaria para cortar
 
 # Escalada a Gemini (Antigravity) para lo que Laura no sabe/puede resolver sola.
 # Dos modos:

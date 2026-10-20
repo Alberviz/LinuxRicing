@@ -4,13 +4,12 @@ from __future__ import annotations
 import queue
 import subprocess
 import threading
-from pathlib import Path
-
-import numpy as np
-import soundfile as sf
+import time
 
 from .audio import _play_with_amplitude
-from .config import CFG, bus, log, resolve_device
+from .config import CFG, bus, log
+from .engines import REGISTRY, Engine, EngineUnavailable
+from .output import OUT, AnyEvent
 
 EFFECTS = {
     "dry": None,
@@ -23,62 +22,74 @@ EFFECTS = {
 }
 
 
-# --------------------------------------------------------------------------- TTS
-_tts_engine = CFG.get("tts", {}).get("engine", "auto")
-_tts_voice = CFG.get("tts", {}).get("voice", "es-ES-ElviraNeural")
+# ------------------------------------------------------------ cadena de motores
+# Los motores viven en laura/engines/ (un fichero por motor). La cadena es
+# `[tts] engine` + `fallbacks`; si el principal es edge, kokoro entra el primero
+# de los respaldos. Un motor que falla se aparca `_COOLDOWN` s para no pagar su
+# timeout en cada frase.
+_COOLDOWN = 120.0
+_instances: dict[str, Engine] = {}
+_down: dict[str, float] = {}
+_lock = threading.Lock()
 
-if _tts_engine == "auto":
-    if _tts_voice.startswith("es-ES-") or _tts_voice.startswith("es-"):
-        _tts_engine = "edge"
-    elif _tts_voice.startswith("es_ES-"):
-        _tts_engine = "piper"
-    else:
-        _tts_engine = "kokoro"
 
-_kokoro = None
-if _tts_engine == "kokoro":
-    log("cargando Kokoro…")
-    from kokoro import KPipeline
-    _kokoro = KPipeline(lang_code="e" if _tts_voice.startswith("e") else "a", device=resolve_device())
-else:
-    log(f"TTS configurado en motor '{_tts_engine}' (voz: {_tts_voice})")
+def chain() -> list[str]:
+    t = CFG.get("tts", {})
+    primary = t.get("engine", "kokoro")
+    fb = list(t.get("fallbacks", ["piper"]))
+    if primary == "edge" and "kokoro" not in fb:
+        fb.insert(0, "kokoro")
+    out = []
+    for n in [primary, *fb]:
+        if n not in out:
+            out.append(n)
+    return out
+
+
+def _get(name: str) -> Engine:
+    with _lock:
+        if name not in _instances:
+            cls = REGISTRY.get(name)
+            if cls is None:
+                raise EngineUnavailable(f"motor de voz desconocido: {name}")
+            cfg = CFG.get("tts", {}).get(name, {})
+            _instances[name] = cls(cfg if isinstance(cfg, dict) else {})
+        return _instances[name]
+
+
+def warmup() -> None:
+    """Carga por adelantado el motor principal (el daemon lo llama al arrancar)."""
+    for name in chain():
+        try:
+            _get(name).warmup()
+            log(f"TTS listo: motor '{name}'")
+            return
+        except Exception as e:  # noqa: BLE001
+            log(f"TTS: motor '{name}' no arranca ({e}); pruebo el siguiente")
+
+
+def _synth_raw(text: str, raw: str) -> str:
+    """Prueba los motores de la cadena hasta que uno escribe `raw`. Devuelve su nombre."""
+    names = chain()
+    now = time.monotonic()
+    vivos = [n for n in names if _down.get(n, 0) <= now] or names
+    ultimo: Exception | None = None
+    for n in vivos:
+        try:
+            _get(n).synth(text, raw)
+            return n
+        except Exception as e:  # noqa: BLE001
+            ultimo = e
+            _down[n] = time.monotonic() + _COOLDOWN
+            log(f"TTS: motor '{n}' falló ({str(e)[:120]}); siguiente")
+    raise RuntimeError(f"ningún motor de voz funciona: {ultimo}")
 
 
 def _synth_wav(text: str, tag: str) -> str:
-    """Sintetiza `text` según el motor configurado, aplica el efecto y devuelve la ruta del wav."""
+    """Sintetiza `text` con la cadena de motores, aplica el efecto y devuelve la ruta del wav."""
     raw = f"/tmp/laura_{tag}_raw.wav"
-    engine = _tts_engine
-    voice = CFG["tts"]["voice"]
-
-    if engine == "edge":
-        import asyncio
-        import edge_tts
-
-        raw_mp3 = f"/tmp/laura_{tag}_raw.mp3"
-
-        async def _run():
-            communicate = edge_tts.Communicate(text, voice)
-            await communicate.save(raw_mp3)
-
-        asyncio.run(_run())
-        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", raw_mp3, raw], check=True)
-    elif engine == "piper":
-        import shutil
-        piper_bin = "piper-tts" if shutil.which("piper-tts") else "piper"
-        model_path = Path.home() / f".local/share/piper/voices/{voice}.onnx"
-        p = subprocess.Popen([piper_bin, "-m", str(model_path), "-f", raw], stdin=subprocess.PIPE)
-        p.communicate(input=text.encode("utf-8"))
-    else:
-        global _kokoro
-        if _kokoro is None:
-            from kokoro import KPipeline
-            _kokoro = KPipeline(lang_code="e" if voice.startswith("e") else "a", device=resolve_device())
-        parts = []
-        for _, _, a in _kokoro(text, voice=voice):
-            parts.append(a.detach().cpu().numpy() if hasattr(a, "detach") else np.asarray(a))
-        sf.write(raw, np.concatenate(parts), 24000)
-
-    af = EFFECTS.get(CFG["tts"]["effect"])
+    _synth_raw(text, raw)
+    af = EFFECTS.get(CFG["tts"].get("effect", "dry"))
     if not af:
         return raw
     out = f"/tmp/laura_{tag}.wav"
@@ -88,10 +99,15 @@ def _synth_wav(text: str, tag: str) -> str:
 
 
 def speak(text: str, cancel: threading.Event | None = None) -> None:
-    """Sintetiza y reproduce `text` de una vez (camino sin streaming)."""
-    if not text or (cancel is not None and cancel.is_set()):
+    """Sintetiza y reproduce `text` de una vez, con el audio de salida en
+    exclusiva (OUT) para no solaparse con otra voz."""
+    stop = AnyEvent(cancel, OUT.interrupt_ev)
+    if not text or stop.is_set():
         return
-    _play_with_amplitude(_synth_wav(text, "out"), cancel)
+    wav = _synth_wav(text, "out")
+    with OUT.hold():
+        if not stop.is_set():
+            _play_with_amplitude(wav, stop)
 
 
 class Speech:
@@ -102,7 +118,7 @@ class Speech:
     frase a frase (subtítulos que crecen con la voz)."""
 
     def __init__(self, cancel: threading.Event | None, mode: str) -> None:
-        self.cancel = cancel
+        self.cancel = AnyEvent(cancel, OUT.interrupt_ev)
         self.mode = mode
         self._tts_q: queue.Queue = queue.Queue()
         self._play_q: queue.Queue = queue.Queue()
@@ -138,18 +154,28 @@ class Speech:
             self._play_q.put((wav, s))
 
     def _play_loop(self) -> None:
-        while True:
-            item = self._play_q.get()
-            if item is None:
-                return
-            if self._stopped():
-                continue
-            wav, s = item
-            if not self._spoken:
-                bus.emit(type="state", value="speaking", mode=self.mode)
-            self._spoken.append(s)
-            bus.emit(type="reply", value=" ".join(self._spoken))
-            _play_with_amplitude(wav, self.cancel, reset=False)
+        held = False  # el lock de salida se toma con el primer audio y se suelta al acabar
+        try:
+            while True:
+                item = self._play_q.get()
+                if item is None:
+                    return
+                if self._stopped():
+                    continue
+                wav, s = item
+                if not held:
+                    OUT.acquire()
+                    held = True
+                    if self._stopped():
+                        continue
+                if not self._spoken:
+                    bus.emit(type="state", value="speaking", mode=self.mode)
+                self._spoken.append(s)
+                bus.emit(type="reply", value=" ".join(self._spoken))
+                _play_with_amplitude(wav, self.cancel, reset=False)
+        finally:
+            if held:
+                OUT.release()
 
     def finish(self) -> str:
         """Espera a que suene todo y devuelve lo que se ha hablado."""

@@ -78,8 +78,25 @@ Puesta en marcha:
 4. En `config.toml`, `[wake] enabled = true`. Reinicia el daemon.
 5. Ajusta `[wake] threshold` (sube a 0.6-0.7 si se dispara solo).
 
-Mientras hay un ciclo activo el wake listener se pausa (no compite por el micro
-ni se dispara con la voz de Laura). El atajo `SUPER+A` sigue funcionando igual.
+Wake, `listen()` y el barge-in comparten **un único InputStream** (`laura/mic.py`,
+distribuidor con suscriptores): no compiten por el micro. Mientras hay un ciclo
+activo el wake listener descarta el audio (no se dispara con la voz de Laura).
+El pipeline ya está listo: solo falta `models/laura.onnx`. El atajo `SUPER+A`
+sigue funcionando igual.
+
+## Voz (TTS), audio y barge-in
+
+- **Motores** en `laura/engines/` (un fichero por motor, registro con `@engine`):
+  `kokoro` (local, GPU; cae a CPU si no hay VRAM), `piper` (local, CPU), `edge`
+  (nube), `http` (POST a una URL que devuelve un WAV: VoiceStudio :3900, OmniVoice,
+  PocketTTS servidos aparte, con `ref_audio`/`ref_text` para clonar), y stubs
+  `pocket`/`omnivoice`. Cadena: `[tts] engine` + `fallbacks`.
+- **Un solo dueño del audio**: `laura/output.py` (lock de hilos + flock de fichero);
+  avisos, respuestas y confirmaciones nunca se solapan, ni siquiera entre procesos.
+  Pulsar el atajo mientras Laura habla corta la voz y pasa a escuchar.
+- **Barge-in** (`[audio] barge_in`, off por defecto: sin auriculares el eco puede
+  dispararlo): voz sostenida (`barge_in_ms`, `barge_in_threshold`) corta la voz.
+- **Frases de corte** (`[audio] stop_phrases`): «para», «calla»… cierran el modo centro.
 
 ## Pendiente (fases siguientes)
 

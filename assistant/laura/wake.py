@@ -2,20 +2,22 @@
 from __future__ import annotations
 
 import os
+import queue
 import threading
 import time
 
-import sounddevice as sd
+import numpy as np
 
-from .audio import SR
 from .config import CFG, HERE, log
+from .mic import MIC
 
 class WakeListener:
-    """Escucha el micro en segundo plano con un modelo diminuto (openWakeWord)
+    """Escucha el micro compartido (MIC) con un modelo diminuto (openWakeWord)
     y dispara `on_wake` al oír la palabra clave. NO transcribe nada — el
-    pipeline pesado (Whisper + LLM + Kokoro) solo arranca al detectar la
-    palabra. Se pausa mientras hay un ciclo activo (no competir por el micro
-    ni auto-dispararse con la voz de Laura)."""
+    pipeline pesado (Whisper + LLM + TTS) solo arranca al detectar la palabra.
+    Mientras hay un ciclo activo (`pause`) descarta el audio: no se auto-dispara
+    con la voz de Laura. Ya no abre su propio stream: comparte el del distribuidor,
+    así que pausar/reanudar no pelea por el micro."""
 
     FRAME = 1280  # 80 ms a 16 kHz — tamaño que espera openWakeWord
 
@@ -30,18 +32,13 @@ class WakeListener:
         self._on_wake = on_wake
         self._paused = threading.Event()
         self._stop = threading.Event()
-        self._idle = threading.Event()  # el micro está libre (stream cerrado)
-        self._idle.set()
         self._t = threading.Thread(target=self._loop, daemon=True)
 
     def start(self) -> None:
         self._t.start()
 
     def pause(self) -> None:
-        """Suelta el micro y no vuelve hasta resume(). Bloquea hasta que el
-        stream de captura esté realmente cerrado (el ciclo lo necesita)."""
         self._paused.set()
-        self._idle.wait(timeout=1.0)
 
     def resume(self) -> None:
         self._oww.reset()
@@ -49,27 +46,34 @@ class WakeListener:
 
     def _loop(self) -> None:
         last = 0.0
-        while not self._stop.is_set():
-            if self._paused.is_set():
-                time.sleep(0.1)
-                continue
-            try:
-                self._idle.clear()
-                with sd.InputStream(samplerate=SR, channels=1, dtype="int16",
-                                    blocksize=self.FRAME) as stream:
-                    while not self._stop.is_set() and not self._paused.is_set():
-                        data, _ = stream.read(self.FRAME)
-                        score = self._oww.predict(data[:, 0]).get(self._key, 0.0)
-                        now = time.monotonic()
-                        if score >= self._threshold and now - last > self._cooldown:
-                            last = now
-                            log(f"wake «{self._key}» ({score:.2f})")
-                            self._on_wake()
-            except Exception as e:  # noqa: BLE001
-                log(f"wake listener: {e}")
-                time.sleep(1)
-            finally:
-                self._idle.set()
+        buf = np.zeros(0, "float32")
+        q = MIC.subscribe()
+        try:
+            while not self._stop.is_set():
+                try:
+                    chunk = q.get(timeout=0.5)
+                except queue.Empty:
+                    continue
+                if self._paused.is_set():
+                    buf = buf[:0]
+                    continue
+                buf = np.concatenate([buf, chunk])
+                while buf.size >= self.FRAME:
+                    frame, buf = buf[:self.FRAME], buf[self.FRAME:]
+                    pcm = (np.clip(frame, -1, 1) * 32767).astype("int16")
+                    try:
+                        score = self._oww.predict(pcm).get(self._key, 0.0)
+                    except Exception as e:  # noqa: BLE001
+                        log(f"wake listener: {e}")
+                        time.sleep(1)
+                        continue
+                    now = time.monotonic()
+                    if score >= self._threshold and now - last > self._cooldown:
+                        last = now
+                        log(f"wake «{self._key}» ({score:.2f})")
+                        self._on_wake()
+        finally:
+            MIC.unsubscribe(q)
 
 
 def _make_wake(on_wake) -> WakeListener | None:

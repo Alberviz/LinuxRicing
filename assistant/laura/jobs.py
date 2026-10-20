@@ -185,6 +185,35 @@ def list_jobs(limit: int = 10) -> list[dict]:
     return metas[:limit]
 
 
+def _alive(pid: int | None) -> bool:
+    """¿Sigue vivo ese pid y es un laurad? (evita falsos vivos por reutilización de pid)"""
+    if not pid:
+        return False
+    try:
+        cmd = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except OSError:
+        return False
+    return b"laura" in cmd
+
+
+def reap_orphans() -> int:
+    """Al arrancar el daemon: los trabajos «en curso» cuyo daemon dueño ya no
+    existe (reinicio, caída) pasan a fallido. Devuelve cuántos."""
+    n = 0
+    for m in list_jobs(1000):
+        if m.get("estado") != "en curso":
+            continue
+        if m.get("pid") != os.getpid() and _alive(m.get("pid")):
+            continue  # lo lleva otro daemon vivo
+        m.update(estado="fallido", fin=time.time(),
+                 resumen="Interrumpido: el daemon se reinició antes de que terminara.")
+        _save(m)
+        bus.emit(type="job", value="failed", id=m["id"], destino=m.get("destino"),
+                 titulo=m.get("peticion", "")[:80])
+        n += 1
+    return n
+
+
 class JobManager:
     """`announce(texto)` encola una frase para que Laura la diga cuando esté libre."""
 
@@ -194,7 +223,7 @@ class JobManager:
     def start(self, destino: str, peticion: str, motivo: str = "") -> str:
         jid = uuid.uuid4().hex[:6]
         meta = {"id": jid, "destino": destino, "peticion": peticion,
-                "estado": "en curso", "inicio": time.time()}
+                "estado": "en curso", "inicio": time.time(), "pid": os.getpid()}
         _save(meta)
         bus.emit(type="job", value="started", id=jid, destino=destino, titulo=peticion[:80])
         threading.Thread(target=self._run, args=(meta, motivo), daemon=True).start()
