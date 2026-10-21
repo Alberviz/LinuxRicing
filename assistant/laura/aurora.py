@@ -31,18 +31,19 @@ def _cfg() -> dict:
     return CFG.get("aurora", {})
 
 
-def _headers() -> dict:
+def _headers(session_key: str | None = None) -> dict:
     key = os.environ.get("AURORA_API_KEY", "")
     if not key:
         raise RuntimeError("falta AURORA_API_KEY (~/.config/laura/aurora.env)")
     return {"Authorization": f"Bearer {key}", "Content-Type": "application/json",
-            "X-Hermes-Session-Key": _cfg().get("session_key", "laura-escritorio")}
+            "X-Hermes-Session-Key": session_key or _cfg().get("session_key", "laura-escritorio")}
 
 
-def _call(method: str, path: str, body: dict | None = None, timeout: float = 20):
+def _call(method: str, path: str, body: dict | None = None, timeout: float = 20,
+          session_key: str | None = None):
     url = _cfg().get("url", "http://100.82.69.90:8642").rstrip("/") + path
     req = urllib.request.Request(url, data=json.dumps(body).encode() if body is not None else None,
-                                 headers=_headers(), method=method)
+                                 headers=_headers(session_key), method=method)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status, json.loads(r.read() or b"{}")
@@ -96,7 +97,7 @@ def _approval_question(status: dict) -> str:
     return "Aurora pide permiso para hacer un cambio. ¿Lo autorizo?"
 
 
-def run(peticion: str, cancel, on_confirm, on_run=None) -> dict:
+def run(peticion: str, cancel, on_confirm, on_run=None, session_key: str | None = None) -> dict:
     """Ejecuta una petición. `cancel`: objeto con is_set(). `on_confirm(pregunta)` devuelve
     True (sí), False (no) o None (cancelado/sin respuesta). `on_run(run_id)` avisa del id
     para poder cancelarlo. Devuelve {"ok": True, "texto": ...} o {"ok": False, "error": ...}."""
@@ -105,7 +106,7 @@ def run(peticion: str, cancel, on_confirm, on_run=None) -> dict:
     entrada = peticion
     for _ronda in range(4):
         try:
-            st, d = _call("POST", "/v1/runs", {"input": entrada})
+            st, d = _call("POST", "/v1/runs", {"input": entrada}, session_key=session_key)
         except (OSError, RuntimeError) as e:
             return {"ok": False, "error": f"no llego a Aurora: {e}"}
         if st not in (200, 202) or "run_id" not in d:

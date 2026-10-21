@@ -166,6 +166,15 @@ url = "http://100.82.69.90:8642"
 timeout = 600                  # s máximos por petición
 session_key = "laura-escritorio"
 
+# Vigía: Laura se levanta sola para avisar de correo, eventos y tareas (solo en el escritorio).
+[vigia]
+enabled = true
+cada_min = 20
+aviso_evento_min = 30
+silencio_desde = "23:30"
+silencio_hasta = "08:00"
+tareas_estancadas_dias = 5
+
 # Ubicación de Alberto para la tool `tiempo`. Si lat/lon están vacíos se
 # geolocaliza por IP una vez y se cachea en ~/.local/share/laura/ubicacion.json.
 [ubicacion]

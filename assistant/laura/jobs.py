@@ -296,7 +296,7 @@ def _load(f: Path) -> dict | None:
 
 
 def list_jobs(limit: int = 10, horas: float | None = None) -> list[dict]:
-    metas = [m for f in JOBS_DIR.glob("*.json") if (m := _load(f))]
+    metas = [m for f in JOBS_DIR.glob("*.json") if (m := _load(f)) and not m.get("descartado")]
     if horas is not None:
         corte = time.time() - horas * 3600
         metas = [m for m in metas if (m.get("inicio") or 0) >= corte]
@@ -314,7 +314,9 @@ def to_event(meta: dict) -> dict:
             "titulo": meta["titulo"][:80], "resumen": meta.get("resumen", ""),
             "pregunta": meta.get("pregunta", ""), "nota": meta.get("nota", ""),
             "fuentes": meta.get("fuentes", []), "inicio": meta["inicio"],
-            "fin": meta.get("fin"), "leido": bool(meta.get("leido"))}
+            "fin": meta.get("fin"), "leido": bool(meta.get("leido")),
+            "origen": meta.get("origen", "alberto"), "tipo": meta.get("tipo", "trabajo"),
+            "prioridad": meta.get("prioridad", "normal")}
 
 
 def _alive(pid: int | None) -> bool:
@@ -365,11 +367,13 @@ class JobManager:
         self.on_confirm = on_confirm
         self._live: dict[str, _Live] = {}
         self._lock = threading.Lock()
+        self.announce_alert = None  # callable(frase) para avisos de prioridad alta
         self.launched = 0  # trabajos lanzados en esta vida del daemon (el ciclo lo usa para cerrarse)
 
     # -- API pública
     def start(self, destino: str, peticion: str, motivo: str = "", *, kind: str = "agent",
-              pregunta: str = "", ask_voice: bool = True, titulo: str = "") -> str:
+              pregunta: str = "", ask_voice: bool = True, titulo: str = "",
+              prompt: str = "") -> str:
         """Crea el trabajo y lo lanza en un hilo. Con `pregunta`, nace en `confirm` y solo
         arranca tras un sí. kind: agent (gemini/claude) | investigar | aurora."""
         self.launched += 1
@@ -377,7 +381,10 @@ class JobManager:
         meta = {"id": jid, "destino": destino, "kind": kind, "peticion": peticion,
                 "titulo": (titulo or peticion)[:80], "estado": "started", "resumen": "",
                 "pregunta": "", "nota": "", "fuentes": [], "leido": False,
-                "inicio": time.time(), "fin": None, "pid": os.getpid()}
+                "inicio": time.time(), "fin": None, "pid": os.getpid(),
+                "origen": "alberto", "tipo": "trabajo", "prioridad": "normal"}
+        if prompt:
+            meta["prompt"] = prompt
         live = _Live()
         with self._lock:
             self._live[jid] = live
@@ -430,6 +437,37 @@ class JobManager:
         _save(m)
         bus.emit(**to_event(m))
         return {"ok": True}
+
+    def dismiss(self, jid: str) -> dict:
+        m = get_job(jid)
+        if not m:
+            return {"ok": False, "error": "no existe ese trabajo"}
+        if m["estado"] not in FINAL:
+            return {"ok": False, "error": "sigue en curso: cancélalo"}
+        m.update(descartado=True, leido=True)
+        _save(m)
+        bus.emit(**{**to_event(m), "descartado": True})
+        return {"ok": True}
+
+    def post_aviso(self, titulo: str, resumen: str, prioridad: str = "normal",
+                   fuentes: list | None = None, cuerpo: str = "", speak: bool = True) -> str:
+        """Aviso proactivo del vigía: nace directamente en `done`, origen laura, tipo aviso."""
+        jid = uuid.uuid4().hex[:6]
+        now = time.time()
+        meta = {"id": jid, "destino": "laura", "kind": "aviso", "peticion": titulo,
+                "titulo": titulo[:80], "estado": "done", "resumen": resumen, "pregunta": "",
+                "nota": "", "fuentes": fuentes or [], "leido": False, "inicio": now, "fin": now,
+                "pid": os.getpid(), "origen": "laura", "tipo": "aviso", "prioridad": prioridad}
+        try:
+            meta["nota"] = notes.write_note(meta, cuerpo or resumen)
+        except Exception as e:  # noqa: BLE001
+            log(f"nota del aviso: {e}")
+        _save(meta)
+        bus.emit(**to_event(meta))
+        log(f"aviso {prioridad}: {resumen[:120]}")
+        if prioridad == "alta" and speak and self.announce_alert:
+            self.announce_alert(resumen)
+        return jid
 
     def active(self) -> int:
         return sum(1 for m in list_jobs(100) if m["estado"] not in FINAL and m["id"] in self._live)
@@ -496,7 +534,7 @@ class JobManager:
                 r = self._ask(meta, live, q, True)
                 return r
 
-            r = aurora.run(peticion, live.cancel, on_confirm,
+            r = aurora.run(meta.get("prompt") or peticion, live.cancel, on_confirm,
                            on_run=lambda rid: live_run.__setitem__("id", rid))
             if r.get("denegado"):
                 r["cancelado"] = True

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import queue
 import re
 import socket
@@ -16,6 +17,7 @@ from . import avisos
 from .escalation import (_confirm_and_run_escalation, _handle_auto_escalation,
                          _match_auto_case, voice_yes_no)
 from . import jobs as jobs_mod
+from . import vigia as vigia_mod
 from .jobs import JobManager, reap_orphans
 from .llm import Session, _mode_switch, converse
 from .stt import transcribe
@@ -184,28 +186,46 @@ def cycle(session: Session, jobs: JobManager, mode: str = "centro",
         bus.emit(type="state", value="idle", mode=mode)
 
 
+_DINGS = ["/usr/share/sounds/freedesktop/stereo/message-new-instant.oga",
+          "/usr/share/sounds/freedesktop/stereo/message.oga",
+          "/usr/share/sounds/freedesktop/stereo/complete.oga"]
+
+
+def ding() -> None:
+    """Sonido corto previo a un aviso de prioridad alta, con el audio de salida en exclusiva."""
+    f = next((d for d in _DINGS if os.path.exists(d)), None)
+    if not f:
+        return
+    with OUT.hold():
+        subprocess.run(["pw-play", f], capture_output=True, timeout=5)
+
+
 class Announcer:
     """Cola de avisos hablados (temporizadores, recordatorios, trabajos que
     terminan). Habla aunque no haya ciclo activo; si hay uno en curso, espera
     a que acabe. `busy()` dice si hay un ciclo en marcha."""
 
-    def __init__(self, busy, before=None, after=None, on_barge=None) -> None:
+    def __init__(self, busy, before=None, after=None, on_barge=None, muted=None) -> None:
         self._busy = busy
+        self._muted = muted or (lambda: False)
         self._on_barge = on_barge
         self._before = before
         self._after = after
         self._q: queue.Queue = queue.Queue()
         threading.Thread(target=self._loop, daemon=True).start()
 
-    def say(self, text: str, idle_only: bool = False) -> None:
+    def say(self, text: str, idle_only: bool = False, alert: bool = False) -> None:
         """Encola una frase. `idle_only`: si hay un ciclo en marcha cuando le toca, se descarta
         (los avisos de trabajos terminados no interrumpen ni se acumulan)."""
-        self._q.put((text, idle_only))
+        self._q.put((text, idle_only, alert))
 
     def _loop(self) -> None:
         while True:
-            text, idle_only = self._q.get()
+            text, idle_only, alert = self._q.get()
             if idle_only and self._busy():
+                continue
+            if self._muted():  # No molestar o pantalla completa: se queda en el orbe
+                log(f"no hablo (DND/pantalla completa): {text[:60]}")
                 continue
             while self._busy():
                 time.sleep(0.5)
@@ -214,6 +234,8 @@ class Announcer:
                 if self._before:
                     self._before()
                 OUT.clear_interrupt()
+                if alert:
+                    ding()
                 bus.emit(type="reply", value=text)
                 bus.emit(type="state", value="speaking", mode="centro")
                 speak(text)
@@ -254,13 +276,19 @@ def main() -> None:
     def busy() -> bool:
         return worker is not None and worker.is_alive()
 
+    ui: dict = {"dnd": False, "fullscreen": False}  # lo manda el QML con el comando `ui`
     announcer = Announcer(busy,
                           before=lambda: wake.pause() if wake is not None else None,
                           after=lambda: wake.resume() if wake is not None else None,
-                          on_barge=lambda: fire("centro"))
+                          on_barge=lambda: fire("centro"),
+                          muted=lambda: bool(ui.get("dnd") or ui.get("fullscreen")))
     confirm_q: queue.Queue = queue.Queue()
     jobs = JobManager(announcer.say, on_confirm=confirm_q.put)
     jobs_mod.set_manager(jobs)
+    jobs.announce_alert = lambda t: announcer.say("Alberto, " + t[0].lower() + t[1:], alert=True)
+    vig = vigia_mod.Vigia(jobs, ui)
+    vigia_mod.VIGIA = vig
+    vig.start()
 
     def confirmer() -> None:
         """Un trabajo en marcha (p. ej. Aurora) necesita un sí/no: cuando Laura esté libre
@@ -351,6 +379,18 @@ def main() -> None:
                 return {"ok": False, "error": "hay un ciclo en curso"}
             fire("centro", first_text=arg)
             return {"ok": True}
+        if cmd == "vigia-now":
+            vig.now()
+            return {"ok": True}
+        if cmd == "ui":
+            try:
+                d = json.loads(arg)
+                ui.update({k: bool(d[k]) for k in ("dnd", "fullscreen") if k in d})
+                return {"ok": True}
+            except (ValueError, TypeError) as e:
+                return {"ok": False, "error": f"ui: json no válido ({e})"}
+        if cmd == "job-dismiss":
+            return jobs.dismiss(arg)
         if cmd == "jobs":
             return {"jobs": [jobs_mod.to_event(m) for m in jobs_mod.list_jobs(500, horas=24)]}
         if cmd == "job-cancel":
