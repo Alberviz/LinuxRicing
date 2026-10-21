@@ -11,6 +11,7 @@ Lanza el shell con las MISMAS variables para que Quickshell se conecte aquí.
 - Control: `jobs`, `job-cancel <id>`, `job-confirm <id> yes|no`, `job-read <id>`,
   `job-follow <id>`; una línea JSON de respuesta.
 - Órdenes manuales por stdin o por --cmd-fifo (una por línea):
+    aviso <id> <baja|normal|alta> <resumen...>   (aviso del vigia, origen laura)
     start <id> <destino> <titulo...>      waiting <id>
     confirm <id> <pregunta...>            done <id> <resumen...>
     failed <id> <resumen...>              scene   (started->waiting->confirm->done + un failed)
@@ -51,7 +52,8 @@ def job_event(j: dict) -> dict:
 
 def set_job(jid: str, value: str, **kw) -> dict:
     j = jobs.setdefault(jid, {"id": jid, "destino": "laura", "titulo": jid, "resumen": "", "pregunta": "",
-                               "nota": "", "fuentes": [], "inicio": time.time(), "fin": None, "leido": False})
+                               "nota": "", "fuentes": [], "inicio": time.time(), "fin": None, "leido": False,
+                               "origen": "alberto", "tipo": "trabajo", "prioridad": "normal"})
     j["value"] = value
     j.update(kw)
     if value in ("done", "failed", "cancelled"):
@@ -105,6 +107,13 @@ def ctrl_client(c: socket.socket) -> None:
         elif parts[:1] == ["job-read"] and len(parts) > 1 and parts[1] in jobs:
             jobs[parts[1]]["leido"] = True
             emit(job_event(jobs[parts[1]]))
+        elif parts[:1] == ["job-dismiss"] and len(parts) > 1:
+            jobs.pop(parts[1], None)
+        elif parts[:1] == ["ui"]:
+            print("ui", line[3:], flush=True)
+        elif parts[:1] == ["vigia-now"]:
+            print("vigia-now", flush=True)
+            threading.Timer(1.0, lambda: command("aviso v%d normal Hay un correo nuevo del profesor de Algebra" % int(time.time() % 1000))).start()
         elif parts[:1] == ["job-follow"]:
             print("follow", parts[1:], flush=True)
         c.sendall((json.dumps(out, ensure_ascii=False) + "\n").encode())
@@ -160,6 +169,10 @@ def command(line: str) -> None:
         set_job(p[1], c, resumen=" ".join(line.split()[2:]),
                 nota=os.path.expanduser(f"~/LinuxRicing/vault/Laura/2026-10-20 {p[1]}.md"),
                 fuentes=[{"titulo": "ejemplo.org", "url": "https://example.org"}] if c == "done" else [])
+    elif c == "aviso":  # aviso <id> <baja|normal|alta> <resumen...>
+        set_job(p[1], "done", origen="laura", tipo="aviso", prioridad=p[2], destino="laura",
+                titulo="Aviso del vigia", resumen=" ".join(line.split()[3:]),
+                fuentes=[{"titulo": "Abrir en Gmail", "url": "https://mail.google.com"}])
     elif c == "scene":
         scene()
     elif c == "seed":
