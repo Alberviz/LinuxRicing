@@ -382,6 +382,12 @@ def main() -> None:
         if cmd == "vigia-now":
             vig.now()
             return {"ok": True}
+        if cmd == "aviso-test":  # depuración: `aviso-test <baja|normal|alta> <texto>` (aviso falso del vigía)
+            prio, _, texto = arg.partition(" ")
+            if prio not in ("baja", "normal", "alta"):
+                return {"ok": False, "error": "uso: aviso-test <baja|normal|alta> <texto>"}
+            jid = vig.jobs.post_aviso("Aviso de prueba", texto or "Esto es un aviso de prueba.", prio)
+            return {"ok": True, "id": jid}
         if cmd == "ui":
             try:
                 d = json.loads(arg)
