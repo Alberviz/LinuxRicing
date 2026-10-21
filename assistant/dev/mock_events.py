@@ -175,7 +175,7 @@ def command(line: str) -> None:
                 titulo="Aviso del vigia", resumen=" ".join(line.split()[3:]),
                 fuentes=[{"titulo": "Abrir en Gmail", "url": "https://mail.google.com"}])
     elif c == "state":      # state <idle|listening|thinking|speaking>
-        emit({"type": "state", "value": p[1], "mode": "centro"})
+        emit({"type": "state", "value": p[1], "mode": p[2] if len(p) > 2 else "centro"})
     elif c == "transcript":
         emit({"type": "transcript", "value": " ".join(line.split()[1:])})
     elif c == "reply":
