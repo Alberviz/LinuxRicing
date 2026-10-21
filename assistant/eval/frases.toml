@@ -679,3 +679,33 @@ grupo = "niveles"
 texto = "busca en mi Drive el documento de la factura"
 espera = ["pedir_a_aurora"]
 grupo = "niveles"
+
+[[frase]]
+texto = "apúntame una reunión con Marta mañana a las diez"
+espera = ["crear_evento"]
+grupo = "workspace"
+
+[[frase]]
+texto = "crea un evento el viernes a las cinco de la tarde que es el dentista"
+espera = ["crear_evento"]
+grupo = "workspace"
+
+[[frase]]
+texto = "mete en el calendario la entrega del trabajo el lunes a las nueve"
+espera = ["crear_evento"]
+grupo = "workspace"
+
+[[frase]]
+texto = "escríbele un correo a mi profesor pidiéndole una prórroga de la entrega"
+espera = ["redactar_correo"]
+grupo = "workspace"
+
+[[frase]]
+texto = "redáctale un correo a Lucía diciéndole que le mando los apuntes esta noche"
+espera = ["redactar_correo"]
+grupo = "workspace"
+
+[[frase]]
+texto = "qué correos nuevos tengo en la bandeja"
+espera = ["correo"]
+grupo = "workspace"

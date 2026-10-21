@@ -21,6 +21,7 @@ import subprocess
 import threading
 import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from .config import CFG, DATA_DIR, bus, log, notify
@@ -242,6 +243,29 @@ Formato de salida (markdown, en español):
 FINAL = ("done", "failed", "cancelled")
 
 
+_REDACTAR_BRIEF = """Eres el redactor de correos de Alberto, un estudiante de ingeniería español. Redacta UN correo
+en español, con su tono: cercano pero correcto, directo, sin florituras ni relleno, firmado «Alberto».
+Destinatario: {para}
+{asunto}Idea de lo que quiere decir: {idea}
+NO tienes herramientas: no busques ni envíes nada. Responde SOLO con un objeto JSON válido, sin markdown
+ni texto alrededor: {{"para": "<destinatario>", "asunto": "<asunto>", "cuerpo": "<texto del correo>"}}"""
+
+
+def build_redactar_prompt(para: str, idea: str, asunto: str = "") -> str:
+    return _REDACTAR_BRIEF.format(para=para, idea=idea, asunto=f"Asunto sugerido: {asunto}\n" if asunto else "")
+
+
+def parse_mail_json(texto: str) -> dict | None:
+    m = re.search(r"\{.*\}", texto, re.S)
+    if not m:
+        return None
+    try:
+        d = json.loads(m.group(0))
+    except ValueError:
+        return None
+    return d if isinstance(d, dict) and d.get("cuerpo") and d.get("asunto") else None
+
+
 def build_investigar_prompt(tema: str) -> str:
     return _INVESTIGAR_BRIEF.format(tema=tema)
 
@@ -373,7 +397,7 @@ class JobManager:
     # -- API pública
     def start(self, destino: str, peticion: str, motivo: str = "", *, kind: str = "agent",
               pregunta: str = "", ask_voice: bool = True, titulo: str = "",
-              prompt: str = "") -> str:
+              prompt: str = "", data: dict | None = None) -> str:
         """Crea el trabajo y lo lanza en un hilo. Con `pregunta`, nace en `confirm` y solo
         arranca tras un sí. kind: agent (gemini/claude) | investigar | aurora."""
         self.launched += 1
@@ -385,6 +409,8 @@ class JobManager:
                 "origen": "alberto", "tipo": "trabajo", "prioridad": "normal"}
         if prompt:
             meta["prompt"] = prompt
+        if data:
+            meta["data"] = data
         live = _Live()
         with self._lock:
             self._live[jid] = live
@@ -539,6 +565,20 @@ class JobManager:
             if r.get("denegado"):
                 r["cancelado"] = True
             return r
+        if kind == "evento":
+            from . import workspace
+            self._set(meta, "waiting")
+            d = meta["data"]
+            try:
+                r = workspace.crear_evento(d["titulo"], datetime.fromisoformat(d["inicio"]),
+                                           datetime.fromisoformat(d["fin"]), d.get("descripcion", ""))
+            except workspace.WorkspaceUnavailable as e:
+                return {"ok": False, "error": f"no pude crear el evento: {e}"}
+            fu = [{"titulo": "Ver evento", "url": r["url"]}] if r.get("url") else []
+            return {"ok": True, "texto": f"Evento creado: {d['titulo']} ({d['inicio']} – {d['fin']}).\n{r['texto']}",
+                    "resumen": f"Evento creado: {d['titulo']}", "fuentes": fu}
+        if kind == "redactar":
+            return self._redactar(meta, live)
         if kind == "comando":
             from . import shellguard
             self._set(meta, "waiting")
@@ -564,6 +604,41 @@ class JobManager:
                        effort=ecfg.get("effort_confirm", "high"),
                        timeout=ecfg.get("timeout_confirm", 180),
                        add_dir=extra_dirs, cancel=live.cancel)
+
+    def _redactar(self, meta: dict, live: _Live) -> dict:
+        """Gemini (agy, solo texto) redacta; Alberto confirma (voz o tarjeta); el envío lo hace
+        Aurora con un prompt que lo da por confirmado. Laura no escribe en Gmail."""
+        from . import aurora
+        d = meta["data"]
+        ecfg = CFG.get("escalation", {})
+        self._set(meta, "waiting")
+        r = run_agy(build_redactar_prompt(d["para"], d["idea"], d.get("asunto", "")),
+                    model=ecfg.get("model_confirm", "gemini-3.1-pro-high"),
+                    effort=ecfg.get("effort_confirm", "medium"), timeout=120,
+                    cancel=live.cancel, readonly=True)
+        if not r.get("ok"):
+            return r
+        mail = parse_mail_json(r["texto"])
+        if mail is None:
+            return {"ok": False, "error": "Gemini no devolvió el correo en el formato esperado"}
+        para = mail.get("para") or d["para"]
+        cuerpo_txt = (f"Para: {para}\nAsunto: {mail['asunto']}\n\n{mail['cuerpo']}")
+        meta["pregunta_voz"] = "Te lo he escrito, ¿lo envío?"
+        meta["resumen"] = cuerpo_txt[:300]
+        ok = self._ask(meta, live, "Te lo he escrito, ¿lo envío?\n\n" + cuerpo_txt, True)
+        if not ok:
+            return {"ok": False, "cancelado": True, "error": "cancelado", "texto": cuerpo_txt}
+        envio = ("Alberto YA lo ha confirmado: envía EXACTAMENTE este correo, sin cambiar nada "
+                 f"(ni destinatario, ni asunto, ni texto):\nPara: {para}\nAsunto: {mail['asunto']}\n"
+                 f"Cuerpo:\n{mail['cuerpo']}\nResponde solo «Enviado» cuando esté enviado.")
+        live_run: dict = {}
+        live.stop_remote = lambda: aurora.stop(live_run.get("id", ""))
+        a = aurora.run(envio, live.cancel, lambda q: not live.cancel.is_set(),
+                       on_run=lambda rid: live_run.__setitem__("id", rid))
+        if not a.get("ok"):
+            return a
+        return {"ok": True, "texto": f"Correo enviado.\n\n{cuerpo_txt}\n\nAurora: {a['texto']}",
+                "resumen": f"Correo enviado a {para}: {mail['asunto']}"}
 
     def _investigar_local(self, tema: str, live: _Live) -> dict:
         """Laura sola: buscar_web + resumen con el modelo local."""

@@ -31,8 +31,8 @@ timeout = 45           # segundos por llamada a Ollama antes de rendirse
 history_msgs = 12      # mensajes de historial que se conservan (además del system)
 system_prompt = """
 Eres Laura, el asistente de voz local de Alberto en su escritorio Linux. Respondes SIEMPRE en español, en una o dos frases cortas para leerse en voz alta: sin markdown, listas ni emojis. Si la petición implica una acción o consulta del ordenador, usa la herramienta y luego confirma en una frase; nunca digas que lo has hecho sin usarla, ni contestes de memoria el estado de algo (wifi, batería, luces, tareas, trabajos, lo que sabes de Alberto): consúltalo.
-Guía: temporizador = dentro de N minutos; recordatorio = a una hora del reloj («a las 18:30»). Sitios web = abrir_web; programas = abrir_app. «Pon en curso/hecha X» = cambiar_estado. «Recuerda/apunta que…» sobre Alberto = recordar. De listar_tareas di el campo «decir» literal. «Qué sabes de mí» = que_sabes_de_mi; «cómo va lo que mandé» = estado_trabajos; «hay algo nuevo» = novedades; «traduce lo copiado» = leer_portapapeles; «pega/escribe aquí» = pegar_texto; «qué dice este error» = leer_pantalla. Servicios, procesos, disco, git o logs del sistema = ejecutar_comando (servicios de usuario: «systemctl --user list-units --failed»; nunca digas que no puedes consultarlos). Si pide redactar un texto, cópialo con copiar_al_portapapeles sin leerlo entero.
-Quién hace qué: lo instantáneo lo haces tú con tus herramientas (buscar_web para un dato rápido). Correo = correo («mírame los correos»), calendario = agenda («qué tengo mañana»), «redáctale un correo a…» = redactar_correo; Drive, Docs o recados = pedir_a_aurora. Investigar a fondo («infórmate de…», comparativas) = investigar. Si no tienes herramienta para algo del ordenador o del código, escala; nunca digas solo «no puedo». Cambio mediano (un widget, un script, un ajuste: «reloj en 12 horas», «color de la barra», «arregla el script de la batería») = escalar_a_gemini. Trabajo gordo (feature nueva, varios archivos, un tema o modo completo, app nueva, refactor) = escalar_a_claude. Alberto confirma antes de las escaladas; tú pasa la petición resumida y un motivo breve.
+Guía: temporizador = dentro de N minutos; recordatorio = a una hora del reloj («a las 18:30»). Sitios web = abrir_web; programas = abrir_app. «Pon en curso/hecha X» = cambiar_estado. «Recuerda/apunta que…» sobre Alberto = recordar. De listar_tareas di el campo «decir» literal. «Qué sabes de mí» = que_sabes_de_mi; «olvida…» = olvidar; «cómo va / ya terminó lo que mandé» = estado_trabajos (siempre llámala); «hay algo nuevo» = novedades; «traduce lo copiado» = leer_portapapeles; «pega/escribe aquí» = pegar_texto; «qué dice este error» = leer_pantalla. Servicios, procesos, disco, git o logs del sistema = ejecutar_comando (servicios de usuario: «systemctl --user list-units --failed»; nunca digas que no puedes consultarlos). Si pide redactar un texto, cópialo con copiar_al_portapapeles sin leerlo entero.
+Quién hace qué: lo instantáneo lo haces tú con tus herramientas (buscar_web para un dato rápido). Correo = correo («mírame los correos», «tengo algún correo de X»), calendario = agenda («qué tengo mañana»; di su campo «decir» literal), «apúntame/crea un evento…» = crear_evento (pide confirmación), «redáctale/escríbele un correo a… pidiéndole/diciéndole…» = redactar_correo (no hace falta preguntar más); Drive («busca en mi Drive…»), Docs o recados = pedir_a_aurora (llámala, no contestes tú). Investigar a fondo («infórmate de…», comparativas) = investigar. Si no tienes herramienta para algo del ordenador o del código, escala; nunca digas solo «no puedo». Cambio mediano (un widget, el formato de un reloj, un atajo de Hyprland, un script, un ajuste: «reloj en 12 horas», «color de la barra», «arregla el script de la batería») = escalar_a_gemini. Trabajo gordo (feature nueva, varios archivos, un tema o modo completo, app nueva, refactor) = escalar_a_claude. Alberto confirma antes de las escaladas; tú pasa la petición resumida y un motivo breve.
 """
 
 [wake]
@@ -155,14 +155,23 @@ url = "http://100.82.69.90:8642"
 timeout = 600                  # s máximos por petición
 session_key = "laura-escritorio"
 
+# Google Workspace directo (workspace-mcp local, sin LLM). Si no responde, correo/agenda/vigía
+# caen a Aurora. Ver docs/laura-v2/WORKSPACE.md.
+[workspace]
+enabled = true
+url = "http://127.0.0.1:8765/mcp"
+timeout = 20
+email = "albvizpon@gmail.com"   # cuenta de Google (user_google_email que exigen las herramientas)
+
 # Vigía: Laura se levanta sola para avisar de correo, eventos y tareas (solo en el escritorio).
 [vigia]
 enabled = true
-cada_min = 20
+cada_min = 5               # sin LLM en la ruta normal, se puede revisar a menudo
 aviso_evento_min = 30
 silencio_desde = "23:30"
 silencio_hasta = "08:00"
 tareas_estancadas_dias = 5
+remitentes_importantes = ["edu", ".ac.", "universidad", "universit", "uj.edu.pl"]  # fragmentos de dominio/remitente que suben a alta
 
 # Ubicación de Alberto para la tool `tiempo`. Si lat/lon están vacíos se
 # geolocaliza por IP una vez y se cachea en ~/.local/share/laura/ubicacion.json.

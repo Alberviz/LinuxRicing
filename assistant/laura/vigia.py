@@ -78,6 +78,19 @@ def in_quiet_hours(now: datetime | None = None) -> bool:
     return (t >= a or t < b) if a > b else (a <= t < b)
 
 
+_URGENCIA = re.compile(r"\b(plazo|entrega|pago|factura|examen|urgente|vuelo|hoy|mañana|manana|vence|caduca)\b", re.I)
+
+
+def prioridad_correo(m: dict, cuerpo: str, c: dict) -> str:
+    """normal para la bandeja principal, baja para Notificaciones; alta con palabras de urgencia
+    o remitente importante (p. ej. la universidad)."""
+    de = m.get("de", "").lower()
+    if any(x.lower() in de for x in c.get("remitentes_importantes", [])) or \
+            _URGENCIA.search(f"{m.get('asunto', '')} {cuerpo[:300]}"):
+        return "alta"
+    return "baja" if "CATEGORY_UPDATES" in m.get("etiquetas", "") else "normal"
+
+
 def extract_json(texto: str) -> dict | None:
     m = re.search(r"\{.*\}", texto, re.S)
     if not m:
@@ -162,7 +175,7 @@ class Vigia:
                 nuevos += 1
                 self.jobs.post_aviso(titulo, resumen, prioridad, fuentes, cuerpo)
 
-            for c in self._aurora(vistos):
+            for c in self._remoto(vistos):
                 aviso(*c)
             for c in self._local():
                 aviso(*c)
@@ -170,6 +183,53 @@ class Vigia:
             _save(st)
             log(f"vigía: revisión hecha, {nuevos} aviso(s) nuevo(s){' (inicial, silenciosa)' if silent else ''}")
             return nuevos
+
+    def _remoto(self, vistos: dict) -> list[tuple]:
+        """Workspace directo (sin LLM); si el servidor no responde, el respaldo de siempre: Aurora."""
+        from . import workspace
+        if workspace.enabled():
+            try:
+                return self._workspace(vistos)
+            except workspace.WorkspaceAuthRequired as e:
+                log(f"vigía: Workspace sin autenticar ({e}); respaldo a Aurora")
+                aviso = [(f"auth:{datetime.now():%Y-%m-%d}", "Google necesita autorización",
+                          "Laura necesita que autorices Google para leer tu correo y calendario.", "baja",
+                          [{"titulo": "Autorizar", "url": e.url}] if e.url else [], e.url)]
+                return aviso + self._aurora(vistos)
+            except workspace.WorkspaceUnavailable as e:
+                log(f"vigía: Workspace no disponible ({e}); respaldo a Aurora")
+        return self._aurora(vistos)
+
+    def _workspace(self, vistos: dict) -> list[tuple]:
+        from datetime import timedelta
+
+        from . import workspace
+        c = _cfg()
+        out: list[tuple] = []
+        msgs = workspace.buscar_correos(workspace.combinar("is:unread newer_than:1d"), 10)
+        for m in msgs:
+            clave = f"mail:{m['id']}"
+            if clave in vistos:
+                continue
+            try:
+                cuerpo = workspace.leer_correo(m["id"], 400)
+            except workspace.WorkspaceUnavailable:
+                cuerpo = ""
+            prio = prioridad_correo(m, cuerpo, c)
+            fu = [{"titulo": "Abrir en Gmail", "url": m["url"]}] if m.get("url") else []
+            de = m["de"].split("<")[0].strip().strip('"') or m["de"]
+            out.append((clave, f"Correo de {de}", f"Correo de {de}: {m['asunto']}", prio, fu,
+                        f"De: {m['de']}\nAsunto: {m['asunto']}\nFecha: {m['fecha']}\n\n{cuerpo}"))
+        ahora = datetime.now().astimezone()
+        mins = int(c.get("aviso_evento_min", 30))
+        for e in workspace.eventos(ahora, ahora + timedelta(minutes=mins), 5):
+            if not re.search(r"[T ]\d{2}:\d{2}", e["inicio"]):
+                continue  # evento de todo el día
+            hora = re.search(r"[T ](\d{2}:\d{2})", e["inicio"]).group(1)
+            fu = [{"titulo": "Ver evento", "url": e["url"]}] if e.get("url") else []
+            out.append((f"ev:{e['id']}:{e['inicio']}", f"Evento: {e['titulo']}",
+                        f"Evento a las {hora}: {e['titulo']}", "alta", fu, json.dumps(e, ensure_ascii=False, indent=1)))
+        return out
 
     def _aurora(self, vistos: dict) -> list[tuple]:
         from . import aurora
