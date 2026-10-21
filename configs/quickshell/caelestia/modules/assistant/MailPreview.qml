@@ -37,7 +37,7 @@ Rectangle {
             textFormat: Text.StyledText
             elide: Text.ElideRight
             color: Colours.palette.m3onSurfaceVariant
-            font.pixelSize: 12.5
+            font.pixelSize: 13
             text: `Para <b><font color="${Colours.palette.m3onSurface}">${root.mail.para ?? ""}</font></b> · Asunto <b><font color="${Colours.palette.m3onSurface}">${root.mail.asunto ?? ""}</font></b>`
         }
         StyledText {

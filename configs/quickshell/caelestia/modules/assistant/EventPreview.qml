@@ -24,6 +24,8 @@ Rectangle {
         const h = Math.floor(m / 60), r = m % 60;
         return h > 0 ? (r > 0 ? h + " h " + r + " min" : h + " h") : r + " min";
     }
+    readonly property var _dias: ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"]
+    readonly property var _meses: ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEP", "OCT", "NOV", "DIC"]
     function _t(d): string {
         return d.getHours() + ":" + (d.getMinutes() < 10 ? "0" : "") + d.getMinutes();
     }
@@ -68,9 +70,9 @@ Rectangle {
 
                     StyledText {
                         anchors.centerIn: parent
-                        text: Qt.formatDate(root.d0, "MMM").toUpperCase().replace(".", "")
+                        text: root._meses[root.d0.getMonth()]
                         color: "#2a1d00"
-                        font.pixelSize: 9.5
+                        font.pixelSize: 10
                         font.weight: Font.ExtraBold
                     }
                 }
@@ -91,7 +93,7 @@ Rectangle {
                     Layout.fillWidth: true
                     text: root.ev.titulo ?? ""
                     elide: Text.ElideRight
-                    font.pixelSize: 14.5
+                    font.pixelSize: 15
                     font.weight: Font.DemiBold
                 }
                 StyledText {
@@ -99,8 +101,8 @@ Rectangle {
                     elide: Text.ElideRight
                     textFormat: Text.StyledText
                     color: Colours.palette.m3onSurfaceVariant
-                    text: `${Qt.formatDate(root.d0, "dddd d")} · <b><font color="${root.created ? root.okCol : Laura.cWait}">${root._t(root.d0)}–${root._t(root.d1)}</font></b> (${root._dur(root.mins)})`
-                    font.pixelSize: 12.5
+                    text: `${root._dias[root.d0.getDay()]} ${root.d0.getDate()} · <b><font color="${root.created ? root.okCol : Laura.cWait}">${root._t(root.d0)}–${root._t(root.d1)}</font></b> (${root._dur(root.mins)})`
+                    font.pixelSize: 13
                 }
             }
         }
@@ -150,7 +152,7 @@ Rectangle {
             maximumLineCount: root.full ? 8 : 2
             elide: Text.ElideRight
             color: Colours.palette.m3onSurfaceVariant
-            font.pixelSize: 12.5
+            font.pixelSize: 13
         }
     }
 }

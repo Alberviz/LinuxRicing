@@ -142,7 +142,7 @@ Rectangle {
                 elide: Text.ElideRight
                 text: chip.txt
                 color: chip.txtCol
-                font.pixelSize: 11.5
+                font.pixelSize: 12
                 font.bold: chip.tone === "cfm"
             }
         }

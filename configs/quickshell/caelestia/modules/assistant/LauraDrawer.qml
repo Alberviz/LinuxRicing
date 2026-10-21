@@ -303,7 +303,7 @@ StyledWindow {
 
                                     anchors.centerIn: parent
                                     text: "Buscar novedades"
-                                    font.pixelSize: 11.5
+                                    font.pixelSize: 12
                                 }
                             }
                         }
@@ -389,58 +389,57 @@ StyledWindow {
                                 required property var modelData
 
                                 sourceComponent: modelData.k === "hdr" ? hdrC : jobC
-                                implicitWidth: item ? item.implicitWidth : 0
-                                implicitHeight: item ? item.implicitHeight : 0
-                                width: implicitWidth
-                                height: implicitHeight
-                            }
-                        }
+                                width: item ? item.implicitWidth : 0
+                                height: item ? item.implicitHeight : 0
 
-                        Component {
-                            id: hdrC
+                                Component {
+                                    id: hdrC
 
-                            Item {
-                                readonly property var m: ld.modelData
+                                    Item {
+                                        readonly property var m: ld.modelData
 
-                                implicitWidth: grid.width
-                                implicitHeight: 24
+                                        implicitWidth: grid.width
+                                        implicitHeight: 24
 
-                                Row {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    anchors.verticalCenterOffset: 4
-                                    width: parent.width
-                                    spacing: 9
+                                        Row {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            anchors.verticalCenterOffset: 4
+                                            width: parent.width
+                                            spacing: 9
 
-                                    StyledText {
-                                        id: hl
+                                            StyledText {
+                                                id: hl
 
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        text: (m.label + " · " + m.n).toUpperCase()
-                                        color: m.tone === "wait" ? Laura.cWait : m.tone === "own" ? Colours.palette.m3tertiary : Colours.palette.m3onSurfaceVariant
-                                        font.pixelSize: 10.5
-                                        font.bold: true
-                                        font.letterSpacing: 1.2
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: (m.label + " · " + m.n).toUpperCase()
+                                                color: m.tone === "wait" ? Laura.cWait : m.tone === "own" ? Colours.palette.m3tertiary : Colours.palette.m3onSurfaceVariant
+                                                font.pixelSize: 11
+                                                font.bold: true
+                                                font.letterSpacing: 1.2
+                                            }
+                                            Rectangle {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                width: parent.width - hl.width - 9
+                                                height: 1
+                                                color: Qt.alpha(Colours.palette.m3onSurface, 0.11)
+                                            }
+                                        }
                                     }
-                                    Rectangle {
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        width: parent.width - hl.width - 9
-                                        height: 1
-                                        color: Qt.alpha(Colours.palette.m3onSurface, 0.11)
+                                }
+
+                                Component {
+                                    id: jobC
+
+                                    LauraJobCard {
+                                        jid: ld.modelData.id
+                                        flowW: grid.width
+                                        nowSec: win.nowSec
+                                        clock: win.clock
                                     }
                                 }
                             }
                         }
 
-                        Component {
-                            id: jobC
-
-                            LauraJobCard {
-                                jid: ld.modelData.id
-                                flowW: grid.width
-                                nowSec: win.nowSec
-                                clock: win.clock
-                            }
-                        }
                     }
 
                     StyledText {

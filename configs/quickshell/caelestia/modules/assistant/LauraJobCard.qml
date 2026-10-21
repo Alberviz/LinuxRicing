@@ -33,7 +33,7 @@ Item {
     readonly property bool isEvt: !!job.evento
     readonly property bool isMail: !!job.correo
     readonly property bool final: kind === "done" || kind === "fail"
-    readonly property bool wide: cfm || open
+    readonly property bool wide: cfm || open || (isEvt && (kind === "done" || kind === "agent"))
     readonly property color agentCol: Laura.agentColor(aviso ? "laura" : destino)
     readonly property color tert: Colours.palette.m3tertiary
     readonly property color okCol: "#6fdcb4"
@@ -157,7 +157,8 @@ Item {
             anchors.centerIn: parent
             text: btn.label
             color: btn.solid ? "#2a1d00" : btn.tone
-            font: Tokens.font.label.small
+            font.family: Tokens.font.label.small.family
+            font.pixelSize: Tokens.font.label.small.pixelSize
             font.bold: btn.solid
         }
         MouseArea {
@@ -244,7 +245,7 @@ Item {
                 anchors.centerIn: parent
                 text: "🔔 POR SU CUENTA"
                 color: Colours.palette.m3surface
-                font.pixelSize: 9.5
+                font.pixelSize: 10
                 font.weight: Font.ExtraBold
                 font.letterSpacing: 0.8
             }
@@ -303,7 +304,8 @@ Item {
                         anchors.centerIn: parent
                         text: "● OK"
                         color: Laura.cWait
-                        font: Tokens.font.label.small
+                        font.family: Tokens.font.label.small.family
+                        font.pixelSize: Tokens.font.label.small.pixelSize
                         font.bold: true
                     }
                 }
@@ -316,7 +318,7 @@ Item {
                 text: Laura.agentName(card.destino) + " · " + card.timeLabel + (card.job.titulo ? " · " + card.job.titulo : "")
                 elide: Text.ElideRight
                 color: Colours.palette.m3onSurfaceVariant
-                font.pixelSize: 12.5
+                font.pixelSize: 13
             }
 
             // vista previa: evento o borrador
@@ -340,7 +342,7 @@ Item {
                 text: card.job.pregunta ?? ""
                 wrapMode: Text.Wrap
                 color: Colours.palette.m3onSurface
-                font.pixelSize: 12.5
+                font.pixelSize: 13
             }
 
             // resumen (2 líneas compacta; completo si está abierta)
@@ -352,7 +354,7 @@ Item {
                 maximumLineCount: card.open ? 12 : 2
                 elide: Text.ElideRight
                 color: card.open ? Colours.palette.m3onSurface : Colours.palette.m3onSurfaceVariant
-                font.pixelSize: 12.5
+                font.pixelSize: 13
                 lineHeight: 1.05
             }
 
