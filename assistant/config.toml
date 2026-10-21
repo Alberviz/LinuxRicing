@@ -44,7 +44,7 @@ threshold = 0.5        # 0..1. Súbelo (0.6-0.7) si hay disparos falsos.
 cooldown = 3.0         # segundos "sordo" tras un disparo (evita re-triggers).
 
 [tts]
-# Motores en laura/engines/ (un fichero por motor): kokoro | piper | edge | http | pocket | omnivoice.
+# Motores en laura/engines/ (un fichero por motor): kokoro | piper | edge | voicestudio | http | pocket | omnivoice.
 # Si el principal falla se prueba la cadena `fallbacks` (y si el principal es edge,
 # kokoro entra primero). Un motor que falla se aparca 2 min.
 engine = "kokoro"         # voz local en GPU
@@ -59,6 +59,15 @@ voice = "es_ES-davefx-medium"   # modelo en ~/.local/share/piper/voices/
 
 [tts.edge]                # nube de Microsoft (hoy da 403 con edge-tts 7.2.8)
 voice = "es-ES-ElviraNeural"
+
+# VoiceStudio (voz propia clonada o diseñada) por MCP Streamable HTTP. Para usarlo:
+# instalar VoiceStudio, crear la voz (design_voice / clone_voice), copiar su profile_id aquí
+# y poner `[tts] engine = "voicestudio"` (con fallbacks = ["kokoro", "piper"]). Ver README.
+[tts.voicestudio]
+url = "http://127.0.0.1:3900/mcp/"
+profile_id = ""
+language = "Spanish"
+timeout = 60
 
 # Voz propia servida aparte (VoiceStudio en :3900, OmniVoice, PocketTTS…).
 # Para usarla: engine = "http". Ver laura/engines/http.py para el contrato.

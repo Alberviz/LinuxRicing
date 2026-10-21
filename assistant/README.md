@@ -91,6 +91,14 @@ sigue funcionando igual.
   (nube), `http` (POST a una URL que devuelve un WAV: VoiceStudio :3900, OmniVoice,
   PocketTTS servidos aparte, con `ref_audio`/`ref_text` para clonar), y stubs
   `pocket`/`omnivoice`. Cadena: `[tts] engine` + `fallbacks`.
+- **Voz propia con VoiceStudio** (motor `voicestudio`, MCP Streamable HTTP, solo `requests`;
+  probado únicamente contra un servidor simulado: `python tests/mock_voicestudio.py`). Para activarlo:
+  1. Instala y arranca VoiceStudio (backend en `http://127.0.0.1:3900`).
+  2. Crea la voz por MCP con `design_voice` (descripción) o `clone_voice` (audio de referencia)
+     y copia el `profile_id` que devuelve.
+  3. En `config.toml`: `[tts.voicestudio] profile_id = "…"` y
+     `[tts] engine = "voicestudio"`, `fallbacks = ["kokoro", "piper"]`. Si VoiceStudio no
+     responde, el motor se aparca 2 min y entra kokoro.
 - **Un solo dueño del audio**: `laura/output.py` (lock de hilos + flock de fichero);
   avisos, respuestas y confirmaciones nunca se solapan, ni siquiera entre procesos.
   Pulsar el atajo mientras Laura habla corta la voz y pasa a escuchar.
