@@ -75,10 +75,12 @@ def agenda(cuando: str = "hoy") -> dict:
        "idea": {"type": "string", "description": "qué quiere decir Alberto"}},
       required=["para", "idea"], icon="drafts")
 def redactar_correo(para: str, idea: str, asunto: str = "") -> dict:
-    p = (f"Redacta un correo para {para}" + (f" con asunto «{asunto}»" if asunto else "") +
-         f" con esta idea: {idea}. Crea SOLO UN BORRADOR en Gmail; NO lo envíes. "
-         "Cuando esté, muestra el texto del borrador y termina preguntando «¿Lo envío?». "
-         "Solo si Alberto responde que sí, envíalo. " + _FORMATO)
+    p = ("REGLA ABSOLUTA: NO ENVÍES NINGÚN CORREO en este paso; está prohibido, aunque el usuario lo pida. "
+         "Tu única acción permitida es CREAR UN BORRADOR en Gmail (herramienta de borradores). Si no puedes "
+         "crear borradores, no envíes nada: limítate a escribir el texto. "
+         f"Redacta un correo para {para}" + (f" con asunto «{asunto}»" if asunto else "") +
+         f" con esta idea: {idea}. Responde con el texto del borrador y termina EXACTAMENTE con la pregunta "
+         "«¿Lo envío?». No envíes nada hasta recibir un «sí» explícito después. " + _FORMATO)
     jid = _manager().start("aurora", p, kind="aurora", titulo=f"Borrador para {para}", prompt=p)
     return {"ok": True, "id": jid, "resumen": "Preparando el borrador"}
 

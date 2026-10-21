@@ -24,7 +24,7 @@ import urllib.request
 
 from .config import CFG, log
 
-_ASK = re.compile(r"(confirm|proced|adelante|autoriz|de acuerdo|quieres que|lo hago|te parece|continu)", re.I)
+_ASK = re.compile(r"(confirm|proced|adelante|autoriz|de acuerdo|quieres que|lo hago|te parece|continu|\benv[ií]o\b|\benv[ií]e|lo mando|envi)", re.I)
 
 
 def _cfg() -> dict:
@@ -56,7 +56,11 @@ def _call(method: str, path: str, body: dict | None = None, timeout: float = 20,
 
 def pregunta_final(texto: str) -> str | None:
     """Si el texto termina con una pregunta de confirmación, la devuelve (último párrafo)."""
-    t = texto.strip()
+    # ignorar las líneas finales que son solo URLs (Aurora las añade tras la pregunta)
+    lineas = texto.strip().splitlines()
+    while lineas and re.fullmatch(r"\s*(<?https?://\S+>?|)\s*", lineas[-1]):
+        lineas.pop()
+    t = "\n".join(lineas).strip()
     if not t.endswith(("?", "?»", "?\"")):
         return None
     partes = [p.strip() for p in t.split("\n\n") if p.strip()]
