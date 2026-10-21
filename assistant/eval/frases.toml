@@ -623,3 +623,59 @@ texto = "pon en curso lo de seguir avanzando en Laura"
 espera = ["cambiar_estado"]
 args = [{estado = "en-curso"}]
 grupo = "tareas"
+
+[[frase]]
+texto = "mírame los correos"
+espera = ["correo"]
+grupo = "niveles"
+
+[[frase]]
+texto = "tengo algún correo de la universidad"
+espera = ["correo"]
+args = [{consulta = "universidad"}]
+grupo = "niveles"
+
+[[frase]]
+texto = "qué tengo mañana en el calendario"
+espera = ["agenda"]
+grupo = "niveles"
+
+[[frase]]
+texto = "cuál es mi próximo evento"
+espera = ["agenda"]
+grupo = "niveles"
+
+[[frase]]
+texto = "redáctale un correo a Marta diciéndole que llego tarde a la reunión"
+espera = ["redactar_correo"]
+grupo = "niveles"
+
+[[frase]]
+texto = "hay algo nuevo"
+espera = ["novedades"]
+grupo = "niveles"
+
+[[frase]]
+texto = "sube el volumen un diez"
+espera = ["volumen"]
+grupo = "niveles"
+
+[[frase]]
+texto = "infórmate de las diferencias entre Wayland y X11 y compáramelas"
+espera = ["investigar"]
+grupo = "niveles"
+
+[[frase]]
+texto = "arregla el script de la batería que da mal el porcentaje"
+espera = ["escalar_a_gemini"]
+grupo = "niveles"
+
+[[frase]]
+texto = "quiero una app nueva de gastos con varios módulos y base de datos"
+espera = ["escalar_a_claude"]
+grupo = "niveles"
+
+[[frase]]
+texto = "busca en mi Drive el documento de la factura"
+espera = ["pedir_a_aurora"]
+grupo = "niveles"
