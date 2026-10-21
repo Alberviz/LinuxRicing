@@ -152,8 +152,29 @@ def _exec(cmd: list[str], timeout: float, cwd: str | None = None,
     return {"ok": True, "texto": out}
 
 
+_KNOWN_PROJECTS = {
+    "krakount": os.path.expanduser("~/proyectos/krakount"),
+    "cracount": os.path.expanduser("~/proyectos/krakount"),
+    "linuxricing": os.path.expanduser("~/LinuxRicing"),
+    "minecraft": os.path.expanduser("~/minecraft-server"),
+    "gym": os.path.expanduser("~/gym-bot"),
+    "universidad": os.path.expanduser("~/Documentos/Universidad"),
+    "barberbot": os.path.expanduser("~/barber-bot"),
+    "vuelosviajes": os.path.expanduser("~/vuelos-viajes"),
+    "weblaura": os.path.expanduser("~/web-laura"),
+}
+
+
+def _detect_project_dir(text: str) -> str | None:
+    t = text.lower()
+    for k, p in _KNOWN_PROJECTS.items():
+        if k in t:
+            return p
+    return None
+
+
 def run_agy(prompt: str, model: str, effort: str, timeout: float,
-            add_dir: str | None = None,
+            add_dir: str | list[str] | None = None,
             cancel: threading.Event | None = None,
             readonly: bool = False) -> dict:
     """Lanza `agy -p <prompt> --model ... --effort ...`. `readonly`: investigación sin
@@ -170,14 +191,17 @@ def run_agy(prompt: str, model: str, effort: str, timeout: float,
     cmd = [agy_bin, "-p", prompt, "--model", model, "--effort", effort,
            "--dangerously-skip-permissions"]
     if add_dir:
-        cmd += ["--add-dir", os.path.expanduser(add_dir)]
+        dirs = [add_dir] if isinstance(add_dir, str) else add_dir
+        for d in dirs:
+            cmd += ["--add-dir", os.path.expanduser(d)]
     if readonly:
         cmd += ["--sandbox"]
     log(f"agy: {model}/{effort} -> {prompt[:80]!r}…")
     return _exec(cmd, timeout, cancel=cancel, quien="Gemini")
 
 
-def run_claude(prompt: str, cancel: threading.Event | None = None) -> dict:
+def run_claude(prompt: str, cancel: threading.Event | None = None,
+               cwd: str | None = None) -> dict:
     """Lanza `claude -p <brief> --output-format json --permission-mode acceptEdits`
     en el cwd configurado ([escalation.claude])."""
     ccfg = CFG.get("escalation", {}).get("claude", {})
@@ -185,9 +209,9 @@ def run_claude(prompt: str, cancel: threading.Event | None = None) -> dict:
            "--output-format", "json", "--permission-mode", "acceptEdits"]
     if ccfg.get("model"):
         cmd += ["--model", ccfg["model"]]
-    cwd = os.path.expanduser(ccfg.get("cwd", "~/LinuxRicing"))
-    log(f"claude: {ccfg.get('model')} en {cwd} -> {prompt[:80]!r}…")
-    r = _exec(cmd, float(ccfg.get("timeout", 1800)), cwd=cwd, cancel=cancel, quien="Claude")
+    work_dir = os.path.expanduser(cwd or ccfg.get("cwd", "~/LinuxRicing"))
+    log(f"claude: {ccfg.get('model')} en {work_dir} -> {prompt[:80]!r}…")
+    r = _exec(cmd, float(ccfg.get("timeout", 1800)), cwd=work_dir, cancel=cancel, quien="Claude")
     if not r["ok"]:
         return r
     try:
@@ -487,13 +511,17 @@ class JobManager:
                                cancel=live.cancel, readonly=True)
             return self._investigar_local(peticion, live)
         self._set(meta, "waiting")
+        proj_dir = _detect_project_dir(peticion)
         if destino == "claude":
-            return run_claude(build_claude_prompt(peticion, motivo), live.cancel)
+            return run_claude(build_claude_prompt(peticion, motivo), live.cancel, cwd=proj_dir)
+        extra_dirs = [ecfg.get("add_dir", "~/LinuxRicing")]
+        if proj_dir and proj_dir not in extra_dirs:
+            extra_dirs.append(proj_dir)
         return run_agy(build_gemini_prompt(peticion, motivo),
                        model=ecfg.get("model_confirm", "gemini-4-argon-high"),
                        effort=ecfg.get("effort_confirm", "high"),
                        timeout=ecfg.get("timeout_confirm", 180),
-                       add_dir=ecfg.get("add_dir") or None, cancel=live.cancel)
+                       add_dir=extra_dirs, cancel=live.cancel)
 
     def _investigar_local(self, tema: str, live: _Live) -> dict:
         """Laura sola: buscar_web + resumen con el modelo local."""

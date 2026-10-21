@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Wrapper para ejecutar el script de pruebas de voz usando el venv del asistente
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV_PYTHON="$SCRIPT_DIR/.venv/bin/python"
+
+if [ ! -f "$VENV_PYTHON" ]; then
+    echo "[!] No se encontró el entorno virtual en $VENV_PYTHON"
+    exit 1
+fi
+
+exec "$VENV_PYTHON" "$SCRIPT_DIR/test_voice.py" "$@"

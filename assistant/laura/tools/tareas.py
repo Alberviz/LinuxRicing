@@ -38,11 +38,28 @@ def _scan() -> list[dict] | None:
     return d.get("repos") if "repos" in d else None
 
 
+_REPO_ALIASES = {
+    "krakount": ["krakount", "cracount", "cada account", "cuenta", "cuentas", "krakout", "krakoun", "gastos"],
+    "linuxricing": ["linuxricing", "linux ricing", "ricing", "escritorio", "dotfiles"],
+    "universidad": ["universidad", "uni", "facultad", "carrera", "apuntes"],
+    "minecraft": ["minecraft", "server", "servidor", "mine"],
+    "gym": ["gym", "gimnasio", "entrenamiento", "pesas"],
+    "barberbot": ["barberbot", "barber bot", "barberia", "barbero"],
+    "vuelosviajes": ["vuelosviajes", "vuelos", "viajes"],
+    "weblaura": ["weblaura", "web laura", "web"],
+}
+
+
 def _match_repo(repos: list[dict], nombre: str) -> dict | None:
-    """Proyecto por coincidencia aproximada sin tildes (exacta > prefijo > contiene)."""
+    """Proyecto por coincidencia aproximada sin tildes (alias > exacta > prefijo > contiene)."""
     q = _n(nombre).strip()
     if not q:
         return None
+    for rep_name, aliases in _REPO_ALIASES.items():
+        if any(a in q or q in a for a in aliases):
+            hit = next((r for r in repos if _n(r["nombre"]) == rep_name), None)
+            if hit:
+                return hit
     for test in (lambda r: r == q, lambda r: r.startswith(q) or q.startswith(r), lambda r: q in r):
         hits = [r for r in repos if test(_n(r["nombre"]))]
         if len(hits) == 1:
@@ -60,8 +77,8 @@ def _item(r: dict, t: dict) -> dict:
 
 
 @tool("listar_tareas",
-      "Lee las tareas pendientes de Alberto («mis tareas», «qué tengo pendiente»). Sin proyecto da un resumen; con proyecto, las de ese proyecto. Lee el campo «decir» tal cual, sin añadir ni cambiar nada. Para cambiar su estado usa cambiar_estado.",
-      {"repo": {"type": "string", "description": "proyecto (LinuxRicing, Krakount, Universidad…); vacío = resumen"},
+      "Lee las tareas pendientes de Alberto («mis tareas», «qué tengo pendiente», «léeme las tareas de Krakount/LinuxRicing», «con qué me pongo», «elige qué hago»). Sin proyecto da un resumen general; con proyecto («LinuxRicing», «Krakount», «Universidad»...), las de ese proyecto. Si Alberto pide decidir o elegir con cuál ponerse, usa esta tool y recomiéndale la más prioritaria.",
+      {"repo": {"type": "string", "description": "proyecto opcional (LinuxRicing, Krakount, Universidad, Minecraft, Gym, BarberBot, VuelosViajes); si no se especifica deja vacío"},
        "estado": {"type": "string", "description": "pendiente o en-curso (opcional)"}})
 def listar_tareas(repo: str = "", estado: str = "") -> dict:
     repos = _scan()
@@ -79,7 +96,7 @@ def listar_tareas(repo: str = "", estado: str = "") -> dict:
                 "decir": (f"En {r['nombre']} tienes {len(ts)} por hacer. Las más urgentes: "
                           f"{_lista([t['titulo'] for t in ts[:5]])}." if ts
                           else f"En {r['nombre']} no tienes nada pendiente."),
-                "nota": "Di el campo «decir» tal cual, sin añadir nada."}
+                "nota": "Lee las tareas o el resumen en una frase natural. Si Alberto te pidió recomendación o que elijas con cuál ponerse, recomiéndale claramente la más urgente (prioridad 1 o 2, o la que esté en curso) explicando brevemente por qué."}
     todas = [(r, t) for r in repos for t in r["tareas"]]
     gen = sorted((p for p in todas if p[1]["estado"] == "en-curso" or p[1]["prioridad"] <= 2),
                  key=lambda p: (p[1]["estado"] != "en-curso", p[1]["prioridad"], p[1]["titulo"]))
@@ -95,7 +112,7 @@ def listar_tareas(repo: str = "", estado: str = "") -> dict:
     return {"ok": True, "principales": [_item(r, t) for r, t in gen[:5]],
             "pendientes_por_proyecto": por_proy, "resumen": "Resumen de tareas",
             "decir": f"{ini} Pendientes por proyecto: {cola}. ¿Quieres las de algún proyecto?",
-            "nota": "Di el campo «decir» tal cual, sin añadir nada."}
+            "nota": "Lee el resumen en una frase natural. Si Alberto te pidió recomendación o que elijas con cuál ponerse, recomiéndale claramente la más urgente (prioridad 1 o 2, o la que esté en curso) explicando brevemente por qué."}
 
 
 @tool("crear_tarea", "Apunta una tarea nueva en el backlog de un proyecto («apunta la tarea…»).",

@@ -244,3 +244,26 @@ def hora_fecha() -> dict:
     fecha = f"{_DIAS[n.weekday()]} {n.day} de {_MESES[n.month - 1]} de {n.year}"
     return {"ok": True, "hora": hora, "fecha": fecha, "resumen": f"Son las {hora}",
             "nota": "Responde a Alberto en una frase natural con lo que pidió (hora o fecha)."}
+
+
+@tool("ejecutar_comando",
+      "Ejecuta un comando de terminal/bash en el sistema para consultar el estado del ordenador, servicios, procesos, git, etc. Úsala cuando Alberto te pida realizar una acción o comprobación del sistema en el terminal.",
+      {"comando": {"type": "string", "description": "comando bash a ejecutar"}},
+      required=["comando"], icon="terminal")
+def ejecutar_comando(comando: str) -> dict:
+    """Ejecuta un comando en el sistema y devuelve su salida."""
+    try:
+        r = subprocess.run(comando, shell=True, capture_output=True, text=True, timeout=12)
+        out = (r.stdout or "").strip()
+        err = (r.stderr or "").strip()
+        if r.returncode != 0:
+            return {"ok": False, "codigo": r.returncode, "error": (err or out or "comando falló")[:300],
+                    "resumen": "Error en comando"}
+        resumen_txt = out.splitlines()[0][:60] if out else "Comando ejecutado"
+        return {"ok": True, "codigo": 0, "salida": out[:1200], "resumen": resumen_txt,
+                "nota": "Resume el resultado a Alberto de forma breve y clara en una frase para leerse en voz alta."}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "el comando tardó más de 12 segundos y se canceló"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+

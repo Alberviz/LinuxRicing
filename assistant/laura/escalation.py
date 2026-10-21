@@ -117,7 +117,21 @@ def _confirm_and_run_escalation(session: Session, jobs: JobManager, escalation: 
     resumen = peticion.strip().rstrip(".")
     if len(resumen) > 160:
         resumen = resumen[:157].rstrip() + "…"
-    pregunta = f"Esto se me escapa. ¿Se lo mando a {nombre}? Sería: {resumen}."
+
+    user_last = (session.messages[-1].get("content", "") if session.messages else "").lower()
+    orden_explicita = any(k in user_last for k in ("levanta", "lanza", "manda a gemini", "manda a claude", "usa gemini", "usa claude", "un agente de gemini", "un agente de claude", "subagente", "un agente"))
+    if orden_explicita:
+        msg = f"Me pongo con ello, se lo encargo a {nombre}. Te aviso cuando termine."
+        _say(msg, mode, cancel)
+        jid = jobs.start(destino, peticion, motivo, pregunta="", ask_voice=False,
+                         titulo=f"{nombre}: {peticion}")
+        jobs.confirm(jid, True)
+        session.add("assistant", msg)
+        log(f"laura: orden directa a {nombre} (job {jid})")
+        return True
+
+    tipo_tarea = "desarrollo pesado" if destino == "claude" else "análisis técnico"
+    pregunta = f"Esto requiere {tipo_tarea}. ¿Se lo mando a {nombre}? Sería: {resumen}."
     jid = jobs.start(destino, peticion, motivo, pregunta=pregunta, ask_voice=False,
                      titulo=f"{nombre}: {peticion}")
     r = voice_yes_no(jid, pregunta, mode, cancel, jobs)
