@@ -12,6 +12,7 @@ Lanza el shell con las MISMAS variables para que Quickshell se conecte aquí.
   `job-follow <id>`; una línea JSON de respuesta.
 - Órdenes manuales por stdin o por --cmd-fifo (una por línea):
     aviso <id> <baja|normal|alta> <resumen...>   (aviso del vigia, origen laura)
+    state <idle|listening|thinking|speaking> | transcript <txt> | reply <txt> | amp <0..1> [s]
     start <id> <destino> <titulo...>      waiting <id>
     confirm <id> <pregunta...>            done <id> <resumen...>
     failed <id> <resumen...>              scene   (started->waiting->confirm->done + un failed)
@@ -173,6 +174,22 @@ def command(line: str) -> None:
         set_job(p[1], "done", origen="laura", tipo="aviso", prioridad=p[2], destino="laura",
                 titulo="Aviso del vigia", resumen=" ".join(line.split()[3:]),
                 fuentes=[{"titulo": "Abrir en Gmail", "url": "https://mail.google.com"}])
+    elif c == "state":      # state <idle|listening|thinking|speaking>
+        emit({"type": "state", "value": p[1], "mode": "centro"})
+    elif c == "transcript":
+        emit({"type": "transcript", "value": " ".join(line.split()[1:])})
+    elif c == "reply":
+        emit({"type": "reply", "value": " ".join(line.split()[1:])})
+    elif c == "amp":        # amp <0..1> [segundos]: voz sintetica a ~20 Hz
+        v = float(p[1]); dur = float(p[2]) if len(p) > 2 else 3.0
+        def _amp():
+            import math
+            t0 = time.time()
+            while time.time() - t0 < dur:
+                emit({"type": "amplitude", "value": max(0.0, min(1.0, v * (0.5 + 0.5 * math.sin((time.time() - t0) * 9)))) })
+                time.sleep(0.05)
+            emit({"type": "amplitude", "value": 0})
+        threading.Thread(target=_amp, daemon=True).start()
     elif c == "scene":
         scene()
     elif c == "seed":
