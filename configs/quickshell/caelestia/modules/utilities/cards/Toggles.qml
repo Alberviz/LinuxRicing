@@ -147,6 +147,14 @@ StyledRect {
                     }
                 }
                 DelegateChoice {
+                    roleValue: "tabletDisplay"
+                    delegate: Toggle {
+                        icon: "tablet_android"
+                        checked: TabletDisplay.active
+                        onClicked: TabletDisplay.toggle()
+                    }
+                }
+                DelegateChoice {
                     roleValue: "vpn"
                     delegate: Toggle {
                         icon: "vpn_key"

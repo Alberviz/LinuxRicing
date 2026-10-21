@@ -11,6 +11,7 @@ Scope {
         GameMode;
         PowerSaving;
         ServerMode;
+        TabletDisplay;
         Notifs;
         Players;
         Brightness;

@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# caelestia-tablet-display — Monitor virtual y streaming para Honor MagicPad 2
+# ==============================================================================
+
+set -euo pipefail
+
+MONITOR_NAME="Tablet"
+RESOLUTION="3000x1920@144"
+SCALE="1.6"
+POSITION="auto-right"
+SUNSHINE_SERVICE="app-dev.lizardbyte.app.Sunshine.service"
+
+is_monitor_active() {
+    hyprctl monitors -j 2>/dev/null | jq -e ".[] | select(.name == \"$MONITOR_NAME\")" >/dev/null 2>&1
+}
+
+is_sunshine_active() {
+    systemctl --user is-active --quiet "$SUNSHINE_SERVICE" 2>/dev/null
+}
+
+start_monitor() {
+    if ! is_monitor_active; then
+        hyprctl output create headless "$MONITOR_NAME" >/dev/null 2>&1 || true
+        # Aplicar resolución, tasa de refresco, escala y posición
+        hyprctl eval "hl.monitor({ output = \"$MONITOR_NAME\", mode = \"$RESOLUTION\", position = \"$POSITION\", scale = $SCALE })" >/dev/null 2>&1 || true
+    fi
+
+    if ! is_sunshine_active; then
+        systemctl --user start "$SUNSHINE_SERVICE" 2>/dev/null || true
+    fi
+
+    notify-send -a "Caelestia" -i tablet_android "Tablet Monitor" "Segundo monitor activado ($RESOLUTION, escala $SCALE)" 2>/dev/null || true
+}
+
+stop_monitor() {
+    if is_monitor_active; then
+        hyprctl output remove "$MONITOR_NAME" >/dev/null 2>&1 || true
+    fi
+
+    if is_sunshine_active; then
+        systemctl --user stop "$SUNSHINE_SERVICE" 2>/dev/null || true
+    fi
+
+    notify-send -a "Caelestia" -i tablet_android "Tablet Monitor" "Segundo monitor desactivado" 2>/dev/null || true
+}
+
+ensure_monitor() {
+    if ! is_monitor_active; then
+        hyprctl output create headless "$MONITOR_NAME" >/dev/null 2>&1 || true
+        hyprctl eval "hl.monitor({ output = \"$MONITOR_NAME\", mode = \"$RESOLUTION\", position = \"$POSITION\", scale = $SCALE })" >/dev/null 2>&1 || true
+    fi
+}
+
+toggle_monitor() {
+    if is_monitor_active; then
+        stop_monitor
+    else
+        start_monitor
+    fi
+}
+
+status_monitor() {
+    if is_monitor_active; then
+        echo "active"
+        exit 0
+    else
+        echo "inactive"
+        exit 1
+    fi
+}
+
+pair_pin() {
+    local pin="${1:-}"
+    if [[ -z "$pin" ]]; then
+        echo "Uso: caelestia-tablet-display pair <PIN-de-4-dígitos>" >&2
+        exit 1
+    fi
+    sunshine -0 <<< "$pin"
+}
+
+case "${1:-toggle}" in
+    on|start)
+        start_monitor
+        ;;
+    off|stop)
+        stop_monitor
+        ;;
+    ensure)
+        ensure_monitor
+        ;;
+    toggle)
+        toggle_monitor
+        ;;
+    status)
+        status_monitor
+        ;;
+    pair)
+        shift
+        pair_pin "$@"
+        ;;
+    *)
+        echo "Uso: $0 {on|off|toggle|status|ensure|pair <PIN>}" >&2
+        exit 1
+        ;;
+esac

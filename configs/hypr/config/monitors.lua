@@ -13,3 +13,10 @@ hl.monitor({
     position  = "auto",
     scale     = "auto",
 })
+
+hl.monitor({
+    output    = "Tablet",
+    mode      = "3000x1920@144",
+    position  = "auto-right",
+    scale     = "1.6",
+})

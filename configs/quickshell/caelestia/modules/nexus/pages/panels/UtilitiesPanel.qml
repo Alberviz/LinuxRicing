@@ -142,6 +142,14 @@ PageBase {
         }
 
         ToggleRow {
+            text: qsTr("Tablet display")
+            subtext: qsTr("Use Honor MagicPad 2 as second monitor via Sunshine")
+            disabled: !Config.utilities.cards.quickToggles
+            checked: root.isToggleOn("tabletDisplay")
+            onToggled: root.setToggleOn("tabletDisplay", checked)
+        }
+
+        ToggleRow {
             last: true
             text: qsTr("VPN")
             subtext: qsTr("Connect or disconnect the VPN")

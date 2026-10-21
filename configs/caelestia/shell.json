@@ -105,6 +105,10 @@
             },
             {
                 "enabled": true,
+                "id": "tabletDisplay"
+            },
+            {
+                "enabled": true,
                 "id": "settings"
             },
             {

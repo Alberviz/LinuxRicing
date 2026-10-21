@@ -1,0 +1,21 @@
+{
+  "env": {
+    "PATH": "$(PATH):$(HOME)/.local/bin"
+  },
+  "apps": [
+    {
+      "name": "Tablet Display (Honor MagicPad 2)",
+      "image-path": "desktop.png",
+      "prep-cmd": [
+        {
+          "do": "/home/alberviz/.local/bin/caelestia-tablet-display ensure",
+          "undo": ""
+        }
+      ]
+    },
+    {
+      "name": "Desktop",
+      "image-path": "desktop.png"
+    }
+  ]
+}
