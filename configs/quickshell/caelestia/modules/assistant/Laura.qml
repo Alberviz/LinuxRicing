@@ -183,6 +183,8 @@ Singleton {
             fuentes: ev.fuentes ?? p.fuentes ?? [],
             inicio: ev.inicio ?? p.inicio ?? Date.now() / 1000,
             fin: ev.fin !== undefined ? ev.fin : (p.fin ?? null),
+            evento: ev.evento !== undefined ? ev.evento : (p.evento ?? null),
+            correo: ev.correo !== undefined ? ev.correo : (p.correo ?? null),
             origen: ev.origen ?? p.origen ?? "alberto",
             tipo: ev.tipo ?? p.tipo ?? "trabajo",
             prioridad: ev.prioridad ?? p.prioridad ?? "normal",
