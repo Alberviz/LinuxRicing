@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import threading
@@ -158,7 +159,14 @@ def run_agy(prompt: str, model: str, effort: str, timeout: float,
     """Lanza `agy -p <prompt> --model ... --effort ...`. `readonly`: investigación sin
     tocar nada (el prompt lo prohíbe y se añade --sandbox)."""
     ecfg = CFG.get("escalation", {})
-    agy_bin = os.path.expanduser(ecfg.get("agy_bin", "agy"))
+    agy_bin = os.path.expanduser(ecfg.get("agy_bin", "~/.local/bin/agy"))
+    if not os.path.isabs(agy_bin) and "/" not in agy_bin:
+        cand = (shutil.which(agy_bin) or
+                shutil.which(agy_bin, path=f"{os.path.expanduser('~/.local/bin')}:{os.environ.get('PATH', '')}"))
+        if cand:
+            agy_bin = cand
+        elif os.path.exists(os.path.expanduser(f"~/.local/bin/{agy_bin}")):
+            agy_bin = os.path.expanduser(f"~/.local/bin/{agy_bin}")
     cmd = [agy_bin, "-p", prompt, "--model", model, "--effort", effort,
            "--dangerously-skip-permissions"]
     if add_dir:
@@ -473,8 +481,8 @@ class JobManager:
             if destino == "gemini":
                 self._set(meta, "waiting")
                 return run_agy(build_investigar_prompt(peticion),
-                               model=ecfg.get("model_confirm", "gemini-3.1-pro-high"),
-                               effort=ecfg.get("effort_confirm", "medium"),
+                               model=ecfg.get("model_confirm", "gemini-4-argon-high"),
+                               effort=ecfg.get("effort_confirm", "high"),
                                timeout=ecfg.get("timeout_confirm", 180) * 2,
                                cancel=live.cancel, readonly=True)
             return self._investigar_local(peticion, live)
@@ -482,8 +490,8 @@ class JobManager:
         if destino == "claude":
             return run_claude(build_claude_prompt(peticion, motivo), live.cancel)
         return run_agy(build_gemini_prompt(peticion, motivo),
-                       model=ecfg.get("model_confirm", "gemini-3.1-pro-high"),
-                       effort=ecfg.get("effort_confirm", "medium"),
+                       model=ecfg.get("model_confirm", "gemini-4-argon-high"),
+                       effort=ecfg.get("effort_confirm", "high"),
                        timeout=ecfg.get("timeout_confirm", 180),
                        add_dir=ecfg.get("add_dir") or None, cancel=live.cancel)
 
