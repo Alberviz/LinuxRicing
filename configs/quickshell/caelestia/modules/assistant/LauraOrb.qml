@@ -143,7 +143,7 @@ Scope {
     StyledWindow {
         id: dockWin
 
-        readonly property real orbCenterY: screen.height * 0.4
+        readonly property real orbCenterY: 72
         // Cuánto se aparta el dock a la izquierda cuando el cajón está abierto
         property real shift: Laura.drawerOpen ? 362 : 0
         Behavior on shift {
@@ -156,7 +156,7 @@ Scope {
         screen: root.modelData
         name: "laura-orb"
 
-        WlrLayershell.layer: WlrLayer.Overlay
+        WlrLayershell.layer: WlrLayer.Top
         WlrLayershell.exclusionMode: ExclusionMode.Ignore
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 
@@ -167,6 +167,16 @@ Scope {
         implicitHeight: 12 + 46 + 5 * 29 + 40
 
         // Solo el orbe, los satélites y la píldora capturan el ratón.
+        // Interfaz de Caelestia abierta o asomando en esta pantalla: el orbe se aparta.
+        readonly property var ss: ShellState.forScreen(root.modelData)
+        readonly property bool yield: Notifs.popups.length > 0 || (ss ? (ss.osd || ss.session || ss.launcher || ss.dashboard || ss.utilities || ss.sidebar) : false)
+        property real away: yield ? 0 : 1
+        Behavior on away {
+            NumberAnimation {
+                duration: 140
+            }
+        }
+
         mask: Region {
             item: dockHit
 
@@ -198,6 +208,8 @@ Scope {
         Item {
             id: dock
 
+            opacity: dockWin.away
+            visible: opacity > 0.01
             x: dockWin.width - 46 - 3 - dockWin.shift
             y: 12
             width: 46
@@ -208,7 +220,7 @@ Scope {
                 id: dockHit
 
                 width: 46 + 3
-                height: root.order.length === 0 ? 0 : 46 + Math.max(0, root.order.length - 1) * 29 + (root.more > 0 ? 18 : 0)
+                height: root.order.length === 0 || dockWin.yield ? 0 : 46 + Math.max(0, root.order.length - 1) * 29 + (root.more > 0 ? 18 : 0)
                 x: 0
                 y: 0
             }
@@ -263,8 +275,8 @@ Scope {
 
             x: pill.x
             y: pill.y
-            width: pill.shown ? pill.width : 0
-            height: pill.shown ? pill.height : 0
+            width: pill.shown && !dockWin.yield ? pill.width : 0
+            height: pill.shown && !dockWin.yield ? pill.height : 0
         }
 
         Rectangle {
@@ -303,7 +315,7 @@ Scope {
             color: Qt.alpha(Colours.palette.m3surfaceContainerHigh, 0.96)
             border.width: 1
             border.color: Qt.alpha(col, 0.45)
-            opacity: shown ? 1 : 0
+            opacity: shown ? dockWin.away : 0
             visible: opacity > 0.01
             transform: Translate {
                 x: pill.shown ? 0 : 10

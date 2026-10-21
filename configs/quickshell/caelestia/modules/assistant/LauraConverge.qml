@@ -26,7 +26,7 @@ StyledWindow {
     screen: modelData
     name: "laura-conv"
 
-    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.layer: WlrLayer.Top
     WlrLayershell.exclusionMode: ExclusionMode.Ignore
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 
