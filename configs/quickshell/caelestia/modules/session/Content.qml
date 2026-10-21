@@ -46,7 +46,7 @@ Column {
         command: Config.session.commands.shutdown
 
         KeyNavigation.up: logout
-        KeyNavigation.down: hibernate
+        KeyNavigation.down: suspend
     }
 
     AnimatedImage {
@@ -62,10 +62,10 @@ Column {
     }
 
     SessionButton {
-        id: hibernate
+        id: suspend
 
-        icon: Config.session.icons.hibernate
-        command: Config.session.commands.hibernate
+        icon: "bedtime"
+        command: ["suspend"]
 
         KeyNavigation.up: shutdown
         KeyNavigation.down: reboot
@@ -81,7 +81,7 @@ Column {
             ShellState.rebootMenu?.open();
         }
 
-        KeyNavigation.up: hibernate
+        KeyNavigation.up: suspend
         KeyNavigation.down: rebootWindows
     }
 

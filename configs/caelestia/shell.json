@@ -81,9 +81,10 @@
         }
     },
     "services": {
-        "gpuType": "nvidia",
+        "gpuType": "Nvidia",
         "smartScheme": true,
-        "visualiserBars": 32
+        "visualiserBars": 32,
+        "weatherLocation": "Cracovia"
     },
     "utilities": {
         "quickToggles": [
