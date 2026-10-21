@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta
 
-from .. import workspace
+from .. import resumen_correo, workspace
 from ..config import log
 from . import tool
 from .segundo_plano import _FORMATO, _manager
@@ -57,26 +57,24 @@ def correo(consulta: str = "") -> dict:
     if not workspace.enabled():
         return _correo_aurora(consulta)
     try:
-        msgs = workspace.buscar_correos(workspace.combinar(consulta if consulta.strip() else "is:unread newer_than:7d"), 5)
-        items = []
-        for m in msgs[:5]:
-            frag = ""
-            if len(items) < 3:
-                try:
-                    frag = workspace.leer_correo(m["id"], 110)
-                except workspace.WorkspaceUnavailable:
-                    pass
-            items.append({"de": _nombre(m["de"]), "asunto": m["asunto"], "fragmento": frag,
-                          "fecha": m["fecha"], "id": m["id"]})
+        msgs = workspace.buscar_correos(workspace.combinar(consulta if consulta.strip() else "is:unread newer_than:7d"), 10)
+        try:
+            cuerpos = workspace.leer_correos_lote([m["id"] for m in msgs], 800)
+        except workspace.WorkspaceUnavailable:
+            cuerpos = {}
     except workspace.WorkspaceUnavailable as e:
         log(f"correo: Workspace no disponible ({e}); respaldo a Aurora")
         return _correo_aurora(consulta)
-    if not items:
-        decir = "No tienes correos nuevos importantes." if not consulta.strip() else "No encuentro nada con eso."
-    else:
-        partes = [f"{it['de']}: {it['asunto']}" for it in items[:3]]
-        decir = (f"Tienes {len(items)} correo{'s' if len(items) != 1 else ''}. "
-                 + "; ".join(partes) + ("." if partes else ""))
+    # solo se explican los 6 primeros (una llamada corta); del resto basta con contarlos
+    fr = resumen_correo.resumir([dict(m, cuerpo=cuerpos.get(m["id"], "")) for m in msgs[:6]])
+    for m in msgs[6:]:
+        fr[m["id"]] = {"frase": resumen_correo.frase_basica(m), "importante": False}
+    items = [{"de": resumen_correo.nombre(m["de"]), "asunto": resumen_correo.limpiar(m["asunto"]),
+              "frase": fr[m["id"]]["frase"], "importante": fr[m["id"]]["importante"],
+              "fecha": m["fecha"], "id": m["id"]} for m in msgs]
+    decir = resumen_correo.decir(items) if consulta.strip() == "" or items else "No encuentro nada con eso."
+    if not items and consulta.strip():
+        decir = "No encuentro nada con eso."
     return {"ok": True, "correos": items, "decir": decir, "resumen": "Correo revisado",
             "nota": "Di el campo «decir» tal cual, sin añadir nada."}
 

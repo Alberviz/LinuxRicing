@@ -236,3 +236,20 @@ def rango(cuando: str, ahora: datetime | None = None) -> tuple[datetime, datetim
     if c in ("próximo", "proximo"):
         return ahora, ahora + timedelta(days=30)
     return ahora, dia + timedelta(days=1)
+
+
+def leer_correos_lote(ids: list[str], max_chars: int = 800) -> dict[str, str]:
+    """Cuerpos (texto, recortados) de varios mensajes en UNA llamada (get_gmail_messages_content_batch)."""
+    if not ids:
+        return {}
+    c = client()
+    txt = c.call(c.tool_name("get_gmail_messages_content_batch"), {"message_ids": ids[:25], "format": "full"})
+    out: dict[str, str] = {}
+    for bloque in re.split(r"\n---\s*\n", txt):
+        m = re.search(r"Message ID:\s*(\S+)", bloque)
+        if not m:
+            continue
+        cuerpo = bloque.split("--- BODY ---", 1)[1] if "--- BODY ---" in bloque else ""
+        cuerpo = re.sub(r"<?https?://\S+>?", " ", cuerpo)
+        out[m.group(1)] = re.sub(r"\s+", " ", cuerpo).strip()[:max_chars]
+    return out

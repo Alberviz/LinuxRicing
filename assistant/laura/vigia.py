@@ -203,22 +203,24 @@ class Vigia:
     def _workspace(self, vistos: dict) -> list[tuple]:
         from datetime import timedelta
 
-        from . import workspace
+        from . import resumen_correo, workspace
         c = _cfg()
         out: list[tuple] = []
         msgs = workspace.buscar_correos(workspace.combinar("is:unread newer_than:1d"), 10)
-        for m in msgs:
-            clave = f"mail:{m['id']}"
-            if clave in vistos:
-                continue
+        nuevos = [m for m in msgs if f"mail:{m['id']}" not in vistos]
+        cuerpos: dict = {}
+        if nuevos:
             try:
-                cuerpo = workspace.leer_correo(m["id"], 400)
+                cuerpos = workspace.leer_correos_lote([m["id"] for m in nuevos], 800)
             except workspace.WorkspaceUnavailable:
-                cuerpo = ""
+                pass
+        frases = resumen_correo.resumir([dict(m, cuerpo=cuerpos.get(m["id"], "")) for m in nuevos]) if nuevos else {}
+        for m in nuevos:
+            cuerpo = cuerpos.get(m["id"], "")
             prio = prioridad_correo(m, cuerpo, c)
             fu = [{"titulo": "Abrir en Gmail", "url": m["url"]}] if m.get("url") else []
-            de = m["de"].split("<")[0].strip().strip('"') or m["de"]
-            out.append((clave, f"Correo de {de}", f"Correo de {de}: {m['asunto']}", prio, fu,
+            de = resumen_correo.nombre(m["de"])
+            out.append((f"mail:{m['id']}", f"Correo de {de}", f"Te ha llegado {frases[m['id']]['frase']}", prio, fu,
                         f"De: {m['de']}\nAsunto: {m['asunto']}\nFecha: {m['fecha']}\n\n{cuerpo}"))
         ahora = datetime.now().astimezone()
         mins = int(c.get("aviso_evento_min", 30))
