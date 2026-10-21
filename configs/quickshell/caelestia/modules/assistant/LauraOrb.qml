@@ -48,7 +48,7 @@ Scope {
         if (root.holdDock)
             return;
         const keep = Laura.keepIds;
-        const shown = Laura.jobs.filter(j => Laura.isActive(j) || Laura.isUnseen(j) || keep[j.id]);
+        const shown = Laura.jobs.filter(j => !Laura.isExt(j) && (Laura.isActive(j) || Laura.isUnseen(j) || keep[j.id]));
         shown.sort((a, b) => root._pr(a) - root._pr(b) || b.inicio - a.inicio);
         const ids = shown.slice(0, root.maxShown).map(j => j.id);
         root.more = Math.max(0, shown.length - root.maxShown);

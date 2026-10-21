@@ -188,7 +188,7 @@ StyledWindow {
             anchors.bottomMargin: 12
             width: win.panelW
             radius: 22
-            color: Qt.alpha(Colours.palette.m3surface, 0.98)
+            color: Qt.rgba(Colours.palette.m3surface.r, Colours.palette.m3surface.g, Colours.palette.m3surface.b, 1)
             border.width: 1
             border.color: Qt.alpha(Colours.palette.m3onSurface, 0.11)
             opacity: 0.4 + 0.6 * win.prog

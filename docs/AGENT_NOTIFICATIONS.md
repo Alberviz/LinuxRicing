@@ -259,3 +259,30 @@ El sonido se **omite** si el modo No Molestar (`Notifs.dnd`) está activo, igual
 - **Plan de Implementación:** [`docs/superpowers/plans/2026-08-29-agent-notifications-workspace-pip.md`](file:///home/alberviz/LinuxRicing/docs/superpowers/plans/2026-08-29-agent-notifications-workspace-pip.md)
 - **Nota de Arquitectura y Widgets:** [[Notificaciones de Agentes]]
 - **Registro de Pruebas de QA:** [[QA · Notificaciones de Agentes]]
+
+
+---
+
+## 8. Sesiones externas en el tablero de Laura
+
+`agent-notify` reenvía cada evento de Claude y de Gemini/Antigravity al socket de control de
+Laura (`$XDG_RUNTIME_DIR/laura.sock`, o `LAURA_CTRL_SOCK`) con el comando `ext <json>`:
+
+```json
+{"id":"claude-<address>","agente":"claude|gemini","proyecto":"LinuxRicing","tarea":"prompt resumido",
+ "estado":"trabajando|esperando|terminado","ws":3,"address":"0x...","ts":1792600000}
+```
+
+- Se envía desde `start_agent` (`trabajando`), `finish_agent` y la interceptación de Antigravity
+  (`terminado`). Si Laura no está, falla en silencio (timeout de 0,5 s); solo se reenvían agentes
+  Claude, Gemini y Antigravity/agy.
+- El daemon las guarda como trabajos con `origen: "externo"`. Laura no puede cancelarlas ni
+  confirmarlas. Caducan a las 12 h o cuando la ventana (`address`) ya no existe en Hyprland (revisión
+  cada 30 s).
+- En el cajón (`SUPER+I`) salen con la marca «Sesión tuya», el proyecto y el tiempo, cuentan en los chips
+  de Gemini y Claude («2 en marcha») y tienen «Ir a la ventana» (`Agents.focus(address)`).
+- **Hooks de Gemini/agy:** el CLI de Antigravity (`agy`) ya admite hooks y están instalados desde
+  `configs/gemini/hooks.json` en `~/.gemini/config/hooks.json` (`PreInvocation` → `hook prompt`,
+  `Stop` → `hook stop`), así que sus sesiones llegan a Laura sin cambios. No hay CLI `gemini`
+  independiente en esta máquina; si se instalara y no tuviera hooks, usar
+  `agent-notify run -n Gemini -t "…" -- gemini` desde una función de fish.

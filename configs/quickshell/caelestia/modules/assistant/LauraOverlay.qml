@@ -33,17 +33,63 @@ StyledWindow {
 
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.exclusionMode: ExclusionMode.Ignore
-    WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+    WlrLayershell.keyboardFocus: win.typing ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
     anchors.top: true
     anchors.bottom: true
     anchors.left: true
     anchors.right: true
 
-    // Sin zona de input: todo lo que hay debajo se sigue pudiendo clicar.
-    mask: Region {}
+    // Click-through salvo la píldora cuando se puede pulsar (escuchando) o escribir.
+    // El resto de la pantalla sigue dejando pasar los clics.
+    mask: Region {
+        item: maskItem
+    }
+    Item {
+        id: maskItem
 
-    readonly property bool lit: Laura.borderActive
+        readonly property bool on: win.lit && (win.listening || win.typing) && pill.visible
+        x: on ? pill.x : 0
+        y: on ? pill.y : 0
+        width: on ? pill.width : 0
+        height: on ? pill.height : 0
+    }
+
+    // Escribir a Laura: pulsar la píldora de «Escuchando» corta la escucha y la convierte en un campo de texto
+    property bool typing: false
+    property string draft: ""
+    readonly property bool lit: Laura.borderActive || typing || holdT.running
+    Timer {
+        id: holdT
+
+        interval: 2500
+    }
+    Connections {
+        target: Laura
+
+        function onTypeToggled(): void {
+            if (win.typing) {
+                win.typing = false;
+                win.draft = "";
+            } else if (win.listening || Laura.borderActive) {
+                win.startTyping();
+            }
+        }
+    }
+    function startTyping(): void {
+        Laura.listenCancel();
+        draft = "";
+        typing = true;
+    }
+    function submit(): void {
+        const t = draft.trim();
+        typing = false;
+        draft = "";
+        if (t.length > 0) {
+            holdT.restart();
+            Laura.ask(t);
+        }
+    }
     // Frente de entrada / salida
     property real progress: 0
     NumberAnimation {
@@ -64,7 +110,7 @@ StyledWindow {
 
     // --- Estado de la presentación ---
     readonly property string phase: Laura.state
-    readonly property bool listening: phase === "listening"
+    readonly property bool listening: phase === "listening" && !typing
     readonly property bool thinking: phase === "thinking"
     readonly property bool speaking: phase === "speaking"
 
@@ -108,14 +154,16 @@ StyledWindow {
     function _lt(c, t): color {
         return Qt.tint(c, Qt.rgba(1, 1, 1, t));
     }
+    readonly property color sec: Colours.palette.m3secondary
+    // Escuchando / pensando / hablando: SOLO colores del tema. Los de Gemini y Claude, al delegar.
     readonly property var pal: {
         if (deleg && delegAgent === "gemini")
             return [gb, gp, _lt(gb, 0.35), gp];
         if (deleg)
             return [co, ca, _lt(co, 0.3), ca];
         if (thinking)
-            return [gp, tert, gb, prim];
-        return [gb, gp, tert, prim];
+            return [sec, tert, prim, _lt(prim, 0.4)];
+        return [prim, sec, tert, _lt(prim, 0.4)];
     }
     property color c0: pal[0]
     property color c1: pal[1]
@@ -178,14 +226,14 @@ StyledWindow {
         readonly property string youText: Laura.transcript
         readonly property string herText: Laura.reply
         readonly property color cc: win.deleg ? (win.delegAgent === "gemini" ? win.gb : win.co) : win.thinking ? win.tert : win.prim
-        readonly property string label: win.deleg ? "Delegando en " + (win.delegAgent === "gemini" ? "Gemini" : "Claude") : win.listening ? "Escuchando" : win.thinking ? "Pensando" : "Laura"
+        readonly property string label: win.typing ? "Escribe a Laura" : win.deleg ? "Delegando en " + (win.delegAgent === "gemini" ? "Gemini" : "Claude") : win.listening ? "Escuchando" : win.thinking ? "Pensando" : "Laura"
         readonly property bool showHer: (win.speaking || win.deleg) && herText.length > 0
 
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: Tokens.padding.extraLarge * 2
 
-        readonly property bool hasContent: win.lit && (youText.length > 0 || showHer)
+        readonly property bool hasContent: win.lit && (youText.length > 0 || showHer || win.listening || win.typing)
         visible: opacity > 0.001
         opacity: hasContent ? 1 : 0
         Behavior on opacity {
@@ -214,6 +262,14 @@ StyledWindow {
         border.width: 1
         border.color: Qt.alpha(Colours.palette.m3onSurface, 0.11)
         clip: true
+
+        // Pulsar la píldora de «Escuchando» pasa a escribir
+        MouseArea {
+            anchors.fill: parent
+            enabled: win.listening && !win.typing
+            cursorShape: Qt.IBeamCursor
+            onClicked: win.startTyping()
+        }
 
         // reflejo superior suave
         Rectangle {
@@ -263,7 +319,19 @@ StyledWindow {
                     font.letterSpacing: 1.3
                     font.weight: Font.DemiBold
                 }
+                StyledText {
+                    anchors.right: eqRow.left
+                    anchors.rightMargin: 12
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: win.listening && !win.typing
+                    text: "⌨ toca para escribir"
+                    color: Colours.palette.m3onSurfaceVariant
+                    opacity: 0.75
+                    font.pixelSize: 11
+                }
                 Row {
+                    id: eqRow
+
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
                     spacing: 2
@@ -287,9 +355,54 @@ StyledWindow {
                 }
             }
 
+            // campo de texto al escribir
+            Rectangle {
+                width: parent.width
+                height: 40
+                radius: 12
+                visible: win.typing
+                color: Qt.alpha(Colours.palette.m3onSurface, 0.07)
+                border.width: 1
+                border.color: Qt.alpha(pill.cc, 0.6)
+
+                TextInput {
+                    id: field
+
+                    anchors.fill: parent
+                    anchors.leftMargin: 12
+                    anchors.rightMargin: 12
+                    verticalAlignment: TextInput.AlignVCenter
+                    color: Colours.palette.m3onSurface
+                    selectionColor: Qt.alpha(pill.cc, 0.5)
+                    font.pixelSize: 17
+                    clip: true
+                    focus: win.typing
+                    onVisibleChanged: if (visible) {
+                        text = "";
+                        forceActiveFocus();
+                    }
+                    onTextChanged: win.draft = text
+                    Keys.onReturnPressed: win.submit()
+                    Keys.onEnterPressed: win.submit()
+                    Keys.onEscapePressed: {
+                        win.typing = false;
+                        win.draft = "";
+                    }
+                }
+                StyledText {
+                    anchors.verticalCenter: parent.verticalCenter
+                    x: 12
+                    visible: field.text.length === 0
+                    text: "Escribe y pulsa Enter · Esc cierra"
+                    color: Colours.palette.m3onSurfaceVariant
+                    opacity: 0.6
+                    font.pixelSize: 15
+                }
+            }
+
             StyledText {
                 width: parent.width
-                visible: pill.youText.length > 0
+                visible: pill.youText.length > 0 && !win.typing
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.NoWrap
                 elide: Text.ElideRight

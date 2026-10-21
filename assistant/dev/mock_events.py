@@ -111,6 +111,22 @@ def ctrl_client(c: socket.socket) -> None:
             emit(job_event(jobs[parts[1]]))
         elif parts[:1] == ["job-dismiss"] and len(parts) > 1:
             jobs.pop(parts[1], None)
+        elif parts[:1] == ["ext"]:
+            d = json.loads(line[4:])
+            est = {"trabajando": "started", "terminado": "done", "esperando": "waiting"}[d["estado"]]
+            set_job("x-" + d["id"], est, destino=d["agente"], origen="externo", proyecto=d["proyecto"],
+                    titulo=d["tarea"] or d["proyecto"], address=d["address"], ws=d["ws"])
+            print("ext", d, flush=True)
+        elif parts[:1] == ["listen-cancel"]:
+            print("listen-cancel", flush=True)
+            emit({"type": "state", "value": "idle", "mode": "centro"})
+        elif parts[:1] == ["ask"]:
+            print("ask", line[4:], flush=True)
+            def _a(t=line[4:]):
+                emit({"type": "state", "value": "thinking", "mode": "centro"}); emit({"type": "transcript", "value": t}); time.sleep(1.2)
+                emit({"type": "reply", "value": "Recibido: " + t}); emit({"type": "state", "value": "speaking", "mode": "centro"}); time.sleep(2.5)
+                emit({"type": "state", "value": "idle", "mode": "centro"})
+            threading.Thread(target=_a, daemon=True).start()
         elif parts[:1] == ["ui"]:
             print("ui", line[3:], flush=True)
         elif parts[:1] == ["vigia-now"]:
@@ -173,7 +189,8 @@ def command(line: str) -> None:
                 fuentes=[{"titulo": "ejemplo.org", "url": "https://example.org"}] if c == "done" else [])
     elif c == "aviso":  # aviso <id> <baja|normal|alta> <resumen...>
         set_job(p[1], "done", origen="laura", tipo="aviso", prioridad=p[2], destino="laura",
-                titulo="Aviso del vigia", resumen=" ".join(line.split()[3:]),
+                titulo=(" ".join(line.split()[3:]).split("|")[0].strip() if "|" in line else "Aviso del vigía"),
+                resumen=" ".join(line.split()[3:]).split("|")[-1].strip(),
                 fuentes=[{"titulo": "Abrir en Gmail", "url": "https://mail.google.com"}])
     elif c == "state":      # state <idle|listening|thinking|speaking>
         emit({"type": "state", "value": p[1], "mode": p[2] if len(p) > 2 else "centro"})
@@ -208,6 +225,10 @@ def command(line: str) -> None:
         set_job(p[1], "confirm", destino="gemini", titulo="Correo para Marta", pregunta="Te lo he escrito, ¿lo envío?\n\nPara: Marta",
                 correo={"para": "Marta Ruiz", "asunto": "Reunión del jueves",
                         "cuerpo": "Hola Marta,\n\nTe escribo para confirmar la reunión del jueves a las 17:00. Si te viene bien, la hacemos en la sala de siempre y repasamos el parser y el widget de tareas.\n\nUn abrazo,\nAlberto"})
+    elif c == "ext":        # ext <id> <claude|gemini> <trabajando|terminado|esperando> <proyecto> <tarea...>  (como agent-notify)
+        w = line.split(maxsplit=5)
+        set_job("x-" + w[1], {"trabajando": "started", "terminado": "done", "esperando": "waiting"}[w[3]], destino=w[2],
+                origen="externo", proyecto=w[4], titulo=w[5] if len(w) > 5 else w[4], address="0xdeadbeef", ws=3)
     elif c == "scene":
         scene()
     elif c == "seed":

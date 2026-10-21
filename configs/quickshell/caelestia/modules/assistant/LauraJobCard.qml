@@ -29,6 +29,7 @@ Item {
     readonly property string kind: job.kind ?? "running"
     readonly property string destino: job.destino ?? "laura"
     readonly property bool aviso: Laura.isAviso(job)
+    readonly property bool ext: Laura.isExt(job)
     readonly property bool cfm: kind === "confirm"
     readonly property bool isEvt: !!job.evento
     readonly property bool isMail: !!job.correo
@@ -44,11 +45,11 @@ Item {
         case "running":
             return "En curso";
         case "agent":
-            return isEvt ? "Creando…" : "En espera";
+            return ext ? "Esperando" : isEvt ? "Creando…" : "En espera";
         case "confirm":
             return "Necesita tu OK";
         case "done":
-            return aviso ? "Aviso" : isEvt ? "Creado" : "Hecho";
+            return aviso ? "Aviso" : ext ? "Terminado" : isEvt ? "Creado" : "Hecho";
         case "fail":
             return "Fallido";
         }
@@ -66,8 +67,10 @@ Item {
         }
         return kind === "cancel" ? "" : _fmt(nowSec - inicio);
     }
-    readonly property string heading: cfm && (job.pregunta ?? "").length > 0 ? job.pregunta.split("\n")[0] : (job.titulo ?? "")
+    readonly property string heading: cfm && (job.pregunta ?? "").length > 0 ? job.pregunta.split("\n")[0] : ((job.titulo ?? "").length > 0 ? job.titulo : aviso ? "Aviso del vigía" : "")
     readonly property string sub: {
+        if (ext)
+            return job.proyecto ? "📁 " + job.proyecto : "";
         if (kind === "running")
             return "Trabajando…";
         if (kind === "agent")
@@ -228,14 +231,14 @@ Item {
             }
         }
 
-        // cinta «Por su cuenta»
+        // cinta «Por su cuenta» (avisos) / «Sesión tuya» (agentes lanzados en un terminal)
         Rectangle {
-            visible: card.aviso
+            visible: card.aviso || card.ext
             anchors.right: parent.right
             anchors.top: parent.top
             width: ribT.implicitWidth + 19
             height: ribT.implicitHeight + 6
-            color: card.tert
+            color: card.ext ? card.agentCol : card.tert
             topRightRadius: 15
             bottomLeftRadius: 11
 
@@ -243,7 +246,7 @@ Item {
                 id: ribT
 
                 anchors.centerIn: parent
-                text: "🔔 POR SU CUENTA"
+                text: card.ext ? "▣ SESIÓN TUYA" : "🔔 POR SU CUENTA"
                 color: Colours.palette.m3surface
                 font.pixelSize: 10
                 font.weight: Font.ExtraBold
@@ -259,7 +262,7 @@ Item {
             anchors.top: parent.top
             anchors.leftMargin: 12
             anchors.rightMargin: 12
-            anchors.topMargin: card.aviso ? 20 : card.cfm ? 13 : 11
+            anchors.topMargin: card.aviso || card.ext ? 20 : card.cfm ? 13 : 11
             spacing: card.cfm ? 9 : 6
 
             // título con glifo del agente
@@ -476,7 +479,7 @@ Item {
                     font: Tokens.font.label.small
                 }
                 StyledText {
-                    visible: card.aviso && !card.open
+                    visible: (card.aviso || (card.ext && card.final)) && !card.open
                     text: "✕"
                     color: dMa.containsMouse ? Colours.palette.m3onSurface : Colours.palette.m3onSurfaceVariant
                     font.pixelSize: 13
@@ -520,7 +523,7 @@ Item {
                 }
                 // en marcha
                 Btn {
-                    visible: !card.cfm && (card.kind === "running" || card.kind === "agent")
+                    visible: !card.cfm && !card.ext && (card.kind === "running" || card.kind === "agent")
                     label: "Cancelar"
                     tone: Laura.cFail
                     onActivated: Laura.cancel(card.jid)
@@ -540,21 +543,36 @@ Item {
                     tone: Laura.cFail
                     onActivated: Laura.dismiss(card.jid)
                 }
+                // sesiones externas: solo ir a la ventana (y descartar al terminar)
+                Btn {
+                    visible: card.ext
+                    label: "Ir a la ventana"
+                    tone: card.agentCol
+                    primary: true
+                    enable: (card.job.address ?? "").length > 0
+                    onActivated: Agents.focus(card.job.address)
+                }
+                Btn {
+                    visible: card.ext && card.final
+                    label: "Descartar"
+                    tone: Laura.cFail
+                    onActivated: Laura.dismiss(card.jid)
+                }
                 // trabajos terminados
                 Btn {
-                    visible: !card.cfm && !card.aviso && card.final && card.noteName.length > 0
+                    visible: !card.cfm && !card.aviso && !card.ext && card.final && card.noteName.length > 0
                     label: "Leer nota"
                     tone: card.agentCol
                     primary: true
                     onActivated: card.openNote()
                 }
                 Btn {
-                    visible: !card.cfm && !card.aviso && card.kind === "done" && (card.job.resumen ?? "").length > 0
+                    visible: !card.cfm && !card.aviso && !card.ext && card.kind === "done" && (card.job.resumen ?? "").length > 0
                     label: "Copiar"
                     onActivated: Quickshell.execDetached(["wl-copy", card.job.resumen ?? ""])
                 }
                 Btn {
-                    visible: !card.cfm && !card.aviso && card.final
+                    visible: !card.cfm && !card.aviso && !card.ext && card.final
                     label: card.kind === "fail" ? "Reintentar" : "Seguir con esto"
                     onActivated: Laura.follow(card.jid)
                 }

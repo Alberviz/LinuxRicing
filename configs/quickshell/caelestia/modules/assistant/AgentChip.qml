@@ -31,7 +31,7 @@ Rectangle {
         if (nConfirm > 0)
             return nConfirm + (nConfirm > 1 ? " esperan tu OK" : " espera tu OK");
         if (nRun > 0)
-            return nRun === 1 ? "Trabajando" : nRun + " en curso";
+            return nRun === 1 ? "Trabajando" : nRun + " en marcha";
         if (nWait > 0)
             return nWait + " en cola";
         if (agent === "laura")
