@@ -123,11 +123,9 @@ def _parse_dt(s: str) -> datetime | None:
       "Crea un evento en el calendario («apúntame una reunión mañana a las 10»); pide confirmación. Fechas ISO local (2026-10-22T10:00).",
       {"titulo": {"type": "string", "description": "título del evento"},
        "inicio": {"type": "string", "description": "ISO local"},
-       "fin": {"type": "string", "description": "ISO local (opcional)"},
-       "duracion_min": {"type": "integer", "description": "minutos (60 por defecto)"},
-       "descripcion": {"type": "string", "description": "notas (opcional)"}},
+       "duracion_min": {"type": "integer", "description": "minutos (60 por defecto)"}},
       required=["titulo", "inicio"], icon="event_available")
-def crear_evento(titulo: str, inicio: str, fin: str = "", duracion_min: int = 60, descripcion: str = "") -> dict:
+def crear_evento(titulo: str, inicio: str, duracion_min: int = 60, fin: str = "", descripcion: str = "") -> dict:
     ini = _parse_dt(inicio)
     if ini is None:
         return {"ok": False, "error": f"no entiendo la fecha «{inicio}»; usa formato 2026-10-22T10:00"}
