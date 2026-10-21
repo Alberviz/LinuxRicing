@@ -305,7 +305,7 @@ def main() -> None:
 
             def task(m=meta):
                 try:
-                    voice_yes_no(m["id"], m["pregunta"], "centro", cancel, jobs)
+                    voice_yes_no(m["id"], m.get("pregunta_voz") or m["pregunta"], "centro", cancel, jobs)
                 except Exception as e:  # noqa: BLE001
                     log(f"pregunta de confirmación: {e}")
                 finally:

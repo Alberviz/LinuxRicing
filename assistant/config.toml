@@ -155,14 +155,24 @@ url = "http://100.82.69.90:8642"
 timeout = 600                  # s máximos por petición
 session_key = "laura-escritorio"
 
+# Google Workspace directo (workspace-mcp local, sin LLM). Si no responde, correo/agenda/vigía
+# caen a Aurora. Ver docs/laura-v2/WORKSPACE.md.
+[workspace]
+enabled = true
+url = "http://127.0.0.1:8765/mcp"
+timeout = 20
+email = ""     # tu cuenta de Google (user_google_email que exigen las herramientas)
+
 # Vigía: Laura se levanta sola para avisar de correo, eventos y tareas (solo en el escritorio).
 [vigia]
 enabled = true
-cada_min = 20
+cada_min = 5               # sin LLM en la ruta normal, se puede revisar a menudo
 aviso_evento_min = 30
 silencio_desde = "23:30"
 silencio_hasta = "08:00"
 tareas_estancadas_dias = 5
+remitentes_importantes = ["edu", ".ac.", "universidad", "universit", "uj.edu.pl"]  # fragmentos de dominio/remitente que suben a alta
+clasificar_con_llm = false   # dudas de prioridad: clasificar con el qwen local (opcional)
 
 # Ubicación de Alberto para la tool `tiempo`. Si lat/lon están vacíos se
 # geolocaliza por IP una vez y se cachea en ~/.local/share/laura/ubicacion.json.

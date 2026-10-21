@@ -40,51 +40,6 @@ _FORMATO = ("Responde en español, MUY corto (máximo 4 líneas), sin saludos ni
             "cada elemento relevante, una por línea. ")
 
 
-@tool("correo",
-      "Mira el correo de Alberto (Gmail) en segundo plano: «mírame los correos», «¿tengo algo de la universidad?». Sin consulta resume los no leídos importantes.",
-      {"consulta": {"type": "string", "description": "qué buscar (opcional), p. ej. «de la universidad»"}},
-      icon="mail")
-def correo(consulta: str = "") -> dict:
-    if consulta.strip():
-        p = (f"Busca en el Gmail de Alberto: {consulta}. Resume lo que encuentres (remitente, asunto, "
-             "una frase). " + _FORMATO + "No envíes ni borres nada.")
-    else:
-        p = ("Mira en el Gmail de Alberto los correos NO LEÍDOS importantes (personas reales, universidad, "
-             "trabajo, plazos, pagos, viajes; ignora spam y newsletters). Resume los más relevantes "
-             "(remitente, asunto, una frase). " + _FORMATO + "No envíes ni borres nada.")
-    jid = _manager().start("aurora", p, kind="aurora", titulo=f"Correo: {consulta or 'no leídos'}", prompt=p)
-    return {"ok": True, "id": jid, "resumen": "Mirando el correo"}
-
-
-@tool("agenda",
-      "Consulta el calendario de Alberto (Google Calendar) en segundo plano: «qué tengo mañana», «qué hay esta semana», «cuál es mi próximo evento».",
-      {"cuando": {"type": "string", "enum": ["hoy", "mañana", "semana", "próximo"], "description": "periodo"}},
-      icon="event")
-def agenda(cuando: str = "hoy") -> dict:
-    p = (f"Dime los eventos del Google Calendar de Alberto para: {cuando} "
-         "(si es «próximo», solo el siguiente evento). Hora y título de cada uno. " + _FORMATO +
-         "No crees ni modifiques nada.")
-    jid = _manager().start("aurora", p, kind="aurora", titulo=f"Agenda: {cuando}", prompt=p)
-    return {"ok": True, "id": jid, "resumen": "Mirando la agenda"}
-
-
-@tool("redactar_correo",
-      "Prepara un BORRADOR de correo en Gmail (no lo envía): «redáctale un correo a Marta sobre la reunión». Enviarlo pedirá confirmación.",
-      {"para": {"type": "string", "description": "destinatario (nombre o email)"},
-       "asunto": {"type": "string", "description": "asunto"},
-       "idea": {"type": "string", "description": "qué quiere decir Alberto"}},
-      required=["para", "idea"], icon="drafts")
-def redactar_correo(para: str, idea: str, asunto: str = "") -> dict:
-    p = ("REGLA ABSOLUTA: NO ENVÍES NINGÚN CORREO en este paso; está prohibido, aunque el usuario lo pida. "
-         "Tu única acción permitida es CREAR UN BORRADOR en Gmail (herramienta de borradores). Si no puedes "
-         "crear borradores, no envíes nada: limítate a escribir el texto. "
-         f"Redacta un correo para {para}" + (f" con asunto «{asunto}»" if asunto else "") +
-         f" con esta idea: {idea}. Responde con el texto del borrador y termina EXACTAMENTE con la pregunta "
-         "«¿Lo envío?». No envíes nada hasta recibir un «sí» explícito después. " + _FORMATO)
-    jid = _manager().start("aurora", p, kind="aurora", titulo=f"Borrador para {para}", prompt=p)
-    return {"ok": True, "id": jid, "resumen": "Preparando el borrador"}
-
-
 @tool("novedades",
       "Revisa ahora si hay algo nuevo (correos importantes, eventos próximos, tareas estancadas): «¿hay algo nuevo?», «novedades».",
       icon="notifications")
