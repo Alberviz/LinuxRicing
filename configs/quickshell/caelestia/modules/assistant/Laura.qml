@@ -34,6 +34,12 @@ Singleton {
 
     readonly property bool active: state !== "idle"
 
+    // ¿Pinta el borde de luz? Solo cuando Alberto levanta a Laura (ciclo con
+    // escucha / pensar) — un aviso del vigía que habla por su cuenta NO lo enciende.
+    property bool borderActive: false
+    property bool _cycle: false
+    property real _lastAvisoMs: 0
+
     // --- Trabajos en segundo plano ---------------------------------------
     // Lista de jobs normalizados (ver PLAN-ORBE.md, evento `job`). Se reasigna
     // entera en cada cambio para que los bindings se reevalúen.
@@ -199,6 +205,8 @@ Singleton {
             list.push(j);
         // El aviso de «nuevo» va ANTES de publicar la lista: así el orbe puede
         // retener el dock y lanzar la convergencia antes de pintar nada.
+        if (live && j.origen === "laura")
+            root._lastAvisoMs = Date.now();
         if (live && !prev && j.kind === "running" && j.origen !== "laura")
             root.jobStarted(j);
         root.jobs = list;
@@ -350,6 +358,16 @@ Singleton {
         switch (ev.type) {
         case "state":
             root.state = ev.value;
+            if (ev.value === "listening" || ev.value === "thinking") {
+                root._cycle = true;
+                root.borderActive = true;
+            } else if (ev.value === "speaking") {
+                if (root._cycle || Date.now() - root._lastAvisoMs > 25000)
+                    root.borderActive = true;
+            } else if (ev.value === "idle") {
+                root._cycle = false;
+                root.borderActive = false;
+            }
             if (ev.mode)
                 root.mode = ev.mode;
             if (ev.value === "listening") {
@@ -426,6 +444,8 @@ Singleton {
         interval: 75000
         onTriggered: {
             root.state = "idle";
+            root.borderActive = false;
+            root._cycle = false;
             root.amplitude = 0;
         }
     }
