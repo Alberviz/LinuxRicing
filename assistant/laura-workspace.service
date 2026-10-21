@@ -1,0 +1,21 @@
+# Servidor MCP de Google Workspace para Laura (taylorwilsdon/google_workspace_mcp), solo local.
+#   cp laura-workspace.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now laura-workspace
+# Credenciales: ~/.config/laura/workspace.env (chmod 600) con GOOGLE_CLIENT_SECRET_PATH (o
+# GOOGLE_OAUTH_CLIENT_ID/SECRET), WORKSPACE_MCP_PORT=8765 y OAUTHLIB_INSECURE_TRANSPORT=1.
+# Permisos: Gmail SOLO LECTURA y Calendar lectura y escritura (--permissions; es excluyente con
+# --tools y --read-only). Laura no puede enviar ni borrar correo: el envío pasa por Aurora.
+[Unit]
+Description=Laura — Google Workspace MCP (Gmail solo lectura, Calendar)
+After=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/laura/workspace.env
+Environment=WORKSPACE_MCP_HOST=127.0.0.1
+ExecStart=/usr/bin/uvx workspace-mcp --transport streamable-http --single-user --permissions gmail:readonly calendar:full
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
