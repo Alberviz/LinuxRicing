@@ -23,3 +23,7 @@ assistant/.venv
 
 # Notas generadas por Laura (datos personales)
 vault/Laura/
+
+# Laura: ajuste fino (datos generados y adaptadores)
+assistant/finetune/data/
+assistant/finetune/output/

@@ -1,0 +1,33 @@
+# QLoRA de Qwen3-4B-Instruct para Laura (6 GB de VRAM: base en NF4 + layer streaming).
+# Campos según el schema de Soup (src/soup_cli/config/schema.py); valida antes con:
+#   soup doctor --config soup.yaml
+# Base de HF equivalente al modelo de Ollama `qwen3:4b-instruct` (Qwen3-4B-Instruct-2507).
+base: Qwen/Qwen3-4B-Instruct-2507
+task: sft
+
+data:
+  train: ./data/train.jsonl
+  format: tool-calling      # messages + tools (+ tool_calls / rol tool), ver docs/training.md de Soup
+  val_split: 0.05
+  max_length: 6144          # system prompt + 42 esquemas de tools ocupan ~4,9k tokens por ejemplo
+
+training:
+  epochs: 2
+  lr: 1.0e-4
+  batch_size: 1             # stream_layers exige un batch_size concreto (no "auto")
+  gradient_accumulation_steps: 16
+  quantization: 4bit        # NF4; stream_layers solo admite none o 4bit
+  stream_layers: true       # BETA: la base congelada pasa a la GPU capa a capa; cabe en 6 GB.
+                            # Si tu versión de Soup lo rechaza o va muy lento, quítalo y
+                            # prueba con gradient_checkpointing: full y max_length más bajo.
+  gradient_checkpointing: full
+  warmup_ratio: 0.05
+  save_steps: 100
+  logging_steps: 10
+  lora:
+    r: 16
+    alpha: 32
+    dropout: 0.05
+    target_modules: auto
+
+output: ./output
