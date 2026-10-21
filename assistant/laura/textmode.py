@@ -25,8 +25,10 @@ def run_text(text: str, speak_reply: bool = False, confirm: str = "no") -> int:
     if escalation is not None:
         print(f"[escalada Modo B] {escalation}")
         pregunta = (f"¿Se lo mando a {escalation['destino']}? {escalation['peticion']}")
-        jid = jm.start(escalation["destino"], escalation["peticion"], escalation.get("motivo", ""),
-                       pregunta=pregunta, ask_voice=False)
+        es_cmd = escalation["destino"] == "comando"
+        jid = jm.start("laura" if es_cmd else escalation["destino"], escalation["peticion"],
+                       escalation.get("motivo", ""), pregunta=pregunta, ask_voice=False,
+                       kind="comando" if es_cmd else "agent")
         print(f"[confirm] {pregunta}  -> respondo «{confirm}»")
         jm.confirm(jid, confirm == "yes")
     for a in actions:

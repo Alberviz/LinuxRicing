@@ -247,23 +247,16 @@ def hora_fecha() -> dict:
 
 
 @tool("ejecutar_comando",
-      "Ejecuta un comando de terminal/bash en el sistema para consultar el estado del ordenador, servicios, procesos, git, etc. Úsala cuando Alberto te pida realizar una acción o comprobación del sistema en el terminal.",
-      {"comando": {"type": "string", "description": "comando bash a ejecutar"}},
-      required=["comando"], icon="terminal")
+      "Ejecuta un comando de terminal para consultar o hacer algo en el sistema (git, servicios, procesos, disco…). Los de solo lectura van directos; los demás piden confirmación a Alberto.",
+      {"comando": {"type": "string", "description": "comando bash"}},
+      required=["comando"], icon="terminal", effect="confirm:comando")
 def ejecutar_comando(comando: str) -> dict:
-    """Ejecuta un comando en el sistema y devuelve su salida."""
-    try:
-        r = subprocess.run(comando, shell=True, capture_output=True, text=True, timeout=12)
-        out = (r.stdout or "").strip()
-        err = (r.stderr or "").strip()
-        if r.returncode != 0:
-            return {"ok": False, "codigo": r.returncode, "error": (err or out or "comando falló")[:300],
-                    "resumen": "Error en comando"}
-        resumen_txt = out.splitlines()[0][:60] if out else "Comando ejecutado"
-        return {"ok": True, "codigo": 0, "salida": out[:1200], "resumen": resumen_txt,
-                "nota": "Resume el resultado a Alberto de forma breve y clara en una frase para leerse en voz alta."}
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "error": "el comando tardó más de 12 segundos y se canceló"}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
+    """Solo clasifica: lo bloqueado se rechaza, lo de solo lectura se ejecuta y lo demás
+    devuelve `confirmar` para que converse() lo pase por confirmación (ver laura.jobs)."""
+    from .. import shellguard
+    nivel, motivo = shellguard.clasificar(comando)
+    if nivel == shellguard.BLOQUEADO:
+        return {"ok": False, "error": f"comando bloqueado por seguridad ({motivo})", "resumen": "Comando bloqueado"}
+    if nivel == shellguard.DIRECTO:
+        return shellguard.ejecutar(comando)
+    return {"ok": True, "confirmar": True, "comando": comando, "resumen": "Pido confirmación"}

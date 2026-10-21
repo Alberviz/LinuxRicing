@@ -109,6 +109,8 @@ def _confirm_and_run_escalation(session: Session, jobs: JobManager, escalation: 
     la tarjeta) y pregunta por voz a quién se manda y qué. Voz o tarjeta, lo que llegue
     antes. Tras el sí, el trabajo corre en segundo plano y el ciclo sigue libre."""
     destino = escalation.get("destino", "gemini")
+    if destino == "comando":
+        return _confirm_command(session, jobs, escalation["peticion"], mode, cancel)
     nombre = NOMBRES.get(destino, destino)
     peticion = escalation.get("peticion", "")
     motivo = escalation.get("motivo", "")
@@ -149,5 +151,28 @@ def _confirm_and_run_escalation(session: Session, jobs: JobManager, escalation: 
            else "Vale, no hago nada.")
     session.add("assistant", msg)
     log(f"laura: {msg} (job {jid})")
+    _say(msg, mode, cancel)
+    return bool(r)
+
+
+def _confirm_command(session: Session, jobs: JobManager, cmd: str, mode: str,
+                     cancel: threading.Event) -> bool:
+    """`ejecutar_comando` no es de solo lectura: confirmación (voz o tarjeta) y, tras el sí,
+    se ejecuta en segundo plano."""
+    pregunta = f"Voy a ejecutar: {cmd[:160]}. ¿Lo hago?"
+    jid = jobs.start("laura", cmd, kind="comando", pregunta=pregunta, ask_voice=False,
+                     titulo=f"Comando: {cmd}")
+    r = voice_yes_no(jid, pregunta, mode, cancel, jobs)
+    if cancel.is_set():
+        jobs.cancel(jid)
+        return False
+    if r is None:
+        ev = jobs.answered_event(jid)
+        if ev is not None and ev.is_set():
+            return True
+        _say("Lo dejo pendiente en el panel.", mode, cancel)
+        return True
+    msg = "Vale, lo ejecuto." if r else "Vale, no lo ejecuto."
+    session.add("assistant", msg)
     _say(msg, mode, cancel)
     return bool(r)

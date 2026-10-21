@@ -268,6 +268,8 @@ def converse(session: Session, user_text: str, on_sentence=None,
                     "peticion": args.get("peticion") or user_text,
                     "motivo": args.get("motivo", ""),
                 }
+            if eff == "confirm:comando" and result.get("confirmar"):
+                return "", actions, {"destino": "comando", "peticion": result["comando"], "motivo": ""}
             if result.get("ok"):
                 actions.append(tools_mod.accion_overlay(fn["name"], result))
     return (messages[-1].get("content") or "Hecho.").strip(), actions, None

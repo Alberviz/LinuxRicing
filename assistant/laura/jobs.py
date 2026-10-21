@@ -539,6 +539,10 @@ class JobManager:
             if r.get("denegado"):
                 r["cancelado"] = True
             return r
+        if kind == "comando":
+            from . import shellguard
+            self._set(meta, "waiting")
+            return shellguard.ejecutar(peticion)
         if kind == "investigar":
             if destino == "gemini":
                 self._set(meta, "waiting")
