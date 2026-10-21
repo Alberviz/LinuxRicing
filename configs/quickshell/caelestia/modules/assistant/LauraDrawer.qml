@@ -161,9 +161,29 @@ StyledWindow {
 
                 StyledText {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "Laura · segundo plano"
+                    text: "Laura"
                     font.bold: true
                     font.pixelSize: 15
+                }
+                StyledText {
+                    id: vigiaT
+
+                    anchors.right: closeT.left
+                    anchors.rightMargin: 14
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "Buscar novedades"
+                    color: vigiaMa.containsMouse ? Colours.palette.m3onSurface : Colours.palette.m3onSurfaceVariant
+                    font: Tokens.font.label.small
+
+                    MouseArea {
+                        id: vigiaMa
+
+                        anchors.fill: parent
+                        anchors.margins: -5
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: Laura.vigiaNow()
+                    }
                 }
                 StyledText {
                     id: closeT

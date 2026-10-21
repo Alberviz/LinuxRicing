@@ -16,6 +16,8 @@ Item {
     readonly property bool stroked: agent === "claude" || agent === "aurora"
     readonly property string d1: {
         switch (agent) {
+        case "aviso":
+            return "M12 22a2 2 0 0 0 2-2h-4a2 2 0 0 0 2 2zm6-6V11c0-3.07-1.63-5.64-4.5-6.32V4a1.5 1.5 0 0 0-3 0v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z";
         case "gemini":
             return "M10 3c.5 4.2 3.8 7.5 8 8-4.2.5-7.5 3.8-8 8-.5-4.2-3.8-7.5-8-8 4.2-.5 7.5-3.8 8-8z";
         case "claude":

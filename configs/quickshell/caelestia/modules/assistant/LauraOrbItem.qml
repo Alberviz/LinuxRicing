@@ -24,12 +24,14 @@ Item {
 
     readonly property string kind: job.kind ?? "running"
     readonly property string destino: job.destino ?? "laura"
-    readonly property color agentCol: Laura.agentColor(destino)
+    readonly property bool aviso: job.origen === "laura"
+    readonly property bool quiet: aviso && job.prioridad === "baja"
+    readonly property color agentCol: Laura.agentColor(aviso ? "laura" : destino)
     // «k» del mockup: color del movimiento interior.
     readonly property color kCol: kind === "confirm" ? Laura.cWait : kind === "fail" ? Laura.cFail : agentCol
     readonly property bool unseen: Laura.isUnseen(job)
 
-    property real d: isMain ? 46 : 20
+    property real d: (isMain && !quiet) ? 46 : 20
     Behavior on d {
         NumberAnimation {
             duration: 450
@@ -43,7 +45,7 @@ Item {
     // Nacimiento / disolución
     property real appear: 0
     opacity: gone ? 0 : appear
-    scale: gone ? 0.3 : (0.2 + 0.8 * appear)
+    scale: gone ? 0.3 : (aviso ? 1 : 0.2 + 0.8 * appear)
     transformOrigin: Item.Right
     Behavior on opacity {
         NumberAnimation {
@@ -66,7 +68,11 @@ Item {
 
     // Pulso al pasar a done / fail (no al cargar)
     property string prevKind: ""
-    Component.onCompleted: prevKind = kind
+    Component.onCompleted: {
+        prevKind = kind;
+        if (aviso && !quiet)
+            bellAnim.start();
+    }
     onKindChanged: {
         if ((kind === "done" || kind === "fail") && prevKind !== "" && prevKind !== kind)
             pulseAnim.restart();
@@ -80,6 +86,18 @@ Item {
         from: 0
         to: 1
         duration: 1500
+    }
+
+    // Aviso: halo de doble anillo que late 3 veces y se queda quieto
+    property real bellP: 3
+    NumberAnimation {
+        id: bellAnim
+
+        target: orb
+        property: "bellP"
+        from: 0
+        to: 3
+        duration: 4800
     }
 
     // Fases derivadas del reloj compartido
@@ -261,7 +279,7 @@ Item {
 
     AgentGlyph {
         anchors.centerIn: parent
-        agent: orb.destino
+        agent: orb.aviso ? "aviso" : orb.destino
         size: orb.d * 0.4
         color: Qt.tint(orb.agentCol, "#b3ffffff")
     }
@@ -284,9 +302,29 @@ Item {
         strokeWidth: 1.5
     }
 
+    // Halo de doble anillo (avisos)
+    Repeater {
+        model: 2
+
+        OrbDisc {
+            id: bring
+
+            required property int index
+            readonly property real q: Math.max(0, Math.min(1, orb.bellP - Math.floor(orb.bellP) - bring.index * 0.18))
+            readonly property bool on: orb.aviso && orb.bellP < 3
+
+            anchors.fill: parent
+            visible: on
+            scale: 1 + 0.8 * q
+            opacity: 0.55 * (1 - q)
+            strokeColor: orb.agentCol
+            strokeWidth: 1.5
+        }
+    }
+
     // Insignia (solo el orbe principal): ! ✓ ×
     Rectangle {
-        visible: orb.isMain && (orb.kind === "confirm" || orb.kind === "done" || orb.kind === "fail")
+        visible: orb.isMain && !orb.quiet && !orb.aviso && (orb.kind === "confirm" || orb.kind === "done" || orb.kind === "fail")
         x: -4
         y: orb.d - width + 4
         width: orb.d * 0.38

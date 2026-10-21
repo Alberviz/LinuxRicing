@@ -33,7 +33,7 @@ Rectangle {
         case "confirm":
             return "Pide confirmación";
         case "done":
-            return "Hecho";
+            return Laura.isAviso(job) ? "Aviso" : "Hecho";
         case "fail":
             return "Fallido";
         }
@@ -188,6 +188,26 @@ Rectangle {
             }
         }
 
+        // Etiqueta de aviso espontáneo
+        Rectangle {
+            visible: Laura.isAviso(card.job)
+            width: ownT.implicitWidth + 14
+            height: ownT.implicitHeight + 4
+            radius: height / 2
+            color: Qt.alpha(card.agentCol, 0.14)
+            border.width: 1
+            border.color: Qt.alpha(card.agentCol, 0.5)
+
+            StyledText {
+                id: ownT
+
+                anchors.centerIn: parent
+                text: "🔔 Por su cuenta"
+                color: card.agentCol
+                font: Tokens.font.label.small
+            }
+        }
+
         // Petición / título
         StyledText {
             width: parent.width
@@ -303,7 +323,21 @@ Rectangle {
                 onActivated: Laura.confirm(card.jid, false)
             }
             Btn {
-                visible: card.final
+                visible: card.final && Laura.isAviso(card.job)
+                label: "Abrir"
+                tone: card.agentCol
+                primary: true
+                enable: (card.job.fuentes ?? []).length > 0 && !!card.job.fuentes[0].url
+                onActivated: Quickshell.execDetached(["xdg-open", card.job.fuentes[0].url])
+            }
+            Btn {
+                visible: card.final && Laura.isAviso(card.job)
+                label: "Descartar"
+                tone: Laura.cFail
+                onActivated: Laura.dismiss(card.jid)
+            }
+            Btn {
+                visible: card.final && (!Laura.isAviso(card.job) || (card.job.nota ?? "").length > 0)
                 label: "Abrir nota"
                 tone: card.agentCol
                 primary: true
@@ -317,8 +351,8 @@ Rectangle {
                 onActivated: card.copySummary()
             }
             Btn {
-                visible: card.final
                 label: card.kind === "fail" ? "Reintentar" : "Seguir con esto"
+                visible: card.final && !Laura.isAviso(card.job)
                 onActivated: Laura.follow(card.jid)
             }
             Btn {

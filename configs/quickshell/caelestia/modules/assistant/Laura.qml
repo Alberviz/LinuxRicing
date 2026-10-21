@@ -127,6 +127,33 @@ Singleton {
         return "Laura";
     }
 
+    // «Se levanta sola»: aviso del vigía (origen laura)
+    function isAviso(j): bool {
+        return j.origen === "laura";
+    }
+    function isQuiet(j): bool {
+        return j.origen === "laura" && j.prioridad === "baja";
+    }
+
+    // Estado de la interfaz que el daemon necesita (no molestar, pantalla completa)
+    readonly property bool dnd: Notifs.dnd
+    readonly property bool fullscreen: Hypr.focusedWorkspace?.toplevels.values.some(t => t.lastIpcObject.fullscreen > 1) ?? false
+    onDndChanged: sendUi()
+    onFullscreenChanged: sendUi()
+    function sendUi(): void {
+        _ctrl("ui " + JSON.stringify({
+            dnd: root.dnd,
+            fullscreen: root.fullscreen
+        }), null);
+    }
+    function dismiss(id: string): void {
+        root.jobs = root.jobs.filter(j => j.id !== id);
+        _ctrl("job-dismiss " + id, null);
+    }
+    function vigiaNow(): void {
+        _ctrl("vigia-now", null);
+    }
+
     function isActive(j): bool {
         return j.kind === "running" || j.kind === "agent" || j.kind === "confirm";
     }
@@ -150,6 +177,9 @@ Singleton {
             fuentes: ev.fuentes ?? p.fuentes ?? [],
             inicio: ev.inicio ?? p.inicio ?? Date.now() / 1000,
             fin: ev.fin !== undefined ? ev.fin : (p.fin ?? null),
+            origen: ev.origen ?? p.origen ?? "alberto",
+            tipo: ev.tipo ?? p.tipo ?? "trabajo",
+            prioridad: ev.prioridad ?? p.prioridad ?? "normal",
             leido: ev.leido !== undefined ? !!ev.leido : (p.leido ?? false)
         };
     }
@@ -169,7 +199,7 @@ Singleton {
             list.push(j);
         // El aviso de «nuevo» va ANTES de publicar la lista: así el orbe puede
         // retener el dock y lanzar la convergencia antes de pintar nada.
-        if (live && !prev && j.kind === "running")
+        if (live && !prev && j.kind === "running" && j.origen !== "laura")
             root.jobStarted(j);
         root.jobs = list;
         if (live && (!prev || prev.kind !== j.kind) && (j.kind === "done" || j.kind === "fail")) {
@@ -359,8 +389,10 @@ Singleton {
             connected: true
             // Al (re)conectar, pedir la lista viva de trabajos: así no se
             // pierde el estado tras reiniciar el shell.
-            onConnectedChanged: if (connected)
-                root.refreshJobs()
+            onConnectedChanged: if (connected) {
+                root.refreshJobs();
+                root.sendUi();
+            }
             parser: SplitParser {
                 onRead: line => root._handle(line)
             }

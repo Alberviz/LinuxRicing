@@ -121,7 +121,7 @@ Scope {
             }
         }
         function onJobFinished(job): void {
-            if (!root.mine || Laura.drawerOpen)
+            if (!root.mine || Laura.drawerOpen || Laura.isQuiet(job))
                 return;
             pill.show(job);
         }
@@ -347,7 +347,7 @@ Scope {
 
                 AgentGlyph {
                     anchors.verticalCenter: parent.verticalCenter
-                    agent: pill.pjob.destino ?? "laura"
+                    agent: pill.pjob.origen === "laura" ? "aviso" : (pill.pjob.destino ?? "laura")
                     color: pill.col
                     size: 16
                 }
