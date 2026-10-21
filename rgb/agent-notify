@@ -212,6 +212,29 @@ def get_project_name(target_pid=None, cwd=None):
     return Path(cwd).name
 
 
+def laura_ext(estado, name, task="", address="", ws=None, proyecto="", sid=None):
+    """Reenvía el evento al socket de control de Laura (`ext <json>`) para que salga en su
+    tablero como «Sesión tuya». Falla en silencio si Laura no está."""
+    try:
+        import socket
+        low = (name or "").lower()
+        if not any(k in low for k in ("claude", "gemini", "anti", "agy")):
+            return
+        path = os.environ.get("LAURA_CTRL_SOCK") or os.path.join(
+            os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"), "laura.sock")
+        agente = "claude" if "claude" in low else "gemini"
+        payload = {"id": sid or f"{agente}-{_norm_addr(address) or os.getppid()}", "agente": agente,
+                   "proyecto": proyecto or "", "tarea": (task or "")[:120], "estado": estado,
+                   "ws": ws, "address": address or "", "ts": int(time.time())}
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(0.5)
+        s.connect(path)
+        s.sendall(("ext " + json.dumps(payload, ensure_ascii=False) + "\n").encode())
+        s.close()
+    except Exception:
+        pass
+
+
 def _norm_addr(addr):
     if not addr:
         return ""
@@ -554,6 +577,7 @@ def start_agent(name="Claude", task=None, target_pid=None, cwd=None, conv_id=Non
         pass
 
     quickshell_ipc("start", data)
+    laura_ext("trabajando", name, task=data["task"], address=address, ws=ws, proyecto=data["dir"])
     print(f"✓ En curso: {name} en Workspace {ws} ({data['dir']})", file=sys.stderr)
 
 
@@ -585,6 +609,7 @@ def finish_agent(name="Claude", task=None, status="Completado", target_pid=None,
                             target_pid=target_pid, cwd=cwd, conv_id=conv_id)
 
     quickshell_ipc("complete", data)
+    laura_ext("terminado", name, task=task, address=address, ws=ws, proyecto=data["dir"])
     send_desktop_notification(data)
     print(f"✓ Finalizado: {name} en Workspace {ws} ({data['dir']}{', ' + duration if duration else ''})", file=sys.stderr)
 
@@ -605,6 +630,7 @@ def notify_agent(name="Agente", status="Completado", task=None, duration="",
                                   conv_id=conv_id)
 
     quickshell_ipc("notify", agent_data)
+    laura_ext("terminado", name, task=task, address=address, ws=ws, proyecto=agent_data["dir"])
     send_desktop_notification(agent_data)
 
     print(f"✓ Notificación enviada: {name} en Workspace {ws} ({agent_data['dir']})")

@@ -83,6 +83,14 @@ Singleton {
             root.openDrawer("");
         }
     }
+    // Pasar a escribir (atajo opcional / pruebas): `qs -c caelestia ipc call laurainput toggleTyping`
+    signal typeToggled
+    IpcHandler {
+        target: "laurainput"
+        function toggleTyping(): void {
+            root.typeToggled();
+        }
+    }
     // Un trabajo NUEVO ha arrancado en vivo (no viene de la sincronización).
     signal jobStarted(var job)
     // Un trabajo ha pasado a done / failed en vivo.
@@ -152,6 +160,15 @@ Singleton {
             fullscreen: root.fullscreen
         }), null);
     }
+    // Pasar de voz a texto: deja de escuchar el ciclo en curso / envía una frase escrita
+    function listenCancel(): void {
+        _ctrl("listen-cancel", null);
+    }
+    function ask(text: string): void {
+        const t = text.replace(/[\r\n]+/g, " ").trim();
+        if (t.length > 0)
+            _ctrl("ask " + t, null);
+    }
     function dismiss(id: string): void {
         root.jobs = root.jobs.filter(j => j.id !== id);
         _ctrl("job-dismiss " + id, null);
@@ -160,12 +177,17 @@ Singleton {
         _ctrl("vigia-now", null);
     }
 
+    // Sesión de agente lanzada por Alberto en un terminal (agent-notify): solo informativa
+    function isExt(j): bool {
+        return j.origen === "externo";
+    }
+
     function isActive(j): bool {
         return j.kind === "running" || j.kind === "agent" || j.kind === "confirm";
     }
 
     function isUnseen(j): bool {
-        return (j.kind === "done" || j.kind === "fail") && !j.leido;
+        return (j.kind === "done" || j.kind === "fail") && !j.leido && j.origen !== "externo";
     }
 
     function _norm(ev, prev) {
@@ -185,6 +207,9 @@ Singleton {
             fin: ev.fin !== undefined ? ev.fin : (p.fin ?? null),
             evento: ev.evento !== undefined ? ev.evento : (p.evento ?? null),
             correo: ev.correo !== undefined ? ev.correo : (p.correo ?? null),
+            proyecto: ev.proyecto ?? p.proyecto ?? "",
+            ws: ev.ws !== undefined ? ev.ws : (p.ws ?? null),
+            address: ev.address ?? p.address ?? "",
             origen: ev.origen ?? p.origen ?? "alberto",
             tipo: ev.tipo ?? p.tipo ?? "trabajo",
             prioridad: ev.prioridad ?? p.prioridad ?? "normal",
@@ -196,6 +221,10 @@ Singleton {
         if (ev.id === undefined || ev.id === null)
             return;
         const id = String(ev.id);
+        if (ev.descartado) {
+            root.jobs = root.jobs.filter(j => j.id !== id);
+            return;
+        }
         const cut = Date.now() / 1000 - 86400;
         const list = root.jobs.filter(j => (j.fin ?? j.inicio) > cut || root.isActive(j));
         const idx = list.findIndex(j => j.id === id);
@@ -209,10 +238,10 @@ Singleton {
         // retener el dock y lanzar la convergencia antes de pintar nada.
         if (live && j.origen === "laura")
             root._lastAvisoMs = Date.now();
-        if (live && !prev && j.kind === "running" && j.origen !== "laura")
+        if (live && !prev && j.kind === "running" && (j.origen ?? "alberto") === "alberto")
             root.jobStarted(j);
         root.jobs = list;
-        if (live && (!prev || prev.kind !== j.kind) && (j.kind === "done" || j.kind === "fail")) {
+        if (live && j.origen !== "externo" && (!prev || prev.kind !== j.kind) && (j.kind === "done" || j.kind === "fail")) {
             if (root.drawerOpen) {
                 const keep = Object.assign({}, root.keepIds);
                 keep[j.id] = true;

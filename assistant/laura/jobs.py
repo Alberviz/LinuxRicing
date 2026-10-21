@@ -343,7 +343,9 @@ def to_event(meta: dict) -> dict:
             "prioridad": meta.get("prioridad", "normal"),
             # datos estructurados para el cajón: evento propuesto (+ eventos del día) y borrador de correo
             "evento": meta.get("data") if meta.get("kind") == "evento" else None,
-            "correo": meta.get("correo")}
+            "correo": meta.get("correo"),
+            # sesiones externas (agentes lanzados por Alberto en sus terminales)
+            "proyecto": meta.get("proyecto", ""), "ws": meta.get("ws"), "address": meta.get("address", "")}
 
 
 def _alive(pid: int | None) -> bool:
@@ -362,8 +364,8 @@ def reap_orphans() -> int:
     existe (reinicio, caída) pasan a fallido. Devuelve cuántos."""
     n = 0
     for m in list_jobs(1000):
-        if m.get("estado") in FINAL:
-            continue
+        if m.get("estado") in FINAL or m.get("origen") == "externo":
+            continue  # las sesiones externas caducan por ventana cerrada / 12 h, no por reinicio
         if m.get("pid") != os.getpid() and _alive(m.get("pid")):
             continue  # lo lleva otro daemon vivo
         m.update(estado="failed", fin=time.time(), pregunta="",
@@ -497,6 +499,39 @@ class JobManager:
         if prioridad == "alta" and speak and self.announce_alert:
             self.announce_alert(resumen)
         return jid
+
+    # ---- sesiones externas (agent-notify -> `ext <json>`) ----
+    _EXT_AGENTES = {"claude": "claude", "gemini": "gemini", "antigravity": "gemini", "agy": "gemini"}
+    _EXT_ESTADOS = {"trabajando": "started", "esperando": "waiting", "terminado": "done"}
+
+    def external(self, d: dict) -> dict:
+        """Registra o actualiza una sesión externa. Laura no la puede cancelar ni confirmar."""
+        destino = self._EXT_AGENTES.get(str(d.get("agente", "")).strip().lower())
+        estado = self._EXT_ESTADOS.get(str(d.get("estado", "")).strip().lower())
+        sid = re.sub(r"[^A-Za-z0-9_.-]", "", str(d.get("id", "")))[:40]
+        if not destino or not estado or not sid:
+            return {"ok": False, "error": "ext: faltan agente, estado o id válidos"}
+        jid = "x-" + sid
+        now = time.time()
+        m = get_job(jid)
+        tarea = str(d.get("tarea") or "").strip()
+        if m is None or (m.get("estado") == "done" and estado != "done"):
+            m = {"id": jid, "destino": destino, "kind": "externo", "peticion": tarea, "resumen": "",
+                 "pregunta": "", "nota": "", "fuentes": [], "leido": False, "inicio": now, "fin": None,
+                 "pid": os.getpid(), "origen": "externo", "tipo": "trabajo", "prioridad": "normal"}
+        m.pop("descartado", None)
+        if tarea:
+            m["peticion"] = tarea
+        m["titulo"] = (m.get("peticion") or str(d.get("proyecto") or "Sesión"))[:80]
+        m.update(proyecto=str(d.get("proyecto") or ""), ws=d.get("ws"), address=str(d.get("address") or ""),
+                 estado=estado)
+        if estado == "done":
+            m["fin"] = now
+        else:
+            m["fin"] = None
+        _save(m)
+        bus.emit(**to_event(m))
+        return {"ok": True, "id": jid}
 
     def active(self) -> int:
         return sum(1 for m in list_jobs(100) if m["estado"] not in FINAL and m["id"] in self._live)
@@ -703,3 +738,41 @@ MANAGER: JobManager | None = None
 def set_manager(m: JobManager) -> None:
     global MANAGER
     MANAGER = m
+
+
+# ---- caducidad de sesiones externas ----
+_EXT_TTL_H = 12.0
+_ext_cache: dict = {"t": 0.0, "addrs": None}
+
+
+def _ventanas_abiertas() -> set[str] | None:
+    """Direcciones de las ventanas de Hyprland (None si no se puede saber). Cache de 15 s."""
+    import subprocess
+    if time.time() - _ext_cache["t"] < 15 and _ext_cache["addrs"] is not None:
+        return _ext_cache["addrs"]
+    try:
+        out = subprocess.run(["hyprctl", "clients", "-j"], capture_output=True, text=True, timeout=2)
+        addrs = {str(c.get("address", "")).lower().removeprefix("0x") for c in json.loads(out.stdout)}
+    except Exception:  # noqa: BLE001
+        return None
+    _ext_cache.update(t=time.time(), addrs=addrs)
+    return addrs
+
+
+def expire_externos() -> int:
+    """Descarta las sesiones externas con más de 12 h o cuya ventana ya no existe."""
+    n = 0
+    abiertas = _ventanas_abiertas()
+    for m in list_jobs(1000):
+        if m.get("origen") != "externo":
+            continue
+        ref = m.get("fin") or m.get("inicio") or 0
+        addr = str(m.get("address") or "").lower().removeprefix("0x")
+        viejo = time.time() - ref > _EXT_TTL_H * 3600
+        cerrada = bool(addr) and abiertas is not None and addr not in abiertas
+        if viejo or cerrada:
+            m.update(descartado=True, leido=True)
+            _save(m)
+            bus.emit(**{**to_event(m), "descartado": True})
+            n += 1
+    return n

@@ -317,6 +317,16 @@ def main() -> None:
 
     threading.Thread(target=confirmer, daemon=True).start()
 
+    def janitor() -> None:
+        while True:
+            try:
+                jobs_mod.expire_externos()
+            except Exception as e:  # noqa: BLE001
+                log(f"caducidad de sesiones externas: {e}")
+            time.sleep(30)
+
+    threading.Thread(target=janitor, daemon=True).start()
+
     def on_aviso(a: dict) -> None:
         etiqueta = a["texto"]
         if a["tipo"] == "temporizador":
@@ -379,6 +389,10 @@ def main() -> None:
                 return {"ok": False, "error": "hay un ciclo en curso"}
             fire("centro", first_text=arg)
             return {"ok": True}
+        if cmd == "listen-cancel":  # dejar de escuchar (el cajón/píldora pasa a texto): cierra el ciclo en curso
+            if busy():
+                cancel.set()
+            return {"ok": True}
         if cmd == "vigia-now":
             vig.now()
             return {"ok": True}
@@ -395,6 +409,11 @@ def main() -> None:
                 return {"ok": True}
             except (ValueError, TypeError) as e:
                 return {"ok": False, "error": f"ui: json no válido ({e})"}
+        if cmd == "ext":  # sesión de agente externa (agent-notify): {id,agente,proyecto,tarea,estado,ws,address,ts}
+            try:
+                return jobs.external(json.loads(arg))
+            except (ValueError, TypeError) as e:
+                return {"ok": False, "error": f"ext: json no válido ({e})"}
         if cmd == "job-dismiss":
             return jobs.dismiss(arg)
         if cmd == "jobs":
