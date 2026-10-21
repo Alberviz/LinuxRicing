@@ -75,7 +75,7 @@ def correo(consulta: str = "") -> dict:
     decir = resumen_correo.decir(items) if consulta.strip() == "" or items else "No encuentro nada con eso."
     if not items and consulta.strip():
         decir = "No encuentro nada con eso."
-    return {"ok": True, "correos": items, "decir": decir, "resumen": "Correo revisado",
+    return {"ok": True, "total": len(items), "decir": decir, "resumen": "Correo revisado",
             "nota": "Di el campo «decir» tal cual, sin añadir nada."}
 
 
