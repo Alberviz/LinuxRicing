@@ -50,8 +50,8 @@ def _agenda_aurora(cuando: str) -> dict:
 
 # -------------------------------------------------------------------- tools
 @tool("correo",
-      "Mira el correo de Alberto (bandeja principal y notificaciones, sin spam): «mírame los correos», «¿tengo algo de X?». Sin consulta, los no leídos. Di el campo «decir» tal cual.",
-      {"consulta": {"type": "string", "description": "qué buscar (opcional), p. ej. «de la universidad»"}},
+      "Mira el correo de Alberto: «mírame los correos», «¿tengo algo de X?». Di «decir» tal cual.",
+      {"consulta": {"type": "string", "description": "qué buscar (opcional)"}},
       icon="mail")
 def correo(consulta: str = "") -> dict:
     if not workspace.enabled():
@@ -82,7 +82,7 @@ def correo(consulta: str = "") -> dict:
 
 
 @tool("agenda",
-      "Consulta el calendario de Alberto (Google Calendar): «qué tengo mañana», «qué hay esta semana», «cuál es mi próximo evento». Di el campo «decir» tal cual.",
+      "Consulta el calendario: «qué tengo mañana», «cuál es mi próximo evento». Di «decir» tal cual.",
       {"cuando": {"type": "string", "enum": ["hoy", "mañana", "semana", "próximo"], "description": "periodo"}},
       icon="event")
 def agenda(cuando: str = "hoy") -> dict:
@@ -120,11 +120,11 @@ def _parse_dt(s: str) -> datetime | None:
 
 
 @tool("crear_evento",
-      "Crea un evento en el calendario de Alberto: «apúntame una reunión mañana a las 10». Pide confirmación con el evento exacto. Fechas en formato ISO local (2026-10-22T10:00).",
+      "Crea un evento en el calendario («apúntame una reunión mañana a las 10»); pide confirmación. Fechas ISO local (2026-10-22T10:00).",
       {"titulo": {"type": "string", "description": "título del evento"},
-       "inicio": {"type": "string", "description": "inicio ISO local, p. ej. 2026-10-22T10:00"},
-       "fin": {"type": "string", "description": "fin ISO local (opcional si das duracion_min)"},
-       "duracion_min": {"type": "integer", "description": "duración en minutos (por defecto 60)"},
+       "inicio": {"type": "string", "description": "ISO local"},
+       "fin": {"type": "string", "description": "ISO local (opcional)"},
+       "duracion_min": {"type": "integer", "description": "minutos (60 por defecto)"},
        "descripcion": {"type": "string", "description": "notas (opcional)"}},
       required=["titulo", "inicio"], icon="event_available")
 def crear_evento(titulo: str, inicio: str, fin: str = "", duracion_min: int = 60, descripcion: str = "") -> dict:
@@ -147,9 +147,9 @@ def crear_evento(titulo: str, inicio: str, fin: str = "", duracion_min: int = 60
 
 
 @tool("redactar_correo",
-      "Redacta un correo de Alberto con Gemini y se lo enseña antes de enviarlo: «redáctale un correo a Marta diciéndole que llego tarde». Solo se envía si él confirma.",
-      {"para": {"type": "string", "description": "destinatario (nombre o email)"},
-       "idea": {"type": "string", "description": "qué quiere decir Alberto"},
+      "Redacta un correo («escríbele/redáctale un correo a Marta diciéndole…»); solo se envía si Alberto confirma.",
+      {"para": {"type": "string", "description": "destinatario"},
+       "idea": {"type": "string", "description": "qué decir"},
        "asunto": {"type": "string", "description": "asunto (opcional)"}},
       required=["para", "idea"], icon="drafts")
 def redactar_correo(para: str, idea: str, asunto: str = "") -> dict:

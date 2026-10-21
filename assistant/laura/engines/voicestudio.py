@@ -23,6 +23,8 @@ _PROTOCOL = "2025-03-26"
 def _json_body(r: requests.Response) -> dict:
     """La respuesta de Streamable HTTP puede ser JSON o un stream SSE con el mensaje en `data:`."""
     ctype = r.headers.get("Content-Type", "")
+    if "charset" not in ctype.lower():
+        r.encoding = "utf-8"  # requests asume ISO-8859-1 en text/*; el MCP siempre manda UTF-8
     if "text/event-stream" in ctype:
         msg = None
         for line in r.text.splitlines():

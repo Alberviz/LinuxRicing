@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT))
 os.environ["LAURA_DATA"] = tempfile.mkdtemp()
 
 CALLS: list = []
+AUTH = {"on": False}
 NOW = datetime.now().astimezone()
 SOON = (NOW + timedelta(minutes=15)).isoformat(timespec="seconds")
 TOOLS = [{"name": n, "inputSchema": {"properties": {"user_google_email": {}}}} for n in
@@ -65,7 +66,9 @@ class H(BaseHTTPRequestHandler):
             name, a = d["params"]["name"], d["params"]["arguments"]
             CALLS.append((name, a))
             assert a.get("user_google_email") == "yo@example.com", a
-            if name == "search_gmail_messages":
+            if AUTH["on"]:
+                txt = "**ACTION REQUIRED: Google Authentication Needed**\nAutoriza en https://accounts.google.com/o/oauth2/auth?x=1 y vuelve."
+            elif name == "search_gmail_messages":
                 txt = SEARCH
             elif name == "get_gmail_message_content":
                 txt = "Message ID: m\nSubject: x\nFrom: y\n\n--- BODY ---\n" + ("Recuerda que el plazo termina mañana, entrega el impreso." if a["message_id"] == "m1" else "Contenido normal sin prisa.")
@@ -172,6 +175,19 @@ def main():
     n2 = v.check()
     ok(n1 >= 4 and n2 == 0 or n2 == 0, f"segunda revisión sin repetir ({n1} -> {n2})")
     ok(not any("Cumpleaños" in t for t, _, _ in avisos), "evento de todo el día ignorado")
+
+    # -- sin autenticar: respaldo + aviso baja con la URL
+    AUTH["on"] = True
+    r = run_tool("correo", {}, {})
+    ok(r.get("via") == "aurora", "sin autenticar => respaldo a Aurora en correo")
+    avisos.clear()
+    vigia._load = lambda: {"vistos": {}, "ultima": 0}
+    vigia._save = lambda st: None
+    aurora._call = lambda *a, **k: (500, {})
+    v2 = vigia.Vigia(FakeJobs(), {})
+    v2.check()
+    ok(any(t == "Google necesita autorización" and p == "baja" for t, p, _ in avisos), "sin autenticar => aviso baja con la URL")
+    AUTH["on"] = False
 
     # -- respaldo a Aurora con el servidor caído
     srv.shutdown()

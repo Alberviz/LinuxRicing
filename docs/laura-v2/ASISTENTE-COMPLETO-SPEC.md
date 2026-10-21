@@ -5,6 +5,10 @@ correo, que ella decida si lo hace sola, con Gemini o con Claude, y que **se lev
 avisarle de correos, eventos o tareas, **diferenciando mucho** cuándo la levanta él y cuándo se
 levanta sola.
 
+> **Actualización:** correo, agenda, crear eventos y el vigía ya hablan **directamente** con el MCP
+> de Workspace local (ver `WORKSPACE.md`), sin LLM. Aurora queda solo para **enviar correo**, para lo
+> pesado (Drive, Docs, recados) y como respaldo si el servidor no responde.
+
 ## 1. Workspace (correo, calendario, Drive…) a través de Aurora
 
 - No se carga el MCP de Workspace en Laura: son 73 herramientas, que un modelo de 4B no puede

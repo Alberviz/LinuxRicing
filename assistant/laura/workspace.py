@@ -31,6 +31,14 @@ class WorkspaceUnavailable(RuntimeError):
     """El servidor no responde o falta una herramienta: usar el respaldo (Aurora)."""
 
 
+class WorkspaceAuthRequired(WorkspaceUnavailable):
+    """Faltan credenciales de Google: `url` es la dirección de autorización."""
+
+    def __init__(self, url: str = "") -> None:
+        super().__init__("Google necesita autorización" + (f": {url}" if url else ""))
+        self.url = url
+
+
 def _cfg() -> dict:
     return CFG.get("workspace", {})
 
@@ -117,6 +125,9 @@ class Client:
             raise WorkspaceUnavailable(f"{name}: {d['error'].get('message', d['error'])}")
         res = d.get("result") or {}
         txt = "\n".join(c.get("text", "") for c in res.get("content") or [] if c.get("type") == "text")
+        if txt.lstrip().startswith("**ACTION REQUIRED"):
+            m = re.search(r"https?://\S+", txt)
+            raise WorkspaceAuthRequired(m.group(0).rstrip(").,*") if m else "")
         if res.get("isError"):
             raise WorkspaceUnavailable(f"{name}: {txt[:200] or 'error'}")
         return txt
@@ -184,7 +195,8 @@ def _parse_events(txt: str) -> list[dict]:
         resto = m.group("resto")
         id_ = re.search(r"ID:\s*(\S+)", resto)
         link = re.search(r"Link:\s*(\S+)", resto)
-        out.append({"titulo": m.group("t"), "inicio": m.group("s"), "fin": m.group("e"),
+        out.append({"titulo": m.group("t"), "inicio": re.sub(r"\s*\[.*$", "", m.group("s")),
+                    "fin": re.sub(r"\s*\[.*$", "", m.group("e")),
                     "id": id_.group(1) if id_ else "", "url": link.group(1) if link and link.group(1) != "No" else ""})
     return out
 

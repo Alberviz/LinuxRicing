@@ -214,14 +214,14 @@ class Announcer:
         self._q: queue.Queue = queue.Queue()
         threading.Thread(target=self._loop, daemon=True).start()
 
-    def say(self, text: str, idle_only: bool = False, alert: bool = False) -> None:
+    def say(self, text: str, idle_only: bool = False, alert: bool = False, mode: str = "centro") -> None:
         """Encola una frase. `idle_only`: si hay un ciclo en marcha cuando le toca, se descarta
         (los avisos de trabajos terminados no interrumpen ni se acumulan)."""
-        self._q.put((text, idle_only, alert))
+        self._q.put((text, idle_only, alert, mode))
 
     def _loop(self) -> None:
         while True:
-            text, idle_only, alert = self._q.get()
+            text, idle_only, alert, mode = self._q.get()
             if idle_only and self._busy():
                 continue
             if self._muted():  # No molestar o pantalla completa: se queda en el orbe
@@ -237,14 +237,14 @@ class Announcer:
                 if alert:
                     ding()
                 bus.emit(type="reply", value=text)
-                bus.emit(type="state", value="speaking", mode="centro")
+                bus.emit(type="state", value="speaking", mode=mode)
                 speak(text)
                 barged = OUT.interrupt_ev.is_set() and OUT.barged
             except Exception as e:  # noqa: BLE001
                 log(f"error al anunciar: {e}")
             finally:
                 bus.emit(type="amplitude", value=0.0)
-                bus.emit(type="state", value="idle", mode="centro")
+                bus.emit(type="state", value="idle", mode=mode)
                 if self._after:
                     self._after()
             if barged and self._on_barge and not self._busy():
@@ -285,7 +285,7 @@ def main() -> None:
     confirm_q: queue.Queue = queue.Queue()
     jobs = JobManager(announcer.say, on_confirm=confirm_q.put)
     jobs_mod.set_manager(jobs)
-    jobs.announce_alert = lambda t: announcer.say("Alberto, " + t[0].lower() + t[1:], alert=True)
+    jobs.announce_alert = lambda t: announcer.say("Alberto, " + t[0].lower() + t[1:], alert=True, mode="aviso")
     vig = vigia_mod.Vigia(jobs, ui)
     vigia_mod.VIGIA = vig
     vig.start()

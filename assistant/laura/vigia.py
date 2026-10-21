@@ -190,6 +190,12 @@ class Vigia:
         if workspace.enabled():
             try:
                 return self._workspace(vistos)
+            except workspace.WorkspaceAuthRequired as e:
+                log(f"vigía: Workspace sin autenticar ({e}); respaldo a Aurora")
+                aviso = [(f"auth:{datetime.now():%Y-%m-%d}", "Google necesita autorización",
+                          "Laura necesita que autorices Google para leer tu correo y calendario.", "baja",
+                          [{"titulo": "Autorizar", "url": e.url}] if e.url else [], e.url)]
+                return aviso + self._aurora(vistos)
             except workspace.WorkspaceUnavailable as e:
                 log(f"vigía: Workspace no disponible ({e}); respaldo a Aurora")
         return self._aurora(vistos)
