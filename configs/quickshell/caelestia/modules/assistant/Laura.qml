@@ -362,7 +362,10 @@ Singleton {
                 root._cycle = true;
                 root.borderActive = true;
             } else if (ev.value === "speaking") {
-                if (root._cycle || Date.now() - root._lastAvisoMs > 25000)
+                // mode "aviso": habla el anunciador por un aviso del vigía -> sin borde.
+                // Respaldo si el campo no llega: aviso reciente y sin ciclo en curso.
+                if (ev.mode === "aviso") {
+                } else if (root._cycle || Date.now() - root._lastAvisoMs > 25000)
                     root.borderActive = true;
             } else if (ev.value === "idle") {
                 root._cycle = false;

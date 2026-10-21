@@ -63,27 +63,37 @@ void main(){
     float xr = abs(p.x - W * 0.5) + W * 0.5;  // espejo: todo a la mitad derecha
     float db = H - p.y, dr = W - xr, dt = p.y;
     float LTOT = W * 0.5 + H + W * 0.5;
-    float s, dist;
-    if (db <= dr && db <= dt) { dist = db; s = xr - W * 0.5; }
-    else if (dr <= dt)        { dist = dr; s = W * 0.5 + (H - p.y); }
-    else                      { dist = dt; s = W * 0.5 + H + (W - xr); }
-
     float e = progress, dd = e * LTOT;
     float breathe = 0.5 + 0.5 * sin(time * 1.5);
     float base = (0.52 + 0.5 * glow) * (0.92 + 0.08 * breathe);
-    float cg = exp(-pow((s - comet * LTOT) / 95.0, 2.0)) * cometOn;
 
-    float f  = 1.0 - sst(dd - 190.0, dd, s);   // frente suave
-    float a  = base * f * (0.9 + 0.1 * sin(s * 0.017 - time * 2.2)) + 0.55 * cg * step(0.002, e) * f;
-    float f2 = 1.0 - sst(dd - 240.0, dd, s);
-    float dep = (84.0 + 190.0 * glow) * (s < W * 0.5 ? 1.2 : 1.0) * (0.28 + 0.72 * f2);
-    dep *= 1.0 + 0.16 * glow * sin(s * 0.02 - time * 5.0);
-    dep *= 1.0 + 0.5 * cg;
-    a = min(1.0, a) * prof(dist / max(dep, 1.0));
-
-    vec3 col = palAt(s / LTOT * 0.85 - flow);
-    vec3 rgb = col * a;
-    float al = a;
+    // Tres tramos (inferior, lateral, superior) con distancia al SEGMENTO: en las
+    // esquinas la luz se curva como un arco y los tramos se suman con saturación.
+    vec2 q = vec2(xr, p.y);
+    vec2 A[3]; vec2 B[3]; float S0[3];
+    A[0] = vec2(W * 0.5, H); B[0] = vec2(W, H);   S0[0] = 0.0;
+    A[1] = vec2(W, H);       B[1] = vec2(W, 0.0); S0[1] = W * 0.5;
+    A[2] = vec2(W, 0.0);     B[2] = vec2(W * 0.5, 0.0); S0[2] = W * 0.5 + H;
+    float segLen[3]; segLen[0] = W * 0.5; segLen[1] = H; segLen[2] = W * 0.5;
+    float keep = 1.0;
+    vec3 rgb = vec3(0.0);
+    for (int n = 0; n < 3; n++) {
+        vec2 ab = B[n] - A[n];
+        float t = clamp(dot(q - A[n], ab) / dot(ab, ab), 0.0, 1.0);
+        float dist = length(q - (A[n] + ab * t));
+        float s = S0[n] + t * segLen[n];
+        float cg = exp(-pow((s - comet * LTOT) / 95.0, 2.0)) * cometOn;
+        float f  = 1.0 - sst(dd - 190.0, dd, s);
+        float a  = base * f * (0.9 + 0.1 * sin(s * 0.017 - time * 2.2)) + 0.55 * cg * step(0.002, e) * f;
+        float f2 = 1.0 - sst(dd - 240.0, dd, s);
+        float dep = (84.0 + 190.0 * glow) * (s < W * 0.5 ? 1.2 : 1.0) * (0.28 + 0.72 * f2);
+        dep *= 1.0 + 0.16 * glow * sin(s * 0.02 - time * 5.0);
+        dep *= 1.0 + 0.5 * cg;
+        a = min(1.0, a) * prof(dist / max(dep, 1.0));
+        rgb += palAt(s / LTOT * 0.85 - flow) * a * keep;
+        keep *= 1.0 - a;
+    }
+    float al = 1.0 - keep;
 
     // destello de ignición en el centro inferior
     float ign = max(0.0, 1.0 - e * 2.2);
