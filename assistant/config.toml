@@ -172,7 +172,6 @@ silencio_desde = "23:30"
 silencio_hasta = "08:00"
 tareas_estancadas_dias = 5
 remitentes_importantes = ["edu", ".ac.", "universidad", "universit", "uj.edu.pl"]  # fragmentos de dominio/remitente que suben a alta
-clasificar_con_llm = false   # dudas de prioridad: clasificar con el qwen local (opcional)
 
 # Ubicación de Alberto para la tool `tiempo`. Si lat/lon están vacíos se
 # geolocaliza por IP una vez y se cachea en ~/.local/share/laura/ubicacion.json.

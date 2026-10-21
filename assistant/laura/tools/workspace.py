@@ -101,9 +101,11 @@ def agenda(cuando: str = "hoy") -> dict:
         decir = f"No tienes nada {etiqueta}." if cuando != "próximo" else "No tienes eventos próximos."
     elif cuando in ("próximo", "proximo"):
         e = evs[0]
-        decir = f"Tu próximo evento es {e['titulo']}, a las {_hora(e['inicio'])}."
+        h = _hora(e["inicio"])
+        decir = f"Tu próximo evento es {e['titulo']}, " + ("todo el día." if h == "todo el día" else f"a las {h}.")
     else:
-        partes = [f"a las {_hora(e['inicio'])} {e['titulo']}" for e in evs[:4]]
+        partes = [(f"todo el día {e['titulo']}" if _hora(e["inicio"]) == "todo el día"
+                   else f"a las {_hora(e['inicio'])} {e['titulo']}") for e in evs[:4]]
         decir = f"{etiqueta.capitalize()} tienes {len(evs)} evento{'s' if len(evs) != 1 else ''}: " + ", ".join(partes) + "."
     return {"ok": True, "eventos": evs[:6], "decir": decir, "resumen": "Agenda revisada",
             "nota": "Di el campo «decir» tal cual, sin añadir nada."}
