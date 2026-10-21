@@ -340,7 +340,10 @@ def to_event(meta: dict) -> dict:
             "fuentes": meta.get("fuentes", []), "inicio": meta["inicio"],
             "fin": meta.get("fin"), "leido": bool(meta.get("leido")),
             "origen": meta.get("origen", "alberto"), "tipo": meta.get("tipo", "trabajo"),
-            "prioridad": meta.get("prioridad", "normal")}
+            "prioridad": meta.get("prioridad", "normal"),
+            # datos estructurados para el cajón: evento propuesto (+ eventos del día) y borrador de correo
+            "evento": meta.get("data") if meta.get("kind") == "evento" else None,
+            "correo": meta.get("correo")}
 
 
 def _alive(pid: int | None) -> bool:
@@ -623,6 +626,7 @@ class JobManager:
             return {"ok": False, "error": "Gemini no devolvió el correo en el formato esperado"}
         para = mail.get("para") or d["para"]
         cuerpo_txt = (f"Para: {para}\nAsunto: {mail['asunto']}\n\n{mail['cuerpo']}")
+        meta["correo"] = {"para": para, "asunto": mail["asunto"], "cuerpo": mail["cuerpo"]}
         meta["pregunta_voz"] = "Te lo he escrito, ¿lo envío?"
         meta["resumen"] = cuerpo_txt[:300]
         ok = self._ask(meta, live, "Te lo he escrito, ¿lo envío?\n\n" + cuerpo_txt, True)

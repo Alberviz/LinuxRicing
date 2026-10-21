@@ -54,7 +54,8 @@ def job_event(j: dict) -> dict:
 def set_job(jid: str, value: str, **kw) -> dict:
     j = jobs.setdefault(jid, {"id": jid, "destino": "laura", "titulo": jid, "resumen": "", "pregunta": "",
                                "nota": "", "fuentes": [], "inicio": time.time(), "fin": None, "leido": False,
-                               "origen": "alberto", "tipo": "trabajo", "prioridad": "normal"})
+                               "origen": "alberto", "tipo": "trabajo", "prioridad": "normal",
+                               "evento": None, "correo": None})
     j["value"] = value
     j.update(kw)
     if value in ("done", "failed", "cancelled"):
@@ -101,7 +102,7 @@ def ctrl_client(c: socket.socket) -> None:
             set_job(parts[1], "cancelled")
         elif parts[:1] == ["job-confirm"] and len(parts) > 2 and parts[1] in jobs:
             if parts[2] == "yes":
-                set_job(parts[1], "started")
+                set_job(parts[1], "waiting")
                 threading.Timer(2.5, lambda: set_job(parts[1], "done", resumen="Hecho tras tu confirmación.")).start()
             else:
                 set_job(parts[1], "cancelled", resumen="Rechazado. No se ha tocado nada.")
@@ -190,6 +191,23 @@ def command(line: str) -> None:
                 time.sleep(0.05)
             emit({"type": "amplitude", "value": 0})
         threading.Thread(target=_amp, daemon=True).start()
+    elif c == "evento":     # evento <id> [solape]: confirmacion de crear_evento con franja del dia
+        from datetime import datetime, timedelta
+        d = (datetime.now() + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        h = lambda x: (d + timedelta(hours=x)).isoformat(timespec="minutes")  # noqa: E731
+        solape = len(p) > 2 and p[2] == "solape"
+        ini, fin = (16, 18) if solape else (12, 13.5)
+        set_job(p[1], "confirm", destino="laura", titulo="Evento: Estudio en grupo (mañana)",
+                pregunta="Voy a crear el evento «Estudio en grupo» mañana, %s. ¿Lo creo?" % ("de 16:00 a 18:00" if solape else "de 12:00 a 13:30"),
+                evento={"titulo": "Estudio en grupo", "inicio": h(ini), "fin": h(fin),
+                        "descripcion": "Repasar la lista 2 y los ejercicios de grupos.",
+                        "dia": [{"titulo": "Clase de Álgebra", "inicio": h(14), "fin": h(17)},
+                                {"titulo": "Seminario de Topología", "inicio": h(17.5), "fin": h(18.5)},
+                                {"titulo": "Gimnasio", "inicio": h(19), "fin": h(20)}]})
+    elif c == "correo":     # correo <id>: borrador de correo a confirmar
+        set_job(p[1], "confirm", destino="gemini", titulo="Correo para Marta", pregunta="Te lo he escrito, ¿lo envío?\n\nPara: Marta",
+                correo={"para": "Marta Ruiz", "asunto": "Reunión del jueves",
+                        "cuerpo": "Hola Marta,\n\nTe escribo para confirmar la reunión del jueves a las 17:00. Si te viene bien, la hacemos en la sala de siempre y repasamos el parser y el widget de tareas.\n\nUn abrazo,\nAlberto"})
     elif c == "scene":
         scene()
     elif c == "seed":

@@ -117,6 +117,19 @@ def _parse_dt(s: str) -> datetime | None:
         return None
 
 
+def _eventos_del_dia(ini: datetime) -> list[dict]:
+    """Eventos que ya hay ese día (para la franja del cajón). Vacío si Workspace no responde."""
+    if not workspace.enabled():
+        return []
+    try:
+        d0 = ini.astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+        evs = workspace.eventos(d0, d0 + timedelta(days=1), 20)
+    except Exception as e:  # noqa: BLE001
+        log(f"crear_evento: no pude leer el día ({e})")
+        return []
+    return [{"titulo": e["titulo"], "inicio": e["inicio"], "fin": e["fin"]} for e in evs]
+
+
 @tool("crear_evento",
       "Crea un evento en el calendario («apúntame una reunión mañana a las 10»); pide confirmación. Fechas ISO local (2026-10-22T10:00).",
       {"titulo": {"type": "string", "description": "título del evento"},
@@ -136,7 +149,7 @@ def crear_evento(titulo: str, inicio: str, duracion_min: int = 60, fin: str = ""
     mins = int((end - ini).total_seconds() // 60)
     pregunta = f"Voy a crear el evento «{titulo}» el {cuando}, {mins} minutos. ¿Lo creo?"
     data = {"titulo": titulo, "inicio": ini.isoformat(timespec="minutes"), "fin": end.isoformat(timespec="minutes"),
-            "descripcion": descripcion}
+            "descripcion": descripcion, "dia": _eventos_del_dia(ini)}
     jid = _manager().start("laura", f"Crear evento: {titulo}", kind="evento", pregunta=pregunta,
                            titulo=f"Evento: {titulo} ({cuando})", data=data)
     return {"ok": True, "id": jid, "resumen": "Pido confirmación del evento"}
