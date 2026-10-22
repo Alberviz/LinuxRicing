@@ -36,8 +36,16 @@ StyledRect {
             return true;
         });
     }
+    // Hasta 7 caben en una fila. Con más se parten en dos filas y la segunda se
+    // rellena con huecos invisibles, para que las columnas midan lo mismo en ambas.
+    readonly property bool needExtraRow: quickToggles.length > 7
     readonly property int splitIndex: Math.ceil(quickToggles.length / 2)
-    readonly property bool needExtraRow: quickToggles.length > 6
+    readonly property var secondRow: {
+        const row = quickToggles.slice(splitIndex);
+        while (row.length < splitIndex)
+            row.push({ id: "spacer" });
+        return row;
+    }
 
     implicitHeight: layout.implicitHeight + Tokens.padding.extraLargeIncreased
 
@@ -62,7 +70,7 @@ StyledRect {
 
         QuickToggleRow {
             visible: root.needExtraRow
-            model: root.needExtraRow ? root.quickToggles.slice(root.splitIndex) : []
+            model: root.needExtraRow ? root.secondRow : []
         }
     }
 
@@ -152,6 +160,15 @@ StyledRect {
                         icon: "tablet_android"
                         checked: TabletDisplay.active
                         onClicked: TabletDisplay.toggle()
+                    }
+                }
+                DelegateChoice {
+                    roleValue: "spacer"
+                    delegate: Toggle {
+                        icon: ""
+                        isToggle: false
+                        enabled: false
+                        opacity: 0
                     }
                 }
                 DelegateChoice {
