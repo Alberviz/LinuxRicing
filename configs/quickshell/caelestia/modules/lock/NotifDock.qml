@@ -5,6 +5,7 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Widgets
 import Caelestia.Config
+import Caelestia.I18n
 import qs.components
 import qs.components.containers
 import qs.components.effects
@@ -28,7 +29,7 @@ ColumnLayout {
 
         Layout.fillWidth: true
         visible: count > 0 && !Config.lock.hideNotifs
-        text: qsTr("%1 notification%2").arg(count).arg(count === 1 ? "" : "s")
+        text: Tr.trN("%n notification", "%n notifications", count)
         color: Colours.palette.m3outline
         font: Tokens.font.mono.builders.small.weight(Font.Medium).build()
         elide: Text.ElideRight
@@ -68,7 +69,7 @@ ColumnLayout {
 
                 StyledText {
                     Layout.alignment: Qt.AlignHCenter
-                    text: Config.lock.hideNotifs ? qsTr("Unlock for Notifications") : qsTr("No Notifications")
+                    text: Config.lock.hideNotifs ? Tr.tr("Unlock for notifications") : Tr.tr("No notifications")
                     color: Colours.palette.m3outlineVariant
                     font: Tokens.font.mono.builders.large.weight(Font.Medium).build()
                 }

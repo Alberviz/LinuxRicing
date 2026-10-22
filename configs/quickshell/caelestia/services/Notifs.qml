@@ -8,6 +8,7 @@ import Quickshell.Services.Notifications
 import Quickshell.Hyprland
 import Caelestia
 import Caelestia.Config
+import Caelestia.I18n
 import qs.components.misc
 import qs.services
 import qs.utils
@@ -61,9 +62,9 @@ Singleton {
             return;
 
         if (dnd)
-            Toaster.toast(qsTr("Do not disturb enabled"), qsTr("Popup notifications are now disabled"), "do_not_disturb_on");
+            Toaster.toast(Tr.tr("Do not disturb enabled"), Tr.tr("Popup notifications are now disabled"), "do_not_disturb_on");
         else
-            Toaster.toast(qsTr("Do not disturb disabled"), qsTr("Popup notifications are now enabled"), "do_not_disturb_off");
+            Toaster.toast(Tr.tr("Do not disturb disabled"), Tr.tr("Popup notifications are now enabled"), "do_not_disturb_off");
     }
 
     onListChanged: {
@@ -75,7 +76,7 @@ Singleton {
         id: saveTimer
 
         interval: 1000
-        onTriggered: storage.setText(JSON.stringify(root.notClosed.map(n => ({
+        onTriggered: storage.setText(JSON.stringify(root.notClosed.slice(0, 40).map(n => ({
                     time: n.time,
                     id: n.id,
                     summary: n.summary,
@@ -134,7 +135,15 @@ Singleton {
                 popup: root.shouldShowPopup(),
                 notification: notif
             });
-            root.list = [comp, ...root.list];
+            if (root.list.length >= 40) {
+                const excess = root.list.slice(39);
+                for (const old of excess) {
+                    old.close();
+                }
+                root.list = [comp, ...root.list.slice(0, 39)];
+            } else {
+                root.list = [comp, ...root.list];
+            }
         }
     }
 
@@ -144,7 +153,13 @@ Singleton {
         printErrors: false
         path: `${Paths.state}/notifs.json`
         onLoaded: {
-            const data = JSON.parse(text());
+            let data = [];
+            try {
+                const parsed = JSON.parse(text());
+                data = Array.isArray(parsed) ? parsed.slice(0, 40) : [];
+            } catch (e) {
+                data = [];
+            }
             for (const notif of data) {
                 const properties = Object.assign({}, notif);
 

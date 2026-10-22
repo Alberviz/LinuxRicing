@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Effects
 import Quickshell
+import Caelestia.Components
 import Caelestia.Config
 import qs.components
 import qs.services
@@ -10,16 +11,8 @@ import qs.services
 Item {
     id: root
 
-    required property Repeater workspaces
-    required property Item layout
-    required property int groupOffset
-
-    function getWsIdx(ws: int): int {
-        let i = ws - 1;
-        while (i < 0)
-            i += Config.bar.workspaces.shown;
-        return i % Config.bar.workspaces.shown;
-    }
+    required property Item wsRoot // Workspaces
+    required property Item list // LazyListView de los pips
 
     Repeater {
         model: ScriptModel {
@@ -42,9 +35,7 @@ Item {
 
             required property int modelData
 
-            readonly property int idx: root.getWsIdx(modelData)
-            readonly property Item pip: root.workspaces.count > idx ? root.workspaces.itemAt(idx) : null
-            readonly property bool inGroup: modelData > root.groupOffset && modelData <= root.groupOffset + Config.bar.workspaces.shown
+            readonly property Item pip: root.wsRoot.pipFor(modelData)
 
             // "En curso" solo mientras no haya un resultado ya terminado en ese workspace.
             readonly property bool running: Agents.hasRunningForWs(modelData) && !Agents.hasCompletedForWs(modelData)
@@ -59,13 +50,13 @@ Item {
             property real pulse: 1.0
             property real pulseScale: 1.0
 
-            visible: inGroup && pip
+            visible: !!pip
             anchors.horizontalCenter: root.horizontalCenter
 
-            // pip.y es relativo al ColumnLayout; hay que sumar su offset (igual que ActiveIndicator con mask.y).
-            y: (pip?.y ?? 0) + root.layout.y - 3
+            // layoutY es relativo al LazyListView; hay que sumar su offset (igual que ActiveIndicator con mask.y).
+            y: (pip?.LazyListView.layoutY ?? 0) + root.list.y - 3
             implicitWidth: Tokens.sizes.bar.innerWidth - Tokens.padding.small + 6
-            implicitHeight: (pip?.size ?? 0) + 6
+            implicitHeight: (pip?.LazyListView.preferredHeight ?? 0) + 6
 
             scale: 0
             Component.onCompleted: scale = 1
