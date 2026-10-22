@@ -36,16 +36,11 @@ StyledRect {
             return true;
         });
     }
-    // Hasta 7 caben en una fila. Con más se parten en dos filas y la segunda se
-    // rellena con huecos invisibles, para que las columnas midan lo mismo en ambas.
-    readonly property bool needExtraRow: quickToggles.length > 7
+    // Con más de 6 se parten en dos filas. La de abajo mide lo justo para que sus
+    // botones tengan el mismo ancho que los de arriba, y va centrada.
+    readonly property bool needExtraRow: quickToggles.length > 6
     readonly property int splitIndex: Math.ceil(quickToggles.length / 2)
-    readonly property var secondRow: {
-        const row = quickToggles.slice(splitIndex);
-        while (row.length < splitIndex)
-            row.push({ id: "spacer" });
-        return row;
-    }
+    readonly property real cellWidth: (layout.width - (splitIndex - 1) * Tokens.spacing.small) / splitIndex
 
     implicitHeight: layout.implicitHeight + Tokens.padding.extraLargeIncreased
 
@@ -69,8 +64,13 @@ StyledRect {
         }
 
         QuickToggleRow {
+            readonly property int count: root.quickToggles.length - root.splitIndex
+
             visible: root.needExtraRow
-            model: root.needExtraRow ? root.secondRow : []
+            model: root.needExtraRow ? root.quickToggles.slice(root.splitIndex) : []
+            Layout.fillWidth: false
+            Layout.alignment: Qt.AlignHCenter
+            Layout.preferredWidth: count * root.cellWidth + (count - 1) * Tokens.spacing.small
         }
     }
 
@@ -160,15 +160,6 @@ StyledRect {
                         icon: "tablet_android"
                         checked: TabletDisplay.active
                         onClicked: TabletDisplay.toggle()
-                    }
-                }
-                DelegateChoice {
-                    roleValue: "spacer"
-                    delegate: Toggle {
-                        icon: ""
-                        isToggle: false
-                        enabled: false
-                        opacity: 0
                     }
                 }
                 DelegateChoice {
