@@ -76,7 +76,39 @@ pair_pin() {
         echo "Uso: caelestia-tablet-display pair <PIN-de-4-dígitos>" >&2
         exit 1
     fi
-    sunshine -0 <<< "$pin"
+
+    local pairing_json
+    pairing_json=$(curl -k -s -u alberto:alberto https://localhost:47990/api/pin || true)
+    local pairing_id
+    pairing_id=$(echo "$pairing_json" | jq -r '.pairings[0].id // empty')
+
+    if [[ -z "$pairing_id" ]]; then
+        echo "No hay ninguna solicitud de emparejamiento pendiente en Sunshine." >&2
+        echo "Toca sobre el equipo en Moonlight en la tablet para que genere un PIN." >&2
+        exit 1
+    fi
+
+    local payload
+    payload=$(jq -n --arg id "$pairing_id" --arg pin "$pin" --arg name "Honor MagicPad 2" \
+        '{pairing_id: $id, pin: $pin, name: $name}')
+
+    local res
+    res=$(curl -k -s -u alberto:alberto -X POST \
+        -H "Content-Type: application/json" \
+        -d "$payload" \
+        https://localhost:47990/api/pin)
+
+    local status
+    status=$(echo "$res" | jq -r '.status // false')
+
+    if [[ "$status" == "true" ]]; then
+        echo "¡Emparejado con éxito con Honor MagicPad 2!"
+        notify-send -a "Caelestia" -i tablet_android "Tablet Emparejada" "Honor MagicPad 2 conectada correctamente" 2>/dev/null || true
+    else
+        echo "Error al emparejar. Comprueba que el PIN de 4 dígitos sea el correcto." >&2
+        echo "Respuesta del servidor: $res" >&2
+        exit 1
+    fi
 }
 
 case "${1:-toggle}" in
