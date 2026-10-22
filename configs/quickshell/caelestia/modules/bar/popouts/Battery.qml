@@ -7,6 +7,7 @@ import Quickshell.Services.UPower
 import Caelestia.Config
 import qs.components
 import qs.services
+import qs.utils
 
 Column {
     id: root
@@ -14,28 +15,68 @@ Column {
     spacing: Tokens.spacing.medium
     width: Tokens.sizes.bar.batteryWidth
 
-    StyledText {
-        text: UPower.displayDevice.isLaptopBattery ? qsTr("Remaining: %1%").arg(Math.round(UPower.displayDevice.percentage * 100)) : qsTr("No battery detected")
+    readonly property bool isLaptop: UPower.displayDevice.isLaptopBattery
+
+    function formatSeconds(secs: int): string {
+        const day = Math.floor(secs / 86400);
+        const hr = Math.floor(secs / 3600) % 24;
+        const min = Math.floor(secs / 60) % 60;
+
+        let comps = [];
+        if (day > 0)
+            comps.push(`${day} d`);
+        if (hr > 0)
+            comps.push(`${hr} h`);
+        if (min > 0)
+            comps.push(`${min} min`);
+
+        return comps.join(" ");
+    }
+
+    // Cabecera: icono y porcentaje grandes, y debajo el estado de carga.
+    Row {
+        visible: root.isLaptop
+        spacing: Tokens.spacing.medium
+
+        MaterialIcon {
+            anchors.verticalCenter: parent.verticalCenter
+            text: Icons.getBatteryIcon(UPower.displayDevice.percentage, !UPower.onBattery)
+            fontStyle: Tokens.font.icon.extraLarge
+            color: Colours.palette.m3primary
+        }
+
+        Column {
+            anchors.verticalCenter: parent.verticalCenter
+
+            StyledText {
+                text: `${Math.round(UPower.displayDevice.percentage * 100)} %`
+                font: Tokens.font.title.medium
+            }
+
+            StyledText {
+                text: {
+                    const dev = UPower.displayDevice;
+                    if (UPower.onBattery) {
+                        const t = root.formatSeconds(dev.timeToEmpty);
+                        return t ? qsTr("Quedan %1").arg(t) : qsTr("Calculando…");
+                    }
+                    if (dev.state === UPowerDeviceState.FullyCharged)
+                        return qsTr("Cargada");
+                    if (dev.state === UPowerDeviceState.Charging) {
+                        const t = root.formatSeconds(dev.timeToFull);
+                        return t ? qsTr("Cargando · llena en %1").arg(t) : qsTr("Cargando");
+                    }
+                    return qsTr("Enchufada");
+                }
+                font: Tokens.font.body.small
+                color: Colours.palette.m3onSurfaceVariant
+            }
+        }
     }
 
     StyledText {
-        function formatSeconds(s: int, fallback: string): string {
-            const day = Math.floor(s / 86400);
-            const hr = Math.floor(s / 3600) % 24;
-            const min = Math.floor(s / 60) % 60;
-
-            let comps = [];
-            if (day > 0)
-                comps.push(`${day} days`);
-            if (hr > 0)
-                comps.push(`${hr} hours`);
-            if (min > 0)
-                comps.push(`${min} mins`);
-
-            return comps.join(", ") || fallback;
-        }
-
-        text: UPower.displayDevice.isLaptopBattery ? qsTr("Time %1: %2").arg(UPower.onBattery ? "remaining" : "until charged").arg(UPower.onBattery ? formatSeconds(UPower.displayDevice.timeToEmpty, "Calculating...") : formatSeconds(UPower.displayDevice.timeToFull, "Fully charged!")) : qsTr("Power profile: %1").arg(PowerProfile.toString(PowerProfiles.profile))
+        visible: !root.isLaptop
+        text: qsTr("Perfil de energía: %1").arg(PowerProfile.toString(PowerProfiles.profile))
     }
 
     Loader {
@@ -201,66 +242,106 @@ Column {
         onLoadFailed: active = false
     }
 
-    // Cargar al 100% una sola vez (portátiles Lenovo con Modo Conservación).
-    // Al llegar al 100% el propio script reactiva el límite del 80%.
-    ActionPill {
-        visible: UPower.displayDevice.isLaptopBattery
-        icon: boostState.active ? "stop_circle" : "battery_android_bolt"
-        label: boostState.active ? qsTr("Cancelar carga al 100%") : qsTr("Cargar al 100% una vez")
-        accent: boostState.active
-        onTriggered: Quickshell.execDetached([`${Quickshell.env("HOME")}/.local/bin/lenovo-battery-control`, boostState.active ? "--cancel" : "--boost"])
+    // Acciones como filas a todo el ancho: icono en círculo y título + estado.
+    Column {
+        width: parent.width
+        spacing: Tokens.spacing.small
+
+        // Cargar al 100% una sola vez (portátiles Lenovo con Modo Conservación).
+        // Al llegar al 100% el propio script reactiva el límite del 80%.
+        ActionTile {
+            visible: root.isLaptop
+            icon: boostState.active ? "stop_circle" : "battery_android_bolt"
+            title: qsTr("Carga 100%")
+            subtitle: boostState.active ? qsTr("En curso · cancelar") : qsTr("Una sola vez")
+            checked: boostState.active
+            onTriggered: Quickshell.execDetached([`${Quickshell.env("HOME")}/.local/bin/lenovo-battery-control`, boostState.active ? "--cancel" : "--boost"])
+        }
+
+        // Apagar/encender el shader del sistema solar a mano, sin entrar en modo
+        // ahorro (no toca el perfil de CPU ni Hyprland — sólo descarga la vista).
+        // Al apagarlo, el escritorio cae al wallpaper estático (no a negro plano).
+        ActionTile {
+            icon: SolarSystemModel.enabled ? "planet" : "wallpaper"
+            title: qsTr("Sistema solar")
+            subtitle: SolarSystemModel.enabled ? qsTr("Shaders activos") : qsTr("Solo wallpaper")
+            checked: SolarSystemModel.enabled
+            onTriggered: SolarSystemModel.toggle()
+        }
     }
 
-    // Apagar/encender el shader del sistema solar a mano, sin entrar en modo
-    // ahorro (no toca el perfil de CPU ni Hyprland — sólo descarga la vista).
-    // Al apagarlo, el escritorio cae al wallpaper estático (no a negro plano).
-    ActionPill {
-        icon: SolarSystemModel.enabled ? "dark_mode" : "planet"
-        label: SolarSystemModel.enabled ? qsTr("Desactivar shaders (volver al wallpaper)") : qsTr("Activar sistema solar")
-        accent: !SolarSystemModel.enabled
-        onTriggered: SolarSystemModel.toggle()
-    }
-
-    component ActionPill: StyledRect {
-        id: pill
+    component ActionTile: StyledRect {
+        id: tile
 
         required property string icon
-        required property string label
-        property bool accent: false
+        required property string title
+        required property string subtitle
+        property bool checked: false
 
         signal triggered
 
-        anchors.horizontalCenter: parent.horizontalCenter
+        width: parent.width
+        implicitHeight: tileContent.implicitHeight + Tokens.padding.small * 2
 
-        implicitWidth: pillRow.implicitWidth + Tokens.padding.large * 2
-        implicitHeight: pillRow.implicitHeight + Tokens.padding.small * 2
-
-        color: pill.accent ? Colours.palette.m3primary : Colours.tPalette.m3surfaceContainer
+        color: tile.checked ? Colours.palette.m3primary : Colours.tPalette.m3surfaceContainer
         radius: Tokens.rounding.full
 
         StateLayer {
-            radius: Tokens.rounding.full
-            color: pill.accent ? Colours.palette.m3onPrimary : Colours.palette.m3onSurface
-            onClicked: pill.triggered()
+            radius: tile.radius
+            color: tile.checked ? Colours.palette.m3onPrimary : Colours.palette.m3onSurface
+            onClicked: tile.triggered()
         }
 
         Row {
-            id: pillRow
+            id: tileContent
 
-            anchors.centerIn: parent
-            spacing: Tokens.spacing.small
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.leftMargin: Tokens.padding.small
+            anchors.rightMargin: Tokens.padding.large
+            spacing: Tokens.spacing.medium
 
-            MaterialIcon {
+            StyledRect {
+                id: iconBubble
+
                 anchors.verticalCenter: parent.verticalCenter
-                text: pill.icon
-                fontStyle: Tokens.font.icon.small
-                color: pill.accent ? Colours.palette.m3onPrimary : Colours.palette.m3onSurfaceVariant
+                implicitWidth: implicitHeight
+                implicitHeight: tileIcon.implicitHeight + Tokens.padding.medium * 2
+                radius: Tokens.rounding.full
+                color: tile.checked ? Qt.alpha(Colours.palette.m3onPrimary, 0.16) : Colours.layer(Colours.palette.m3surfaceContainerHighest, 2)
+
+                MaterialIcon {
+                    id: tileIcon
+
+                    anchors.centerIn: parent
+                    text: tile.icon
+                    fontStyle: Tokens.font.icon.medium
+                    fill: tile.checked ? 1 : 0
+                    color: tile.checked ? Colours.palette.m3onPrimary : Colours.palette.m3onSurfaceVariant
+                }
             }
 
-            StyledText {
+            Column {
                 anchors.verticalCenter: parent.verticalCenter
-                text: pill.label
-                color: pill.accent ? Colours.palette.m3onPrimary : Colours.palette.m3onSurface
+                width: parent.width - iconBubble.width - parent.spacing
+
+                StyledText {
+                    width: parent.width
+                    text: tile.title
+                    font: Tokens.font.label.large
+                    elide: Text.ElideRight
+                    color: tile.checked ? Colours.palette.m3onPrimary : Colours.palette.m3onSurface
+                }
+
+                StyledText {
+                    width: parent.width
+                    text: tile.subtitle
+                    font: Tokens.font.label.small
+                    elide: Text.ElideRight
+                    color: tile.checked ? Colours.palette.m3onPrimary : Colours.palette.m3onSurfaceVariant
+                    opacity: 0.85
+                }
             }
         }
     }
