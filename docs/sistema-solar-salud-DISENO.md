@@ -1,6 +1,6 @@
 # Sistema solar · salud del reloj (Amazfit GTS 2) — diseño
 
-**Estado:** propuesta, pendiente del OK de Alberto (Fase 1). Rama `feat/solar-salud`
+**Estado:** implementado y desplegado el 2026-10-26 (OK de Alberto a diseño y despliegue). Falta el fichero de credenciales (§6.1) para ver datos reales. Rama `feat/solar-salud`
 (worktree `.worktrees/solar-salud`, sale de `main` @ `c93a0bc`).
 **Fecha:** 2026-10-26.
 **Mockup:** `docs/sistema-solar-v3-mockup/salud-variantes.html` → captura `salud-variantes.png`.
@@ -300,5 +300,23 @@ No se toca el shader, ni el cometa, ni nada en la Pi.
 
 ## 9. Registro
 
-- 2026-10-26 · Fase 1: datos verificados en la Pi, 4 conceptos, mockup, elegido A. Pendiente
-  del OK.
+- 2026-10-26 · Fase 1: datos verificados en la Pi, 4 conceptos, mockup, elegido A. OK de Alberto.
+- 2026-10-26 · Fase 2 (plan `docs/superpowers/plans/2026-10-26-solar-salud.md`):
+  - `widgets/gym-health` + 9 tests (`python3 -m unittest widgets/tests/test_gym_health.py`).
+  - Ancla, adaptador, `layout.health`, `HealthPlanet.qml`, banco `_healthPreview.qml`
+    (captura de los 4 estados: `docs/sistema-solar-v3-mockup/salud-estados-qml.png`).
+  - **Cambios frente a la spec:** esfera `primary → primaryContainer` (no `tertiary`, que es el sol
+    de Laura); el detalle de la etiqueta va en líneas cortas y «sin conexión» en su propia línea:
+    con una línea larga `BodyLabel` la colocaba a la izquierda, hacia la órbita del cometa.
+  - **Fallo encontrado en la vista previa:** comparar días por identidad (`stepsDay !== todayDay`)
+    siempre daba «atrasado», porque cada acceso a una lista de un `var` crea un objeto nuevo. Se
+    compara por `date`.
+  - Desplegado: restart limpio, `Configuration Loaded` con los mismos warnings que antes (ninguno
+    nuevo), sin errores en el log, captura del escritorio real con el planeta en (1555, 626), en
+    estado «sin datos» porque aún no hay credenciales.
+  - **CPU:** base limpia ~47 % de un núcleo (el shell ya cuesta eso sin este cambio). A/B en
+    caliente alternando `~/.config/caelestia/solarsystem.json` sin/con el ancla, 3 rondas de 15 s
+    con Spotify sonando: sin planeta 49,0 % de media, con planeta 46,0 %. **Diferencia no medible**
+    (dentro del ruido).
+  - `qmllint` de esta máquina sale con 255 sin mensajes incluso con ficheros sin tocar: no sirve
+    de verificación. Lo que vale es el log de `qs`.

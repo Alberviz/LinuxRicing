@@ -74,6 +74,7 @@ fijo, así que cambiar de fondo re-colorea todo el sistema.
 | **v1** | Estrella binaria de solo lectura | 5/10 | El sistema existe en el escritorio, movido por señales reales baratas. Sin interacción. Widgets intactos. |
 | **v1.5** | Disposición completa + cambio de ratón | 3/10 | ✅ 2026-09-02. Adaptadores reales de batería (3 periféricos) y LED (3 zonas); cuerpos del K7 Ultra; 5 bugs de la v1 corregidos; `SolarSystemLayer` cableada al shell. Disposición música-sol-vs-agujero-negro **pendiente de Alberto** (ver artifact 6935dde1). |
 | **v3** | El gran refactor: fuera los widgets + rediseño a pantalla completa | 6/10 · punto de no retorno | ✅ **Diseño visual hecho y verificado en el escritorio real** 2026-09-03 (`docs/sistema-solar-v3-mockup/real-escritorio.png`). **Variante D**: agujero negro «música» masivo y detallado en la esquina superior derecha; binario Laura↔Configuración anclado centro-izquierda; agentes orbitan Laura, dispositivos orbitan Config; cinturón de tareas circumbinario. Clavado en harness HTML, portado a QML (fondo GLSL en GPU, satélites en Repeater de Canvas cacheados). Carga limpia, 1 instancia, coste total < 48% (CPU comprobada con 100 cuerpos simultáneos). LED, interacción y reactividad = tandas posteriores. Rama `feat/sistema-solar-v3`, **sin mergear** (pendiente OK de Alberto). |
+| **v3 · salud** | Planeta «Cuerpo»: datos del Amazfit GTS 2 | 4/10 | ✅ 2026-10-26, desplegado. Pasos (arco hacia la meta + racha de 7 días), sueño (terminador), entrenos (lunas) y hábitos, leídos de la API de solo lectura del gym-hub con `widgets/gym-health`. Estados atrasado / sin conexión / fantasma. Coste de CPU no medible (A/B en caliente). Spec `docs/sistema-solar-salud-DISENO.md`. Rama `feat/solar-salud`. |
 | **v2** (ahora post-v3) | Interacción: hover, clic, congelar | 5/10 | Panel de detalle al pasar el ratón; clic para encender la LED / abrir tareas / enfocar un terminal (`Agents.focus`). Entrada real en la capa Background. Se hace **después** de cerrar el diseño de la v3. |
 | **v4** | Astros-terminal con vida propia | 6/10 | Sub-lunas = subagentes; anillo = actividad del turno; conjunción / eclipses por git. |
 | **v5** | Momentos y pulido | 4/10 · opcional | Modo conjunción de Laura, cometa de build, modo "sábado". |
@@ -108,6 +109,7 @@ factorizarlos a `adapters/` es limpieza pendiente, no bloqueante.
 | Agentes | `Agents.qml` | ancla `laura` viva; un cuerpo por terminal (`term:<id>`) |
 | Tareas | `grep estado: pendiente` en `vault/Backlog` cada 60 s | `tasks` (0..1) |
 | Batería | `rgb/mchose-battery --json` cada 30 s | `batt:<headset\|mouse\|keyboard>`, `battLow:*`; cuerpo dinámico solo si conectado |
+| Salud | `gym-health --json` cada 20 min (API de solo lectura del gym-hub, caché 15 min) | `SolarSystemModel.health` (objeto, no `values`): 7 días de pasos/sueño/entrenos/hábitos + estado |
 | LED | `RgbConfig.devices` | `led:<magichome\|akko\|base>` (1 si la zona la gestiona el sync de tema) |
 
 Los cuerpos de periférico son **dinámicos**: `_deviceBodies()` solo emite los

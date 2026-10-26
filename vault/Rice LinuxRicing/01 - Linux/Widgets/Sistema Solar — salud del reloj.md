@@ -1,6 +1,6 @@
 ---
 tags: [rice, ui, sistema-solar, salud, amazfit, gts2]
-estado: diseño
+estado: desplegado
 actualizado: 2026-10-26
 ---
 
@@ -15,12 +15,25 @@ solar del escritorio como un planeta nuevo, «Cuerpo», fijo abajo a la derecha:
 - **7 cuentas** = racha de pasos de la semana. La marca encima de una cuenta = hábito hecho ese día.
 - Sin datos o con datos atrasados se ve tenue o gris, nunca roto.
 
-**Estado:** diseño propuesto (Fase 1). Rama `feat/solar-salud`.
+**Estado:** desplegado el 2026-10-26 (rama `feat/solar-salud`). Para ver los datos reales falta
+crear `~/.config/gym-hub-desktop/credentials` (netrc, `chmod 600`) con el usuario `instinct`, el
+mismo de la vista web `/resumen`:
+
+```
+machine vizcapon-pi.tail76abc5.ts.net login instinct password <contraseña>
+```
+
+Clic en el planeta → abre `/resumen`. Pasar el ratón → sueño, entrenos y hora de la última
+actualización. Si cambias la contraseña en la Pi, cambia también el fichero: tras un 401 el
+helper deja de llamar a la API hasta que el fichero cambie.
 
 ## Documentación técnica (repo)
 
 - Spec y decisión: [[docs/sistema-solar-salud-DISENO|Sistema solar · salud — diseño]]
-- Mockup: `docs/sistema-solar-v3-mockup/salud-variantes.png`
+- Mockup: `docs/sistema-solar-v3-mockup/salud-variantes.png` · estados reales en QML:
+  `docs/sistema-solar-v3-mockup/salud-estados-qml.png`
+- Plan de implementación: [[docs/superpowers/plans/2026-10-26-solar-salud|plan]]
+- Helper de datos: `widgets/gym-health` (tests en `widgets/tests/test_gym_health.py`)
 - Escena en la que encaja: [[docs/sistema-solar-v3-DISENO|Sistema solar v3 — diseño]] ·
   [[Sistema Solar — decisiones v3]]
 - Precedente del cometa de tareas: [[docs/sistema-solar-cometa-rediseno|Cometa de tareas]]
