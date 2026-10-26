@@ -74,6 +74,7 @@ Variants {
                 config: SolarSystemModel.config
                 values: SolarSystemModel.values
                 taskList: SolarSystemModel.taskList
+                health: SolarSystemModel.health
                 active: SolarSystemModel.anyActivity
                 fastRate: SolarSystemModel.musicPlaying
                 musicVariant: SolarSystemModel.musicVariant
