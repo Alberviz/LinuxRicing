@@ -425,6 +425,22 @@ function computeLayout(state, geom) {
         Math.max(bhBounds.x + bhBounds.w, binBounds.x + binBounds.w),
         Math.max(bhBounds.y + bhBounds.h, binBounds.y + binBounds.h), 0);
 
+    // --- Planeta «Cuerpo» (salud del reloj): ancla fija, lunas con el tiempo del sistema ---
+    // Las lunas (entrenos) giran con `t`, así que se congelan en modo Laura como el resto.
+    var hCfg = anchorById(cfg, "health");
+    var health = null;
+    if (hCfg) {
+        var hm = hCfg.motion || {};
+        var hr = (hCfg.rFrac != null ? hCfg.rFrac : 0.022) * h;
+        health = {
+            x: (hm.fx != null ? hm.fx : 0.81) * w,
+            // las cuentas de la racha caen ~3·r por debajo: que no pisen la franja de Laura
+            y: Math.min((hm.fy != null ? hm.fy : 0.58) * h, yFloor - hr * 3.4),
+            r: hr, moonR: hr * 1.75,
+            moonPhase: (2 * Math.PI / 240) * t
+        };
+    }
+
     return {
         t: t, scale: S, music: music,
         musicBass: num(values, "musicBass", 0),
@@ -434,7 +450,7 @@ function computeLayout(state, geom) {
         musicProgress: clamp01(num(values, "musicProgress", 0)),
         variant: D.layoutVariant, orbitAlpha: C.orbitAlpha,
         bh: bh, bary: bary, bhSpin: (2 * Math.PI / D.bhSpinPeriod) * t,
-        suns: suns, bodies: bodies, belt: belt, bin: bin, comet: comet,
+        suns: suns, bodies: bodies, belt: belt, bin: bin, comet: comet, health: health,
         bhBounds: bhBounds, binBounds: binBounds, bounds: bounds
     };
 }

@@ -67,6 +67,12 @@ Singleton {
             {
                 id: "laura", label: "Laura", kind: "sun", role: "primary",
                 rFrac: 0.045
+            },
+            {
+                // Salud del reloj (Amazfit GTS 2) como planeta «Cuerpo», fijo en el
+                // hueco de abajo a la derecha. Spec: docs/sistema-solar-salud-DISENO.md.
+                id: "health", label: "Cuerpo", kind: "health",
+                motion: { kind: "fixed", fx: 0.81, fy: 0.58 }, rFrac: 0.022
             }
         ],
         bodies: [
@@ -416,6 +422,31 @@ Singleton {
     Timer {
         interval: 30000; running: root.enabled; repeat: true; triggeredOnStart: true
         onTriggered: battProbe.running = true
+    }
+
+    // ---------- Adaptador: salud del reloj (gym-hub de la Pi) ----------
+    // gym-health ya trae la red, la caché (15 min) y el bloqueo ante un 401; aquí solo
+    // se lee su JSON. Los datos llegan con horas de retraso (Zepp → Health Connect):
+    // cada 20 min sobra. Contrato en docs/sistema-solar-salud-DISENO.md §6.2.
+    property var health: ({ status: "loading", days: [] })
+    Process {
+        id: healthProbe
+        command: ["sh", "-c", "\"$HOME/.local/bin/gym-health\" --json 2>/dev/null"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    const d = JSON.parse(text);
+                    if (d && d.status)
+                        root.health = d;
+                } catch (e) {
+                    // sin helper o salida inválida: se conserva lo último
+                }
+            }
+        }
+    }
+    Timer {
+        interval: 20 * 60 * 1000; running: root.enabled; repeat: true; triggeredOnStart: true
+        onTriggered: healthProbe.running = true
     }
 
     // --- Mapeo PROVEEDOR → ROL de paleta -------------------------------------
