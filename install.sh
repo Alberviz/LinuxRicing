@@ -277,6 +277,14 @@ if [ -f "$BASE_DIR/widgets/tasks-index" ]; then
     echo -e "  ${SUCCESS}✔ tasks-index instalado en ~/.local/bin${RESET}"
 fi
 
+# 4c. Instalar wifi-smart-roam (roaming inteligente en AC)
+if [ -f "$BASE_DIR/widgets/wifi-smart-roam" ]; then
+    mkdir -p "$HOME/.local/bin"
+    cp -u "$BASE_DIR/widgets/wifi-smart-roam" "$HOME/.local/bin/wifi-smart-roam"
+    chmod +x "$HOME/.local/bin/wifi-smart-roam"
+    echo -e "  ${SUCCESS}✔ wifi-smart-roam instalado en ~/.local/bin${RESET}"
+fi
+
 # 5. Instalar Spicetify Dynamic Material You Theme
 if [ "$SELECTED_SPICETIFY" = true ]; then
     echo -e "${PRIMARY}➔ Configurando Spicetify y tema Caelestia...${RESET}"
@@ -345,9 +353,10 @@ if [ "$SELECTED_RGB" = true ]; then
         done
         cp -u "$BASE_DIR/systemd/"*.service "$HOME/.config/systemd/user/" 2>/dev/null || true
         systemctl --user daemon-reload || true
-        # openrgb + battery-lighting siempre; argb-wave solo si su script existe (rama feature/argb-wave)
+        # openrgb + battery-lighting siempre; argb-wave solo si su script existe; wifi-smart-roam si existe
         UNITS="openrgb.service battery-lighting.service"
         [ -f "$BASE_DIR/rgb/argb-wave.py" ] && UNITS="$UNITS argb-wave.service"
+        [ -f "$BASE_DIR/widgets/wifi-smart-roam" ] && UNITS="$UNITS wifi-smart-roam.service"
         systemctl --user enable --now $UNITS 2>/dev/null || true
     fi
 

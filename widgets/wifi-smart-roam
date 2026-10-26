@@ -1,0 +1,383 @@
+#!/usr/bin/env python3
+"""
+wifi-smart-roam — Demonio de roaming inteligente y auto-switch Wi-Fi sensible a la energía.
+
+Monitoriza las redes Wi-Fi guardadas y cambia proactivamente a la mejor red disponible
+(por ejemplo, al volver a la habitación o cuando la señal decae), pero ÚNICAMENTE
+cuando el portátil está enchufado a la corriente (AC). En batería permanece en reposo
+absoluto sin escanear el espectro para maximizar la autonomía.
+
+Modos de uso:
+  wifi-smart-roam --daemon    Bucle continuo (para systemd --user)
+  wifi-smart-roam --tick      Una sola evaluación puntual y salir
+  wifi-smart-roam --status    Muestra el estado actual, diagnóstico y candidatos
+  wifi-smart-roam --help      Muestra esta ayuda
+"""
+
+import argparse
+import glob
+import logging
+import os
+import shutil
+import subprocess
+import sys
+import time
+
+LOG_FORMAT = "[%(asctime)s] %(levelname)s: %(message)s"
+logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, datefmt="%Y-%m-%d %H:%M:%S")
+logger = logging.getLogger("wifi-smart-roam")
+
+# Intervalos de sondeo
+INTERVAL_AC_SECONDS = 30
+INTERVAL_BATTERY_SECONDS = 60
+
+# Umbrales de decisión
+COOLDOWN_AFTER_SWITCH = 45  # Segundos mínimos entre cambios para evitar flapping
+MIN_UPGRADE_SIGNAL_5GHZ = 35  # Señal mínima para saltar a red de mayor prioridad (5GHz)
+MIN_UPGRADE_SIGNAL_24GHZ = 42  # Señal mínima para saltar a red de mayor prioridad (2.4GHz)
+CRITICAL_FALLBACK_SIGNAL = 25  # Si la señal actual baja de esto, busca fallback
+MIN_FALLBACK_CANDIDATE_SIGNAL = 50  # Señal mínima que debe tener el fallback
+EQUAL_PRIO_SIGNAL_DELTA = 25  # Ventaja de señal necesaria para saltar entre redes de igual prioridad
+
+
+def is_ac_online() -> bool:
+    """Comprueba si el equipo está conectado a la corriente (AC)."""
+    for path in glob.glob("/sys/class/power_supply/*/online"):
+        # Ignorar si es batería o dispositivo no-AC
+        basename = os.path.basename(os.path.dirname(path))
+        if basename.startswith("BAT"):
+            continue
+        try:
+            with open(path, "r") as f:
+                if f.read().strip() == "1":
+                    return True
+        except Exception:
+            continue
+    return False
+
+
+def is_ethernet_active() -> bool:
+    """Comprueba si hay una conexión de cable ethernet activa."""
+    try:
+        out = subprocess.check_output(
+            ["nmcli", "-t", "-m", "tabular", "-f", "TYPE,STATE", "device"],
+            text=True,
+            timeout=5,
+        )
+        for line in out.strip().split("\n"):
+            parts = line.split(":")
+            if len(parts) >= 2 and parts[0] == "ethernet" and parts[1] == "connected":
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def get_saved_connections() -> dict:
+    """
+    Obtiene las conexiones Wi-Fi guardadas con autoconnect habilitado y su prioridad.
+    Retorna: { SSID_o_NAME: {"name": str, "uuid": str, "priority": int} }
+    """
+    saved = {}
+    try:
+        out = subprocess.check_output(
+            ["nmcli", "-t", "-m", "tabular", "-f", "NAME,UUID,TYPE,AUTOCONNECT,AUTOCONNECT-PRIORITY", "connection", "show"],
+            text=True,
+            timeout=5,
+        )
+        for line in out.strip().split("\n"):
+            if not line:
+                continue
+            parts = line.split(":")
+            if len(parts) >= 5 and ("wireless" in parts[2] or "wifi" in parts[2]):
+                name, uuid, _, autoconnect, prio_str = parts[0], parts[1], parts[2], parts[3], parts[4]
+                if autoconnect.lower() in ("yes", "sí", "true", "1"):
+                    try:
+                        prio = int(prio_str)
+                    except ValueError:
+                        prio = 0
+                    saved[name] = {"name": name, "uuid": uuid, "priority": prio}
+    except Exception as e:
+        logger.warning(f"Error consultando conexiones guardadas: {e}")
+    return saved
+
+
+def scan_wifi_networks(rescan: bool = True) -> list:
+    """
+    Escanea redes Wi-Fi visibles.
+    Retorna lista de dicts con: in_use, ssid, bssid, signal, freq, is_5ghz.
+    """
+    networks = []
+    cmd = ["nmcli", "-t", "-m", "tabular", "-f", "IN-USE,SSID,BSSID,SIGNAL,FREQ", "dev", "wifi", "list"]
+    if rescan:
+        cmd += ["--rescan", "yes"]
+    else:
+        cmd += ["--rescan", "no"]
+
+    try:
+        out = subprocess.check_output(cmd, text=True, timeout=10)
+        for line in out.strip().split("\n"):
+            if not line:
+                continue
+            # Escapar colones en BSSID
+            safe = line.replace(r"\:", "__COLON__")
+            parts = safe.split(":")
+            if len(parts) >= 5:
+                in_use = parts[0].strip() == "*"
+                ssid = parts[1].replace("__COLON__", ":").strip()
+                bssid = parts[2].replace("__COLON__", ":").strip()
+                try:
+                    signal = int(parts[3].strip())
+                except ValueError:
+                    signal = 0
+                freq_str = parts[4].replace("__COLON__", ":").strip()
+                try:
+                    freq_mhz = int(freq_str.split()[0])
+                except (ValueError, IndexError):
+                    freq_mhz = 0
+                is_5ghz = freq_mhz >= 4900
+
+                if ssid:  # ignorar SSIDs ocultos sin nombre
+                    networks.append({
+                        "in_use": in_use,
+                        "ssid": ssid,
+                        "bssid": bssid,
+                        "signal": signal,
+                        "freq": freq_str,
+                        "is_5ghz": is_5ghz,
+                    })
+    except Exception as e:
+        logger.warning(f"Error escaneando Wi-Fi: {e}")
+
+    return networks
+
+
+def notify_switch(target_name: str, signal: int, is_5ghz: bool, reason: str):
+    """Envía una notificación de escritorio amigable usando notify-send."""
+    if not shutil.which("notify-send"):
+        return
+    band = "5 GHz" if is_5ghz else "2.4 GHz"
+    msg = f"Conectado a {target_name} ({band}, {signal}%)\n{reason}"
+    try:
+        subprocess.run(
+            ["notify-send", "-a", "Smart Roaming", "-i", "network-wireless", "-u", "low", "Wi-Fi Optimizado", msg],
+            timeout=2,
+            check=False,
+        )
+    except Exception:
+        pass
+
+
+def evaluate_and_switch(rescan: bool = True, dry_run: bool = False) -> tuple[bool, str]:
+    """
+    Evalúa la conexión actual y decide si conviene cambiar a otra mejor.
+    Retorna: (switched: bool, message: str)
+    """
+    if not is_ac_online():
+        return False, "En batería (AC offline). Escaneo y auto-switch suspendidos."
+
+    if is_ethernet_active():
+        return False, "Ethernet cableado activo. Wi-Fi roaming en pausa."
+
+    saved = get_saved_connections()
+    if not saved:
+        return False, "No se encontraron conexiones Wi-Fi guardadas con autoconnect."
+
+    networks = scan_wifi_networks(rescan=rescan)
+    if not networks:
+        return False, "No se detectaron redes Wi-Fi en el escaneo."
+
+    # Identificar la red activa actual
+    current = None
+    for n in networks:
+        if n["in_use"]:
+            current = n
+            break
+
+    if not current:
+        return False, "No hay ninguna red Wi-Fi conectada actualmente."
+
+    current_saved = saved.get(current["ssid"])
+    current_prio = current_saved["priority"] if current_saved else 0
+
+    # Filtrar candidatos: deben ser redes guardadas con autoconnect y diferentes a la actual
+    candidates = []
+    for n in networks:
+        if n["ssid"] == current["ssid"]:
+            continue
+        if n["ssid"] in saved:
+            n_prio = saved[n["ssid"]]["priority"]
+            candidates.append({**n, "priority": n_prio, "uuid": saved[n["ssid"]]["uuid"]})
+
+    if not candidates:
+        return False, f"Conectado a '{current['ssid']}' ({current['signal']}%). No hay otros candidatos guardados al alcance."
+
+    # Ordenar candidatos por:
+    # 1. Prioridad configurada
+    # 2. Bonus de 5GHz (+15 a señal efectiva para selección dentro de la misma prioridad)
+    # 3. Señal
+    def candidate_score(c):
+        effective_signal = c["signal"] + (15 if c["is_5ghz"] else 0)
+        return (c["priority"], effective_signal)
+
+    best_candidate = max(candidates, key=candidate_score)
+
+    # REGLAS DE DECISIÓN
+
+    # Regla 1: Salto por Prioridad Superior (ej. volver a la habitación: 5GHz prio 100 vs resi prio 10)
+    if best_candidate["priority"] > current_prio:
+        min_signal = MIN_UPGRADE_SIGNAL_5GHZ if best_candidate["is_5ghz"] else MIN_UPGRADE_SIGNAL_24GHZ
+        if best_candidate["signal"] >= min_signal:
+            reason = f"Prioridad superior ({best_candidate['priority']} > {current_prio})"
+            if dry_run:
+                return True, f"CAMBIO REQUERIDO -> {best_candidate['ssid']} ({best_candidate['signal']}%) por {reason}"
+            return do_switch(best_candidate, reason)
+
+    # Regla 2: Fallback por señal crítica (ej. saliendo de la habitación, 5GHz < 25%)
+    if current["signal"] <= CRITICAL_FALLBACK_SIGNAL:
+        if best_candidate["signal"] >= MIN_FALLBACK_CANDIDATE_SIGNAL and (best_candidate["signal"] - current["signal"]) >= 20:
+            reason = f"Señal actual crítica ({current['signal']}%) vs candidata ({best_candidate['signal']}%)"
+            if dry_run:
+                return True, f"CAMBIO REQUERIDO -> {best_candidate['ssid']} ({best_candidate['signal']}%) por {reason}"
+            return do_switch(best_candidate, reason)
+
+    # Regla 3: Misma prioridad, pero red significativamente mejor o salto a 5GHz
+    if best_candidate["priority"] == current_prio:
+        # Si la candidata es 5GHz y la actual es 2.4GHz con señal decente
+        if best_candidate["is_5ghz"] and not current["is_5ghz"] and best_candidate["signal"] >= 45:
+            reason = "Upgrade a banda rápida de 5 GHz"
+            if dry_run:
+                return True, f"CAMBIO REQUERIDO -> {best_candidate['ssid']} ({best_candidate['signal']}%) por {reason}"
+            return do_switch(best_candidate, reason)
+
+        # Si hay una diferencia sustancial de señal (> 25 puntos)
+        if (best_candidate["signal"] - current["signal"]) >= EQUAL_PRIO_SIGNAL_DELTA and best_candidate["signal"] >= 50:
+            reason = f"Señal significativamente mejor (+{best_candidate['signal'] - current['signal']}%)"
+            if dry_run:
+                return True, f"CAMBIO REQUERIDO -> {best_candidate['ssid']} ({best_candidate['signal']}%) por {reason}"
+            return do_switch(best_candidate, reason)
+
+    return False, f"Conexión actual '{current['ssid']}' óptima ({current['signal']}%, prio {current_prio}). Sin necesidad de cambio."
+
+
+def do_switch(candidate: dict, reason: str) -> tuple[bool, str]:
+    """Ejecuta el cambio de conexión a la red candidata."""
+    logger.info(f"Cambiando a '{candidate['ssid']}' ({candidate['freq']}, {candidate['signal']}%) — Razón: {reason}")
+    try:
+        subprocess.run(
+            ["nmcli", "connection", "up", "uuid", candidate["uuid"]],
+            check=True,
+            timeout=15,
+            capture_output=True,
+            text=True,
+        )
+        notify_switch(candidate["ssid"], candidate["signal"], candidate["is_5ghz"], reason)
+        return True, f"Cambio exitoso a '{candidate['ssid']}'"
+    except subprocess.CalledProcessError as e:
+        err = e.stderr.strip() if e.stderr else str(e)
+        logger.error(f"Error cambiando a '{candidate['ssid']}': {err}")
+        return False, f"Fallo al conectar a '{candidate['ssid']}': {err}"
+    except Exception as e:
+        logger.error(f"Error inesperado al cambiar de red: {e}")
+        return False, f"Fallo inesperado: {e}"
+
+
+def run_status():
+    """Imprime un reporte detallado del estado del sistema y del roaming."""
+    ac = is_ac_online()
+    eth = is_ethernet_active()
+    saved = get_saved_connections()
+    networks = scan_wifi_networks(rescan=True)
+
+    print("=== Estado de Wi-Fi Smart Roaming ===")
+    print(f"Alimentación:       {'Enchufado (AC) [Activo]' if ac else 'Batería (DC) [Pausado]'}")
+    print(f"Cable Ethernet:     {'Conectado' if eth else 'Desconectado'}")
+
+    current = next((n for n in networks if n["in_use"]), None)
+    if current:
+        prio = saved.get(current["ssid"], {}).get("priority", "N/A")
+        print(f"Red actual:         {current['ssid']} ({current['freq']})")
+        print(f"  BSSID:            {current['bssid']}")
+        print(f"  Señal:            {current['signal']}%")
+        print(f"  Prioridad:        {prio}")
+    else:
+        print("Red actual:         Desconectado")
+
+    print("\nRedes guardadas detectadas al alcance:")
+    found_saved = False
+    for n in networks:
+        if n["ssid"] in saved:
+            found_saved = True
+            mark = "* " if n["in_use"] else "  "
+            prio = saved[n["ssid"]]["priority"]
+            print(f"{mark}{n['ssid']:<26} {n['freq']:<10} Señal: {n['signal']:>3}%  Prioridad: {prio:>3}")
+    if not found_saved:
+        print("  (Ninguna red guardada detectable al alcance)")
+
+    print("\nEvaluación de cambio:")
+    switched, msg = evaluate_and_switch(rescan=False, dry_run=True)
+    print(f"  {msg}")
+
+
+def run_daemon():
+    """Bucle principal para ejecución continua como servicio de usuario."""
+    logger.info("Iniciando daemon wifi-smart-roam (modo: solo enchufado)...")
+    last_switch_time = 0.0
+    was_ac = None
+
+    while True:
+        try:
+            ac = is_ac_online()
+
+            if ac != was_ac:
+                was_ac = ac
+                if ac:
+                    logger.info("🔌 Equipo conectado a la corriente (AC). Monitoreo de Wi-Fi activado.")
+                else:
+                    logger.info("🔋 Equipo en batería. Suspendiendo escaneo y auto-switch Wi-Fi para ahorrar energía.")
+
+            if not ac:
+                time.sleep(INTERVAL_BATTERY_SECONDS)
+                continue
+
+            # En AC: respetar cooldown tras un cambio
+            time_since_last_switch = time.time() - last_switch_time
+            if time_since_last_switch < COOLDOWN_AFTER_SWITCH:
+                time.sleep(10)
+                continue
+
+            switched, msg = evaluate_and_switch(rescan=True, dry_run=False)
+            if switched:
+                last_switch_time = time.time()
+                logger.info(f"Acción completada: {msg}")
+
+            time.sleep(INTERVAL_AC_SECONDS)
+
+        except KeyboardInterrupt:
+            logger.info("Deteniendo wifi-smart-roam por señal del usuario.")
+            break
+        except Exception as e:
+            logger.exception(f"Error inesperado en el bucle principal: {e}")
+            time.sleep(INTERVAL_AC_SECONDS)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Demonio de roaming inteligente Wi-Fi para Linux")
+    parser.add_argument("--daemon", action="store_true", help="Ejecutar en bucle como servicio")
+    parser.add_argument("--tick", action="store_true", help="Ejecutar una sola evaluación y salir")
+    parser.add_argument("--status", action="store_true", help="Mostrar estado y diagnóstico")
+    args = parser.parse_args()
+
+    if args.status:
+        run_status()
+    elif args.tick:
+        switched, msg = evaluate_and_switch(rescan=True, dry_run=False)
+        print(msg)
+    elif args.daemon:
+        run_daemon()
+    else:
+        run_status()
+
+
+if __name__ == "__main__":
+    main()
