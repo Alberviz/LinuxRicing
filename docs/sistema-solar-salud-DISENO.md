@@ -1,6 +1,6 @@
 # Sistema solar · salud del reloj (Amazfit GTS 2) — diseño
 
-**Estado:** implementado y desplegado el 2026-10-26 (OK de Alberto a diseño y despliegue). Falta el fichero de credenciales (§6.1) para ver datos reales. Rama `feat/solar-salud`
+**Estado:** implementado, desplegado y con datos reales desde el 2026-10-26 (OK de Alberto a diseño y despliegue). Rama `feat/solar-salud`
 (worktree `.worktrees/solar-salud`, sale de `main` @ `c93a0bc`).
 **Fecha:** 2026-10-26.
 **Mockup:** `docs/sistema-solar-v3-mockup/salud-variantes.html` → captura `salud-variantes.png`.
@@ -318,5 +318,15 @@ No se toca el shader, ni el cometa, ni nada en la Pi.
     caliente alternando `~/.config/caelestia/solarsystem.json` sin/con el ancla, 3 rondas de 15 s
     con Spotify sonando: sin planeta 49,0 % de media, con planeta 46,0 %. **Diferencia no medible**
     (dentro del ruido).
+  - **Contraseña nueva** (nadie conocía la anterior; solo quedaba su hash): generada en el
+    escritorio con `secrets.token_urlsafe(24)` y escrita directamente en
+    `~/.config/gym-hub-desktop/credentials` (600) sin mostrarla. A la Pi solo viajó el hash scrypt,
+    reescrito en el sitio en `~/.config/gym-readonly/config.json` (mismo inodo: es un bind mount de
+    fichero) con copia `config.json.bak-2026-10-26`, y reinicio de `gym-hub-readonly-1`. **El
+    asistente externo Instinct necesita la contraseña nueva** si usaba la vieja. Se lee con
+    `awk '{print $6}' ~/.config/gym-hub-desktop/credentials`.
+  - Llamada real: `status: ok`, 7 días con los datos esperados. La contraseña no aparece en la
+    caché. Restart del shell → el planeta muestra «330 / 10.000 pasos», el terminador de 4,97 h,
+    0/4 lunas y la racha.
   - `qmllint` de esta máquina sale con 255 sin mensajes incluso con ficheros sin tocar: no sirve
     de verificación. Lo que vale es el log de `qs`.

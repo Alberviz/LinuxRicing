@@ -15,13 +15,13 @@ solar del escritorio como un planeta nuevo, «Cuerpo», fijo abajo a la derecha:
 - **7 cuentas** = racha de pasos de la semana. La marca encima de una cuenta = hábito hecho ese día.
 - Sin datos o con datos atrasados se ve tenue o gris, nunca roto.
 
-**Estado:** desplegado el 2026-10-26 (rama `feat/solar-salud`). Para ver los datos reales falta
-crear `~/.config/gym-hub-desktop/credentials` (netrc, `chmod 600`) con el usuario `instinct`, el
-mismo de la vista web `/resumen`:
+**Estado:** desplegado y con datos reales desde el 2026-10-26 (rama `feat/solar-salud`).
 
-```
-machine vizcapon-pi.tail76abc5.ts.net login instinct password <contraseña>
-```
+**Credenciales:** la API de solo lectura tiene una única cuenta, `instinct`, que es también la de
+la vista web `/resumen` y la del asistente externo Instinct. El 2026-10-26 se le puso una
+contraseña nueva, porque nadie conocía la anterior. Está en `~/.config/gym-hub-desktop/credentials`
+(netrc, 600) y se lee con `awk '{print $6}' ~/.config/gym-hub-desktop/credentials`. Si Instinct
+usaba la vieja, hay que darle esta.
 
 Clic en el planeta → abre `/resumen`. Pasar el ratón → sueño, entrenos y hora de la última
 actualización. Si cambias la contraseña en la Pi, cambia también el fichero: tras un 401 el
