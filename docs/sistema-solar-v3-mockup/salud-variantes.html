@@ -17,15 +17,15 @@
 <div class="grid" id="g"></div>
 <script>
 const GOAL = 10000, SLEEP_GOAL = 7.5, WEEK_GOAL = 4;
-// daily[] real, 2026-10-20 … 2026-10-26 (hoy, parcial: Zepp va con retraso)
+// daily[] real, 2026-10-20 (martes) … 2026-10-26 (lunes, hoy, parcial: Zepp va con retraso)
 const REAL = [
-  { d: "L", steps: 8161, sleep: 2.58, wk: 0, hab: 0 },
-  { d: "M", steps: 4613, sleep: 5.95, wk: 0, hab: 0 },
-  { d: "X", steps: 11213, sleep: 1.43, wk: 0, hab: 0 },
-  { d: "J", steps: 660, sleep: 9.13, wk: 0, hab: 1 },
-  { d: "V", steps: 1700, sleep: 7.75, wk: 0, hab: 0 },
-  { d: "S", steps: 6919, sleep: 0.55, wk: 0, hab: 0 },
-  { d: "D", steps: 330, sleep: 4.97, wk: 0, hab: 0 },
+  { d: "M", steps: 8161, sleep: 2.58, wk: 0, hab: 0 },
+  { d: "X", steps: 4613, sleep: 5.95, wk: 0, hab: 0 },
+  { d: "J", steps: 11213, sleep: 1.43, wk: 0, hab: 0 },
+  { d: "V", steps: 660, sleep: 9.13, wk: 0, hab: 1 },
+  { d: "S", steps: 1700, sleep: 7.75, wk: 0, hab: 0 },
+  { d: "D", steps: 6919, sleep: 0.55, wk: 0, hab: 0 },
+  { d: "L", steps: 330, sleep: 4.97, wk: 0, hab: 0 },
 ];
 // Semana «buena» inventada para ver el concepto lleno (racha, lunas, hábitos)
 const GOOD = [

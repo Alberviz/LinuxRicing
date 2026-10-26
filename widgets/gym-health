@@ -1,0 +1,196 @@
+#!/usr/bin/env python3
+"""gym-health — salud del Amazfit GTS 2 para el sistema solar del escritorio.
+
+Lee GET /v1/summary de la API de solo lectura del gym-hub (Raspberry Pi), la normaliza a lo
+que dibuja el planeta «Cuerpo» y la cachea. Diseño: docs/sistema-solar-salud-DISENO.md §6.
+
+    gym-health --json     # imprime SIEMPRE un objeto JSON y sale con 0
+
+Credenciales: ~/.config/gym-hub-desktop/credentials en formato netrc, permisos 600:
+    machine vizcapon-pi.tail76abc5.ts.net login <usuario> password <contraseña>
+Nunca van en argv, en la salida ni en la caché.
+
+Un 401 no se reintenta hasta que cambie el mtime del fichero de credenciales: el servidor
+bloquea el login para todos tras 10 fallos en 15 min.
+
+Solo biblioteca estándar. Variables de entorno para los tests: GYM_HEALTH_URL,
+GYM_HEALTH_CREDENTIALS, GYM_HEALTH_CACHE_DIR, GYM_HEALTH_TODAY (AAAA-MM-DD).
+"""
+import base64
+import json
+import netrc
+import os
+import sys
+import tempfile
+import urllib.error
+import urllib.request
+from datetime import date, datetime, timedelta
+from pathlib import Path
+from urllib.parse import urlencode, urlsplit
+from zoneinfo import ZoneInfo
+
+TZ = ZoneInfo("Europe/Madrid")
+BASE_URL = os.environ.get("GYM_HEALTH_URL", "https://vizcapon-pi.tail76abc5.ts.net:8443").rstrip("/")
+CREDENTIALS = Path(os.environ.get("GYM_HEALTH_CREDENTIALS",
+                                  os.path.expanduser("~/.config/gym-hub-desktop/credentials")))
+CACHE_DIR = Path(os.environ.get("GYM_HEALTH_CACHE_DIR", os.path.expanduser("~/.cache/gym-health")))
+CACHE = CACHE_DIR / "summary.json"
+AUTH_BLOCK = CACHE_DIR / "auth-blocked"
+FRESH_SEG = 15 * 60
+TIMEOUT_SEG = 10
+DAYS = 7
+
+
+def today() -> date:
+    t = os.environ.get("GYM_HEALTH_TODAY")
+    return date.fromisoformat(t) if t else datetime.now(TZ).date()
+
+
+def normalize(summary: dict, hoy: date) -> dict:
+    """Respuesta de /v1/summary → contrato de la vista (spec §6.2). Siempre 7 días, el último = hoy."""
+    por_dia = {d.get("date"): d for d in summary.get("daily") or []}
+    lunes = hoy - timedelta(days=hoy.weekday())
+    days = []
+    for i in range(DAYS - 1, -1, -1):
+        f = (hoy - timedelta(days=i)).isoformat()
+        d = por_dia.get(f) or {}
+        fases = d.get("sleep_stages_min") or {}
+        days.append({
+            "date": f,
+            "steps": d.get("steps"),
+            "sleepH": d.get("sleep_h"),
+            "deepMin": fases.get("deep"),
+            "restingHr": d.get("resting_hr"),
+            "workouts": len(d.get("workouts") or []),
+            "habits": sorted(d.get("habits") or []),
+        })
+    goals = summary.get("goals") or {}
+    watch = (summary.get("last_sync") or {}).get("watch_google_health") or {}
+    return {
+        "today": hoy.isoformat(),
+        "goal": {"steps": goals.get("steps_per_day") or 10000,
+                 "sleepH": goals.get("sleep_h") or 7.5,
+                 "sessionsPerWeek": goals.get("sessions_per_week") or 4},
+        "syncCursor": watch.get("cursor"),
+        "lastDayWithData": watch.get("last_day_with_data"),
+        "days": days,
+        "weekWorkouts": sum(d["workouts"] for d in days if d["date"] >= lunes.isoformat()),
+    }
+
+
+def read_cache() -> dict:
+    try:
+        return json.loads(CACHE.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def write_private(path: Path, text: str) -> None:
+    CACHE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=CACHE_DIR, prefix=".tmp-")
+    with os.fdopen(fd, "w") as f:
+        f.write(text)
+    os.replace(tmp, path)  # mkstemp ya crea el fichero con 600
+
+
+def credentials():
+    """(usuario, contraseña) o (None, motivo)."""
+    try:
+        st = CREDENTIALS.stat()
+    except OSError:
+        return None, "falta " + str(CREDENTIALS)
+    if st.st_mode & 0o077:
+        return None, "permisos: chmod 600 " + str(CREDENTIALS)
+    try:
+        auth = netrc.netrc(str(CREDENTIALS)).authenticators(urlsplit(BASE_URL).hostname)
+    except (OSError, netrc.NetrcParseError):
+        return None, "fichero de credenciales ilegible"
+    if not auth or not auth[0] or not auth[2]:
+        return None, "sin entrada para " + str(urlsplit(BASE_URL).hostname)
+    return (auth[0], auth[2]), None
+
+
+def fetch(user: str, password: str, hoy: date) -> dict:
+    qs = urlencode({"from": (hoy - timedelta(days=DAYS - 1)).isoformat(), "to": hoy.isoformat()})
+    req = urllib.request.Request(f"{BASE_URL}/v1/summary?{qs}")
+    token = base64.b64encode(f"{user}:{password}".encode()).decode()
+    req.add_header("Authorization", "Basic " + token)
+    req.add_header("Accept", "application/json")
+    with urllib.request.urlopen(req, timeout=TIMEOUT_SEG) as r:
+        return json.loads(r.read().decode())
+
+
+def fresh(cache: dict, hoy: date) -> bool:
+    try:
+        edad = datetime.now(TZ) - datetime.fromisoformat(cache["fetchedAt"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return cache.get("today") == hoy.isoformat() and 0 <= edad.total_seconds() < FRESH_SEG
+
+
+def run() -> dict:
+    hoy = today()
+    cache = read_cache()
+    # Lo último bueno, para pintar «atrasado» en vez del fantasma cuando algo falla.
+    stale = {k: cache[k] for k in ("fetchedAt", "goal", "syncCursor", "lastDayWithData",
+                                   "days", "weekWorkouts") if k in cache}
+    base = {"webUrl": BASE_URL + "/resumen", "days": [], "today": hoy.isoformat()}
+
+    creds, motivo = credentials()
+    if not creds:
+        return {**base, "status": "nocreds", "reason": motivo}
+    mtime = str(CREDENTIALS.stat().st_mtime_ns)
+    try:
+        if AUTH_BLOCK.read_text().strip() == mtime:
+            return {**base, **stale, "status": "auth", "reason": "credenciales rechazadas"}
+    except OSError:
+        pass
+    if fresh(cache, hoy):
+        return {**base, **stale, "status": "ok"}
+
+    try:
+        summary = fetch(*creds, hoy)
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            write_private(AUTH_BLOCK, mtime)
+            print("gym-health: 401, no se reintenta hasta cambiar las credenciales", file=sys.stderr)
+            return {**base, **stale, "status": "auth", "reason": "credenciales rechazadas"}
+        print(f"gym-health: HTTP {e.code}", file=sys.stderr)
+        return {**base, **stale, "status": "error", "reason": f"HTTP {e.code}"}
+    except (urllib.error.URLError, OSError) as e:  # sin red, DNS, timeout
+        reason = getattr(e, "reason", e)
+        print(f"gym-health: sin conexión ({type(reason).__name__})", file=sys.stderr)
+        return {**base, **stale, "status": "offline", "reason": "sin conexión"}
+    except ValueError:
+        print("gym-health: respuesta no es JSON", file=sys.stderr)
+        return {**base, **stale, "status": "error", "reason": "respuesta inválida"}
+
+    if not str(summary.get("schema_version", "")).startswith("1."):
+        print("gym-health: schema_version inesperado", file=sys.stderr)
+        return {**base, **stale, "status": "error", "reason": "esquema desconocido"}
+
+    out = {**base, **normalize(summary, hoy), "status": "ok",
+           "fetchedAt": datetime.now(TZ).isoformat(timespec="seconds")}
+    write_private(CACHE, json.dumps(out, ensure_ascii=False))
+    try:
+        AUTH_BLOCK.unlink()
+    except OSError:
+        pass
+    return out
+
+
+def main() -> int:
+    if sys.argv[1:] != ["--json"]:
+        print(__doc__.strip(), file=sys.stderr)
+        return 2
+    try:
+        out = run()
+    except Exception as e:  # nunca romper al QML: siempre un JSON
+        print(f"gym-health: {type(e).__name__}", file=sys.stderr)
+        out = {"status": "error", "reason": type(e).__name__, "days": []}
+    print(json.dumps(out, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
