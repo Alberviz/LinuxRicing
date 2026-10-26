@@ -11,6 +11,8 @@ durante la implementación; los agentes deciden y anotan aquí. Espejo de la tab
 §8 de `docs/sistema-solar-v3-DISENO.md` — **si cambias una, cámbiala en los dos
 sitios.**
 
+> Ampliación 2026-10: datos de salud del reloj como planeta «Cuerpo» → [[Sistema Solar — salud del reloj]].
+
 ## Cerradas con Alberto
 
 - **Variante D.** Agujero negro «música» masivo y detallado en la **esquina
