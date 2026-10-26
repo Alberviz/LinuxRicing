@@ -79,8 +79,8 @@ return {
     -- Window Group
     kbWindowCycleNext          = "ALT + TAB",
     kbWindowCyclePrev          = "SHIFT + ALT + TAB",
-    kbWindowGroupCycleNext     = "CTRL + ALT + TAB",
-    kbWindowGroupCyclePrev     = "CTRL + SHIFT + ALT + TAB",
+    kbWindowGroupCycleNext     = { "SUPER + TAB", "CTRL + ALT + TAB" },
+    kbWindowGroupCyclePrev     = { "SUPER + SHIFT + TAB", "CTRL + SHIFT + ALT + TAB" },
     kbUngroup                  = "SUPER + U",
     kbToggleGroup              = "SUPER + Comma",
     kbGroupLockActive          = "SUPER + SHIFT + Comma",
