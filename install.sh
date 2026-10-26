@@ -16,7 +16,7 @@
 #    configs/system/caelestia-server-mode-root  -> /usr/local/bin/        (sudo, helper acotado)
 #    configs/system/caelestia-server-mode.sudoers -> /etc/sudoers.d/caelestia-server-mode (0440)
 #    configs/system/caelestia-power-root{,.sudoers} -> /usr/local/bin/ + /etc/sudoers.d/caelestia-power-root (ahorro)
-#    widgets/{gtasks,tasks-index,desktop-deck-helper,display-selector,magichome-control,lenovo-battery-control} -> ~/.local/bin/
+#    widgets/{gtasks,tasks-index,desktop-deck-helper,display-selector,magichome-control,lenovo-battery-control,spotify-autoupdate} -> ~/.local/bin/
 #    configs/applications/lenovo-battery-control.desktop -> ~/.local/share/applications/
 #    configs/udev/99-lenovo-conservation.rules -> /etc/udev/rules.d/  (manual, con sudo)
 #    rgb/{sync-rgb,argb-wave}.py     -> ~/.config/caelestia/
@@ -285,6 +285,14 @@ if [ -f "$BASE_DIR/widgets/wifi-smart-roam" ]; then
     echo -e "  ${SUCCESS}✔ wifi-smart-roam instalado en ~/.local/bin${RESET}"
 fi
 
+# 4d. Instalar spotify-autoupdate (auto-actualizador de Spotify/Spicetify en AC)
+if [ -f "$BASE_DIR/widgets/spotify-autoupdate" ]; then
+    mkdir -p "$HOME/.local/bin"
+    cp -u "$BASE_DIR/widgets/spotify-autoupdate" "$HOME/.local/bin/spotify-autoupdate"
+    chmod +x "$HOME/.local/bin/spotify-autoupdate"
+    echo -e "  ${SUCCESS}✔ spotify-autoupdate instalado en ~/.local/bin${RESET}"
+fi
+
 # 5. Instalar Spicetify Dynamic Material You Theme
 if [ "$SELECTED_SPICETIFY" = true ]; then
     echo -e "${PRIMARY}➔ Configurando Spicetify y tema Caelestia...${RESET}"
@@ -358,6 +366,9 @@ if [ "$SELECTED_RGB" = true ]; then
         [ -f "$BASE_DIR/rgb/argb-wave.py" ] && UNITS="$UNITS argb-wave.service"
         [ -f "$BASE_DIR/widgets/wifi-smart-roam" ] && UNITS="$UNITS wifi-smart-roam.service"
         systemctl --user enable --now $UNITS 2>/dev/null || true
+        if [ -f "$BASE_DIR/widgets/spotify-autoupdate" ]; then
+            systemctl --user enable spotify-autoupdate.service 2>/dev/null || true
+        fi
     fi
 
     # 6e. Semilla del estilo del marcador de agentes (no pisar la del usuario)

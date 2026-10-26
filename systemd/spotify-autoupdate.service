@@ -1,0 +1,15 @@
+[Unit]
+Description=Spotify and Spicetify Auto-Updater (AC only)
+ConditionACPower=true
+After=graphical-session.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/spotify-autoupdate
+Environment=PATH=%h/.spicetify:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
