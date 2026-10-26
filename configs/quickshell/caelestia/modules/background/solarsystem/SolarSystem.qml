@@ -31,6 +31,8 @@ Item {
     property var values: ({})
     // Tareas pendientes [{prio, title}] ordenadas por prioridad (cometa de tareas).
     property var taskList: []
+    // Salud del reloj (SolarSystemModel.health, contrato en docs/sistema-solar-salud-DISENO.md §6.2).
+    property var health: ({ status: "loading", days: [] })
 
     // --- Paleta (roles de Colours.palette.m3*) — para el shader y la capa fina ---
     property color colPrimary: "#f7b999"       // disco del agujero, sol Configuración
@@ -124,6 +126,7 @@ Item {
     readonly property real zLaura: amountOf("s:laura")
     readonly property real zConfig: amountOf("s:config")
     readonly property real zComet: amountOf("comet")
+    readonly property real zHealth: amountOf("health")
     readonly property real zBh: amountOf("bh")
     // Factor de atenuación de un elemento con amount `z`: 1 si es el enfocado,
     // hasta 0.70 si hay otro astro enfocado.
@@ -151,6 +154,9 @@ Item {
             const t = Math.max(0, Math.min(1, ((p.x - c.x) * sx + (p.y - c.y) * sy) / (sx * sx + sy * sy)));
             if (Math.hypot(p.x - (c.x + sx * t), p.y - (c.y + sy * t)) < 22 * S) found = "comet";
         }
+        if (found === "" && L.health
+                && Math.abs(p.x - L.health.x) < L.health.r * 3.2 && Math.abs(p.y - L.health.y) < L.health.r * 3.2)
+            found = "health";
         if (found === "")
             for (let i = 0; i < L.suns.length && found === ""; i++) {
                 const sun = L.suns[i];
@@ -951,6 +957,23 @@ Item {
             cursorShape: Qt.PointingHandCursor
             onClicked: root.cometClicked()
         }
+    }
+
+    // ===================== PLANETA «CUERPO» (salud del reloj) =====================
+    // Fijo abajo a la derecha (ancla `health`). Se atenúa en modo Laura como el resto.
+    HealthPlanet {
+        anchors.fill: parent
+        geo: root._layout ? root._layout.health : null
+        health: root.health
+        sc: root._layout ? root._layout.scale : 1
+        zoom: root.zHealth
+        opacity: root._dimK * root._dimOf(root.zHealth)
+        labelFont: root.labelFont
+        colPrimary: root.colPrimary
+        colPrimaryC: root.colPrimaryC
+        colInk: root.colInk
+        colOutline: root.colOutline
+        colVoid: root.colVoid
     }
 
     // ===================== ETIQUETAS (BodyLabel, variante C) =====================
