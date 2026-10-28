@@ -1,0 +1,433 @@
+#!/usr/bin/env python3
+"""
+captive-portal — Gestor y detector proactivo de portales cautivos para Linux.
+
+Detecta cuando una red Wi-Fi pública (tren, hotel, aeropuerto, cafetería)
+requiere inicio de sesión (portal cautivo), envía una notificación interactiva
+estilo Android con botón de "Iniciar sesión", y facilita abrir la URL de login
+directamente en el navegador sin tener que recurrir manualmente a neverssl.com.
+
+Modos de uso:
+  captive-portal check [--json]   Comprueba si la red actual tiene portal cautivo
+  captive-portal url              Obtiene la URL directa de autenticación del portal
+  captive-portal login            Abre la página de inicio de sesión en el navegador
+  captive-portal daemon           Demonio en segundo plano (para systemd --user)
+  captive-portal test-notify      Envía una notificación de prueba para verificar UI
+"""
+
+import argparse
+import json
+import logging
+import os
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from typing import Dict, Optional, Tuple
+
+import dbus
+from dbus.mainloop.glib import DBusGMainLoop
+from gi.repository import GLib
+
+LOG_FORMAT = "[%(asctime)s] %(levelname)s: %(message)s"
+logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, datefmt="%Y-%m-%d %H:%M:%S")
+logger = logging.getLogger("captive-portal")
+
+# Endpoint ligero estándar para detección de conectividad (devuelve 204 sin cuerpo en Internet abierto)
+PROBE_URL = "http://connectivitycheck.gstatic.com/generate_204"
+FALLBACK_PORTAL_URL = "http://connectivitycheck.gstatic.com/generate_204"
+
+# Estados de NetworkManager Connectivity
+NM_CONNECTIVITY_UNKNOWN = 0
+NM_CONNECTIVITY_NONE = 1
+NM_CONNECTIVITY_PORTAL = 2
+NM_CONNECTIVITY_LIMITED = 3
+NM_CONNECTIVITY_FULL = 4
+
+CONNECTIVITY_NAMES = {
+    NM_CONNECTIVITY_UNKNOWN: "unknown",
+    NM_CONNECTIVITY_NONE: "none",
+    NM_CONNECTIVITY_PORTAL: "portal",
+    NM_CONNECTIVITY_LIMITED: "limited",
+    NM_CONNECTIVITY_FULL: "full",
+}
+
+
+class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Evita seguir la redirección 302/307 para capturar la cabecera Location del portal."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def get_active_wifi_info() -> Dict[str, str]:
+    """Obtiene el SSID y la interfaz Wi-Fi activa usando nmcli."""
+    info = {"ssid": "", "device": "", "type": ""}
+    try:
+        res = subprocess.run(
+            ["nmcli", "-t", "-f", "DEVICE,TYPE,STATE,CONNECTION", "device", "status"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        for line in res.stdout.strip().splitlines():
+            parts = line.split(":")
+            if len(parts) >= 4 and parts[1] == "wifi" and parts[2] == "connected":
+                info["device"] = parts[0]
+                info["type"] = parts[1]
+                info["ssid"] = parts[3]
+                break
+            elif len(parts) >= 4 and parts[1] == "ethernet" and parts[2] == "connected":
+                info["device"] = parts[0]
+                info["type"] = parts[1]
+                info["ssid"] = parts[3]
+    except Exception as e:
+        logger.debug(f"Error consultando nmcli device status: {e}")
+    return info
+
+
+def get_nm_connectivity(force_check: bool = False) -> int:
+    """Consulta la conectividad a NetworkManager vía D-Bus."""
+    try:
+        bus = dbus.SystemBus()
+        nm_obj = bus.get_object("org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager")
+        nm_iface = dbus.Interface(nm_obj, "org.freedesktop.NetworkManager")
+        if force_check:
+            return int(nm_iface.CheckConnectivity())
+        props = dbus.Interface(nm_obj, "org.freedesktop.DBus.Properties")
+        return int(props.Get("org.freedesktop.NetworkManager", "Connectivity"))
+    except Exception as e:
+        logger.debug(f"Error consultando NetworkManager D-Bus: {e}")
+        # Fallback a nmcli
+        cmd = ["nmcli", "networking", "connectivity"]
+        if force_check:
+            cmd.append("check")
+        try:
+            res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            val = res.stdout.strip().lower()
+            for k, v in CONNECTIVITY_NAMES.items():
+                if v == val:
+                    return k
+        except Exception:
+            pass
+        return NM_CONNECTIVITY_UNKNOWN
+
+
+def probe_captive_portal(timeout: float = 3.0) -> Tuple[bool, Optional[str]]:
+    """
+    Realiza una petición HTTP a generate_204 sin cifrar.
+    Si recibe 302/307 o 200 con HTML, detecta portal cautivo y extrae la URL de login.
+    Retorna (is_portal, portal_url).
+    """
+    opener = urllib.request.build_opener(NoRedirectHandler)
+    req = urllib.request.Request(
+        PROBE_URL,
+        headers={
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+        },
+    )
+
+    try:
+        resp = opener.open(req, timeout=timeout)
+        code = resp.getcode()
+        if code == 204:
+            return False, None
+        # Si devuelve 200 OK en generate_204, un portal interceptó la llamada y sirvió su HTML
+        location = resp.headers.get("Location")
+        if location:
+            return True, location
+        return True, PROBE_URL
+    except urllib.error.HTTPError as e:
+        # Redirecciones (301, 302, 307, 308) lanzan HTTPError con NoRedirectHandler
+        if e.code in (301, 302, 303, 307, 308):
+            loc = e.headers.get("Location")
+            if loc:
+                # Si la redirección es relativa, resolverla
+                full_loc = urllib.parse.urljoin(PROBE_URL, loc)
+                return True, full_loc
+            return True, PROBE_URL
+        return False, None
+    except Exception as e:
+        logger.debug(f"Fallo en probe HTTP ({PROBE_URL}): {e}")
+        return False, None
+
+
+def detect_status(force_check: bool = False) -> Dict[str, any]:
+    """Evalúa el estado completo de la conexión y portal cautivo."""
+    wifi_info = get_active_wifi_info()
+    nm_conn = get_nm_connectivity(force_check=force_check)
+    is_probe_portal, probe_url = probe_captive_portal(timeout=3.0)
+
+    # Si NetworkManager dice portal o la sonda HTTP fue redirigida:
+    is_portal = (nm_conn == NM_CONNECTIVITY_PORTAL) or is_probe_portal
+    state_str = "portal" if is_portal else CONNECTIVITY_NAMES.get(nm_conn, "unknown")
+
+    portal_url = None
+    if is_portal:
+        portal_url = probe_url or FALLBACK_PORTAL_URL
+
+    return {
+        "is_portal": is_portal,
+        "state": state_str,
+        "nm_connectivity": nm_conn,
+        "ssid": wifi_info.get("ssid", ""),
+        "device": wifi_info.get("device", ""),
+        "portal_url": portal_url,
+    }
+
+
+def open_portal_in_browser(url: Optional[str] = None):
+    """Abre la URL del portal en el navegador predeterminado (o Zen Browser)."""
+    target = url or FALLBACK_PORTAL_URL
+    logger.info(f"Abriendo portal cautivo en el navegador: {target}")
+    try:
+        subprocess.Popen(
+            ["xdg-open", target],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception as e:
+        logger.error(f"Error abriendo navegador con xdg-open: {e}")
+
+
+class CaptivePortalDaemon:
+    """Demonio D-Bus que vigila el estado de red y avisa proactivamente como Android."""
+
+    def __init__(self):
+        DBusGMainLoop(set_as_default=True)
+        self.sys_bus = dbus.SystemBus()
+        self.session_bus = dbus.SessionBus()
+        self.active_notif_id = 0
+        self.active_portal_url = None
+        self.current_ssid = ""
+        self.recheck_timer_id = None
+
+        # Conectar a señales de NetworkManager
+        self.sys_bus.add_signal_receiver(
+            self.on_connectivity_changed,
+            signal_name="ConnectivityChanged",
+            dbus_interface="org.freedesktop.NetworkManager",
+            bus_name="org.freedesktop.NetworkManager",
+        )
+
+        # Conectar a cambios de estado general / conexiones activadas
+        self.sys_bus.add_signal_receiver(
+            self.on_state_changed,
+            signal_name="StateChanged",
+            dbus_interface="org.freedesktop.NetworkManager",
+            bus_name="org.freedesktop.NetworkManager",
+        )
+
+        # Conectar a acciones de la notificación
+        self.session_bus.add_signal_receiver(
+            self.on_action_invoked,
+            signal_name="ActionInvoked",
+            dbus_interface="org.freedesktop.Notifications",
+            bus_name="org.freedesktop.Notifications",
+        )
+        self.session_bus.add_signal_receiver(
+            self.on_notif_closed,
+            signal_name="NotificationClosed",
+            dbus_interface="org.freedesktop.Notifications",
+            bus_name="org.freedesktop.Notifications",
+        )
+
+    def send_notification(self, ssid: str, portal_url: str):
+        """Muestra una notificación interactiva con botón para iniciar sesión."""
+        title = f"{ssid}: Iniciar sesión" if ssid else "Wi-Fi: Requiere inicio de sesión"
+        body = (
+            "Esta red Wi-Fi pública requiere identificarte para acceder a Internet.\n"
+            "Toca aquí para abrir la página del tren o punto de acceso."
+        )
+
+        try:
+            notif_obj = self.session_bus.get_object(
+                "org.freedesktop.Notifications", "/org/freedesktop/Notifications"
+            )
+            notif_iface = dbus.Interface(notif_obj, "org.freedesktop.Notifications")
+
+            # Acciones según especificación Freedesktop Notifications
+            actions = [
+                "default", "Iniciar sesión",
+                "login", "Iniciar sesión en la red"
+            ]
+
+            hints = {
+                "urgency": dbus.Byte(1),  # Normal
+                "category": dbus.String("network"),
+                "desktop-entry": dbus.String("network-wireless"),
+            }
+
+            self.active_portal_url = portal_url
+            self.current_ssid = ssid
+
+            nid = notif_iface.Notify(
+                "CaptivePortal",
+                self.active_notif_id,
+                "network-wireless-symbolic",
+                title,
+                body,
+                actions,
+                hints,
+                0,  # 0 = persistente hasta resolución o cierre
+            )
+            self.active_notif_id = int(nid)
+            logger.info(f"Notificación de portal enviada (ID: {self.active_notif_id}) para red '{ssid}'")
+        except Exception as e:
+            logger.error(f"Error enviando notificación D-Bus: {e}")
+
+    def close_notification(self):
+        """Cierra la notificación activa de portal cautivo."""
+        if self.active_notif_id > 0:
+            try:
+                notif_obj = self.session_bus.get_object(
+                    "org.freedesktop.Notifications", "/org/freedesktop/Notifications"
+                )
+                notif_iface = dbus.Interface(notif_obj, "org.freedesktop.Notifications")
+                notif_iface.CloseNotification(self.active_notif_id)
+            except Exception:
+                pass
+            self.active_notif_id = 0
+            self.active_portal_url = None
+
+    def on_action_invoked(self, notif_id, action_key):
+        """Manejador de clics en la notificación o en sus botones de acción."""
+        if int(notif_id) == self.active_notif_id:
+            logger.info(f"Acción '{action_key}' pulsada en la notificación de portal")
+            open_portal_in_browser(self.active_portal_url)
+
+    def on_notif_closed(self, notif_id, reason):
+        """Manejador cuando la notificación es cerrada."""
+        if int(notif_id) == self.active_notif_id:
+            self.active_notif_id = 0
+
+    def evaluate_connectivity(self, force_check: bool = False):
+        """Comprueba el estado y lanza o retira la notificación según corresponda."""
+        status = detect_status(force_check=force_check)
+        logger.info(f"Evaluación de conectividad: estado={status['state']}, SSID='{status['ssid']}'")
+
+        if status["is_portal"]:
+            portal_url = status["portal_url"] or FALLBACK_PORTAL_URL
+            self.send_notification(status["ssid"], portal_url)
+
+            # Iniciar sondeo periódico suave mientras estemos en portal
+            if self.recheck_timer_id is None:
+                self.recheck_timer_id = GLib.timeout_add_seconds(8, self.poll_while_portal)
+        else:
+            if self.active_notif_id > 0:
+                logger.info("Conexión restablecida con acceso total. Cerrando notificación de portal.")
+                self.close_notification()
+            if self.recheck_timer_id is not None:
+                GLib.source_remove(self.recheck_timer_id)
+                self.recheck_timer_id = None
+
+    def poll_while_portal(self) -> bool:
+        """Sondeo periódico cuando estamos en portal cautivo hasta que el usuario se autentique."""
+        status = detect_status(force_check=True)
+        if not status["is_portal"] and status["state"] == "full":
+            logger.info("Autenticación en portal completada con éxito. Cerrando alerta.")
+            self.close_notification()
+            self.recheck_timer_id = None
+            return False  # Detener temporizador GLib
+        return True  # Continuar sondeo
+
+    def on_connectivity_changed(self, connectivity):
+        """Señal ConnectivityChanged de NetworkManager."""
+        conn_int = int(connectivity)
+        logger.info(f"NetworkManager ConnectivityChanged: {conn_int} ({CONNECTIVITY_NAMES.get(conn_int, 'unknown')})")
+        self.evaluate_connectivity(force_check=False)
+
+    def on_state_changed(self, state):
+        """Señal StateChanged de NetworkManager (e.g. 70 = connected global, 20 = disconnected)."""
+        logger.debug(f"NetworkManager StateChanged: {state}")
+        # Cuando se conecta a una red, verificar conectividad
+        GLib.timeout_add_seconds(1, lambda: (self.evaluate_connectivity(force_check=True), False)[1])
+
+    def run(self):
+        """Inicia el bucle principal de eventos GLib."""
+        logger.info("Iniciando demonio captive-portal...")
+        # Evaluación inicial
+        GLib.timeout_add_seconds(1, lambda: (self.evaluate_connectivity(force_check=True), False)[1])
+        loop = GLib.MainLoop()
+        try:
+            loop.run()
+        except KeyboardInterrupt:
+            logger.info("Deteniendo demonio captive-portal...")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Gestor y detector interactivo de portales cautivos estilo Android para Linux."
+    )
+    subparsers = parser.add_subparsers(dest="command", help="Comandos disponibles")
+
+    # check
+    check_p = subparsers.add_parser("check", help="Comprueba si la red actual tiene portal cautivo")
+    check_p.add_argument("--json", action="store_true", help="Salida en formato JSON estructurado")
+    check_p.add_argument("--force", action="store_true", help="Fuerza sondeo activo inmediato")
+
+    # url
+    subparsers.add_parser("url", help="Muestra la URL directa de login del portal")
+
+    # login
+    login_p = subparsers.add_parser("login", help="Abre la página de inicio de sesión en el navegador")
+    login_p.add_argument("--url", help="URL específica a abrir (opcional)")
+
+    # daemon
+    subparsers.add_parser("daemon", help="Ejecuta el demonio observador de conectividad")
+
+    # test-notify
+    subparsers.add_parser("test-notify", help="Envía una notificación interactiva simulada de prueba")
+
+    args = parser.parse_args()
+
+    # Si se ejecuta sin comando, por defecto 'check'
+    cmd = args.command or "check"
+
+    if cmd == "check":
+        status = detect_status(force_check=getattr(args, "force", False))
+        if getattr(args, "json", False):
+            print(json.dumps(status, indent=2))
+        else:
+            if status["is_portal"]:
+                print(f"⚠️  Portal cautivo DETECTADO en la red '{status['ssid']}'")
+                print(f"   URL de inicio de sesión: {status['portal_url']}")
+                sys.exit(0)
+            elif status["state"] == "full":
+                print(f"✅ Conexión completa a Internet en '{status['ssid']}' (sin portal)")
+                sys.exit(1)
+            else:
+                print(f"ℹ️  Estado de red: {status['state']} en '{status['ssid']}'")
+                sys.exit(2)
+
+    elif cmd == "url":
+        status = detect_status(force_check=True)
+        if status["portal_url"]:
+            print(status["portal_url"])
+        else:
+            print(FALLBACK_PORTAL_URL)
+
+    elif cmd == "login":
+        if getattr(args, "url", None):
+            open_portal_in_browser(args.url)
+        else:
+            status = detect_status(force_check=True)
+            open_portal_in_browser(status.get("portal_url"))
+
+    elif cmd == "daemon":
+        daemon = CaptivePortalDaemon()
+        daemon.run()
+
+    elif cmd == "test-notify":
+        daemon = CaptivePortalDaemon()
+        daemon.send_notification("Renfe-PlayRenfe (Prueba)", "http://connectivitycheck.gstatic.com/generate_204")
+        print("Notificación de prueba enviada. Revisa la pantalla o el área de notificaciones.")
+
+
+if __name__ == "__main__":
+    main()

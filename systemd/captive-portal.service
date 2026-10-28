@@ -1,0 +1,15 @@
+[Unit]
+Description=Captive Portal Detector & Interactive Notifier (estilo Android)
+After=network.target NetworkManager.service graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/captive-portal daemon
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=graphical-session.target default.target

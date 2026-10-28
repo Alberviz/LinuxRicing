@@ -47,6 +47,10 @@ Singleton {
     readonly property bool hasAvailableEthernet: ethernetDevices.some(d => d.state !== "unavailable")
     property list<var> activeProcesses: []
 
+    // Captive portal & network connectivity status
+    property string connectivity: "full"
+    readonly property bool isCaptivePortal: connectivity === "portal"
+
     readonly property alias connectionCheckTimer: connectionCheckTimer
     readonly property alias immediateCheckTimer: immediateCheckTimer
 
@@ -895,6 +899,21 @@ Singleton {
         }
     }
 
+    function checkConnectivity(callback: var): void {
+        executeCommand(["networking", "connectivity", "check"], result => {
+            const state = (result.output || "").trim().toLowerCase();
+            if (state.length > 0) {
+                root.connectivity = state;
+            }
+            if (callback)
+                callback(root.connectivity);
+        });
+    }
+
+    function openCaptivePortal(): void {
+        Quickshell.execDetached(["captive-portal", "login"]);
+    }
+
     function getDeviceDetails(interfaceName: string, callback: var): void {
         executeCommand([root.nmcliCommandDevice, "show", interfaceName], result => {
             if (callback)
@@ -1448,6 +1467,7 @@ Singleton {
     }
 
     function refreshOnConnectionChange(): void {
+        checkConnectivity();
         getNetworks(networks => {
             const newActive = root.active;
 
@@ -1488,6 +1508,7 @@ Singleton {
     }
 
     Component.onCompleted: {
+        checkConnectivity();
         getWifiStatus(() => {});
         getNetworks(() => {});
         loadSavedConnections(() => {});
@@ -1788,6 +1809,15 @@ Singleton {
         onTriggered: {
             monitorProc.running = true;
         }
+    }
+
+    Timer {
+        id: connectivityPollTimer
+
+        interval: root.isCaptivePortal ? 8000 : 35000
+        repeat: true
+        running: root.isConnected || root.active !== null || root.activeEthernet !== null
+        onTriggered: root.checkConnectivity()
     }
 
     LoggingCategory {

@@ -41,6 +41,77 @@ ColumnLayout {
         toggle.onToggled: Nmcli.enableWifi(checked)
     }
 
+    // Captive Portal Banner (Android style)
+    StyledRect {
+        id: captivePortalBanner
+
+        visible: root.view === "wireless" && Nmcli.isCaptivePortal
+        Layout.preferredHeight: visible ? implicitHeight : 0
+        Layout.fillWidth: true
+        Layout.topMargin: visible ? Tokens.spacing.small : 0
+        Layout.bottomMargin: visible ? Tokens.spacing.extraSmall : 0
+        Layout.rightMargin: Tokens.padding.extraSmall
+
+        implicitHeight: portalCardLayout.implicitHeight + Tokens.padding.medium * 2
+        radius: Tokens.rounding.medium
+        color: Qt.alpha(Colours.palette.m3errorContainer, 0.85)
+
+        RowLayout {
+            id: portalCardLayout
+            anchors.fill: parent
+            anchors.margins: Tokens.padding.medium
+            spacing: Tokens.spacing.medium
+
+            MaterialIcon {
+                Layout.alignment: Qt.AlignVCenter
+                text: "signal_wifi_bad"
+                color: Colours.palette.m3error
+                fontStyle: Tokens.font.icon.medium
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 2
+
+                StyledText {
+                    Layout.fillWidth: true
+                    text: Tr.tr("Login required")
+                    font: Tokens.font.body.builders.medium.weight(Font.DemiBold).build()
+                    color: Colours.palette.m3onErrorContainer
+                }
+
+                StyledText {
+                    Layout.fillWidth: true
+                    elide: Text.ElideRight
+                    text: Nmcli.active ? Tr.tr("Tap to sign in to %1").arg(Nmcli.active.ssid) : Tr.tr("Tap to open captive portal")
+                    font: Tokens.font.body.small
+                    color: Qt.alpha(Colours.palette.m3onErrorContainer, 0.8)
+                }
+            }
+
+            StyledRect {
+                Layout.alignment: Qt.AlignVCenter
+                implicitWidth: portalBtnText.implicitWidth + Tokens.padding.medium * 2
+                implicitHeight: portalBtnText.implicitHeight + Tokens.padding.small
+                radius: Tokens.rounding.full
+                color: Colours.palette.m3error
+
+                StyledText {
+                    id: portalBtnText
+                    anchors.centerIn: parent
+                    text: Tr.tr("Login")
+                    font: Tokens.font.label.medium
+                    color: Colours.palette.m3onError
+                }
+
+                StateLayer {
+                    color: Colours.palette.m3onError
+                    onClicked: Nmcli.openCaptivePortal()
+                }
+            }
+        }
+    }
+
     StyledText {
         visible: root.view === "wireless"
         Layout.preferredHeight: visible ? implicitHeight : 0
@@ -93,8 +164,8 @@ ColumnLayout {
             }
 
             MaterialIcon {
-                text: Icons.getNetworkIcon(networkItem.modelData.strength)
-                color: networkItem.modelData.active ? Colours.palette.m3primary : Colours.palette.m3onSurfaceVariant
+                text: (networkItem.modelData.active && Nmcli.isCaptivePortal) ? "signal_wifi_bad" : Icons.getNetworkIcon(networkItem.modelData.strength)
+                color: (networkItem.modelData.active && Nmcli.isCaptivePortal) ? Colours.palette.m3error : (networkItem.modelData.active ? Colours.palette.m3primary : Colours.palette.m3onSurfaceVariant)
             }
 
             MaterialIcon {
@@ -103,14 +174,35 @@ ColumnLayout {
                 fontStyle: Tokens.font.icon.small
             }
 
-            StyledText {
+            ColumnLayout {
                 Layout.leftMargin: Tokens.spacing.extraSmall
                 Layout.rightMargin: Tokens.spacing.extraSmall
                 Layout.fillWidth: true
-                text: networkItem.modelData.ssid
-                elide: Text.ElideRight
-                font: Tokens.font.body.builders.medium.weight(networkItem.modelData.active ? Font.Medium : Font.Normal).build()
-                color: networkItem.modelData.active ? Colours.palette.m3primary : Colours.palette.m3onSurface
+                spacing: 1
+
+                StyledText {
+                    Layout.fillWidth: true
+                    text: networkItem.modelData.ssid
+                    elide: Text.ElideRight
+                    font: Tokens.font.body.builders.medium.weight(networkItem.modelData.active ? Font.Medium : Font.Normal).build()
+                    color: (networkItem.modelData.active && Nmcli.isCaptivePortal) ? Colours.palette.m3error : (networkItem.modelData.active ? Colours.palette.m3primary : Colours.palette.m3onSurface)
+                }
+
+                StyledText {
+                    visible: networkItem.modelData.active && Nmcli.isCaptivePortal
+                    Layout.fillWidth: true
+                    elide: Text.ElideRight
+                    text: Tr.tr("Requires login · Tap to open")
+                    font: Tokens.font.body.small
+                    color: Colours.palette.m3error
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    enabled: networkItem.modelData.active && Nmcli.isCaptivePortal
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: Nmcli.openCaptivePortal()
+                }
             }
 
             StyledRect {
@@ -118,7 +210,7 @@ ColumnLayout {
                 implicitHeight: wirelessConnectIcon.implicitHeight + Tokens.padding.extraSmall
 
                 radius: Tokens.rounding.full
-                color: Qt.alpha(Colours.palette.m3primary, networkItem.modelData.active ? 1 : 0)
+                color: (networkItem.modelData.active && Nmcli.isCaptivePortal) ? Colours.palette.m3error : Qt.alpha(Colours.palette.m3primary, networkItem.modelData.active ? 1 : 0)
 
                 CircularIndicator {
                     anchors.fill: parent
@@ -126,12 +218,16 @@ ColumnLayout {
                 }
 
                 StateLayer {
-                    color: networkItem.modelData.active ? Colours.palette.m3onPrimary : Colours.palette.m3onSurface
+                    color: (networkItem.modelData.active && Nmcli.isCaptivePortal) ? Colours.palette.m3onError : (networkItem.modelData.active ? Colours.palette.m3onPrimary : Colours.palette.m3onSurface)
                     disabled: networkItem.loading || !Nmcli.wifiEnabled
 
                     onClicked: {
                         if (networkItem.modelData.active) {
-                            Nmcli.disconnectFromNetwork();
+                            if (Nmcli.isCaptivePortal) {
+                                Nmcli.openCaptivePortal();
+                            } else {
+                                Nmcli.disconnectFromNetwork();
+                            }
                         } else {
                             root.connectingToSsid = networkItem.modelData.ssid;
                             NetworkConnection.handleConnect(networkItem.modelData, null, network => {
@@ -153,8 +249,8 @@ ColumnLayout {
 
                     anchors.centerIn: parent
                     animate: true
-                    text: networkItem.modelData.active ? "link_off" : "link"
-                    color: networkItem.modelData.active ? Colours.palette.m3onPrimary : Colours.palette.m3onSurface
+                    text: networkItem.modelData.active ? (Nmcli.isCaptivePortal ? "login" : "link_off") : "link"
+                    color: (networkItem.modelData.active && Nmcli.isCaptivePortal) ? Colours.palette.m3onError : (networkItem.modelData.active ? Colours.palette.m3onPrimary : Colours.palette.m3onSurface)
 
                     opacity: networkItem.loading ? 0 : 1
 
