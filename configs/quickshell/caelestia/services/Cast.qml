@@ -93,6 +93,13 @@ Singleton {
         run(["mirror", "monitors"]);
     }
 
+    function setSub(n: int): void {
+        run(["subs", n < 0 ? "off" : String(n)]);
+    }
+    function setAudioTrack(n: int): void {
+        run(["audio", String(n)]);
+    }
+
     function toggle(): void {
         run(["toggle"]);
     }

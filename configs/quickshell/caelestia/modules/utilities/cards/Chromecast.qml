@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Layouts
+import Quickshell
 import Caelestia.Config
 import qs.components
 import qs.components.controls
@@ -17,6 +18,14 @@ StyledRect {
     id: root
 
     readonly property var act: Cast.active
+    readonly property var tracks: Cast.active?.tracks ?? null
+    readonly property string audioLabel: {
+        const t = tracks;
+        if (!t)
+            return "";
+        const a = t.audio.find(x => x.n === t.audio_active);
+        return a ? a.label : "Audio";
+    }
     readonly property bool hasAct: act !== null
     readonly property bool playing: act?.state === "PLAYING" || act?.state === "BUFFERING"
     readonly property bool busy: Cast.preparing || act?.state === "BUFFERING"
@@ -263,7 +272,7 @@ StyledRect {
                         MaterialIcon {
                             text: "cast_connected"
                             color: "white"
-                            font.pointSize: Tokens.font.body.small.pointSize
+                            fontStyle: Tokens.font.icon.small
                         }
 
                         StyledText {
@@ -310,20 +319,32 @@ StyledRect {
             }
         }
 
-        // Chips de información
+        // Chips de pistas: tocar abre el menú (subtítulos / audio) con «Desactivados»
         Flow {
             Layout.fillWidth: true
             spacing: Tokens.spacing.small
-            visible: !!root.act?.subs || root.act?.mode === "transcode"
+            visible: subChip.visible || audChip.visible
 
             InfoChip {
-                visible: !!root.act?.subs
+                id: subChip
+
+                visible: root.tracks && root.tracks.subs.length > 0
                 icon: "closed_caption"
-                label: root.act?.subs ?? ""
+                label: root.act?.subs ?? "Sin subtítulos"
+                onClicked: subMenu.expanded = true
             }
 
             InfoChip {
-                visible: root.act?.mode === "transcode"
+                id: audChip
+
+                visible: root.tracks && root.tracks.audio.length > 1
+                icon: "graphic_eq"
+                label: root.audioLabel
+                onClicked: audMenu.expanded = true
+            }
+
+            InfoChip {
+                visible: !audChip.visible && root.act?.mode === "transcode"
                 icon: "graphic_eq"
                 label: "Audio adaptado"
             }
@@ -466,16 +487,80 @@ StyledRect {
         }
     }
 
+    component TrackItem: MenuItem {
+        property int n
+    }
+
+    Menu {
+        id: subMenu
+
+        attachTo: subChip
+        items: subVar.instances
+        active: items.find(m => (m as TrackItem).n === (root.tracks?.sub_active ?? -1)) ?? null
+        onItemSelected: item => Cast.setSub((item as TrackItem).n)
+
+        Variants {
+            id: subVar
+
+            model: [
+                {
+                    n: -1,
+                    label: "Desactivados"
+                },
+                ...(root.tracks?.subs ?? [])
+            ]
+
+            TrackItem {
+                required property var modelData
+
+                n: modelData.n
+                text: modelData.label
+                icon: modelData.n === (root.tracks?.sub_active ?? -1) ? "check" : ""
+            }
+        }
+    }
+
+    Menu {
+        id: audMenu
+
+        attachTo: audChip
+        items: audVar.instances
+        active: items.find(m => (m as TrackItem).n === (root.tracks?.audio_active ?? -1)) ?? null
+        onItemSelected: item => Cast.setAudioTrack((item as TrackItem).n)
+
+        Variants {
+            id: audVar
+
+            model: root.tracks?.audio ?? []
+
+            TrackItem {
+                required property var modelData
+
+                n: modelData.n
+                text: modelData.label
+                icon: modelData.n === (root.tracks?.audio_active ?? -1) ? "check" : ""
+            }
+        }
+    }
+
     component InfoChip: StyledRect {
         id: ic
 
         property string icon
         property string label
+        signal clicked
+        readonly property bool hasListeners: true
 
         implicitWidth: icRow.implicitWidth + Tokens.padding.medium * 2
         implicitHeight: icRow.implicitHeight + Tokens.padding.small
         radius: Tokens.rounding.full
         color: Colours.palette.m3surfaceContainerHigh
+
+        StateLayer {
+            radius: Tokens.rounding.full
+            disabled: !ic.hasListeners
+            onClicked: ic.clicked()
+        }
 
         Row {
             id: icRow
@@ -487,7 +572,7 @@ StyledRect {
                 anchors.verticalCenter: parent.verticalCenter
                 text: ic.icon
                 color: Colours.palette.m3onSurfaceVariant
-                font.pointSize: Tokens.font.body.medium.pointSize
+                fontStyle: Tokens.font.icon.small
             }
 
             StyledText {
@@ -508,7 +593,7 @@ StyledRect {
             Layout.alignment: Qt.AlignTop
             text: "error"
             color: Colours.palette.m3error
-            font.pointSize: Tokens.font.body.medium.pointSize
+            fontStyle: Tokens.font.icon.small
         }
 
         StyledText {

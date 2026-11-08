@@ -103,6 +103,13 @@ def lang_label(lang, title="", forced=False):
     return label
 
 
+def audio_label(a):
+    base = lang_label(a.get("lang"), a.get("title", "")) if (a.get("lang") or a.get("title")) else "Audio"
+    ch = a.get("channels") or 0
+    chs = {1: "mono", 2: "estéreo", 6: "5.1", 8: "7.1"}.get(ch, f"{ch}ch" if ch else "")
+    return f"{base} · {(a.get('codec') or '').upper()} {chs}".strip()
+
+
 def is_spanish(lang):
     lang = (lang or "").lower()
     return lang in ("spa", "es", "esp", "lat") or lang.startswith("es-") or lang.startswith("spa")
@@ -341,6 +348,29 @@ def load_full_vtt(kind, ref, cache_key):
     return open(cache, encoding="utf-8").read()
 
 
+def load_embedded_batch(path, idxs):
+    """Extrae a VTT (cache) varias pistas incrustadas con UNA sola lectura del contenedor."""
+    st = os.stat(path)
+    cmd = ["ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-i", path]
+    parts = []
+    for idx in idxs:
+        key = hashlib.sha1(f"{path}|{st.st_mtime_ns}|{idx}".encode()).hexdigest()[:16]
+        cache = os.path.join(WORK_DIR, f"subcache-{key}.vtt")
+        if os.path.isfile(cache):
+            continue
+        tmp = cache + ".part"
+        cmd += ["-map", f"0:{idx}", "-c:s", "webvtt", "-f", "webvtt", tmp]
+        parts.append((tmp, cache))
+    if not parts:
+        return
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    for tmp, cache in parts:
+        if os.path.isfile(tmp):
+            os.replace(tmp, cache)
+    if r.returncode != 0 and not all(os.path.isfile(c) for _, c in parts):
+        log.warning("extracción de subtítulos: %s", r.stderr.strip()[-200:])
+
+
 # ── servidor HTTP ────────────────────────────────────────────────────────────
 class Route:
     """Un recurso servido: direct (archivo), transcode (ffmpeg en vivo) o sub (VTT)."""
@@ -355,7 +385,6 @@ class Route:
         self.proc = None
         self.procs = []          # espejo: [ffmpeg, gpu-screen-recorder]
         self.monitor = None
-        self.audio = True
         self.size = None
         self.lock = threading.Lock()
 
@@ -652,6 +681,9 @@ class Session:
         self.dead = False
         self.route = None
         self.sub_names = []
+        self.sub_tracks = []
+        self.sub_active = None
+        self.audio_active = None
         self.art_path = None
         self.reload_n = 0
         self.info = None
@@ -682,6 +714,21 @@ class Session:
             "duration": round(self.duration, 1), "volume": self.volume,
             "muted": self.muted, "subs": self.subs_label, "preparing": self.preparing,
             "art": self.art_path if self.art_path and os.path.isfile(self.art_path) else None,
+            "tracks": self.tracks_dict(),
+        }
+
+    def tracks_dict(self):
+        """Contrato de pistas (también lo usa Olimpo): subs/audio con n estable."""
+        if not self.info or self.mode in ("url", "mirror"):
+            return None
+        return {
+            "subs": [{"n": t["n"], "label": t["label"], "lang": t["meta"].get("lang", ""),
+                      "forced": bool(t["meta"].get("forced"))} for t in self.sub_tracks],
+            "audio": [{"n": a["index"], "label": audio_label(a), "lang": a.get("lang", ""),
+                       "codec": a.get("codec", ""), "channels": a.get("channels") or 0}
+                      for a in self.info["audio"]],
+            "sub_active": self.sub_active,
+            "audio_active": self.audio_active,
         }
 
     # -- carga --
@@ -715,20 +762,41 @@ class Session:
         self.ip = local_ip_for(self.dev["host"])
 
     def _prepare_subs(self, spec):
-        """spec: ('none',) | ('embedded', idx, meta) | ('file', path, meta)"""
-        self.sub_vtt = None
+        """Carga TODAS las pistas de texto (incrustadas + externas) como VTT; activa solo la elegida.
+        spec: ('none',) | ('embedded', idx, meta) | ('file', path, meta)"""
+        self.sub_tracks = []
+        self.sub_active = None
         self.subs_label = None
-        if not spec or spec[0] == "none":
+        info = self.info
+        if not info:
             return
-        if spec[0] == "embedded":
-            full = load_full_vtt("emb", (self.source, spec[1]), None)
-        else:
-            full = load_full_vtt("file", spec[1], None)
-        self.sub_vtt = full
-        meta = spec[2]
-        self.subs_label = lang_label(meta.get("lang"), meta.get("title", ""), meta.get("forced", False))
-        lg = meta.get("lang") or "es"
-        self.sub_lang = "es" if is_spanish(lg) else (lg if lg else "und")
+        texts = [x for x in info["subs"] if x["text"]]
+        if texts:
+            load_embedded_batch(self.source, [x["index"] for x in texts])
+        for x in texts:
+            self.sub_tracks.append({"n": x["index"], "kind": "emb", "ref": (self.source, x["index"]), "meta": x})
+        for i, e in enumerate(info.get("external_subs_info", [])):
+            self.sub_tracks.append({"n": 1000 + i, "kind": "file", "ref": e["path"], "meta": e})
+        keep = []
+        for t in self.sub_tracks:
+            try:
+                t["vtt"] = load_full_vtt(t["kind"], t["ref"], None)
+            except Exception as e:  # noqa: BLE001
+                log.warning("subtítulo %s no cargable: %s", t["n"], e)
+                continue
+            m = t["meta"]
+            t["label"] = lang_label(m.get("lang"), m.get("title", ""), m.get("forced", False))
+            lg = m.get("lang") or "es"
+            t["lang_code"] = "es" if is_spanish(lg) else (lg if lg else "und")
+            keep.append(t)
+        self.sub_tracks = keep
+        if spec and spec[0] != "none":
+            for t in self.sub_tracks:
+                if (spec[0] == "embedded" and t["kind"] == "emb" and t["n"] == spec[1]) or \
+                   (spec[0] == "file" and t["kind"] == "file" and t["ref"] == spec[1]):
+                    self.sub_active = t["n"]
+                    self.subs_label = t["label"]
+                    self.sub_lang = t["lang_code"]
 
     def _extract_art(self):
         if not self.info or self.daemon.no_art:
@@ -746,15 +814,17 @@ class Session:
         except Exception:  # noqa: BLE001
             pass
 
-    def _write_sub_for(self, offset):
-        if self.sub_vtt is None:
-            return None
-        name = f"{self.token}-s{self.reload_n}.vtt"
-        path = os.path.join(WORK_DIR, name)
-        atomic_write(path, shift_vtt(self.sub_vtt, offset))
-        self.daemon.server.add(name, Route("sub", path, "text/vtt; charset=utf-8"))
-        self.sub_names.append(name)
-        return name
+    def _write_tracks_for(self, offset):
+        """Escribe los VTT de todas las pistas (desplazados por offset) y devuelve MediaTrack."""
+        out = []
+        for t in self.sub_tracks:
+            name = f"{self.token}-s{self.reload_n}-{t['n']}.vtt"
+            path = os.path.join(WORK_DIR, name)
+            atomic_write(path, shift_vtt(t["vtt"], offset))
+            self.daemon.server.add(name, Route("sub", path, "text/vtt; charset=utf-8"))
+            self.sub_names.append(name)
+            out.append((t, name))
+        return out
 
     def _load(self, start):
         d = self.daemon
@@ -774,12 +844,16 @@ class Session:
                     d.server.remove(k)
         d.server.add(mname, rt)
         self.route = rt
-        sub_name = self._write_sub_for(self.offset)
+        written = self._write_tracks_for(self.offset)
         base = f"http://{self.ip}:{d.server.port}"
         kw = {}
-        if sub_name:
-            kw = dict(subtitles=f"{base}/{sub_name}", subtitles_lang=self.sub_lang,
-                      subtitles_mime="text/vtt", subtitle_id=1)
+        if written:
+            kw["media_info"] = {
+                "tracks": [{"trackId": t["n"], "type": "TEXT", "subtype": "SUBTITLES",
+                            "trackContentId": f"{base}/{name}", "trackContentType": "text/vtt",
+                            "language": t["lang_code"], "name": t["label"]} for t, name in written],
+                "textTrackStyle": {"backgroundColor": "#FFFFFF00", "edgeType": "OUTLINE", "edgeColor": "#000000FF"},
+            }
         cast = self.cast
         if cast.app_id != APP_MEDIA_RECEIVER:
             cast.start_app(APP_MEDIA_RECEIVER)
@@ -792,6 +866,11 @@ class Session:
                 stream_type="BUFFERED" if self.mode == "direct" else "LIVE", **kw,
             )
             mc.block_until_active(timeout=15)
+            if written and self.sub_active is not None:
+                try:
+                    mc.enable_subtitle(self.sub_active)
+                except Exception:  # noqa: BLE001
+                    log.warning("no se pudo activar el subtítulo %s", self.sub_active)
         finally:
             self.reloading = False
 
@@ -828,6 +907,36 @@ class Session:
             self._load(pos)
         else:
             cast.media_controller.seek(pos)
+        self.daemon.mpris_seeked(pos)
+
+    def set_sub(self, n):
+        mc = self._need_cast().media_controller
+        if n is None:
+            mc.disable_subtitle()
+            self.sub_active = None
+            self.subs_label = None
+        else:
+            t = next((x for x in self.sub_tracks if x["n"] == n), None)
+            if t is None:
+                raise ValueError(f"pista de subtítulos {n} inexistente")
+            mc.enable_subtitle(n)
+            self.sub_active = n
+            self.subs_label = t["label"]
+
+    def set_audio_track(self, n):
+        cast = self._need_cast()
+        if not self.info or self.mode == "url":
+            raise ValueError("no se puede cambiar el audio de este contenido")
+        if not any(a["index"] == n for a in self.info["audio"]):
+            raise ValueError(f"pista de audio {n} inexistente")
+        pos = self.position()
+        mode, _reason, err = plan_playback(self.source, self.info, n)
+        if err:
+            raise ValueError(err)
+        self.mode = mode
+        self.audio_index = n if mode == "transcode" else None
+        self.audio_active = n
+        self._load(pos)
         self.daemon.mpris_seeked(pos)
 
     def set_volume(self, v):
@@ -1478,6 +1587,7 @@ class Daemon:
         s.info = info
         s.duration = info["duration"]
         s.audio_index = aidx if mode == "transcode" else None
+        s.audio_active = aidx if aidx is not None else (info["audio"][0]["index"] if info["audio"] else None)
         self.error = None
         self.set_active(s)
         threading.Thread(target=s.run_load, args=(start, spec), daemon=True).start()
@@ -1553,6 +1663,19 @@ class Daemon:
     def cmd_seek(self, req):
         self._need_active().seek(float(req["pos"]))
         return {"ok": True}
+
+    def cmd_subs(self, req):
+        v = req.get("value")
+        s = self._need_active()
+        s.set_sub(None if str(v).lower() in ("off", "none", "-1", "") else int(v))
+        self.publish()
+        return {"ok": True, "sub_active": s.sub_active}
+
+    def cmd_audio(self, req):
+        s = self._need_active()
+        s.set_audio_track(int(req["value"]))
+        self.publish()
+        return {"ok": True, "audio_active": s.audio_active}
 
     def cmd_volume(self, req):
         self._need_active().set_volume(int(req["value"]))
@@ -1756,6 +1879,10 @@ def main():
     p.add_argument("--device")
     p.add_argument("--monitor")
     p.add_argument("--no-audio", action="store_true")
+    p = sub.add_parser("subs", help="cambia el subtítulo activo: <n>|off")
+    p.add_argument("value")
+    p = sub.add_parser("audio", help="cambia la pista de audio: <n>")
+    p.add_argument("value", type=int)
     p = sub.add_parser("seek")
     p.add_argument("pos", type=float)
     p = sub.add_parser("volume")
@@ -1787,7 +1914,7 @@ def main():
             req["on"] = (args.value or "on").lower() not in ("off", "0", "no")
     elif args.cmd == "seek":
         req["pos"] = args.pos
-    elif args.cmd == "volume":
+    elif args.cmd in ("volume", "subs", "audio"):
         req["value"] = args.value
     resp = send(req)
     print(json.dumps(resp, ensure_ascii=False))
