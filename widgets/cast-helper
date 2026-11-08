@@ -386,6 +386,10 @@ class Route:
         self.procs = []          # espejo: [ffmpeg, gpu-screen-recorder]
         self.monitor = None
         self.size = None
+        self.profile = None
+        self.token = "x"
+        self.t_first = 0.0
+        self.nocache = False
         self.lock = threading.Lock()
 
 
@@ -407,20 +411,50 @@ def list_monitors():
     return res
 
 
-def build_mirror_cmds(monitor, audio, size):
-    """gpu-screen-recorder (NVENC/VAAPI) -> mpegts por stdout -> ffmpeg remux a fMP4 en vivo."""
+MIRROR_PROFILES = {
+    # base: lo anterior (keyframe cada 1 s, fragmentos por keyframe)
+    "base": dict(keyint="1", nv="", frag="frag_keyframe", hls=False),
+    # ll: GOP de 0,5 s, NVENC ull sin lookahead ni B-frames, fragmentos de ~100 ms
+    "ll": dict(keyint="0.5", nv="tune=ull;zerolatency=1;rc-lookahead=0;bf=0;delay=0", frag="frag_every_frame", hls=False),
+    # ll200: igual pero fragmentos de 200 ms
+    "ll200": dict(keyint="0.5", nv="tune=ull;zerolatency=1;rc-lookahead=0;bf=0;delay=0", frag="dur200", hls=False),
+    # hls: segmentos mpegts de 0,5 s en tmpfs
+    "hls": dict(keyint="0.5", nv="tune=ull;zerolatency=1;rc-lookahead=0;bf=0;delay=0", frag="", hls=True, seg="0.5", size="4"),
+    # hls25: segmentos de 0,25 s (GOP de 0,25 s: más bitrate de keyframes)
+    "hls25": dict(keyint="0.25", nv="tune=ull;zerolatency=1;rc-lookahead=0;bf=0;delay=0", frag="", hls=True, seg="0.25", size="6"),
+}
+DEFAULT_MIRROR_PROFILE = os.environ.get("CAST_MIRROR_PROFILE", "hls")
+
+
+def build_mirror_cmds(monitor, audio, size, profile=None, token="x"):
+    """gpu-screen-recorder (NVENC/VAAPI) -> mpegts por stdout -> ffmpeg remux a fMP4 en vivo (o HLS corto)."""
+    pr = MIRROR_PROFILES.get(profile or DEFAULT_MIRROR_PROFILE, MIRROR_PROFILES["hls"])
     gsr = ["gpu-screen-recorder", "-w", monitor, "-f", str(MIRROR_FPS), "-c", "mpegts", "-k", "h264",
-           "-bm", "cbr", "-q", str(MIRROR_KBPS), "-keyint", "1", "-cursor", "yes"]
+           "-bm", "cbr", "-q", str(MIRROR_KBPS), "-keyint", pr["keyint"], "-cursor", "yes", "-fm", "cfr"]
+    if pr["nv"]:
+        gsr += ["-ffmpeg-video-opts", pr["nv"]]
     if size:
         gsr += ["-s", size]
     if audio:
         gsr += ["-a", "default_output", "-ac", "aac", "-ab", "128"]
     gsr += ["-o", "/dev/stdout"]
-    ff = ["ffmpeg", "-nostdin", "-loglevel", "error", "-fflags", "nobuffer", "-flags", "low_delay",
-          "-probesize", "32768", "-analyzeduration", "0", "-f", "mpegts", "-i", "pipe:0", "-c", "copy"]
+    ff = ["ffmpeg", "-nostdin", "-loglevel", "error", "-fflags", "nobuffer+flush_packets", "-flags", "low_delay",
+          "-probesize", "32768", "-analyzeduration", "0", "-f", "mpegts", "-i", "pipe:0", "-c", "copy",
+          "-muxdelay", "0", "-muxpreload", "0"]
+    if pr["hls"]:
+        ff += ["-f", "hls", "-hls_time", pr.get("seg", "0.5"), "-hls_list_size", pr.get("size", "4"),
+               "-hls_flags", "delete_segments+independent_segments+omit_endlist",
+               "-hls_segment_filename", os.path.join(WORK_DIR, f"{token}-m%d.ts"),
+               os.path.join(WORK_DIR, f"{token}-m.m3u8")]
+        return gsr, ff
     if audio:
         ff += ["-bsf:a", "aac_adtstoasc"]
-    ff += ["-f", "mp4", "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-flush_packets", "1", "pipe:1"]
+    mov = "empty_moov+default_base_moof+" + ("frag_keyframe" if pr["frag"] == "frag_keyframe" else
+                                           "frag_every_frame" if pr["frag"] == "frag_every_frame" else "frag_keyframe")
+    ff += ["-f", "mp4", "-movflags", mov]
+    if pr["frag"] == "dur200":
+        ff += ["-frag_duration", "200000"]
+    ff += ["-flush_packets", "1", "pipe:1"]
     return gsr, ff
 
 
@@ -480,7 +514,13 @@ class MediaServer:
             def _route(self):
                 p = urllib.parse.urlparse(self.path).path
                 name = p.rsplit("/", 1)[-1]
-                return routes.get(name)
+                rt = routes.get(name)
+                if rt is None and re.match(r"^[0-9a-f]+-m\d*\.(ts|m3u8)$", name):
+                    f = os.path.join(WORK_DIR, name)
+                    if os.path.isfile(f):
+                        rt = Route("direct", f, "application/x-mpegURL" if name.endswith("m3u8") else "video/mp2t")
+                        rt.nocache = True
+                return rt
 
             def _cors(self):
                 self.send_header("Access-Control-Allow-Origin", "*")
@@ -511,6 +551,8 @@ class MediaServer:
                         self._serve_bytes(rt, head)
                     elif rt.kind == "mirror":
                         self._serve_mirror(rt, head)
+                    elif rt.kind == "mirrorhls":
+                        self._serve_mirror_hls(rt, head)
                     else:
                         self._serve_transcode(rt, head)
                 except (BrokenPipeError, ConnectionResetError):
@@ -550,6 +592,8 @@ class MediaServer:
                 self.send_response(code)
                 self.send_header("Content-Type", rt.mime)
                 self.send_header("Accept-Ranges", "bytes")
+                if getattr(rt, "nocache", False):
+                    self.send_header("Cache-Control", "no-store")
                 self.send_header("Content-Length", str(length))
                 if code == 206:
                     self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
@@ -567,6 +611,42 @@ class MediaServer:
                         self.wfile.write(chunk)
                         left -= len(chunk)
 
+            def _serve_mirror_hls(self, rt, head):
+                with rt.lock:
+                    if not rt.procs or rt.procs[0].poll() is not None:
+                        for q in rt.procs:
+                            kill_proc(q)
+                        for f in glob.glob(os.path.join(WORK_DIR, f"{rt.token}-m*")):
+                            try:
+                                os.unlink(f)
+                            except OSError:
+                                pass
+                        gcmd, fcmd = build_mirror_cmds(rt.monitor, rt.audio, rt.size, rt.profile, rt.token)
+                        log.info("espejo(hls): %s | %s", " ".join(gcmd), " ".join(fcmd))
+                        gsr = subprocess.Popen(gcmd, stdout=subprocess.PIPE, stderr=open(os.path.join(WORK_DIR, "mirror-gsr.log"), "wb"))
+                        ff = subprocess.Popen(fcmd, stdin=gsr.stdout, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                        gsr.stdout.close()
+                        rt.procs = [ff, gsr]
+                pl = os.path.join(WORK_DIR, f"{rt.token}-m.m3u8")
+                t0 = time.time()
+                while not os.path.isfile(pl) and time.time() - t0 < 8:
+                    time.sleep(0.05)
+                if not rt.t_first and os.path.isfile(pl):
+                    rt.t_first = time.time()
+                try:
+                    data = open(pl, "rb").read()
+                except OSError:
+                    self.send_error(503)
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "application/x-mpegURL")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(data)))
+                self._cors()
+                self.end_headers()
+                if not head:
+                    self.wfile.write(data)
+
             def _serve_mirror(self, rt, head):
                 self.send_response(200)
                 self.send_header("Content-Type", "video/mp4")
@@ -578,7 +658,7 @@ class MediaServer:
                 with rt.lock:
                     for q in rt.procs:
                         kill_proc(q)  # una sola conexión viva por ruta
-                    gcmd, fcmd = build_mirror_cmds(rt.monitor, rt.audio, rt.size)
+                    gcmd, fcmd = build_mirror_cmds(rt.monitor, rt.audio, rt.size, rt.profile, rt.token)
                     log.info("espejo: %s | %s", " ".join(gcmd), " ".join(fcmd))
                     gsr = subprocess.Popen(gcmd, stdout=subprocess.PIPE, stderr=open(os.path.join(WORK_DIR, "mirror-gsr.log"), "wb"))
                     ff = subprocess.Popen(fcmd, stdin=gsr.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -589,6 +669,8 @@ class MediaServer:
                         chunk = ff.stdout.read1(65536)
                         if not chunk:
                             break
+                        if not rt.t_first:
+                            rt.t_first = time.time()
                         self.wfile.write(chunk)
                         self.wfile.flush()
                 finally:
@@ -1045,8 +1127,9 @@ class _CastListener:
 class MirrorSession(Session):
     """Duplicar pantalla: captura de una salida (gpu-screen-recorder) emitida en vivo al Chromecast."""
 
-    def __init__(self, daemon, dev, monitor, audio, size):
+    def __init__(self, daemon, dev, monitor, audio, size, profile=None):
         super().__init__(daemon, dev, monitor, "mirror", f"Duplicando pantalla · {monitor}")
+        self.profile = profile or DEFAULT_MIRROR_PROFILE
         self.monitor = monitor
         self.audio = audio
         self.size = size
@@ -1054,8 +1137,20 @@ class MirrorSession(Session):
 
     def as_dict(self):
         d = super().as_dict()
-        d.update(monitor=self.monitor, audio=self.audio, position=0, duration=0)
+        d.update(monitor=self.monitor, audio=self.audio, position=0, duration=0,
+                 profile=self.profile, latency=self.latency())
         return d
+
+    def latency(self):
+        """Estimación: tiempo desde que salió el primer dato - posición reproducida por el receptor."""
+        rt = self.route
+        if rt is None or not rt.t_first or self.status is None or self.state != "PLAYING":
+            return None
+        try:
+            cur = self.status.adjusted_current_time
+        except Exception:  # noqa: BLE001
+            return None
+        return round((time.time() - rt.t_first) - (cur or 0.0), 2)
 
     def run_load(self, start, sub_spec):
         try:
@@ -1072,22 +1167,31 @@ class MirrorSession(Session):
     def _load_mirror(self):
         d = self.daemon
         self.reload_n += 1
-        name = f"{self.token}-mirror{self.reload_n}.mp4"
-        rt = Route("mirror", self.monitor, "video/mp4")
+        hls = MIRROR_PROFILES.get(self.profile, {}).get("hls")
+        name = f"{self.token}-mirror{self.reload_n}.mp4" if not hls else f"{self.token}-mirrorhls{self.reload_n}.m3u8"
+        rt = Route("mirrorhls" if hls else "mirror", self.monitor, "video/mp4")
         rt.monitor, rt.audio, rt.size = self.monitor, self.audio, self.size
+        rt.profile = self.profile
+        rt.token = f"{self.token}{self.reload_n}"
+        if hls:
+            rt.token = f"{self.token}{self.reload_n}"
+            # el playlist real se escribe como <token>-m.m3u8 y se sirve por el fallback; el nombre registrado lo redirige
+            name = f"{rt.token}-m.m3u8"
         if self.route is not None:
             for k, v in list(d.server.routes.items()):
                 if v is self.route:
                     d.server.remove(k)
         d.server.add(name, rt)
         self.route = rt
+        hls_now = bool(hls)
         cast = self.cast
         if cast.app_id != APP_MEDIA_RECEIVER:
             cast.start_app(APP_MEDIA_RECEIVER)
         mc = cast.media_controller
         self.reloading = True
         try:
-            mc.play_media(f"http://{self.ip}:{d.server.port}/{name}", "video/mp4", title=self.title,
+            ctype = "application/x-mpegURL" if hls_now else "video/mp4"
+            mc.play_media(f"http://{self.ip}:{d.server.port}/{name}", ctype, title=self.title,
                           autoplay=True, stream_type="LIVE")
             mc.block_until_active(timeout=20)
         finally:
@@ -1627,7 +1731,7 @@ class Daemon:
         m = next(x for x in self.monitors if x["name"] == mon)
         size = "1920x1080" if m["width"] > 1920 else None
         self.server.start()
-        s = MirrorSession(self, dev, mon, bool(req.get("audio", True)), size)
+        s = MirrorSession(self, dev, mon, bool(req.get("audio", True)), size, req.get("profile"))
         self.error = None
         self.set_active(s)
         threading.Thread(target=s.run_load, args=(0, None), daemon=True).start()
@@ -1874,11 +1978,12 @@ def main():
     for c in ("play", "pause", "toggle", "stop", "mute"):
         sub.add_parser(c)
     p = sub.add_parser("mirror", help="duplicar la pantalla en el Chromecast")
-    p.add_argument("action", choices=["start", "stop", "audio", "monitors"])
+    p.add_argument("action", choices=["start", "stop", "audio", "monitors", "test-latency"])
     p.add_argument("value", nargs="?", help="audio: on|off")
     p.add_argument("--device")
     p.add_argument("--monitor")
     p.add_argument("--no-audio", action="store_true")
+    p.add_argument("--profile", choices=sorted(MIRROR_PROFILES))
     p = sub.add_parser("subs", help="cambia el subtítulo activo: <n>|off")
     p.add_argument("value")
     p = sub.add_parser("audio", help="cambia la pista de audio: <n>")
@@ -1899,6 +2004,8 @@ def main():
     if args.cmd == "serve-test":
         _import_cast_libs_optional()
         return serve_test(args)
+    if args.cmd == "mirror" and args.action == "test-latency":
+        return latency_clock()
     req = {"cmd": args.cmd}
     if args.cmd == "probe":
         req["path"] = os.path.abspath(os.path.expanduser(args.path))
@@ -1909,7 +2016,7 @@ def main():
         req.update(device=args.device, source=src, audio=args.audio, sub=args.sub,
                    sub_file=args.sub_file, no_subs=args.no_subs, start=args.start, title=args.title)
     elif args.cmd == "mirror":
-        req.update(action=args.action, device=args.device, monitor=args.monitor, audio=not args.no_audio)
+        req.update(action=args.action, device=args.device, monitor=args.monitor, audio=not args.no_audio, profile=args.profile)
         if args.action == "audio":
             req["on"] = (args.value or "on").lower() not in ("off", "0", "no")
     elif args.cmd == "seek":
@@ -1919,6 +2026,51 @@ def main():
     resp = send(req)
     print(json.dumps(resp, ensure_ascii=False))
     return 0 if resp.get("ok") else 1
+
+
+def latency_clock():
+    """Cronómetro grande a pantalla completa: fotografía esta pantalla y la tele a la vez; la diferencia
+    entre ambos tiempos es la latencia real del espejo. Esc o clic para cerrar."""
+    import gi
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk, GLib, Gdk  # type: ignore
+
+    t0 = time.monotonic()
+    app = Gtk.Application(application_id="local.casthelper.latency")
+
+    def on_activate(a):
+        win = Gtk.ApplicationWindow(application=a)
+        css = Gtk.CssProvider()
+        css.load_from_data(b"window { background: #000; } label.clock { color: #fff; font-family: monospace; "
+                           b"font-weight: bold; font-size: 300px; } label.hint { color: #888; font-size: 20px; }")
+        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER, halign=Gtk.Align.CENTER)
+        lbl = Gtk.Label(label="00:00.000")
+        lbl.add_css_class("clock")
+        hint = Gtk.Label(label="Proyecta esta pantalla (Super+K) y haz UNA foto que incluya este monitor y la tele. "
+                               "Latencia = tiempo de este monitor - tiempo de la tele. Esc para cerrar.")
+        hint.add_css_class("hint")
+        box.append(lbl)
+        box.append(hint)
+        win.set_child(box)
+
+        def tick(_w, _clock):
+            t = time.monotonic() - t0
+            lbl.set_text(f"{int(t // 60):02d}:{int(t % 60):02d}.{int((t % 1) * 1000):03d}")
+            return True
+
+        win.add_tick_callback(tick)
+        key = Gtk.EventControllerKey()
+        key.connect("key-pressed", lambda *_: a.quit() or True)
+        win.add_controller(key)
+        click = Gtk.GestureClick()
+        click.connect("pressed", lambda *_: a.quit())
+        win.add_controller(click)
+        win.fullscreen()
+        win.present()
+
+    app.connect("activate", on_activate)
+    return app.run([])
 
 
 def _import_cast_libs_optional():
