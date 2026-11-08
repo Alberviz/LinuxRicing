@@ -47,7 +47,11 @@ StyledRect {
         title: "Elegir vídeo para Chromecast"
         filterLabel: "Vídeo"
         filters: ["mp4", "m4v", "mkv", "webm", "avi", "mov", "ts", "mp3", "flac"]
-        onAccepted: path => Cast.castSelected(Cast.normalizeTarget(path))
+        onAccepted: path => {
+            Cast.picking = false;
+            Cast.castSelected(Cast.normalizeTarget(path));
+        }
+        onRejected: Cast.picking = false
     }
 
     ColumnLayout {
@@ -205,7 +209,10 @@ StyledRect {
                     text: "Elegir archivo"
                     type: TextButton.Tonal
                     disabled: !Cast.selectedDevice
-                    onClicked: dialog.open()
+                    onClicked: {
+                        Cast.picking = true;
+                        dialog.open();
+                    }
                 }
             }
         }

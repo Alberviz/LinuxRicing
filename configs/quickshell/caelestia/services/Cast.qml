@@ -26,6 +26,10 @@ Singleton {
     readonly property string shownError: cmdError || error
     readonly property bool preparing: active?.preparing ?? false
     readonly property bool hasActive: active !== null
+    // El selector de archivos está abierto: el drawer de utilities no debe cerrarse.
+    property bool picking: false
+    // Hay un arrastre de archivo sobre la zona del drawer (lo mantiene Interactions).
+    property bool dragging: false
     // Cuántas tarjetas están mirando; el sondeo solo corre si hay alguna.
     property int observers: 0
 
