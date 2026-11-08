@@ -252,7 +252,6 @@ Variants {
                     it.y = f.y - f.w / 2;
                     it.width = l;
                     it.height = f.w;
-                    it.transformOriginX = l;
                     it.rotation = Math.atan2(f.vy, f.vx) * 180 / Math.PI;
                     it.opacity = Math.max(0, Math.min(1, f.a));
                     it.fragColor = f.c ? Colours.palette.m3tertiary : Colours.palette.m3primary;
@@ -468,7 +467,7 @@ Variants {
         Process {
             id: olimpoCheck
 
-            command: ["sh", "-c", "for p in \"$HOME/proyectos/olimpo/cli/olimpo\" \"$HOME/.local/bin/olimpo\"; do [ -x \"$p\" ] && echo \"$p\" && exit; done"]
+            command: ["sh", "-c", "for p in \"$HOME/.local/bin/olimpo\" \"$(command -v olimpo)\"; do [ -f \"$p\" ] && [ -x \"$p\" ] && echo \"$p\" && exit; done"]
             stdout: StdioCollector {
                 onStreamFinished: {
                     win.olimpo = text.trim();
@@ -489,7 +488,13 @@ Variants {
             stderr: StdioCollector {
                 id: olimpoErr
             }
+            onRunningChanged: {
+                // Si el binario no arranca, Process no emite exited: no dejar el portal en «Enviando…».
+                if (!running && pTop.phase === "sending" && !win.cancelled)
+                    olimpoWatchdog.restart();
+            }
             onExited: code => {
+                olimpoWatchdog.stop();
                 if (win.cancelled)
                     return;
                 if (code === 2 && win.triedProgreso && !win.sawJson && !win.finalMsg) {
@@ -504,6 +509,16 @@ Variants {
                     win.finishTransfer(pTop, true, "Enviado a tu móvil");
                 else
                     win.finishTransfer(pTop, false, r?.error ?? (olimpoErr.text.trim().split("\n").pop() || "Olimpo no responde"));
+            }
+        }
+
+        Timer {
+            id: olimpoWatchdog
+
+            interval: 1500
+            onTriggered: {
+                if (pTop.phase === "sending" && !olimpoProc.running)
+                    win.finishTransfer(pTop, false, "No se pudo lanzar «olimpo enviar»");
             }
         }
 
@@ -719,6 +734,7 @@ Variants {
                 Rectangle {
                     property color fragColor: Colours.palette.m3primary
 
+                    transformOrigin: Item.Right
                     radius: height / 2
                     opacity: 0
                     color: fragColor
