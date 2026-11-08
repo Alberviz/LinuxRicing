@@ -11,7 +11,7 @@ import qs.components.controls
 import qs.services
 
 // Llegadas del móvil (puente de Olimpo): el MISMO agujero negro de los portales (variante B, clavado en
-// el borde derecho; shader ../portals/shaders/portal.frag) se abre y el archivo emerge del horizonte y se
+// el borde superior (agujero del móvil); shader ../portals/shaders/portal.frag) se abre y el archivo emerge del horizonte y se
 // queda aparcado en una tarjeta junto al agujero (se apilan mientras el agujero sigue abierto en latente).
 // Se va (cae de vuelta al agujero y este se retrae) al abrirlo, con la X o tras ~60 s sin interacción.
 // Clic: abrir · botón derecho: mostrar en carpeta · arrastrar la tarjeta: soltar en otra app.
@@ -70,8 +70,8 @@ Scope {
             property bool holeOn: false
             readonly property real u: width / 1280
             readonly property real holeR: 46 * u
-            readonly property real holeCx: width + (1 - show) * 1.4 * holeR   // centro EXACTAMENTE sobre el borde
-            readonly property real holeCy: height * 0.22                     // sobre el portal de la tele (media altura)
+            readonly property real holeCx: width / 2                          // el «agujero del móvil»: borde superior, centrado
+            readonly property real holeCy: -(1 - show) * 1.4 * holeR          // centro EXACTAMENTE sobre el borde
             readonly property var cards: [c0, c1, c2, c3, c4]
 
             function fmtSize(b: real): string {
@@ -209,10 +209,11 @@ Scope {
                 y: win.holeCy - half
                 width: half * 2
                 height: half * 2
-                visible: win.show > 0.01
+                // durante un arrastre el portal del móvil (Portals) pinta ese mismo agujero: no se duplica
+                visible: win.show > 0.01 && !DragWatch.dragging
 
                 property vector2d size: Qt.vector2d(width, height)
-                property vector2d outward: Qt.vector2d(1, 0)
+                property vector2d outward: Qt.vector2d(0, -1)
                 property color tint: Qt.rgba(Colours.palette.m3primary.r, Colours.palette.m3primary.g, Colours.palette.m3primary.b, 0.18)
                 property real rad: win.holeR
                 property real upx: win.u
@@ -266,8 +267,8 @@ Scope {
                 property bool parked: false
                 property var entry: null
                 property real t: 0           // 0 = dentro del agujero, 1 = aparcada
-                readonly property real lx: win.width - width - 24 * win.u
-                readonly property real ly: win.holeCy + win.holeR * 1.9 + slot * (height + 12)
+                readonly property real lx: win.width / 2 - width - 24 * win.u       // a la izquierda del eje: el HUD del portal queda a la derecha
+                readonly property real ly: win.holeR * 1.9 + slot * (height + 12)
                 readonly property bool isImage: (entry?.mime ?? "").startsWith("image/")
                 readonly property string fileUrl: "file://" + (entry?.ruta ?? "")
 

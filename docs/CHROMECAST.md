@@ -135,8 +135,7 @@ físicas de botón (el tap-to-drag del touchpad no genera BTN_LEFT en evdev); si
 
 El puente de Olimpo añade una línea JSON por archivo recibido a `$XDG_RUNTIME_DIR/olimpo-puente/llegadas.jsonl`
 (`{"ruta","nombre","tamano","mime","ts"}`). `modules/whitehole/WhiteHole.qml` (nombre histórico) lo vigila con `tail -n 0 -F` (cero coste
-en reposo). Se abre el MISMO agujero negro de los portales (shader `portals/shaders/portal.frag`, clavado en el borde derecho al 22 % de
-la altura para no chocar con el portal de la tele), el archivo emerge del horizonte (pequeño y estirado, con destello del anillo) y queda
-aparcado en una tarjeta debajo; varias se apilan (máx. 5). Clic: abrir (y cae de vuelta al agujero); botón derecho: mostrar en carpeta;
+en reposo). Se abre el MISMO agujero negro de los portales (shader `portals/shaders/portal.frag`, clavado en el borde superior, centrado: es el «agujero del móvil», el mismo del portal de arriba, y no se duplica durante un arrastre), el archivo emerge del horizonte (pequeño y estirado, con destello del anillo) y queda
+aparcado en una tarjeta debajo (a la izquierda del eje, para no tapar el HUD del portal); varias se apilan (máx. 5). Clic: abrir (y cae de vuelta al agujero); botón derecho: mostrar en carpeta;
 X: descartar; arrastrar la tarjeta: soltar en otra app (`Drag.Automatic`, `text/uri-list`); ~60 s sin interacción: se va sola. Cuando no queda
 ninguna, el agujero se retrae con la animación de salida. Prueba: `qs -c caelestia ipc call whitehole demo <ruta>`.
