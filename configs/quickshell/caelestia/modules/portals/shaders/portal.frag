@@ -102,7 +102,12 @@ void main(){
         float edge = sm(1.55, 1.75, rho) * (1.0 - sm(4.1, 4.45, rho));
         float a = bright * pow(dop, 2.2) * (1.0 - rn * 0.55) * 0.5 * streaks(th, rho, rn) * edge;
         vec3 col = tempColor(rn, dop) * a;
-        if (q.y < 0.0) back += col; else front += col;
+        if (q.y < 0.0) back += col;
+        else {
+            // cara delantera: fina, se afina hacia los extremos y brilla más en el lado que se acerca
+            float ends = 1.0 - smoothstep(0.55, 1.0, abs(cos(th)) * (1.0 + 0.0));
+            front += col * (1.0 - rn * 0.7) * (0.35 + 0.9 * smoothstep(-0.2, 1.0, cos(th))) * (0.45 + 0.55 * ends) * (1.0 - smoothstep(0.0, 1.0, abs(sin(th))) * 0.45);
+        }
     }
 
     // --- halo lensado del disco trasero (arco sobre la sombra)

@@ -389,7 +389,7 @@ Variants {
                 u: win.u
                 kicker: "MÓVIL"
                 title: "Olimpo"
-                detail: win.olimpo ? "Bandeja «Desde el PC»" : "aún no disponible"
+                detail: "Bandeja «Desde el PC»"
                 cta: "Suelta para enviar"
             }
 
@@ -401,7 +401,7 @@ Variants {
                 x: win.lx
                 y: win.ly - height / 2
                 width: len
-                height: Math.max(2, (16 * (1 - 0.6 * win.trailK)) * win.u)
+                height: Math.max(2, (7 * (1 - 0.5 * win.trailK)) * win.u)
                 radius: height / 2
                 transformOrigin: Item.Left
                 rotation: win.trailAng * 180 / Math.PI
@@ -410,7 +410,11 @@ Variants {
                     orientation: Gradient.Horizontal
                     GradientStop {
                         position: 0
-                        color: Qt.alpha(Colours.palette.m3tertiary, 0.9)
+                        color: "transparent"
+                    }
+                    GradientStop {
+                        position: 0.3
+                        color: Qt.alpha(Colours.palette.m3tertiary, 0.8)
                     }
                     GradientStop {
                         position: 1

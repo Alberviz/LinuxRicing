@@ -87,9 +87,11 @@ Item {
         id: hud
 
         readonly property real fs: 11 * root.u
-        x: root.edge === "right" ? root.winW - root.r * 1.6 - width : root.cx + root.r * 4.6
-        y: root.edge === "right" ? root.cy - root.r * 2.3 - height : root.r * 0.6
-        spacing: fs * 0.25
+        // Derecho: arriba-izquierda del agujero (margen respecto a la sombra), dentro de pantalla.
+        // Superior: a la derecha del agujero. Siempre sin salirse de la ventana.
+        x: root.edge === "right" ? Math.max(8, root.cx - root.r * 1.5 - width) : Math.min(root.winW - width - 8, root.cx + root.r * 1.7)
+        y: root.edge === "right" ? Math.max(24 * root.u, root.cy - root.r * 1.4 - height) : root.r * 0.5 + 10
+        spacing: fs * 0.55
         opacity: root.vis > 0.05 && root.e > 0.35 ? Math.min(1, (root.e - 0.35) / 0.3) * (1 - 0.6 * root.dim) : 0
 
         Text {
@@ -118,14 +120,14 @@ Item {
         Item {
             x: root.edge === "right" ? hud.width - width : 0
             width: ctaText.implicitWidth + hud.fs * 1.6
-            height: ctaText.implicitHeight + hud.fs + 6
+            height: ctaText.implicitHeight + hud.fs
 
             Rectangle {
                 id: pill
 
                 width: parent.width
-                height: parent.height - 6
-                y: root.hot ? 6 : 10
+                height: parent.height
+                y: root.hot ? 0 : 4
                 radius: height / 2
                 color: root.phase === "error" ? Colours.palette.m3error : root.warm
                 opacity: root.hot ? 1 : 0
