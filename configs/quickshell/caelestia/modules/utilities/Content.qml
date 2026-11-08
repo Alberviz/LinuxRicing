@@ -55,6 +55,19 @@ Item {
             }
         }
 
+        // Tarjeta Chromecast: sin interruptor en Config (es C++), siempre activa.
+        Loader {
+            id: cast
+
+            Layout.fillWidth: true
+            active: true
+            visible: active
+
+            sourceComponent: Chromecast {
+                objectName: "utilitiesChromecast"
+            }
+        }
+
         Loader {
             id: toggles
 
@@ -67,19 +80,6 @@ Item {
 
                 screenState: root.screenState
                 popouts: root.popouts
-            }
-        }
-
-        // Tarjeta Chromecast: sin interruptor en Config (es C++), siempre activa.
-        Loader {
-            id: cast
-
-            Layout.fillWidth: true
-            active: true
-            visible: active
-
-            sourceComponent: Chromecast {
-                objectName: "utilitiesChromecast"
             }
         }
     }
