@@ -66,7 +66,6 @@ create_bind(vars.kbSession, hl.dsp.global("caelestia:session"))
 create_bind(vars.kbShowSidebar, hl.dsp.global("caelestia:sidebar"))
 create_bind(vars.kbClearNotifs, hl.dsp.global("caelestia:clearNotifs"), locked)
 create_bind(vars.kbShowPanels, hl.dsp.global("caelestia:showall"))
-create_bind(vars.kbCastPanel, hl.dsp.global("caelestia:castPanel"))
 create_bind(vars.kbLock, hl.dsp.global("caelestia:lock"))
 
 -- Restore lock
