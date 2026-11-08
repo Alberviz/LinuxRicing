@@ -24,7 +24,7 @@ Variants {
         required property ShellScreen modelData
 
         readonly property bool busy: pRight.phase !== "idle" || pTop.phase !== "idle"
-        readonly property bool active: DragWatch.dragging || grace.running || busy
+        readonly property bool active: DragWatch.dragging || grace.running || busy || show > 0.002
         readonly property real lx: DragWatch.cx - screen.x
         readonly property real ly: DragWatch.cy - screen.y
         readonly property bool here: lx >= 0 && ly >= 0 && lx <= width && ly <= height
@@ -44,7 +44,9 @@ Variants {
         property var finalMsg: null
         property string sendPath: ""
         readonly property var mediaExt: ["mp4", "m4v", "mkv", "webm", "avi", "mov", "ts", "mpg", "mpeg", "wmv", "flv", "ogv", "mp3", "flac", "m4a", "aac", "ogg", "opus", "wav", "mka"]
-        property real latent: 0
+        // 0..1 aparición global. Entra con muelle (ease-out) y sale acelerando (~380 ms); es
+        // estado continuo, así que invertir a mitad no produce saltos.
+        property real show: 0
         property var frags: []
         property var absorb: null
         property real trailK: 0
@@ -112,7 +114,10 @@ Variants {
         function tick(dtRaw: real): void {
             const dt = Math.min(0.05, dtRaw);
             const on = DragWatch.dragging && here;
-            latent = Math.max(0, Math.min(1, latent + ((on || busy) ? 1 : -1) * dt / 0.32));
+            if (on || busy)
+                show = Math.min(1, show + (1 - show) * (1 - Math.pow(0.0004, dt)) + 0.0005);
+            else
+                show = Math.max(0, show - dt / 0.38 * (0.35 + 1.9 * (1 - show)));
             const ps = [pRight, pTop];
             let armedAny = null;
             for (const p of ps) {
@@ -139,7 +144,6 @@ Variants {
             }
             for (const p of ps) {
                 p.dim = lerp(p.dim, armedAny && armedAny !== p ? 1 : 0, 1 - Math.pow(0.002, dt));
-                const show = 1 - Math.pow(1 - latent, 3);
                 const Rt = (30 + 26 * sm(0, 0.9, p.e) + (p.hot ? 16 : 0)) * u;
                 p.r = lerp(p.r, Rt, 1 - Math.pow(0.0005, dt));
                 const out = lerp(-p.r * 1.4, 0, show);
@@ -151,8 +155,8 @@ Variants {
                     p.cy = out;
                 }
                 p.vis = show * (1 - 0.55 * p.dim);
-                p.spinPhase += 0.25 * (1 + 1.4 * p.e + (p.armed ? 1 : 0)) * (p.over && p.bad !== "" ? 0.3 : 1) * dt;
-                p.pullPhase += (0.35 + 1.5 * p.e + (p.armed ? 0.8 : 0) + (p.phase === "sending" ? 0.5 : 0)) * dt;
+                p.spinPhase += (0.25 * (0.3 + 0.7 * show)) * (1 + 1.4 * p.e + (p.armed ? 1 : 0)) * (p.over && p.bad !== "" ? 0.3 : 1) * dt;
+                p.pullPhase += (0.35 + 1.5 * p.e + (p.armed ? 0.8 : 0) + (p.phase === "sending" ? 0.5 : 0)) * (0.2 + 0.8 * show) * dt;
                 p.phaseT += dt;
                 p.pulse = Math.max(0, p.pulse - dt / 0.48);
             }
@@ -415,7 +419,7 @@ Variants {
                 limitsProc.running = true;
             }
             if (!active) {
-                latent = 0;
+                show = 0;
                 frags = [];
                 for (const p of [pRight, pTop]) {
                     p.vis = 0;

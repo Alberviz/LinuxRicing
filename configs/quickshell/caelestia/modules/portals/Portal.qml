@@ -107,7 +107,7 @@ Item {
         x: root.edge === "right" ? Math.max(8, root.cx - root.r * 1.5 - width) : Math.min(root.winW - width - 8, root.cx + root.r * 1.7)
         y: root.edge === "right" ? Math.max(24 * root.u, root.cy - root.r * 1.4 - height) : root.r * 0.5 + 10
         spacing: fs * 0.55
-        opacity: root.phase === "idle" && root.vis > 0.05 && root.e > 0.35 ? Math.min(1, (root.e - 0.35) / 0.3) * (1 - 0.6 * root.dim) : 0
+        opacity: root.phase === "idle" && root.vis > 0.05 && root.e > 0.35 ? Math.min(1, (root.e - 0.35) / 0.3) * (1 - 0.6 * root.dim) * Math.max(0, Math.min(1, (root.vis - 0.55) / 0.35)) : 0
 
         Text {
             x: root.edge === "right" ? hud.width - width : 0
