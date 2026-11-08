@@ -393,6 +393,7 @@ class Route:
         self.lock = threading.Lock()
 
 
+LATENCY_CAL = 1.0   # medido con test-latency: el estimador infravalora ~1 s (decodificación/pantalla del receptor)
 MIRROR_FPS = int(os.environ.get("CAST_MIRROR_FPS", "30"))
 MIRROR_KBPS = int(os.environ.get("CAST_MIRROR_KBPS", "6000"))
 
@@ -419,7 +420,9 @@ MIRROR_PROFILES = {
     # ll200: igual pero fragmentos de 200 ms
     "ll200": dict(keyint="0.5", nv="tune=ull;zerolatency=1;rc-lookahead=0;bf=0;delay=0", frag="dur200", hls=False),
     # hls: segmentos mpegts de 0,5 s en tmpfs
-    "hls": dict(keyint="0.5", nv="tune=ull;zerolatency=1;rc-lookahead=0;bf=0;delay=0", frag="", hls=True, seg="0.5", size="4"),
+    "hls": dict(keyint="0.5", nv="tune=ull;zerolatency=1;rc-lookahead=0;bf=0;delay=0", frag="", hls=True, seg="0.5", size="3", start="-0.5"),
+    # hls33: segmentos de 0,33 s, lista de 3, arranque cerca del borde en directo
+    "hls33": dict(keyint="0.33", nv="tune=ull;zerolatency=1;rc-lookahead=0;bf=0;delay=0", frag="", hls=True, seg="0.33", size="3", start="-0.4"),
     # hls25: segmentos de 0,25 s (GOP de 0,25 s: más bitrate de keyframes)
     "hls25": dict(keyint="0.25", nv="tune=ull;zerolatency=1;rc-lookahead=0;bf=0;delay=0", frag="", hls=True, seg="0.25", size="6"),
 }
@@ -638,6 +641,9 @@ class MediaServer:
                 except OSError:
                     self.send_error(503)
                     return
+                st = MIRROR_PROFILES.get(rt.profile or DEFAULT_MIRROR_PROFILE, {}).get("start")
+                if st and b"#EXTM3U" in data:
+                    data = data.replace(b"#EXTM3U\n", b"#EXTM3U\n#EXT-X-START:TIME-OFFSET=" + st.encode() + b",PRECISE=NO\n", 1)
                 self.send_response(200)
                 self.send_header("Content-Type", "application/x-mpegURL")
                 self.send_header("Cache-Control", "no-store")
@@ -1150,7 +1156,7 @@ class MirrorSession(Session):
             cur = self.status.adjusted_current_time
         except Exception:  # noqa: BLE001
             return None
-        return round((time.time() - rt.t_first) - (cur or 0.0), 2)
+        return round((time.time() - rt.t_first) - (cur or 0.0) + LATENCY_CAL, 2)
 
     def run_load(self, start, sub_spec):
         try:

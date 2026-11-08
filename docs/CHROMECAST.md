@@ -104,7 +104,7 @@ físicas de botón (el tap-to-drag del touchpad no genera BTN_LEFT en evdev); si
   del monitor por defecto de PipeWire. `state.json`: `active.mode = "mirror"`, `active.monitor`, `active.audio`; y `monitors: [{name,width,height}]`.
   Notas: gpu-screen-recorder necesita la pantalla encendida (con DPMS apagado no lista ni captura monitores); cambiar el audio reinicia el flujo.
 - **Latencia (medida con el estimador del helper):** `active.latency` = (tiempo desde el primer dato servido) − (posición que reporta el
-  receptor); con el perfil original dio 3,7 s y Alberto vio ~4 s a ojo, así que calibra bien. Perfiles (`mirror start --profile P`,
+  receptor) + 1,0 s de calibración (Alberto midió 2,51 s con test-latency donde el estimador daba 1,52 s). Perfiles (`mirror start --profile P`,
   por defecto `hls`):
 
   | perfil | qué es | latencia |
@@ -112,7 +112,8 @@ físicas de botón (el tap-to-drag del touchpad no genera BTN_LEFT en evdev); si
   | `base` | fMP4, keyframe 1 s, fragmento por keyframe | 3,7 s |
   | `ll` | keyframe 0,5 s, NVENC `tune=ull;zerolatency=1;rc-lookahead=0;bf=0`, `frag_every_frame` | 2,2 s |
   | `ll200` | igual con fragmentos de 200 ms | 2,15 s |
-  | **`hls`** | HLS en tmpfs, segmentos de 0,5 s (lista de 4), mismo encoder | **1,5 s** |
+  | **`hls`** | HLS en tmpfs, segmentos de 0,5 s (lista de 3, `EXT-X-START:TIME-OFFSET=-0.5`), mismo encoder | **~2,3 s reales** (Alberto midió 2,5 s con el perfil sin START) |
+  | `hls33` | segmentos de 0,33 s | 3,2 s (peor) |
   | `hls25` | segmentos de 0,25 s | 2,3 s (peor: el receptor necesita más segmentos y arranca peor) |
 
   Gana `hls`: el Default Media Receiver reproduce HLS en directo con búfer de ~3 segmentos de 0,5 s, menos que su búfer mínimo con
@@ -130,10 +131,12 @@ físicas de botón (el tap-to-drag del touchpad no genera BTN_LEFT en evdev); si
   (`n` de subtítulos = índice de stream, o `1000+i` para externos; `n` de audio = índice de stream). `tracks` es `null` en `url` y `mirror`.
 - La tarjeta del panel rápido tiene un chip de subtítulos y otro de audio que abren un menú con las pistas + «Desactivados».
 
-## Agujero blanco (llegadas desde el móvil)
+## Llegadas desde el móvil (agujero negro del borde)
 
 El puente de Olimpo añade una línea JSON por archivo recibido a `$XDG_RUNTIME_DIR/olimpo-puente/llegadas.jsonl`
-(`{"ruta","nombre","tamano","mime","ts"}`). `modules/whitehole/WhiteHole.qml` lo vigila con `tail -n 0 -F` (cero coste en reposo): un agujero
-blanco aparece en el borde superior (shader `whitehole.frag`: núcleo incandescente, disco frío inclinado con Doppler, chorro relativista, onda),
-expulsa el archivo en arco y lo posa como tarjeta (miniatura real si es imagen). Clic: abrir; botón derecho: mostrar en carpeta;
-~8 s o hasta que el ratón se va. Ráfaga escalonada (máx. 5 tarjetas a la vez). Prueba: `qs -c caelestia ipc call whitehole demo <ruta>`.
+(`{"ruta","nombre","tamano","mime","ts"}`). `modules/whitehole/WhiteHole.qml` (nombre histórico) lo vigila con `tail -n 0 -F` (cero coste
+en reposo). Se abre el MISMO agujero negro de los portales (shader `portals/shaders/portal.frag`, clavado en el borde derecho al 22 % de
+la altura para no chocar con el portal de la tele), el archivo emerge del horizonte (pequeño y estirado, con destello del anillo) y queda
+aparcado en una tarjeta debajo; varias se apilan (máx. 5). Clic: abrir (y cae de vuelta al agujero); botón derecho: mostrar en carpeta;
+X: descartar; arrastrar la tarjeta: soltar en otra app (`Drag.Automatic`, `text/uri-list`); ~60 s sin interacción: se va sola. Cuando no queda
+ninguna, el agujero se retrae con la animación de salida. Prueba: `qs -c caelestia ipc call whitehole demo <ruta>`.
