@@ -76,7 +76,7 @@ CustomMouseArea {
             if (!dashboardShortcutActive)
                 screenState.dashboard = false;
 
-            if (!utilitiesShortcutActive && !Cast.picking && !Cast.dragging)
+            if (!utilitiesShortcutActive && !Cast.picking)
                 screenState.utilities = false;
 
             if (!popouts.currentName.startsWith("traymenu") || ((popouts.current as StackView)?.depth ?? 0) <= 1) {
@@ -232,7 +232,7 @@ CustomMouseArea {
 
         // Always update visibility based on hover if not in shortcut mode
         if (!utilitiesShortcutActive) {
-            screenState.utilities = showUtilities || Cast.picking || Cast.dragging;
+            screenState.utilities = showUtilities || Cast.picking;
         } else if (showUtilities) {
             // If hovering over utilities area while in shortcut mode, transition to hover control
             utilitiesShortcutActive = false;
@@ -244,31 +244,6 @@ CustomMouseArea {
         } else if ((!popouts.currentName.startsWith("traymenu") || ((popouts.current as StackView)?.depth ?? 0) <= 1) && !inLeftPanel(panels.popoutsWrapper, x, y)) {
             popouts.hasCurrent = false;
             bar.closeTray();
-        }
-    }
-
-    // Arrastrar un archivo (gestor de archivos) hacia el borde: durante un DnD de Wayland
-    // no llegan eventos de ratón, así que el hover no abriría el drawer. Lo abre/mantiene esto.
-    DropArea {
-        anchors.fill: parent
-        keys: ["text/uri-list", "text/plain"]
-        onEntered: drag => update(drag)
-        onPositionChanged: drag => update(drag)
-        onExited: {
-            Cast.dragging = false;
-            if (!root.utilitiesShortcutActive && !Cast.picking)
-                root.screenState.utilities = false;
-        }
-        onDropped: drop => {
-            Cast.dragging = false;
-            drop.accepted = false;
-        }
-
-        function update(drag): void {
-            const over = root.inBottomPanel(root.panels.utilities, drag.x, drag.y, true);
-            Cast.dragging = over;
-            if (over)
-                root.screenState.utilities = true;
         }
     }
 
