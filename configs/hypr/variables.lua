@@ -137,7 +137,8 @@ return {
     kbSession                  = "CTRL + ALT + Delete",
     kbShowSidebar              = "SUPER + N",
     kbClearNotifs              = "CTRL + ALT + C",
-    kbShowPanels               = "SUPER + K",
+    kbShowPanels               = "SUPER + SHIFT + K",
+    kbCastPanel                = "SUPER + K",   -- Proyectar (como Win+K)
     kbLock                     = "SUPER + L",
     kbRestoreLock              = "SUPER + ALT + L",
     kbSleep                    = "SUPER + SHIFT + L",

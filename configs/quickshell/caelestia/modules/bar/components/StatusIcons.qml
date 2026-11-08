@@ -57,6 +57,17 @@ StyledRect {
 
         spacing: 0
 
+        // Privacidad: avisa mientras se está duplicando la pantalla en una tele (Super+K)
+        MaterialIcon {
+            Layout.alignment: Qt.AlignHCenter
+            Layout.preferredHeight: Cast.mirroring ? implicitHeight + Tokens.spacing.small : 0
+            visible: Cast.mirroring
+            text: "cast_connected"
+            color: Colours.palette.m3error
+            fontStyle: Tokens.font.icon.medium
+            fill: 1
+        }
+
         Repeater {
             model: ScriptModel {
                 id: model
