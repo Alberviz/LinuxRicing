@@ -353,7 +353,46 @@ class Route:
         self.audio = audio
         self.offset = 0.0
         self.proc = None
+        self.procs = []          # espejo: [ffmpeg, gpu-screen-recorder]
+        self.monitor = None
+        self.audio = True
+        self.size = None
         self.lock = threading.Lock()
+
+
+MIRROR_FPS = int(os.environ.get("CAST_MIRROR_FPS", "30"))
+MIRROR_KBPS = int(os.environ.get("CAST_MIRROR_KBPS", "6000"))
+
+
+def list_monitors():
+    """Salidas capturables por gpu-screen-recorder: [{name,width,height}]."""
+    try:
+        out = subprocess.run(["gpu-screen-recorder", "--list-monitors"], capture_output=True, text=True, timeout=8).stdout
+    except Exception:  # noqa: BLE001
+        return []
+    res = []
+    for ln in out.splitlines():
+        m = re.match(r"^([^|]+)\|(\d+)x(\d+)", ln.strip())
+        if m:
+            res.append({"name": m.group(1), "width": int(m.group(2)), "height": int(m.group(3))})
+    return res
+
+
+def build_mirror_cmds(monitor, audio, size):
+    """gpu-screen-recorder (NVENC/VAAPI) -> mpegts por stdout -> ffmpeg remux a fMP4 en vivo."""
+    gsr = ["gpu-screen-recorder", "-w", monitor, "-f", str(MIRROR_FPS), "-c", "mpegts", "-k", "h264",
+           "-bm", "cbr", "-q", str(MIRROR_KBPS), "-keyint", "1", "-cursor", "yes"]
+    if size:
+        gsr += ["-s", size]
+    if audio:
+        gsr += ["-a", "default_output", "-ac", "aac", "-ab", "128"]
+    gsr += ["-o", "/dev/stdout"]
+    ff = ["ffmpeg", "-nostdin", "-loglevel", "error", "-fflags", "nobuffer", "-flags", "low_delay",
+          "-probesize", "32768", "-analyzeduration", "0", "-f", "mpegts", "-i", "pipe:0", "-c", "copy"]
+    if audio:
+        ff += ["-bsf:a", "aac_adtstoasc"]
+    ff += ["-f", "mp4", "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-flush_packets", "1", "pipe:1"]
+    return gsr, ff
 
 
 def build_ffmpeg_cmd(path, info, audio_index, start):
@@ -441,6 +480,8 @@ class MediaServer:
                         self._serve_file(rt, head)
                     elif rt.kind == "sub":
                         self._serve_bytes(rt, head)
+                    elif rt.kind == "mirror":
+                        self._serve_mirror(rt, head)
                     else:
                         self._serve_transcode(rt, head)
                 except (BrokenPipeError, ConnectionResetError):
@@ -497,6 +538,34 @@ class MediaServer:
                         self.wfile.write(chunk)
                         left -= len(chunk)
 
+            def _serve_mirror(self, rt, head):
+                self.send_response(200)
+                self.send_header("Content-Type", "video/mp4")
+                self.send_header("Cache-Control", "no-store")
+                self._cors()
+                self.end_headers()
+                if head:
+                    return
+                with rt.lock:
+                    for q in rt.procs:
+                        kill_proc(q)  # una sola conexión viva por ruta
+                    gcmd, fcmd = build_mirror_cmds(rt.monitor, rt.audio, rt.size)
+                    log.info("espejo: %s | %s", " ".join(gcmd), " ".join(fcmd))
+                    gsr = subprocess.Popen(gcmd, stdout=subprocess.PIPE, stderr=open(os.path.join(WORK_DIR, "mirror-gsr.log"), "wb"))
+                    ff = subprocess.Popen(fcmd, stdin=gsr.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    gsr.stdout.close()
+                    rt.procs = [ff, gsr]
+                try:
+                    while True:
+                        chunk = ff.stdout.read1(65536)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        self.wfile.flush()
+                finally:
+                    kill_proc(gsr)
+                    kill_proc(ff)
+
             def _serve_transcode(self, rt, head):
                 self.send_response(200)
                 self.send_header("Content-Type", "video/mp4")
@@ -543,6 +612,9 @@ class MediaServer:
         rt = self.routes.pop(name, None)
         if rt is not None and rt.kind == "transcode":
             kill_proc(rt.proc)
+        if rt is not None and rt.kind == "mirror":
+            for q in rt.procs:
+                kill_proc(q)
 
 
 def port_from_env():
@@ -861,6 +933,67 @@ class _CastListener:
         s.daemon.publish()
 
 
+class MirrorSession(Session):
+    """Duplicar pantalla: captura de una salida (gpu-screen-recorder) emitida en vivo al Chromecast."""
+
+    def __init__(self, daemon, dev, monitor, audio, size):
+        super().__init__(daemon, dev, monitor, "mirror", f"Duplicando pantalla · {monitor}")
+        self.monitor = monitor
+        self.audio = audio
+        self.size = size
+        self.preparing = True
+
+    def as_dict(self):
+        d = super().as_dict()
+        d.update(monitor=self.monitor, audio=self.audio, position=0, duration=0)
+        return d
+
+    def run_load(self, start, sub_spec):
+        try:
+            self._connect()
+            self._load_mirror()
+            self.preparing = False
+            self.loaded = True
+        except Exception as e:  # noqa: BLE001
+            log.exception("fallo al iniciar el espejo")
+            self.daemon.fail(self, f"No se pudo duplicar la pantalla: {e}")
+            return
+        self.daemon.publish()
+
+    def _load_mirror(self):
+        d = self.daemon
+        self.reload_n += 1
+        name = f"{self.token}-mirror{self.reload_n}.mp4"
+        rt = Route("mirror", self.monitor, "video/mp4")
+        rt.monitor, rt.audio, rt.size = self.monitor, self.audio, self.size
+        if self.route is not None:
+            for k, v in list(d.server.routes.items()):
+                if v is self.route:
+                    d.server.remove(k)
+        d.server.add(name, rt)
+        self.route = rt
+        cast = self.cast
+        if cast.app_id != APP_MEDIA_RECEIVER:
+            cast.start_app(APP_MEDIA_RECEIVER)
+        mc = cast.media_controller
+        self.reloading = True
+        try:
+            mc.play_media(f"http://{self.ip}:{d.server.port}/{name}", "video/mp4", title=self.title,
+                          autoplay=True, stream_type="LIVE")
+            mc.block_until_active(timeout=20)
+        finally:
+            self.reloading = False
+
+    def set_audio(self, on):
+        if bool(on) == self.audio:
+            return
+        self.audio = bool(on)
+        self._load_mirror()
+
+    def seek(self, pos):
+        raise RuntimeError("no se puede mover el tiempo al duplicar la pantalla")
+
+
 class FakeSession(Session):
     """Sesion ficticia (pruebas): no toca ningun Chromecast."""
 
@@ -1104,6 +1237,7 @@ class Daemon:
         self.zc = None
         self.mpris = None
         self.no_art = False
+        self.monitors = []
         self._stop = threading.Event()
         self._load_cache()
 
@@ -1193,6 +1327,7 @@ class Daemon:
                 "updated": time.time(),
                 "devices": [{k: d[k] for k in ("uuid", "name", "model", "host")} for d in self.device_list()],
                 "active": s.as_dict() if s else None,
+                "monitors": self.monitors,
                 "error": self.error,
             }
             try:
@@ -1270,6 +1405,7 @@ class Daemon:
             return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
     def cmd_devices(self, req):
+        self.monitors = list_monitors() or self.monitors
         t0 = time.time()
         while not self.devices and time.time() - t0 < 4:
             time.sleep(0.2)
@@ -1348,6 +1484,44 @@ class Daemon:
         return {"ok": True, "mode": mode, "reason": reason, "preparing": True,
                 "subs": (lang_label(spec[2].get("lang"), spec[2].get("title", ""), spec[2].get("forced"))
                          if spec[0] != "none" else None)}
+
+    def cmd_mirror(self, req):
+        act = req.get("action", "start")
+        if act == "monitors":
+            self.monitors = list_monitors() or self.monitors
+            self.publish()
+            return {"ok": True, "monitors": self.monitors}
+        if act == "stop":
+            self.do_stop()
+            return {"ok": True}
+        if act == "audio":
+            s = self._need_active()
+            if not isinstance(s, MirrorSession):
+                raise ValueError("no se está duplicando la pantalla")
+            s.set_audio(bool(req.get("on", True)))
+            self.publish()
+            return {"ok": True, "audio": s.audio}
+        # start
+        if not self.monitors:
+            self.monitors = list_monitors()
+        if not self.monitors:
+            raise ValueError("no se encontró ninguna pantalla capturable (gpu-screen-recorder)")
+        key = req.get("device")
+        dev = self.find_device(key) if key else (self.device_list() or [None])[0]
+        if not dev:
+            raise ValueError("no hay ningún Chromecast")
+        names = [m["name"] for m in self.monitors]
+        mon = req.get("monitor") or names[0]
+        if mon not in names:
+            raise ValueError(f"pantalla desconocida: {mon}")
+        m = next(x for x in self.monitors if x["name"] == mon)
+        size = "1920x1080" if m["width"] > 1920 else None
+        self.server.start()
+        s = MirrorSession(self, dev, mon, bool(req.get("audio", True)), size)
+        self.error = None
+        self.set_active(s)
+        threading.Thread(target=s.run_load, args=(0, None), daemon=True).start()
+        return {"ok": True, "mode": "mirror", "monitor": mon, "preparing": True}
 
     def _need_active(self):
         s = self.active
@@ -1462,6 +1636,7 @@ def run_daemon():
     _import_cast_libs()
     ensure_dirs()
     d = Daemon()
+    d.monitors = list_monitors()
     try:
         d.mpris = Mpris(d)
     except Exception as e:  # noqa: BLE001
@@ -1575,6 +1750,12 @@ def main():
     p.add_argument("--title")
     for c in ("play", "pause", "toggle", "stop", "mute"):
         sub.add_parser(c)
+    p = sub.add_parser("mirror", help="duplicar la pantalla en el Chromecast")
+    p.add_argument("action", choices=["start", "stop", "audio", "monitors"])
+    p.add_argument("value", nargs="?", help="audio: on|off")
+    p.add_argument("--device")
+    p.add_argument("--monitor")
+    p.add_argument("--no-audio", action="store_true")
     p = sub.add_parser("seek")
     p.add_argument("pos", type=float)
     p = sub.add_parser("volume")
@@ -1600,6 +1781,10 @@ def main():
             src = os.path.abspath(os.path.expanduser(src))
         req.update(device=args.device, source=src, audio=args.audio, sub=args.sub,
                    sub_file=args.sub_file, no_subs=args.no_subs, start=args.start, title=args.title)
+    elif args.cmd == "mirror":
+        req.update(action=args.action, device=args.device, monitor=args.monitor, audio=not args.no_audio)
+        if args.action == "audio":
+            req["on"] = (args.value or "on").lower() not in ("off", "0", "no")
     elif args.cmd == "seek":
         req["pos"] = args.pos
     elif args.cmd == "volume":
