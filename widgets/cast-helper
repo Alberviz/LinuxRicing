@@ -609,6 +609,7 @@ class Session:
             "state": self.state, "position": round(self.position(), 1),
             "duration": round(self.duration, 1), "volume": self.volume,
             "muted": self.muted, "subs": self.subs_label, "preparing": self.preparing,
+            "art": self.art_path if self.art_path and os.path.isfile(self.art_path) else None,
         }
 
     # -- carga --
