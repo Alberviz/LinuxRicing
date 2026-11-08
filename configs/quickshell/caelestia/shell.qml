@@ -9,7 +9,7 @@ import "modules/drawers"
 import "modules/background"
 import "modules/background/solarsystem"
 import "modules/areapicker"
-import "modules/castdrop"
+import "modules/portals"
 import "modules/rgbcontrol"
 import "modules/rebootdialog"
 import "modules/projectdialog"
@@ -37,7 +37,7 @@ ShellRoot {
     Background {}
     Drawers {}
     AreaPicker {}
-    CastDrop {}
+    Portals {}
     RgbControl {}
     RebootDialog {}
     ProjectDialog {}

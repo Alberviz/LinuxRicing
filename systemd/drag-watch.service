@@ -1,0 +1,14 @@
+[Unit]
+Description=drag-watch (detecta arrastres de archivos para los portales de Quickshell)
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/.local/bin/drag-watch daemon
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

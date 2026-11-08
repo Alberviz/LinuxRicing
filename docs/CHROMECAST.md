@@ -67,3 +67,25 @@ VLC 3 con Chromecast se congela con MKV de alto bitrate y audio Dolby (`httpd bu
 - Prueba de punta a punta contra el Chromecast (cast, subtítulos en el receptor, seek en transcode, URL).
 - Textos de la tarjeta sin `Tr.tr`.
 - Si hay varios reproductores MPRIS, el dashboard muestra el `defaultPlayer`/primero; quizá priorizar casthelper.
+
+## Portales de arrastre (agujeros negros en los bordes)
+
+Al arrastrar un archivo desde el gestor de archivos o el navegador aparecen dos mini agujeros negros
+(estilo Gargantua del escritorio) en los bordes de la pantalla; crecen al acercar el cursor y se abren
+al entrar en la banda del borde:
+
+- **Borde derecho -> tele:** `cast-helper cast <dispositivo elegido> <ruta|url>` (vía `Cast.run`).
+- **Borde superior -> móvil:** `olimpo enviar <ruta>` (CLI en `~/proyectos/olimpo/cli/olimpo` o
+  `~/.local/bin/olimpo`; responde JSON `{"ok":...}`). Si no existe: «Envío al móvil aún no disponible».
+
+Al soltar, el archivo cae en espiral, se muestra «Enviando…» y luego el resultado, y todo se recoge.
+
+| Pieza | Dónde | Qué hace |
+|---|---|---|
+| `drag-watch` | `widgets/drag-watch` -> `~/.local/bin/` + `systemd/drag-watch.service` | Daemon: detecta botón izquierdo mantenido + >40 px de desplazamiento + ventana activa de gestor de archivos/navegador (`DRAG_WATCH_CLASSES`, `DRAG_WATCH_THRESHOLD`). Publica `$XDG_RUNTIME_DIR/drag-watch.sock` (JSON por línea; posición ~30 Hz solo durante el arrastre). Duerme en `select()` en reposo. |
+| `DragWatch.qml` | `services/` | Cliente del socket (`dragging`, `cx`, `cy`). |
+| `Portals.qml`, `Portal.qml` | `modules/portals/` | Ventana layer-shell overlay a pantalla completa, **sin input** salvo las bandas de ~140 px mientras dura el arrastre (Wayland solo entrega el DnD a la superficie bajo el cursor). Sin shaders ni gradientes radiales. |
+
+Requisitos y límites: usuario en el grupo `input` (lee `/dev/input/event*`); solo detecta pulsaciones
+físicas de botón (el tap-to-drag del touchpad no genera BTN_LEFT en evdev); sin hotplug de ratones
+(reiniciar el servicio). Prueba sin arrastrar: `drag-watch sim <x> <y>` / `drag-watch sim off`.
