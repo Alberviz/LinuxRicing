@@ -38,7 +38,8 @@ float vn(vec2 p){
 vec3 tempColor(float rn, float dop){
     float t = clamp(rn - (dop - 1.0) * 0.35, 0.0, 1.0);
     vec3 c = vec3(1.0, mix(0.957, 0.47, t), mix(0.863, 0.157, pow(t, 0.7)));
-    return mix(c, c * mix(vec3(1.0), tint.rgb * 1.6, 0.5), tint.a);
+    float k = tint.a > 0.5 ? 0.85 : tint.a;   // aviso (rojo): tiñe de lleno; normal: toque suave del tema
+    return mix(c, tint.rgb * (0.25 + 1.1 * dot(c, vec3(0.34))) * 1.4, k * (tint.a > 0.5 ? 1.0 : 0.6));
 }
 // estriado giratorio del disco (sustituye a ~900 partículas)
 float streaks(float th, float rho, float rn){
@@ -145,7 +146,7 @@ void main(){
     {
         float lw = max(0.7, (1.0 + en) * U);
         float d = abs(r - 1.03) * R;
-        front += vec3(1.0, 0.925, 0.804) * vis * (0.35 + 0.6 * en) * (1.0 - smoothstep(lw * 0.5, lw * 0.5 + 1.2, d));
+        front += (tint.a > 0.5 ? vec3(1.0, 0.55, 0.5) : vec3(1.0, 0.925, 0.804)) * vis * (0.35 + 0.6 * en) * (1.0 - smoothstep(lw * 0.5, lw * 0.5 + 1.2, d));
         float lw2 = max(0.5, 0.6 * U);
         float d2 = abs(r - 1.1) * R;
         front += vec3(0.627, 0.725, 1.0) * vis * 0.25 * en * (1.0 - smoothstep(lw2 * 0.5, lw2 * 0.5 + 1.2, d2));

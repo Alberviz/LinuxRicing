@@ -1,6 +1,7 @@
 import QtQuick
 import Caelestia.Config
 import qs.components
+import qs.components.controls
 import qs.services
 
 // Un portal Gargantua clavado en el borde (variante B del mockup). La física/animación de
@@ -32,8 +33,22 @@ Item {
     property bool armed: false
     property string phase: "idle"      // idle | sending | ok | error | unavail
     property string status: ""
+    // Aviso previo a soltar (lo rellena Portals al entrar el DnD en la banda)
+    property bool over: false
+    property string bad: ""            // motivo por el que NO se puede enviar («» = ok)
+    property string fileLine: ""       // nombre · tamaño del archivo arrastrado
+    property string fileName: ""
+    // Transferencia (tarjeta persistente)
+    property string tName: ""
+    property real tProgress: -1        // -1 indeterminado, 0..1
+    property string tText: ""
+    property string tSub: ""
+    property real phaseT: 0
+    readonly property Item maskItem: maskBox
+    signal cancel
 
-    readonly property bool hot: armed || phase !== "idle"
+    readonly property bool hot: armed || phase === "ok" || phase === "error"
+    readonly property bool showPill: armed || (over && bad !== "")
     readonly property real half: 7.5 * r
     readonly property color warm: Qt.rgba(1, 0.871, 0.725, 1)
 
@@ -69,7 +84,7 @@ Item {
 
         property vector2d size: Qt.vector2d(width, height)
         property vector2d outward: root.edge === "right" ? Qt.vector2d(1, 0) : Qt.vector2d(0, -1)
-        property color tint: Qt.rgba(Colours.palette.m3primary.r, Colours.palette.m3primary.g, Colours.palette.m3primary.b, 0.18)
+        property color tint: root.bad !== "" && root.over ? Qt.rgba(1, 0.3, 0.2, 0.8) : Qt.rgba(Colours.palette.m3primary.r, Colours.palette.m3primary.g, Colours.palette.m3primary.b, 0.18)
         property real rad: root.r
         property real upx: root.u
         property real en: root.e
@@ -92,7 +107,7 @@ Item {
         x: root.edge === "right" ? Math.max(8, root.cx - root.r * 1.5 - width) : Math.min(root.winW - width - 8, root.cx + root.r * 1.7)
         y: root.edge === "right" ? Math.max(24 * root.u, root.cy - root.r * 1.4 - height) : root.r * 0.5 + 10
         spacing: fs * 0.55
-        opacity: root.vis > 0.05 && root.e > 0.35 ? Math.min(1, (root.e - 0.35) / 0.3) * (1 - 0.6 * root.dim) : 0
+        opacity: root.phase === "idle" && root.vis > 0.05 && root.e > 0.35 ? Math.min(1, (root.e - 0.35) / 0.3) * (1 - 0.6 * root.dim) : 0
 
         Text {
             x: root.edge === "right" ? hud.width - width : 0
@@ -117,6 +132,14 @@ Item {
             font.pixelSize: hud.fs * 0.8
             color: Colours.palette.m3onSurfaceVariant
         }
+        Text {
+            x: root.edge === "right" ? hud.width - width : 0
+            visible: root.fileLine !== ""
+            text: root.fileLine
+            font.family: "JetBrainsMono Nerd Font Mono"
+            font.pixelSize: hud.fs * 0.85
+            color: Colours.palette.m3onSurface
+        }
         Item {
             x: root.edge === "right" ? hud.width - width : 0
             width: ctaText.implicitWidth + hud.fs * 1.6
@@ -127,10 +150,10 @@ Item {
 
                 width: parent.width
                 height: parent.height
-                y: root.hot ? 0 : 4
+                y: root.showPill ? 0 : 4
                 radius: height / 2
-                color: root.phase === "error" ? Colours.palette.m3error : root.warm
-                opacity: root.hot ? 1 : 0
+                color: root.bad !== "" ? "#d63a33" : root.warm
+                opacity: root.showPill ? 1 : 0
 
                 Behavior on opacity {
                     Anim {
@@ -149,11 +172,112 @@ Item {
 
                 anchors.centerIn: pill
                 opacity: pill.opacity
-                text: root.phase === "idle" ? root.cta : root.status
+                text: root.bad !== "" ? root.bad : root.cta
                 font.family: "JetBrainsMono Nerd Font Mono"
                 font.pixelSize: hud.fs * 0.85
                 font.weight: Font.Medium
-                color: root.phase === "error" ? Colours.palette.m3onError : "#05060a"
+                color: root.bad !== "" ? "#ffffff" : "#05060a"
+            }
+        }
+    }
+
+    // Tarjeta de transferencia persistente (progreso / resultado), cerca del agujero
+    Item {
+        id: maskBox
+
+        x: card.x
+        y: card.y
+        width: card.visible ? card.width : 0
+        height: card.visible ? card.height : 0
+    }
+
+    Rectangle {
+        id: card
+
+        readonly property real pad: 14 * root.u
+        readonly property bool failed: root.phase === "error"
+        width: 340 * root.u
+        height: col.implicitHeight + pad * 2
+        x: root.edge === "right" ? root.winW - width - 28 * root.u : Math.min(root.winW - width - 8, root.cx + root.r * 1.7)
+        y: root.edge === "right" ? Math.min(root.winH - height - 8, root.cy + root.r * 1.7) : 40 * root.u
+        visible: root.vis > 0.01 && (root.phase === "sending" || root.phase === "ok" || root.phase === "error")
+        radius: Tokens.rounding.large
+        color: Qt.alpha(Colours.palette.m3surfaceContainer, 0.96)
+        border.width: 1.5
+        border.color: failed ? Colours.palette.m3error : root.phase === "ok" ? Colours.palette.m3primary : Qt.alpha(Colours.palette.m3outline, 0.5)
+
+        Column {
+            id: col
+
+            x: card.pad
+            y: card.pad
+            width: card.width - card.pad * 2
+            spacing: 9 * root.u
+
+            Row {
+                width: parent.width
+                spacing: 8 * root.u
+
+                MaterialIcon {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: card.failed ? "error" : root.phase === "ok" ? "check_circle" : (root.edge === "right" ? "cast" : "smartphone")
+                    color: card.failed ? Colours.palette.m3error : Colours.palette.m3primary
+                    fontStyle: Tokens.font.icon.medium
+                }
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: parent.width - 80 * root.u
+                    text: root.tName
+                    elide: Text.ElideMiddle
+                    font.pixelSize: 13 * root.u
+                    font.weight: Font.Medium
+                    color: Colours.palette.m3onSurface
+                }
+                IconButton {
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: root.phase === "sending"
+                    icon: "close"
+                    type: IconButton.Text
+                    onClicked: root.cancel()
+                }
+            }
+
+            Rectangle {
+                width: parent.width
+                height: 6 * root.u
+                radius: height / 2
+                color: Colours.palette.m3surfaceContainerHighest
+                clip: true
+
+                Rectangle {
+                    readonly property bool indet: root.tProgress < 0 && root.phase === "sending"
+                    height: parent.height
+                    radius: height / 2
+                    width: indet ? parent.width * 0.3 : parent.width * (root.phase === "ok" ? 1 : Math.max(0, root.tProgress))
+                    x: indet ? ((root.phaseT * 0.7) % 1.3 - 0.3) * parent.width : 0
+                    color: card.failed ? Colours.palette.m3error : Colours.palette.m3primary
+                }
+            }
+
+            Row {
+                width: parent.width
+
+                Text {
+                    width: parent.width * 0.55
+                    text: root.tText
+                    elide: Text.ElideRight
+                    font.pixelSize: 11.5 * root.u
+                    color: card.failed ? Colours.palette.m3error : Colours.palette.m3onSurface
+                }
+                Text {
+                    width: parent.width * 0.45
+                    horizontalAlignment: Text.AlignRight
+                    text: root.tSub
+                    elide: Text.ElideLeft
+                    font.family: "JetBrainsMono Nerd Font Mono"
+                    font.pixelSize: 10.5 * root.u
+                    color: Colours.palette.m3onSurfaceVariant
+                }
             }
         }
     }

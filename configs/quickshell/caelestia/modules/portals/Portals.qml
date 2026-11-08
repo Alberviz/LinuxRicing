@@ -32,6 +32,18 @@ Variants {
         readonly property real band: 140 * u
         readonly property real along: 0.62
         property string olimpo: ""
+        property real movilMax: 50 * 1048576   // límite por defecto; `olimpo enviar --limites` lo afina
+        property real movilLibre: -1
+        property string teleTarget: ""
+        property string teleErr0: ""
+        property bool teleRunDone: false
+        property real teleT0: 0
+        property bool cancelled: false
+        property bool triedProgreso: false
+        property bool sawJson: false
+        property var finalMsg: null
+        property string sendPath: ""
+        readonly property var mediaExt: ["mp4", "m4v", "mkv", "webm", "avi", "mov", "ts", "mpg", "mpeg", "wmv", "flv", "ogv", "mp3", "flac", "m4a", "aac", "ogg", "opus", "wav", "mka"]
         property real latent: 0
         property var frags: []
         property var absorb: null
@@ -44,6 +56,57 @@ Variants {
         }
         function lerp(a: real, b: real, t: real): real {
             return a + (b - a) * t;
+        }
+        function fmtSize(b: real): string {
+            if (b >= 1073741824)
+                return (b / 1073741824).toFixed(1).replace(".", ",") + " GB";
+            if (b >= 1048576)
+                return (b / 1048576).toFixed(b >= 10485760 ? 0 : 1).replace(".", ",") + " MB";
+            return Math.max(1, Math.round(b / 1024)) + " KB";
+        }
+        function fmtEta(sec: real): string {
+            const t = Math.max(0, Math.round(sec));
+            return Math.floor(t / 60) + ":" + (t % 60 < 10 ? "0" : "") + (t % 60);
+        }
+        function baseName(path: string): string {
+            const n = path.split("/").pop() || path;
+            return decodeURIComponent(n.split("?")[0]);
+        }
+        function notify(ok: bool, title: string, body: string): void {
+            Quickshell.execDetached(["notify-send", "-a", "Portales", "-u", ok ? "normal" : "critical", "-i", ok ? "emblem-ok-symbolic" : "dialog-error-symbolic", title, body]);
+        }
+
+        // Aviso previo a soltar: nombre, tamaño y si cabe / se puede reproducir
+        function inspect(portal, drag): void {
+            let t = "";
+            if (drag.hasUrls && drag.urls.length > 0)
+                t = Cast.normalizeTarget(drag.urls[0].toString());
+            else if (drag.hasText)
+                t = Cast.normalizeTarget(drag.text);
+            if (!t)
+                return;
+            portal.fileName = baseName(t);
+            portal.bad = "";
+            portal.fileLine = portal.fileName.length > 38 ? portal.fileName.substring(0, 35) + "…" : portal.fileName;
+            if (t.startsWith("http://") || t.startsWith("https://"))
+                return;
+            if (portal.edge === "right") {
+                const ext = (portal.fileName.split(".").pop() || "").toLowerCase();
+                if (!mediaExt.includes(ext))
+                    portal.bad = "No se puede reproducir en la tele" + (ext && ext !== portal.fileName.toLowerCase() ? " · ." + ext : "");
+            }
+            statProc.portal = portal;
+            statProc.command = ["stat", "-L", "-c", "%s", t];
+            statProc.running = true;
+        }
+        function clearInfo(): void {
+            for (const p of [pRight, pTop]) {
+                if (p.phase === "idle" || p.phase === "ok") {
+                    p.bad = "";
+                    p.fileLine = "";
+                    p.over = false;
+                }
+            }
         }
 
         function tick(dtRaw: real): void {
@@ -58,13 +121,19 @@ Variants {
                 const al = p.edge === "right" ? Math.abs(ly - height / 2) / (height / 2) : Math.abs(lx - width / 2) / (width / 2);
                 if (on) {
                     target = sm(width * 0.55, width * 0.11, d) * (1 - 0.45 * sm(0.55, 1, al));
-                    p.armed = d < band && al < along;
+                    p.over = d < band && al < along;
+                    p.armed = p.over && p.bad === "";
                     if (p.armed)
                         armedAny = p;
                 } else if (!busy) {
                     p.armed = false;
+                    p.over = false;
                 }
-                if (p.armed || p.phase !== "idle")
+                if (p.armed || p.over)
+                    target = 1;
+                if (p.phase === "sending")
+                    target = 0.4;
+                else if (p.phase === "ok" || p.phase === "error")
                     target = 1;
                 p.e = lerp(p.e, target, 1 - Math.pow(0.0009, dt));
             }
@@ -82,9 +151,29 @@ Variants {
                     p.cy = out;
                 }
                 p.vis = show * (1 - 0.55 * p.dim);
-                p.spinPhase += 0.25 * (1 + 1.4 * p.e + (p.armed ? 1 : 0)) * dt;
-                p.pullPhase += (0.35 + 1.5 * p.e + (p.armed ? 0.8 : 0)) * dt;
+                p.spinPhase += 0.25 * (1 + 1.4 * p.e + (p.armed ? 1 : 0)) * (p.over && p.bad !== "" ? 0.3 : 1) * dt;
+                p.pullPhase += (0.35 + 1.5 * p.e + (p.armed ? 0.8 : 0) + (p.phase === "sending" ? 0.5 : 0)) * dt;
+                p.phaseT += dt;
                 p.pulse = Math.max(0, p.pulse - dt / 0.48);
+            }
+
+            // Tele: sigue el estado del helper (preparing -> BUFFERING -> PLAYING / error)
+            if (pRight.phase === "sending" && teleTarget) {
+                const nm = Cast.selectedDevice?.name ?? "la tele";
+                const act = Cast.active;
+                if (Cast.error && Cast.error !== teleErr0) {
+                    finishTransfer(pRight, false, Cast.error);
+                } else if (Date.now() - teleT0 > 120000) {
+                    finishTransfer(pRight, false, "Tiempo agotado cargando en " + nm);
+                } else if (act && act.source === teleTarget && act.state === "PLAYING" && !act.preparing) {
+                    finishTransfer(pRight, true, "Reproduciendo en " + nm);
+                } else if (Cast.preparing) {
+                    pRight.tText = "Preparando…";
+                } else if (act && act.source === teleTarget) {
+                    pRight.tText = "Cargando en " + nm + "…";
+                } else if (teleRunDone) {
+                    pRight.tText = "Cargando en " + nm + "…";
+                }
             }
 
             // Absorción: el icono cae en espiral (1,25 vueltas, 720 ms) y se espaguetiza
@@ -99,7 +188,6 @@ Variants {
                 icon.scale = lerp(1, 0.12, e3);
                 icon.opacity = 1 - Math.pow(k, 4);
                 if (k >= 1) {
-                    p.pulse = 1;
                     absorb = null;
                     icon.opacity = 0;
                 }
@@ -170,37 +258,107 @@ Variants {
             }
         }
 
-        function finish(portal, ok: bool, msg: string): void {
+        function finishTransfer(portal, ok: bool, msg: string): void {
+            const name = portal.tName;
             portal.phase = ok ? "ok" : "error";
             portal.status = msg;
+            portal.tText = msg;
+            portal.tSub = "";
+            if (ok) {
+                portal.tProgress = 1;
+                portal.pulse = 1;
+            }
+            teleTarget = portal === pRight ? "" : teleTarget;
+            retract.interval = ok ? 2600 : 6500;
             retract.restart();
+            notify(ok, msg, name);
         }
 
         function sendTele(t: string): void {
             pRight.phase = "sending";
-            pRight.status = "Enviando…";
+            pRight.tName = baseName(t);
+            pRight.tProgress = -1;
+            pRight.tSub = "";
+            pRight.tText = "Preparando…";
             if (!Cast.selectedDevice) {
-                finish(pRight, false, "Sin Chromecast disponible");
+                finishTransfer(pRight, false, "Sin Chromecast disponible");
                 return;
             }
             Cast.cmdError = "";
+            teleErr0 = Cast.error;
+            teleTarget = t;
+            teleRunDone = false;
+            teleT0 = Date.now();
             Cast.run(["cast", Cast.selectedDevice.uuid, t], code => {
-                const ok = code === 0 && !Cast.cmdError;
-                win.finish(pRight, ok, ok ? "Enviado a la tele" : (Cast.cmdError || "Error al enviar"));
+                if (code !== 0 || Cast.cmdError) {
+                    if (pRight.phase === "sending")
+                        win.finishTransfer(pRight, false, Cast.cmdError || "Error al enviar");
+                } else {
+                    win.teleRunDone = true;
+                }
             });
         }
 
         function sendMovil(t: string): void {
             if (!olimpo) {
-                pTop.phase = "unavail";
-                pTop.status = "Envío al móvil aún no disponible";
-                retract.restart();
+                pTop.phase = "error";
+                pTop.tName = baseName(t);
+                finishTransfer(pTop, false, "Olimpo no está instalado");
                 return;
             }
             pTop.phase = "sending";
-            pTop.status = "Enviando…";
-            olimpoProc.command = [olimpo, "enviar", t];
+            pTop.tName = baseName(t);
+            pTop.tProgress = -1;
+            pTop.tText = "Enviando…";
+            pTop.tSub = "";
+            sendPath = t;
+            cancelled = false;
+            triedProgreso = true;
+            sawJson = false;
+            finalMsg = null;
+            olimpoProc.command = [olimpo, "enviar", "--json", "--progreso", t];
             olimpoProc.running = true;
+        }
+
+        function onOlimpoLine(line: string): void {
+            let d;
+            try {
+                d = JSON.parse(line);
+            } catch (e) {
+                return;
+            }
+            sawJson = true;
+            if (d.ok !== undefined) {
+                finalMsg = d;
+                return;
+            }
+            if (typeof d.progreso === "number") {
+                const pr = Math.max(0, Math.min(1, d.progreso > 1 ? d.progreso / 100 : d.progreso));
+                pTop.tProgress = pr;
+                pTop.tText = Math.round(pr * 100) + " %" + (d.velocidad > 0 ? " · " + fmtSize(d.velocidad) + "/s" : "");
+                pTop.tSub = d.total ? fmtSize(d.enviados ?? pr * d.total) + " / " + fmtSize(d.total) + (d.velocidad > 0 ? " · " + fmtEta((d.total - (d.enviados ?? pr * d.total)) / d.velocidad) : "") : "";
+            }
+        }
+
+        function cancelTransfer(portal): void {
+            if (portal.phase !== "sending")
+                return;
+            if (portal === pTop) {
+                cancelled = true;
+                olimpoProc.signal(15);
+                finishTransfer(pTop, false, "Envío cancelado");
+            } else {
+                teleTarget = "";
+                Cast.stop();
+                finishTransfer(pRight, false, "Reproducción cancelada");
+            }
+        }
+
+        function rejectDrop(portal): void {
+            portal.phase = "error";
+            portal.tName = portal.fileName;
+            portal.tProgress = 0;
+            finishTransfer(portal, false, portal.bad);
         }
 
         function startAbsorb(portal): void {
@@ -241,11 +399,21 @@ Variants {
             Region {
                 item: tBand
             }
+            Region {
+                item: pRight.maskItem
+            }
+            Region {
+                item: pTop.maskItem
+            }
         }
 
         onActiveChanged: {
             if (active && !olimpoCheck.running && olimpo === "")
                 olimpoCheck.running = true;
+            if (active && olimpo !== "" && !limitsProc.running) {
+                limitsProc.command = [olimpo, "enviar", "--limites"];
+                limitsProc.running = true;
+            }
             if (!active) {
                 latent = 0;
                 frags = [];
@@ -282,6 +450,7 @@ Variants {
             onTriggered: {
                 pRight.phase = "idle";
                 pTop.phase = "idle";
+                clearInfo();
                 grace.restart();
             }
         }
@@ -297,27 +466,118 @@ Variants {
 
             command: ["sh", "-c", "for p in \"$HOME/proyectos/olimpo/cli/olimpo\" \"$HOME/.local/bin/olimpo\"; do [ -x \"$p\" ] && echo \"$p\" && exit; done"]
             stdout: StdioCollector {
-                onStreamFinished: win.olimpo = text.trim()
+                onStreamFinished: {
+                    win.olimpo = text.trim();
+                    if (win.olimpo && win.active) {
+                        limitsProc.command = [win.olimpo, "enviar", "--limites"];
+                        limitsProc.running = true;
+                    }
+                }
             }
         }
 
         Process {
             id: olimpoProc
 
-            stdout: StdioCollector {
-                id: olimpoOut
+            stdout: SplitParser {
+                onRead: line => win.onOlimpoLine(line)
+            }
+            stderr: StdioCollector {
+                id: olimpoErr
             }
             onExited: code => {
-                let ok = false, msg = "";
-                try {
-                    const r = JSON.parse(olimpoOut.text.trim().split("\n").pop());
-                    ok = r.ok === true;
-                    msg = ok ? "Enviado al móvil" : (r.error ?? "Error al enviar");
-                } catch (e) {
-                    msg = "Olimpo no responde";
+                if (win.cancelled)
+                    return;
+                if (code === 2 && win.triedProgreso && !win.sawJson && !win.finalMsg) {
+                    // Esta versión de la CLI aún no tiene --progreso: reintenta sin él (indeterminado)
+                    win.triedProgreso = false;
+                    command = [win.olimpo, "enviar", "--json", win.sendPath];
+                    running = true;
+                    return;
                 }
-                win.finish(pTop, ok, msg);
+                const r = win.finalMsg;
+                if (r && r.ok === true)
+                    win.finishTransfer(pTop, true, "Enviado a tu móvil");
+                else
+                    win.finishTransfer(pTop, false, r?.error ?? (olimpoErr.text.trim().split("\n").pop() || "Olimpo no responde"));
             }
+        }
+
+        // Tamaño del archivo arrastrado (para avisar antes de soltar)
+        Process {
+            id: statProc
+
+            property var portal: null
+
+            stdout: StdioCollector {
+                onStreamFinished: {
+                    const b = parseInt(text.trim());
+                    const p = statProc.portal;
+                    if (!p || isNaN(b))
+                        return;
+                    p.fileLine = p.fileName.length > 30 ? p.fileName.substring(0, 27) + "… · " + win.fmtSize(b) : p.fileName + " · " + win.fmtSize(b);
+                    if (p.edge === "top") {
+                        const mx = win.movilMax, libre = win.movilLibre;
+                        if (b > mx)
+                            p.bad = "Demasiado grande para el móvil · " + win.fmtSize(b) + " / máx. " + win.fmtSize(mx);
+                        else if (libre >= 0 && b > libre)
+                            p.bad = "No cabe en el móvil · " + win.fmtSize(b) + " / libre " + win.fmtSize(libre);
+                    }
+                }
+            }
+        }
+
+        // Límites del móvil (cuando la CLI los exponga): {ok, archivo_max, libre}
+        Process {
+            id: limitsProc
+
+            stdout: StdioCollector {
+                onStreamFinished: {
+                    try {
+                        const d = JSON.parse(text.trim().split("\n").pop());
+                        if (d.archivo_max > 0)
+                            win.movilMax = d.archivo_max;
+                        if (d.libre >= 0)
+                            win.movilLibre = d.libre;
+                    } catch (e) {}
+                }
+            }
+        }
+
+        // Prueba de estados sin arrastrar: qs -c caelestia ipc call portals demo <bad|progress|tele|ok|error>
+        IpcHandler {
+            function demo(kind: string): void {
+                if (kind === "bad") {
+                    pTop.bad = "Demasiado grande para el móvil · 13,9 GB / máx. 50 MB";
+                    pTop.fileLine = "Wicked Part Uno (2025).mkv · 13,9 GB";
+                } else if (kind === "good") {
+                    pTop.bad = "";
+                    pTop.fileLine = "Atardecer Tarifa.jpg · 4,2 MB";
+                    pRight.bad = "";
+                    pRight.fileLine = "Wicked Part Uno (2025).mkv · 13,9 GB";
+                } else if (kind === "progress") {
+                    pTop.phase = "sending";
+                    pTop.tName = "Apuntes Redes T4.pdf";
+                    pTop.tProgress = 0.37;
+                    pTop.tText = "37 % · 4,2 MB/s";
+                    pTop.tSub = "18 / 49 MB · 0:07";
+                } else if (kind === "tele") {
+                    pRight.phase = "sending";
+                    pRight.tName = "Wicked Part Uno (2025).mkv";
+                    pRight.tProgress = -1;
+                    pRight.tText = "Cargando en Гостиная…";
+                } else if (kind === "ok") {
+                    pTop.phase = "sending";
+                    pTop.tName = "Apuntes Redes T4.pdf";
+                    win.finishTransfer(pTop, true, "Enviado a tu móvil");
+                } else if (kind === "error") {
+                    pTop.phase = "sending";
+                    pTop.tName = "Wicked Part Uno (2025).mkv";
+                    win.finishTransfer(pTop, false, "Olimpo: archivo demasiado grande (límite 50 MB)");
+                }
+            }
+
+            target: "portals"
         }
 
         Item {
@@ -336,10 +596,21 @@ Variants {
                 DropArea {
                     anchors.fill: parent
                     keys: ["text/uri-list", "text/plain"]
+                    onEntered: drag => win.inspect(pRight, drag)
+                    onExited: {
+                        if (pRight.phase === "idle") {
+                            pRight.bad = "";
+                            pRight.fileLine = "";
+                        }
+                    }
                     onDropped: drop => {
                         const t = win.targetOf(drop);
                         if (!t || pRight.phase !== "idle")
                             return;
+                        if (pRight.bad) {
+                            win.rejectDrop(pRight);
+                            return;
+                        }
                         win.startAbsorb(pRight);
                         win.sendTele(t);
                     }
@@ -357,10 +628,21 @@ Variants {
                 DropArea {
                     anchors.fill: parent
                     keys: ["text/uri-list", "text/plain"]
+                    onEntered: drag => win.inspect(pTop, drag)
+                    onExited: {
+                        if (pTop.phase === "idle") {
+                            pTop.bad = "";
+                            pTop.fileLine = "";
+                        }
+                    }
                     onDropped: drop => {
                         const t = win.targetOf(drop);
                         if (!t || pTop.phase !== "idle")
                             return;
+                        if (pTop.bad) {
+                            win.rejectDrop(pTop);
+                            return;
+                        }
                         win.startAbsorb(pTop);
                         win.sendMovil(t);
                     }
@@ -378,6 +660,7 @@ Variants {
                 title: Cast.selectedDevice?.name ?? "Sin Chromecast"
                 detail: Cast.selectedDevice ? (Cast.selectedDevice.model ?? "") + " · " + (Cast.selectedDevice.host ?? "") : "no hay dispositivos"
                 cta: "Suelta para reproducir"
+                onCancel: win.cancelTransfer(pRight)
             }
 
             Portal {
@@ -391,6 +674,7 @@ Variants {
                 title: "Olimpo"
                 detail: "Bandeja «Desde el PC»"
                 cta: "Suelta para enviar"
+                onCancel: win.cancelTransfer(pTop)
             }
 
             // Estela estirada del cursor hacia el agujero más cercano (el icono real lo pinta el compositor)
