@@ -709,3 +709,24 @@ grupo = "workspace"
 texto = "qué correos nuevos tengo en la bandeja"
 espera = ["correo"]
 grupo = "workspace"
+
+# ---------- tele ----------
+[[frase]]
+texto = "qué hay puesto en la tele"
+espera = ["tele"]
+args = [{accion = "estado"}]
+
+[[frase]]
+texto = "pausa la tele"
+espera = ["tele"]
+args = [{accion = "pausar"}]
+
+[[frase]]
+texto = "pon la tele al cuarenta de volumen"
+espera = ["tele"]
+args = [{accion = "volumen", valor = 40}]
+
+[[frase]]
+texto = "salta treinta segundos en la tele"
+espera = ["tele"]
+args = [{accion = "saltar", valor = 30}]
