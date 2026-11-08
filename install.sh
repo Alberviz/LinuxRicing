@@ -23,6 +23,7 @@
 #    rgb/sounds/*                    -> ~/.config/caelestia/sounds/  (paletas de notificación)
 #    rgb/{agent-notify,akko-rgb,battery-lighting,magichome-control,mchose-battery,
 #         mchose-lighting,rgb-notify-flash} -> ~/.local/bin/
+#    widgets/cast-helper            -> ~/.local/bin/  (daemon Chromecast; tarjeta del panel rápido)
 #    systemd/*.service              -> ~/.config/systemd/user/
 # ==============================================================================
 
@@ -303,6 +304,14 @@ if [ -f "$BASE_DIR/widgets/spotify-autoupdate" ]; then
     echo -e "  ${SUCCESS}✔ spotify-autoupdate instalado en ~/.local/bin${RESET}"
 fi
 
+# 4e. Instalar cast-helper (daemon Chromecast + cliente; lo usa la tarjeta «Chromecast» del panel rápido)
+if [ -f "$BASE_DIR/widgets/cast-helper" ]; then
+    mkdir -p "$HOME/.local/bin"
+    cp -u "$BASE_DIR/widgets/cast-helper" "$HOME/.local/bin/cast-helper"
+    chmod +x "$HOME/.local/bin/cast-helper"
+    echo -e "  ${SUCCESS}✔ cast-helper instalado en ~/.local/bin${RESET}"
+fi
+
 # 5. Instalar Spicetify Dynamic Material You Theme
 if [ "$SELECTED_SPICETIFY" = true ]; then
     echo -e "${PRIMARY}➔ Configurando Spicetify y tema Caelestia...${RESET}"
@@ -378,6 +387,10 @@ if [ "$SELECTED_RGB" = true ]; then
         systemctl --user enable --now $UNITS 2>/dev/null || true
         if [ -f "$BASE_DIR/widgets/spotify-autoupdate" ]; then
             systemctl --user enable spotify-autoupdate.service 2>/dev/null || true
+        fi
+        # cast-helper: daemon de usuario (solo se habilita; no se arranca en cada instalación)
+        if [ -f "$BASE_DIR/widgets/cast-helper" ] && [ -f "$BASE_DIR/systemd/cast-helper.service" ]; then
+            systemctl --user enable cast-helper.service 2>/dev/null || true
         fi
     fi
 
