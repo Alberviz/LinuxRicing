@@ -1,0 +1,233 @@
+#!/usr/bin/env python3
+"""
+drag-watch — vigilante global de «arrastre de archivo en curso» para los portales de Quickshell.
+
+Wayland no avisa de un drag-and-drop a quien no es origen ni destino, así que se deduce:
+botón izquierdo del ratón/touchpad mantenido + el cursor se aleja > UMBRAL px del punto de
+pulsación + (opcional) la ventana activa es un gestor de archivos o un navegador (evita falsos
+positivos al mover ventanas o seleccionar texto).
+
+Lee los eventos de botón directamente de /dev/input/event* (grupo `input`; no hace falta
+python-evdev) y la posición/ventana de Hyprland por su socket. Sirve un socket unix
+$XDG_RUNTIME_DIR/drag-watch.sock con un JSON por línea:
+    {"dragging": false}
+    {"dragging": true, "x": 1200, "y": 300}      # ~30 Hz, SOLO mientras dura el arrastre
+En reposo el proceso duerme bloqueado en select(): cero CPU, cero sondeo.
+
+Variables: DRAG_WATCH_THRESHOLD (px, 40), DRAG_WATCH_CLASSES (regex de class de ventana;
+vacío = cualquiera).
+Prueba:  drag-watch sim x y | drag-watch sim off   (emite estados falsos a los clientes).
+"""
+import glob
+import json
+import os
+import re
+import select
+import socket
+import struct
+import sys
+import time
+
+RUNTIME = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+SOCK = os.path.join(RUNTIME, "drag-watch.sock")
+THRESHOLD = float(os.environ.get("DRAG_WATCH_THRESHOLD", "40"))
+CLASSES = os.environ.get(
+    "DRAG_WATCH_CLASSES",
+    r"(?i)thunar|dolphin|nautilus|nemo|pcmanfm|caja|krusader|doublecmd|files|"
+    r"zen|firefox|chrom|brave|librewolf|vivaldi|floorp|waterfox",
+)
+CLASS_RE = re.compile(CLASSES) if CLASSES else None
+BTN_LEFT = 0x110
+EV_KEY = 1
+EVFMT = "llHHi"
+EVSIZE = struct.calcsize(EVFMT)
+TICK = 0.033
+
+
+def hypr(cmd):
+    sig = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE")
+    if not sig:
+        d = glob.glob(os.path.join(RUNTIME, "hypr", "*"))
+        if not d:
+            return None
+        sig = os.path.basename(max(d, key=os.path.getmtime))
+    path = os.path.join(RUNTIME, "hypr", sig, ".socket.sock")
+    s = socket.socket(socket.AF_UNIX)
+    s.settimeout(0.5)
+    try:
+        s.connect(path)
+        s.sendall(cmd.encode())
+        buf = b""
+        while True:
+            c = s.recv(65536)
+            if not c:
+                break
+            buf += c
+        return json.loads(buf)
+    except Exception:
+        return None
+    finally:
+        s.close()
+
+
+def cursor():
+    r = hypr("j/cursorpos")
+    return (float(r["x"]), float(r["y"])) if r else None
+
+
+def active_class():
+    r = hypr("j/activewindow")
+    return (r.get("class") or "") if isinstance(r, dict) else ""
+
+
+def has_btn_left(ev):
+    try:
+        words = open(f"/sys/class/input/{ev}/device/capabilities/key").read().split()
+        bits = int("".join(w.zfill(16) for w in words), 16) if words else 0
+        # Con words de 64 bit (unsigned long), el más significativo va primero.
+        return bool(bits >> BTN_LEFT & 1)
+    except Exception:
+        return False
+
+
+def open_pointers():
+    fds = {}
+    for p in sorted(glob.glob("/dev/input/event*")):
+        ev = os.path.basename(p)
+        if not has_btn_left(ev):
+            continue
+        try:
+            fds[os.open(p, os.O_RDONLY | os.O_NONBLOCK)] = ev
+        except OSError:
+            pass
+    return fds
+
+
+def send_cmd(args):
+    s = socket.socket(socket.AF_UNIX)
+    s.connect(SOCK + ".ctl")
+    s.sendall((json.dumps(args) + "\n").encode())
+    s.close()
+
+
+def daemon():
+    for p in (SOCK, SOCK + ".ctl"):
+        try:
+            os.unlink(p)
+        except FileNotFoundError:
+            pass
+    srv = socket.socket(socket.AF_UNIX)
+    srv.bind(SOCK)
+    srv.listen(8)
+    ctl = socket.socket(socket.AF_UNIX)
+    ctl.bind(SOCK + ".ctl")
+    ctl.listen(4)
+    clients = []
+    fds = open_pointers()
+    if not fds:
+        print("drag-watch: sin ratón legible (¿grupo input?)", file=sys.stderr)
+    state = {"dragging": False}
+    pressed = False
+    origin = None
+    sim = False
+
+    def publish(obj):
+        data = (json.dumps(obj) + "\n").encode()
+        for c in clients[:]:
+            try:
+                c.sendall(data)
+            except OSError:
+                clients.remove(c)
+                c.close()
+
+    def set_state(obj):
+        state.clear()
+        state.update(obj)
+        publish(obj)
+
+    while True:
+        dragging = state.get("dragging")
+        timeout = TICK if (pressed or dragging) and not sim else None
+        rl, _, _ = select.select([srv, ctl, *fds, *clients], [], [], timeout)
+        for r in rl:
+            if r is srv:
+                c, _ = srv.accept()
+                c.setblocking(True)
+                c.settimeout(0.2)
+                clients.append(c)
+                try:
+                    c.sendall((json.dumps(state) + "\n").encode())
+                except OSError:
+                    pass
+            elif r is ctl:
+                c, _ = ctl.accept()
+                try:
+                    msg = json.loads(c.recv(4096).decode().strip() or "{}")
+                except Exception:
+                    msg = {}
+                c.close()
+                if msg.get("sim") == "off":
+                    sim = False
+                    set_state({"dragging": False})
+                elif "x" in msg:
+                    sim = True
+                    set_state({"dragging": True, "x": msg["x"], "y": msg["y"]})
+            elif r in clients:
+                try:
+                    if not r.recv(64):
+                        raise OSError
+                except (OSError, socket.timeout):
+                    clients.remove(r)
+                    r.close()
+            else:
+                try:
+                    data = os.read(r, EVSIZE * 64)
+                except BlockingIOError:
+                    continue
+                except OSError:
+                    fds.pop(r, None)
+                    continue
+                for i in range(0, len(data) - EVSIZE + 1, EVSIZE):
+                    _, _, typ, code, val = struct.unpack(EVFMT, data[i:i + EVSIZE])
+                    if typ == EV_KEY and code == BTN_LEFT and not sim:
+                        if val == 1:
+                            pressed = True
+                            origin = cursor()
+                        elif val == 0:
+                            pressed = False
+                            origin = None
+                            if state.get("dragging"):
+                                set_state({"dragging": False})
+        if sim:
+            continue
+        if pressed and origin:
+            pos = cursor()
+            if pos:
+                if not state.get("dragging"):
+                    dx, dy = pos[0] - origin[0], pos[1] - origin[1]
+                    if (dx * dx + dy * dy) ** 0.5 > THRESHOLD and (
+                        CLASS_RE is None or CLASS_RE.search(active_class())
+                    ):
+                        set_state({"dragging": True, "x": pos[0], "y": pos[1]})
+                    elif (dx * dx + dy * dy) ** 0.5 > THRESHOLD:
+                        pressed = False  # arrastre de otra cosa: ignorar hasta soltar
+                else:
+                    set_state({"dragging": True, "x": pos[0], "y": pos[1]})
+
+
+def main():
+    a = sys.argv[1:]
+    if not a or a[0] == "daemon":
+        daemon()
+    elif a[0] == "sim":
+        if a[1:] == ["off"]:
+            send_cmd({"sim": "off"})
+        else:
+            send_cmd({"x": float(a[1]), "y": float(a[2])})
+    else:
+        print(__doc__)
+        sys.exit(2)
+
+
+if __name__ == "__main__":
+    main()

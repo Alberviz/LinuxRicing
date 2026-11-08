@@ -23,6 +23,8 @@
 #    rgb/sounds/*                    -> ~/.config/caelestia/sounds/  (paletas de notificación)
 #    rgb/{agent-notify,akko-rgb,battery-lighting,magichome-control,mchose-battery,
 #         mchose-lighting,rgb-notify-flash} -> ~/.local/bin/
+#    widgets/cast-helper            -> ~/.local/bin/  (daemon Chromecast; tarjeta del panel rápido)
+#    widgets/drag-watch             -> ~/.local/bin/  (vigilante de arrastres; portales de Quickshell, requiere grupo input)
 #    systemd/*.service              -> ~/.config/systemd/user/
 # ==============================================================================
 
@@ -303,6 +305,25 @@ if [ -f "$BASE_DIR/widgets/spotify-autoupdate" ]; then
     echo -e "  ${SUCCESS}✔ spotify-autoupdate instalado en ~/.local/bin${RESET}"
 fi
 
+# 4e. Instalar cast-helper (daemon Chromecast + cliente; lo usa la tarjeta «Chromecast» del panel rápido)
+if [ -f "$BASE_DIR/widgets/cast-helper" ]; then
+    mkdir -p "$HOME/.local/bin"
+    cp -u "$BASE_DIR/widgets/cast-helper" "$HOME/.local/bin/cast-helper"
+    chmod +x "$HOME/.local/bin/cast-helper"
+    echo -e "  ${SUCCESS}✔ cast-helper instalado en ~/.local/bin${RESET}"
+fi
+
+# 4f. Instalar drag-watch (detecta arrastres de archivos para los portales-agujero negro del shell)
+if [ -f "$BASE_DIR/widgets/drag-watch" ]; then
+    mkdir -p "$HOME/.local/bin"
+    cp -u "$BASE_DIR/widgets/drag-watch" "$HOME/.local/bin/drag-watch"
+    chmod +x "$HOME/.local/bin/drag-watch"
+    echo -e "  ${SUCCESS}✔ drag-watch instalado en ~/.local/bin${RESET}"
+    if ! id -nG | tr ' ' '\n' | grep -qx input; then
+        echo -e "  ${WARNING:-}⚠ drag-watch necesita el grupo 'input': sudo usermod -aG input \$USER (y reiniciar sesión)${RESET}"
+    fi
+fi
+
 # 5. Instalar Spicetify Dynamic Material You Theme
 if [ "$SELECTED_SPICETIFY" = true ]; then
     echo -e "${PRIMARY}➔ Configurando Spicetify y tema Caelestia...${RESET}"
@@ -378,6 +399,14 @@ if [ "$SELECTED_RGB" = true ]; then
         systemctl --user enable --now $UNITS 2>/dev/null || true
         if [ -f "$BASE_DIR/widgets/spotify-autoupdate" ]; then
             systemctl --user enable spotify-autoupdate.service 2>/dev/null || true
+        fi
+        # cast-helper: daemon de usuario (solo se habilita; no se arranca en cada instalación)
+        if [ -f "$BASE_DIR/widgets/cast-helper" ] && [ -f "$BASE_DIR/systemd/cast-helper.service" ]; then
+            systemctl --user enable cast-helper.service 2>/dev/null || true
+        fi
+        # drag-watch: sin él los portales de arrastre no aparecen
+        if [ -f "$BASE_DIR/widgets/drag-watch" ] && [ -f "$BASE_DIR/systemd/drag-watch.service" ]; then
+            systemctl --user enable --now drag-watch.service 2>/dev/null || true
         fi
     fi
 

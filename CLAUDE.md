@@ -67,7 +67,7 @@ El widget de escritorio (`Background.qml` y sus componentes `Desktop*`, `Deck*`,
 `configs/quickshell/caelestia/modules/background/`; ya no hay copia en `widgets/`.
 `install.sh` despliega toda esa carpeta. `widgets/` conserva únicamente los
 helpers ejecutables (`gtasks`, `desktop-deck-helper`, `display-selector`,
-`magichome-control`, `mchose-battery`).
+`magichome-control`, `mchose-battery`, `cast-helper` — ver `docs/CHROMECAST.md`).
 
 ## Reinicio obligatorio del Shell tras cambios en UI/Widgets
 

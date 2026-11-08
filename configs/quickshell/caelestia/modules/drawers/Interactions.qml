@@ -4,6 +4,7 @@ import Quickshell
 import Caelestia.Config
 import qs.components
 import qs.components.controls
+import qs.services
 import qs.modules.bar as Bar
 import qs.modules.bar.popouts as BarPopouts
 
@@ -75,7 +76,7 @@ CustomMouseArea {
             if (!dashboardShortcutActive)
                 screenState.dashboard = false;
 
-            if (!utilitiesShortcutActive)
+            if (!utilitiesShortcutActive && !Cast.picking)
                 screenState.utilities = false;
 
             if (!popouts.currentName.startsWith("traymenu") || ((popouts.current as StackView)?.depth ?? 0) <= 1) {
@@ -231,7 +232,7 @@ CustomMouseArea {
 
         // Always update visibility based on hover if not in shortcut mode
         if (!utilitiesShortcutActive) {
-            screenState.utilities = showUtilities;
+            screenState.utilities = showUtilities || Cast.picking;
         } else if (showUtilities) {
             // If hovering over utilities area while in shortcut mode, transition to hover control
             utilitiesShortcutActive = false;

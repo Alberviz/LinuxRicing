@@ -1,0 +1,14 @@
+[Unit]
+Description=Cast helper (Chromecast para el panel Quickshell)
+After=network-online.target graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/.local/bin/cast-helper daemon
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
