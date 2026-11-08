@@ -103,8 +103,22 @@ físicas de botón (el tap-to-drag del touchpad no genera BTN_LEFT en evdev); si
   fMP4 sin Content-Length, `stream_type=LIVE`). 1080p30 (si la salida es mayor se escala a 1920x1080), vídeo 6 Mbps, audio AAC 128k
   del monitor por defecto de PipeWire. `state.json`: `active.mode = "mirror"`, `active.monitor`, `active.audio`; y `monitors: [{name,width,height}]`.
   Notas: gpu-screen-recorder necesita la pantalla encendida (con DPMS apagado no lista ni captura monitores); cambiar el audio reinicia el flujo.
-- **Latencia:** formato fMP4 progresivo (el Default Media Receiver acepta LIVE con este contenedor). No se ha podido medir con
-  reloj en pantalla desde el PC; hay que mirar un cronómetro en pantalla vs. la tele (se espera ~3–5 s por el búfer del receptor).
+- **Latencia (medida con el estimador del helper):** `active.latency` = (tiempo desde el primer dato servido) − (posición que reporta el
+  receptor); con el perfil original dio 3,7 s y Alberto vio ~4 s a ojo, así que calibra bien. Perfiles (`mirror start --profile P`,
+  por defecto `hls`):
+
+  | perfil | qué es | latencia |
+  |---|---|---|
+  | `base` | fMP4, keyframe 1 s, fragmento por keyframe | 3,7 s |
+  | `ll` | keyframe 0,5 s, NVENC `tune=ull;zerolatency=1;rc-lookahead=0;bf=0`, `frag_every_frame` | 2,2 s |
+  | `ll200` | igual con fragmentos de 200 ms | 2,15 s |
+  | **`hls`** | HLS en tmpfs, segmentos de 0,5 s (lista de 4), mismo encoder | **1,5 s** |
+  | `hls25` | segmentos de 0,25 s | 2,3 s (peor: el receptor necesita más segmentos y arranca peor) |
+
+  Gana `hls`: el Default Media Receiver reproduce HLS en directo con búfer de ~3 segmentos de 0,5 s, menos que su búfer mínimo con
+  MP4 progresivo. Por debajo de ~1,5 s no se baja con este receptor; para eso hace falta Cast Streaming (fase 2).
+  Medida real a ojo: `cast-helper mirror test-latency` abre un cronómetro grande a pantalla completa; proyecta esa pantalla y
+  fotografía monitor y tele juntos (diferencia de tiempos = latencia).
 
 ## Cambiar subtítulos y audio en reproducción
 
