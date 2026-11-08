@@ -89,3 +89,37 @@ Al soltar, el archivo cae en espiral, se muestra «Enviando…» y luego el resu
 Requisitos y límites: usuario en el grupo `input` (lee `/dev/input/event*`); solo detecta pulsaciones
 físicas de botón (el tap-to-drag del touchpad no genera BTN_LEFT en evdev); sin hotplug de ratones
 (reiniciar el servicio). Prueba sin arrastrar: `drag-watch sim <x> <y>` / `drag-watch sim off`.
+
+## Proyectar la pantalla (Super+K) — modo espejo
+
+- **Atajo:** `Super+K` abre el panel «Proyectar» (abajo a la derecha): lista de Chromecasts, tocas uno y empieza a proyectar.
+  Con 2 monitores hay un selector de pantalla (se recuerda en `~/.config/caelestia/cast-last-monitor`). Proyectando:
+  «Proyectando en X», conmutador del audio del sistema y «Desconectar». Esc o clic fuera lo cierra.
+  El antiguo `Super+K` (mostrar todos los paneles, `caelestia:showall`) pasa a `Super+Shift+K`.
+  También: `qs -c caelestia ipc call castPanel toggle`. Mientras se emite hay un icono rojo `cast_connected` en la barra (privacidad).
+- **Backend:** `cast-helper mirror start [--device D] [--monitor M] [--no-audio]`, `mirror stop`, `mirror audio on|off`,
+  `mirror monitors`. Pipeline: `gpu-screen-recorder -w <salida> -k h264 -bm cbr -q 6000 -keyint 1 -c mpegts` (NVENC/VAAPI según GPU)
+  -> `ffmpeg -c copy -bsf:a aac_adtstoasc -f mp4 -movflags frag_keyframe+empty_moov+default_base_moof` -> HTTP del helper (`:45114`,
+  fMP4 sin Content-Length, `stream_type=LIVE`). 1080p30 (si la salida es mayor se escala a 1920x1080), vídeo 6 Mbps, audio AAC 128k
+  del monitor por defecto de PipeWire. `state.json`: `active.mode = "mirror"`, `active.monitor`, `active.audio`; y `monitors: [{name,width,height}]`.
+  Notas: gpu-screen-recorder necesita la pantalla encendida (con DPMS apagado no lista ni captura monitores); cambiar el audio reinicia el flujo.
+- **Latencia:** formato fMP4 progresivo (el Default Media Receiver acepta LIVE con este contenedor). No se ha podido medir con
+  reloj en pantalla desde el PC; hay que mirar un cronómetro en pantalla vs. la tele (se espera ~3–5 s por el búfer del receptor).
+
+## Cambiar subtítulos y audio en reproducción
+
+- Al hacer `cast` se cargan TODAS las pistas de texto (incrustadas -> VTT, externas `<base>*.srt|vtt`) como `MediaTrack`; solo se activa la elegida.
+  `cast-helper subs <n|off>` cambia la pista sin recargar (EDIT_TRACKS_INFO). `cast-helper audio <n>` recarga en la posición actual
+  (en transcode relanza ffmpeg con esa pista; en direct pasa a transcode si no es la primera).
+- Contrato en `state.json`, dentro de `active`:
+  `tracks: {subs:[{n,label,lang,forced}], audio:[{n,label,lang,codec,channels}], sub_active:n|null, audio_active:n}`
+  (`n` de subtítulos = índice de stream, o `1000+i` para externos; `n` de audio = índice de stream). `tracks` es `null` en `url` y `mirror`.
+- La tarjeta del panel rápido tiene un chip de subtítulos y otro de audio que abren un menú con las pistas + «Desactivados».
+
+## Agujero blanco (llegadas desde el móvil)
+
+El puente de Olimpo añade una línea JSON por archivo recibido a `$XDG_RUNTIME_DIR/olimpo-puente/llegadas.jsonl`
+(`{"ruta","nombre","tamano","mime","ts"}`). `modules/whitehole/WhiteHole.qml` lo vigila con `tail -n 0 -F` (cero coste en reposo): un agujero
+blanco aparece en el borde superior (shader `whitehole.frag`: núcleo incandescente, disco frío inclinado con Doppler, chorro relativista, onda),
+expulsa el archivo en arco y lo posa como tarjeta (miniatura real si es imagen). Clic: abrir; botón derecho: mostrar en carpeta;
+~8 s o hasta que el ratón se va. Ráfaga escalonada (máx. 5 tarjetas a la vez). Prueba: `qs -c caelestia ipc call whitehole demo <ruta>`.

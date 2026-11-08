@@ -10,6 +10,8 @@ import "modules/background"
 import "modules/background/solarsystem"
 import "modules/areapicker"
 import "modules/portals"
+import "modules/castpanel"
+import "modules/whitehole"
 import "modules/rgbcontrol"
 import "modules/rebootdialog"
 import "modules/projectdialog"
@@ -38,6 +40,8 @@ ShellRoot {
     Drawers {}
     AreaPicker {}
     Portals {}
+    CastPanel {}
+    WhiteHole {}
     RgbControl {}
     RebootDialog {}
     ProjectDialog {}

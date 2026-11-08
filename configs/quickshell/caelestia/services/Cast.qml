@@ -28,6 +28,8 @@ Singleton {
     readonly property bool hasActive: active !== null
     // El selector de archivos está abierto: el drawer de utilities no debe cerrarse.
     property bool picking: false
+    property var monitors: []
+    readonly property bool mirroring: active?.mode === "mirror"
     // Cuántas tarjetas están mirando; el sondeo solo corre si hay alguna.
     property int observers: 0
 
@@ -73,6 +75,29 @@ Singleton {
             return;
         }
         castTo(selectedDevice.uuid, target);
+    }
+
+    function mirrorStart(uuid: string, monitor: string, audio: bool): void {
+        cmdError = "";
+        const a = ["mirror", "start", "--device", uuid];
+        if (monitor)
+            a.push("--monitor", monitor);
+        if (!audio)
+            a.push("--no-audio");
+        run(a);
+    }
+    function mirrorAudio(on: bool): void {
+        run(["mirror", "audio", on ? "on" : "off"]);
+    }
+    function scanMonitors(): void {
+        run(["mirror", "monitors"]);
+    }
+
+    function setSub(n: int): void {
+        run(["subs", n < 0 ? "off" : String(n)]);
+    }
+    function setAudioTrack(n: int): void {
+        run(["audio", String(n)]);
     }
 
     function toggle(): void {
@@ -152,6 +177,7 @@ Singleton {
                 root.devices = d.devices ?? [];
                 root.active = d.active ?? null;
                 root.error = d.error ?? "";
+                root.monitors = d.monitors ?? [];
             } catch (e) {}
         }
         onLoadFailed: {
