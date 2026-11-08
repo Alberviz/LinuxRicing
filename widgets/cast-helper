@@ -1,0 +1,1616 @@
+#!/usr/bin/env python3
+"""
+cast-helper: puente entre el panel Quickshell y un Chromecast.
+
+  cast-helper daemon              proceso largo (systemd --user), socket unix + state.json + MPRIS
+  cast-helper <cmd> ...           cliente: manda la orden al daemon e imprime la respuesta JSON
+
+Comandos: devices, probe <ruta>, cast <uuid|nombre> <ruta-o-url> [--audio N]
+[--sub N | --sub-file RUTA | --no-subs] [--start S] [--title T], play, pause,
+toggle, stop, seek <seg>, volume <0-100>, mute.
+
+Contrato completo: ver el encargo del panel de Chromecast (state.json, reglas
+de reproduccion direct/transcode, MPRIS).
+"""
+
+import argparse
+import glob
+import hashlib
+import http.server
+import json
+import logging
+import os
+import re
+import secrets
+import signal
+import socket
+import socketserver
+import subprocess
+import sys
+import threading
+import time
+import urllib.parse
+
+# ── rutas ────────────────────────────────────────────────────────────────────
+RUNTIME = os.environ.get("XDG_RUNTIME_DIR") or "/tmp"
+SOCK_PATH = os.path.join(RUNTIME, "cast-helper.sock")
+WORK_DIR = os.path.join(RUNTIME, "cast-helper")
+STATE_PATH = os.path.join(WORK_DIR, "state.json")
+CACHE_PATH = os.path.expanduser("~/.cache/cast-helper/devices.json")
+DEFAULT_PORT = 45114
+APP_MEDIA_RECEIVER = "CC1AD845"
+IDLE_APP_ID = "E8C28D3C"
+
+log = logging.getLogger("cast-helper")
+
+DIRECT_CONTAINER_EXT = {".mp4", ".m4v", ".webm"}
+DIRECT_VIDEO = {"h264", "hevc", "vp9"}
+DIRECT_AUDIO = {"aac", "mp3", "opus", "vorbis"}
+TEXT_SUBS = {"subrip", "srt", "ass", "ssa", "mov_text", "webvtt", "text"}
+LANG_NAMES = {
+    "spa": "Español", "es": "Español", "esp": "Español", "lat": "Español",
+    "eng": "English", "en": "English", "fre": "Français", "fra": "Français",
+    "fr": "Français", "ger": "Deutsch", "deu": "Deutsch", "de": "Deutsch",
+    "ita": "Italiano", "it": "Italiano", "por": "Português", "pt": "Português",
+    "jpn": "日本語", "ja": "日本語", "rus": "Русский", "ru": "Русский",
+    "cat": "Català", "ca": "Català",
+}
+
+
+# ── importar pychromecast (no esta en el python del sistema) ─────────────────
+def _import_cast_libs():
+    try:
+        import pychromecast  # noqa: F401
+        return
+    except ImportError:
+        pass
+    pats = os.path.expanduser("~/.local/share/uv/tools/catt/lib/python3.*/site-packages")
+    for p in sorted(glob.glob(pats), reverse=True):
+        if p not in sys.path:
+            sys.path.append(p)
+    import pychromecast  # noqa: F401
+
+
+# ── utilidades ───────────────────────────────────────────────────────────────
+def ensure_dirs():
+    os.makedirs(WORK_DIR, exist_ok=True)
+    os.makedirs(os.path.dirname(CACHE_PATH), exist_ok=True)
+
+
+def atomic_write(path, text):
+    tmp = f"{path}.tmp{os.getpid()}"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(tmp, path)
+
+
+def clean_title(path_or_name):
+    name = os.path.splitext(os.path.basename(path_or_name))[0]
+    m = re.search(r"\s*[\(\[]", name)
+    if m and m.start() > 0:
+        name = name[: m.start()]
+    return name.strip(" ._-") or os.path.basename(path_or_name)
+
+
+def lang_label(lang, title="", forced=False):
+    lang = (lang or "").lower()
+    base = LANG_NAMES.get(lang) or LANG_NAMES.get(lang[:2]) or (lang.upper() if lang else "")
+    label = base or (title or "Subtítulos")
+    if forced:
+        label += " (forzados)"
+    elif title and base and title.lower() not in label.lower():
+        label += f" ({title})"
+    return label
+
+
+def is_spanish(lang):
+    lang = (lang or "").lower()
+    return lang in ("spa", "es", "esp", "lat") or lang.startswith("es-") or lang.startswith("spa")
+
+
+def local_ip_for(host):
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect((host, 8009))
+        return s.getsockname()[0]
+    finally:
+        s.close()
+
+
+def fmt_dur(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+# ── probe ────────────────────────────────────────────────────────────────────
+def find_external_subs(path):
+    d = os.path.dirname(os.path.abspath(path))
+    stem = os.path.splitext(os.path.basename(path))[0]
+    title = clean_title(path)
+    prefixes = {stem.lower(), title.lower()}
+    if title.split():
+        prefixes.add(title.split()[0].lower())
+    prefixes = {p for p in prefixes if p}
+    out = []
+    try:
+        names = sorted(os.listdir(d))
+    except OSError:
+        return out
+    for n in names:
+        ext = os.path.splitext(n)[1].lower()
+        if ext not in (".srt", ".vtt"):
+            continue
+        if any(n.lower().startswith(p) for p in prefixes):
+            out.append(os.path.join(d, n))
+    return out
+
+
+def ext_sub_info(path):
+    n = os.path.basename(path).lower()
+    forced = bool(re.search(r"forz|forced", n))
+    lang = ""
+    for tok in re.split(r"[\.\-_ \[\]\(\)]+", n):
+        if tok in LANG_NAMES:
+            lang = tok
+            break
+    if not lang and forced:
+        lang = "spa"
+    return {"path": path, "lang": lang, "forced": forced}
+
+
+def probe_file(path):
+    if not os.path.isfile(path):
+        raise ValueError(f"no existe el archivo: {path}")
+    r = subprocess.run(
+        ["ffprobe", "-v", "error", "-print_format", "json", "-show_format", "-show_streams", path],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        raise ValueError("ffprobe falló: " + (r.stderr.strip().splitlines() or ["?"])[-1])
+    data = json.loads(r.stdout)
+    video, audio, subs = None, [], []
+    for s in data.get("streams", []):
+        t = s.get("codec_type")
+        tags = {k.lower(): v for k, v in (s.get("tags") or {}).items()}
+        disp = s.get("disposition") or {}
+        if t == "video" and not disp.get("attached_pic") and video is None:
+            video = {
+                "index": s["index"], "codec": s.get("codec_name"),
+                "width": s.get("width"), "height": s.get("height"),
+                "pix_fmt": s.get("pix_fmt"),
+            }
+        elif t == "audio":
+            audio.append({
+                "index": s["index"], "codec": s.get("codec_name"),
+                "channels": s.get("channels"), "lang": tags.get("language", ""),
+                "title": tags.get("title", ""),
+            })
+        elif t == "subtitle":
+            title = tags.get("title", "")
+            subs.append({
+                "index": s["index"], "codec": s.get("codec_name"),
+                "lang": tags.get("language", ""), "title": title,
+                "forced": bool(disp.get("forced")) or bool(re.search(r"forz|forced", title, re.I)),
+                "text": s.get("codec_name") in TEXT_SUBS,
+            })
+    if video is None:
+        raise ValueError("el archivo no tiene pista de vídeo")
+    fmt = data.get("format", {})
+    ext_paths = find_external_subs(path)
+    return {
+        "duration": fmt_dur(fmt.get("duration")),
+        "format": fmt.get("format_name", ""),
+        "video": video, "audio": audio, "subs": subs,
+        "external_subs": ext_paths,
+        "external_subs_info": [ext_sub_info(p) for p in ext_paths],
+    }
+
+
+def default_audio(audio):
+    for a in audio:
+        if is_spanish(a["lang"]):
+            return a
+    return audio[0] if audio else None
+
+
+def plan_playback(path, info, audio_index=None):
+    """Devuelve (mode, reason, error). error != None => no reproducible."""
+    v = info["video"]
+    if v["codec"] not in DIRECT_VIDEO:
+        return "transcode", f"vídeo {v['codec']}", \
+            f"vídeo {v['codec']} no soportado por el Chromecast (solo h264/hevc/vp9) y no se transcodifica el vídeo"
+    ext = os.path.splitext(path)[1].lower()
+    fmt = info["format"]
+    container_ok = ext in DIRECT_CONTAINER_EXT and ("mp4" in fmt or "webm" in fmt)
+    if not info["audio"]:
+        return ("direct" if container_ok else "transcode"), "sin audio", None
+    chosen = None
+    for a in info["audio"]:
+        if a["index"] == audio_index:
+            chosen = a
+    if chosen is None:
+        if audio_index is not None:
+            return "transcode", "", f"pista de audio {audio_index} inexistente"
+        chosen = default_audio(info["audio"])
+    first = info["audio"][0]
+    reasons = []
+    if not container_ok:
+        reasons.append(f"contenedor {ext or fmt} no reproducible directamente")
+    if chosen["codec"] not in DIRECT_AUDIO:
+        reasons.append(f"audio {chosen['codec']} no soportado")
+    if chosen["index"] != first["index"]:
+        reasons.append("audio no es la primera pista")
+    if reasons:
+        return "transcode", "; ".join(reasons), None
+    return "direct", f"{ext.lstrip('.')} {v['codec']}+{chosen['codec']}: compatible", None
+
+
+# ── subtitulos ───────────────────────────────────────────────────────────────
+def decode_text(b):
+    for enc in ("utf-8-sig", "cp1252", "latin-1"):
+        try:
+            return b.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return b.decode("utf-8", "replace")
+
+
+_TS = re.compile(r"(\d+):(\d\d):(\d\d)[\.,](\d{1,3})")
+_CUE = re.compile(r"^(\S+)\s+-->\s+(\S+)(.*)$")
+
+
+def _ts_to_s(m):
+    return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + int(m.group(3)) + int(m.group(4).ljust(3, "0")) / 1000
+
+
+def _s_to_ts(s):
+    s = max(0.0, s)
+    ms = int(round(s * 1000))
+    return f"{ms // 3600000:02d}:{ms // 60000 % 60:02d}:{ms // 1000 % 60:02d}.{ms % 1000:03d}"
+
+
+def srt_to_vtt(text):
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"(\d{2}:\d{2}:\d{2}),(\d{3})", r"\1.\2", text)
+    return "WEBVTT\n\n" + text.lstrip("\n")
+
+
+def shift_vtt(vtt, offset):
+    """Resta `offset` s a todas las marcas de tiempo, descartando cues ya pasadas."""
+    if offset <= 0:
+        return vtt
+    out = ["WEBVTT", ""]
+    blocks = re.split(r"\n\s*\n", vtt.replace("\r\n", "\n").strip("\n"))
+    for b in blocks:
+        lines = b.split("\n")
+        ci = next((i for i, l in enumerate(lines) if "-->" in l), None)
+        if ci is None:
+            continue
+        m = _CUE.match(lines[ci].strip())
+        if not m:
+            continue
+        a, z = _TS.fullmatch(m.group(1)), _TS.fullmatch(m.group(2))
+        if not a or not z:
+            # marcas mm:ss.mmm (sin horas)
+            continue
+        start, end = _ts_to_s(a) - offset, _ts_to_s(z) - offset
+        if end <= 0:
+            continue
+        lines[ci] = f"{_s_to_ts(start)} --> {_s_to_ts(end)}{m.group(3)}"
+        out.append("\n".join(lines))
+        out.append("")
+    return "\n".join(out) + "\n"
+
+
+def normalize_vtt_times(vtt):
+    """Asegura marcas HH:MM:SS.mmm (algunos VTT usan MM:SS.mmm)."""
+    def fix(m):
+        return m.group(0) if m.group(0).count(":") == 2 else "00:" + m.group(0)
+    return re.sub(r"(?<![\d:])\d{1,2}:\d\d(?::\d\d)?\.\d{3}", fix, vtt)
+
+
+def load_full_vtt(kind, ref, cache_key):
+    """Devuelve el VTT completo (str) de una pista incrustada o archivo externo."""
+    if kind == "file":
+        raw = decode_text(open(ref, "rb").read())
+        if ref.lower().endswith(".vtt") or raw.lstrip().startswith("WEBVTT"):
+            vtt = raw.replace("\r\n", "\n")
+            if not vtt.lstrip().startswith("WEBVTT"):
+                vtt = "WEBVTT\n\n" + vtt
+        else:
+            vtt = srt_to_vtt(raw)
+        return normalize_vtt_times(vtt)
+    # incrustada: ffmpeg lee todo el contenedor una vez; cacheamos el resultado
+    path, idx = ref
+    st = os.stat(path)
+    key = hashlib.sha1(f"{path}|{st.st_mtime_ns}|{idx}".encode()).hexdigest()[:16]
+    cache = os.path.join(WORK_DIR, f"subcache-{key}.vtt")
+    if os.path.isfile(cache):
+        return open(cache, encoding="utf-8").read()
+    tmp = cache + ".part"
+    r = subprocess.run(
+        ["ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-i", path, "-map", f"0:{idx}",
+         "-c:s", "webvtt", "-f", "webvtt", tmp],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        raise RuntimeError("no se pudo extraer el subtítulo: " + r.stderr.strip()[-200:])
+    os.replace(tmp, cache)
+    return open(cache, encoding="utf-8").read()
+
+
+# ── servidor HTTP ────────────────────────────────────────────────────────────
+class Route:
+    """Un recurso servido: direct (archivo), transcode (ffmpeg en vivo) o sub (VTT)."""
+
+    def __init__(self, kind, path, mime, info=None, audio=None):
+        self.kind = kind
+        self.path = path
+        self.mime = mime
+        self.info = info
+        self.audio = audio
+        self.offset = 0.0
+        self.proc = None
+        self.lock = threading.Lock()
+
+
+def build_ffmpeg_cmd(path, info, audio_index, start):
+    v = info["video"]
+    cmd = ["ffmpeg", "-nostdin", "-loglevel", "error"]
+    if start and start > 0:
+        cmd += ["-ss", f"{start:.3f}"]
+    cmd += ["-i", path, "-map", f"0:{v['index']}"]
+    if audio_index is not None:
+        cmd += ["-map", f"0:{audio_index}"]
+    cmd += ["-c:v", "copy"]
+    if v["codec"] == "hevc":
+        cmd += ["-tag:v", "hvc1"]
+    if audio_index is not None:
+        a = next(x for x in info["audio"] if x["index"] == audio_index)
+        if a["codec"] == "aac":
+            cmd += ["-c:a", "copy"]
+        else:
+            cmd += ["-c:a", "aac", "-ac", "2", "-b:a", "256k"]
+    cmd += ["-sn", "-dn", "-map_chapters", "-1", "-avoid_negative_ts", "make_zero", "-f", "mp4",
+            "-movflags", "frag_keyframe+empty_moov+default_base_moof", "pipe:1"]
+    return cmd
+
+
+def kill_proc(p):
+    if p and p.poll() is None:
+        try:
+            p.terminate()
+            try:
+                p.wait(2)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                p.wait(2)
+        except Exception:
+            pass
+
+
+class MediaServer:
+    def __init__(self, port):
+        self.port = port
+        self.routes = {}
+        self.httpd = None
+        self.thread = None
+
+    def start(self):
+        if self.httpd:
+            return
+        routes = self.routes
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.0"  # sin Content-Length => cierre al terminar
+
+            def log_message(self, fmt, *args):
+                log.debug("http %s " + fmt, self.address_string(), *args)
+
+            def _route(self):
+                p = urllib.parse.urlparse(self.path).path
+                name = p.rsplit("/", 1)[-1]
+                return routes.get(name)
+
+            def _cors(self):
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Access-Control-Allow-Headers", "Range, Content-Type")
+                self.send_header("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges")
+
+            def do_OPTIONS(self):
+                self.send_response(204)
+                self._cors()
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def do_HEAD(self):
+                self._serve(head=True)
+
+            def do_GET(self):
+                self._serve(head=False)
+
+            def _serve(self, head):
+                rt = self._route()
+                if rt is None:
+                    self.send_error(404)
+                    return
+                try:
+                    if rt.kind == "direct":
+                        self._serve_file(rt, head)
+                    elif rt.kind == "sub":
+                        self._serve_bytes(rt, head)
+                    else:
+                        self._serve_transcode(rt, head)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+
+            def _serve_bytes(self, rt, head):
+                data = open(rt.path, "rb").read()
+                self.send_response(200)
+                self.send_header("Content-Type", rt.mime)
+                self.send_header("Content-Length", str(len(data)))
+                self._cors()
+                self.end_headers()
+                if not head:
+                    self.wfile.write(data)
+
+            def _serve_file(self, rt, head):
+                size = os.path.getsize(rt.path)
+                start, end, code = 0, size - 1, 200
+                rng = self.headers.get("Range")
+                if rng:
+                    m = re.match(r"bytes=(\d*)-(\d*)", rng.strip())
+                    if m and (m.group(1) or m.group(2)):
+                        if m.group(1):
+                            start = int(m.group(1))
+                            if m.group(2):
+                                end = min(int(m.group(2)), size - 1)
+                        else:
+                            start = max(0, size - int(m.group(2)))
+                        if start >= size:
+                            self.send_response(416)
+                            self.send_header("Content-Range", f"bytes */{size}")
+                            self._cors()
+                            self.end_headers()
+                            return
+                        code = 206
+                length = end - start + 1
+                self.send_response(code)
+                self.send_header("Content-Type", rt.mime)
+                self.send_header("Accept-Ranges", "bytes")
+                self.send_header("Content-Length", str(length))
+                if code == 206:
+                    self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+                self._cors()
+                self.end_headers()
+                if head:
+                    return
+                with open(rt.path, "rb") as f:
+                    f.seek(start)
+                    left = length
+                    while left > 0:
+                        chunk = f.read(min(262144, left))
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        left -= len(chunk)
+
+            def _serve_transcode(self, rt, head):
+                self.send_response(200)
+                self.send_header("Content-Type", "video/mp4")
+                self.send_header("Cache-Control", "no-store")
+                self._cors()
+                self.end_headers()
+                if head:
+                    return
+                with rt.lock:
+                    kill_proc(rt.proc)  # una sola conexión viva por ruta
+                    cmd = build_ffmpeg_cmd(rt.path, rt.info, rt.audio, rt.offset)
+                    log.info("ffmpeg: %s", " ".join(cmd))
+                    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    rt.proc = proc
+                try:
+                    while True:
+                        chunk = proc.stdout.read(65536)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        self.wfile.flush()
+                finally:
+                    kill_proc(proc)
+                    err = proc.stderr.read().decode(errors="replace").strip() if proc.stderr else ""
+                    if err:
+                        log.warning("ffmpeg stderr: %s", err[-300:])
+
+        class Server(http.server.ThreadingHTTPServer):
+            allow_reuse_address = True
+            daemon_threads = True
+
+        try:
+            self.httpd = Server(("0.0.0.0", self.port), Handler)
+        except OSError as e:
+            self.httpd = None
+            raise RuntimeError(f"puerto {self.port} ocupado (¿otro catt sirviendo?): {e.strerror}")
+        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+        self.thread.start()
+
+    def add(self, name, route):
+        self.routes[name] = route
+
+    def remove(self, name):
+        rt = self.routes.pop(name, None)
+        if rt is not None and rt.kind == "transcode":
+            kill_proc(rt.proc)
+
+
+def port_from_env():
+    try:
+        return int(os.environ.get("CAST_HELPER_PORT", DEFAULT_PORT))
+    except ValueError:
+        return DEFAULT_PORT
+
+
+# ── sesion de reproduccion ───────────────────────────────────────────────────
+class Session:
+    _counter = 0
+
+    def __init__(self, daemon, dev, source, mode, title):
+        Session._counter += 1
+        self.n = Session._counter
+        self.daemon = daemon
+        self.dev = dev
+        self.source = source
+        self.mode = mode
+        self.title = title
+        self.token = secrets.token_hex(6)
+        self.state = "BUFFERING"
+        self.duration = 0.0
+        self.volume = 0
+        self.muted = False
+        self.subs_label = None
+        self.preparing = True
+        self.offset = 0.0
+        self.status = None
+        self.cast = None
+        self.seen_active = False
+        self.reloading = False
+        self.loaded = False
+        self.dead = False
+        self.route = None
+        self.sub_names = []
+        self.art_path = None
+        self.reload_n = 0
+        self.info = None
+        self.audio_index = None
+        self.sub_vtt = None
+        self.sub_lang = "es"
+        self.ip = None
+        self.fake = False
+
+    # -- estado --
+    def position(self):
+        if self.status is None:
+            return self.offset
+        try:
+            cur = self.status.adjusted_current_time if self.state == "PLAYING" else self.status.current_time
+        except Exception:
+            cur = 0.0
+        pos = self.offset + (cur or 0.0)
+        if self.duration:
+            pos = min(pos, self.duration)
+        return max(0.0, pos)
+
+    def as_dict(self):
+        return {
+            "device_uuid": self.dev["uuid"], "device_name": self.dev["name"],
+            "title": self.title, "source": self.source, "mode": self.mode,
+            "state": self.state, "position": round(self.position(), 1),
+            "duration": round(self.duration, 1), "volume": self.volume,
+            "muted": self.muted, "subs": self.subs_label, "preparing": self.preparing,
+        }
+
+    # -- carga --
+    def run_load(self, start, sub_spec):
+        try:
+            if self.mode == "url":
+                self._connect()
+                self._load_url()
+            else:
+                self._prepare_subs(sub_spec)
+                self._extract_art()
+                self._connect()
+                self._load(start)
+            self.preparing = False
+            self.loaded = True
+        except Exception as e:  # noqa: BLE001
+            log.exception("fallo al preparar/cargar")
+            self.daemon.fail(self, f"No se pudo reproducir: {e}")
+            return
+        self.daemon.publish()
+
+    def _connect(self):
+        self.cast = self.daemon.get_cast(self.dev)
+        self.cast_listener = _CastListener(self)
+        self.cast.media_controller.register_status_listener(self.cast_listener)
+        self.cast.register_status_listener(self.cast_listener)
+        st = self.cast.status
+        if st:
+            self.volume = round(st.volume_level * 100)
+            self.muted = bool(st.volume_muted)
+        self.ip = local_ip_for(self.dev["host"])
+
+    def _prepare_subs(self, spec):
+        """spec: ('none',) | ('embedded', idx, meta) | ('file', path, meta)"""
+        self.sub_vtt = None
+        self.subs_label = None
+        if not spec or spec[0] == "none":
+            return
+        if spec[0] == "embedded":
+            full = load_full_vtt("emb", (self.source, spec[1]), None)
+        else:
+            full = load_full_vtt("file", spec[1], None)
+        self.sub_vtt = full
+        meta = spec[2]
+        self.subs_label = lang_label(meta.get("lang"), meta.get("title", ""), meta.get("forced", False))
+        lg = meta.get("lang") or "es"
+        self.sub_lang = "es" if is_spanish(lg) else (lg if lg else "und")
+
+    def _extract_art(self):
+        if not self.info or self.daemon.no_art:
+            return
+        try:
+            at = max(1.0, self.duration * 0.1)
+            out = os.path.join(WORK_DIR, f"art-{self.n}.jpg")
+            r = subprocess.run(
+                ["ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-ss", f"{at:.1f}", "-i", self.source,
+                 "-map", f"0:{self.info['video']['index']}", "-frames:v", "1", "-vf", "scale=480:-2", out],
+                capture_output=True, timeout=30,
+            )
+            if r.returncode == 0 and os.path.isfile(out):
+                self.art_path = out
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _write_sub_for(self, offset):
+        if self.sub_vtt is None:
+            return None
+        name = f"{self.token}-s{self.reload_n}.vtt"
+        path = os.path.join(WORK_DIR, name)
+        atomic_write(path, shift_vtt(self.sub_vtt, offset))
+        self.daemon.server.add(name, Route("sub", path, "text/vtt; charset=utf-8"))
+        self.sub_names.append(name)
+        return name
+
+    def _load(self, start):
+        d = self.daemon
+        self.reload_n += 1
+        self.offset = float(start) if self.mode == "transcode" else 0.0
+        mc_start = 0.0 if self.mode == "transcode" else float(start)
+        mname = f"{self.token}-m{self.reload_n}.mp4"
+        if self.mode == "direct":
+            mime = "video/webm" if self.source.lower().endswith(".webm") else "video/mp4"
+            rt = Route("direct", self.source, mime)
+        else:
+            rt = Route("transcode", self.source, "video/mp4", info=self.info, audio=self.audio_index)
+            rt.offset = self.offset
+        if self.route is not None:
+            for k, v in list(d.server.routes.items()):
+                if v is self.route:
+                    d.server.remove(k)
+        d.server.add(mname, rt)
+        self.route = rt
+        sub_name = self._write_sub_for(self.offset)
+        base = f"http://{self.ip}:{d.server.port}"
+        kw = {}
+        if sub_name:
+            kw = dict(subtitles=f"{base}/{sub_name}", subtitles_lang=self.sub_lang,
+                      subtitles_mime="text/vtt", subtitle_id=1)
+        cast = self.cast
+        if cast.app_id != APP_MEDIA_RECEIVER:
+            cast.start_app(APP_MEDIA_RECEIVER)
+        mc = cast.media_controller
+        self.reloading = True
+        try:
+            mc.play_media(
+                f"{base}/{mname}", rt.mime if self.mode == "direct" else "video/mp4",
+                title=self.title, current_time=mc_start, autoplay=True,
+                stream_type="BUFFERED" if self.mode == "direct" else "LIVE", **kw,
+            )
+            mc.block_until_active(timeout=15)
+        finally:
+            self.reloading = False
+
+    def _load_url(self):
+        from catt.api import CattDevice  # type: ignore
+        dev = CattDevice(ip_addr=self.dev["host"])
+        dev.play_url(self.source, resolve=True)
+        self.cast.media_controller.update_status()
+
+    # -- controles --
+    def _need_cast(self):
+        if self.cast is None or not self.loaded:
+            raise RuntimeError("la reproducción todavía se está preparando")
+        return self.cast
+
+    def play(self):
+        self._need_cast().media_controller.play()
+
+    def pause(self):
+        self._need_cast().media_controller.pause()
+
+    def toggle(self):
+        if self.state == "PLAYING":
+            self.pause()
+        else:
+            self.play()
+
+    def seek(self, pos):
+        cast = self._need_cast()
+        pos = max(0.0, float(pos))
+        if self.duration:
+            pos = min(pos, max(0.0, self.duration - 1))
+        if self.mode == "transcode":
+            self._load(pos)
+        else:
+            cast.media_controller.seek(pos)
+        self.daemon.mpris_seeked(pos)
+
+    def set_volume(self, v):
+        v = max(0, min(100, int(v)))
+        self._need_cast().set_volume(v / 100.0)
+        self.volume = v
+
+    def mute(self):
+        cast = self._need_cast()
+        cast.set_volume_muted(not self.muted)
+
+    def stop(self):
+        cast = self.cast
+        if cast is not None:
+            try:
+                cast.media_controller.stop()
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                cast.quit_app()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def cleanup(self):
+        """Limpia rutas/ficheros (no toca el Chromecast)."""
+        self.dead = True
+        srv = self.daemon.server
+        for k, v in list(srv.routes.items()):
+            if v is self.route or k in self.sub_names:
+                srv.remove(k)
+        for n in self.sub_names:
+            try:
+                os.unlink(os.path.join(WORK_DIR, n))
+            except OSError:
+                pass
+        if self.art_path:
+            try:
+                os.unlink(self.art_path)
+            except OSError:
+                pass
+        if self.cast is not None:
+            try:
+                self.cast.media_controller._status_listeners.remove(self.cast_listener)
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                self.cast.socket_client.receiver_controller._status_listeners.remove(self.cast_listener)
+            except Exception:  # noqa: BLE001
+                pass
+
+
+class _CastListener:
+    """Escucha estado de media y del receptor (volumen/app) de una sesion."""
+
+    def __init__(self, sess):
+        self.s = sess
+
+    # media
+    def new_media_status(self, st):
+        s = self.s
+        if s.dead or s.reloading:
+            return
+        ps = st.player_state
+        if ps == "IDLE":
+            if not s.seen_active:
+                return
+            reason = st.idle_reason
+            err = "El Chromecast encontró un error al reproducir" if reason == "ERROR" else None
+            s.daemon.end_session(s, error=err)
+            return
+        if ps == "UNKNOWN":
+            return
+        s.seen_active = True
+        s.status = st
+        s.state = ps
+        if s.mode != "transcode" and st.duration:
+            s.duration = float(st.duration)
+        if s.mode == "url":
+            md = st.media_metadata or {}
+            if md.get("title"):
+                s.title = md["title"]
+            if st.duration:
+                s.duration = float(st.duration)
+        s.volume = round(st.volume_level * 100)
+        s.muted = bool(st.volume_muted)
+        s.daemon.publish()
+
+    def load_media_failed(self, queue_item_id, error_code):
+        s = self.s
+        if not s.dead:
+            s.daemon.fail(s, f"El Chromecast no pudo cargar el medio (código {error_code})")
+
+    # receptor
+    def new_cast_status(self, status):
+        s = self.s
+        if s.dead or not status:
+            return
+        s.volume = round(status.volume_level * 100)
+        s.muted = bool(status.volume_muted)
+        if s.loaded and not s.reloading and status.app_id != APP_MEDIA_RECEIVER:
+            s.daemon.end_session(s, error=None)
+            return
+        s.daemon.publish()
+
+
+class FakeSession(Session):
+    """Sesion ficticia (pruebas): no toca ningun Chromecast."""
+
+    def __init__(self, daemon):
+        dev = {"uuid": "fake-0000", "name": "Prueba", "model": "Fake", "host": "127.0.0.1"}
+        super().__init__(daemon, dev, "/fake/pelicula.mkv", "transcode", "Película de prueba")
+        self.fake = True
+        self.state = "PAUSED"
+        self.duration = 600.0
+        self.volume = 40
+        self.preparing = False
+        self.loaded = True
+        self._pos = 12.0
+        self._t = time.time()
+
+    def position(self):
+        if self.state == "PLAYING":
+            now = time.time()
+            self._pos = min(self.duration, self._pos + now - self._t)
+            self._t = now
+        else:
+            self._t = time.time()
+        return self._pos
+
+    def _set(self, state):
+        self.position()
+        self.state = state
+        self.daemon.publish()
+
+    def play(self):
+        self._set("PLAYING")
+
+    def pause(self):
+        self._set("PAUSED")
+
+    def seek(self, pos):
+        self._pos = max(0.0, min(self.duration, float(pos)))
+        self._t = time.time()
+        self.daemon.publish()
+        self.daemon.mpris_seeked(self._pos)
+
+    def set_volume(self, v):
+        self.volume = max(0, min(100, int(v)))
+        self.daemon.publish()
+
+    def mute(self):
+        self.muted = not self.muted
+        self.daemon.publish()
+
+    def stop(self):
+        pass
+
+
+# ── MPRIS ────────────────────────────────────────────────────────────────────
+MPRIS_XML = """
+<node>
+ <interface name="org.mpris.MediaPlayer2">
+  <method name="Raise"/><method name="Quit"/>
+  <property name="CanQuit" type="b" access="read"/>
+  <property name="CanRaise" type="b" access="read"/>
+  <property name="HasTrackList" type="b" access="read"/>
+  <property name="Identity" type="s" access="read"/>
+  <property name="SupportedUriSchemes" type="as" access="read"/>
+  <property name="SupportedMimeTypes" type="as" access="read"/>
+ </interface>
+ <interface name="org.mpris.MediaPlayer2.Player">
+  <method name="Next"/><method name="Previous"/><method name="Pause"/>
+  <method name="PlayPause"/><method name="Stop"/><method name="Play"/>
+  <method name="Seek"><arg direction="in" type="x" name="Offset"/></method>
+  <method name="SetPosition">
+   <arg direction="in" type="o" name="TrackId"/><arg direction="in" type="x" name="Position"/>
+  </method>
+  <method name="OpenUri"><arg direction="in" type="s" name="Uri"/></method>
+  <signal name="Seeked"><arg type="x" name="Position"/></signal>
+  <property name="PlaybackStatus" type="s" access="read"/>
+  <property name="LoopStatus" type="s" access="read"/>
+  <property name="Rate" type="d" access="read"/>
+  <property name="Shuffle" type="b" access="read"/>
+  <property name="Metadata" type="a{sv}" access="read"/>
+  <property name="Volume" type="d" access="readwrite"/>
+  <property name="Position" type="x" access="read"/>
+  <property name="MinimumRate" type="d" access="read"/>
+  <property name="MaximumRate" type="d" access="read"/>
+  <property name="CanGoNext" type="b" access="read"/>
+  <property name="CanGoPrevious" type="b" access="read"/>
+  <property name="CanPlay" type="b" access="read"/>
+  <property name="CanPause" type="b" access="read"/>
+  <property name="CanSeek" type="b" access="read"/>
+  <property name="CanControl" type="b" access="read"/>
+ </interface>
+</node>
+"""
+MPRIS_NAME = "org.mpris.MediaPlayer2.casthelper"
+MPRIS_PATH = "/org/mpris/MediaPlayer2"
+IFACE_ROOT = "org.mpris.MediaPlayer2"
+IFACE_PLAYER = "org.mpris.MediaPlayer2.Player"
+
+
+class Mpris:
+    def __init__(self, daemon):
+        from gi.repository import Gio, GLib  # type: ignore
+        self.Gio, self.GLib = Gio, GLib
+        self.d = daemon
+        self.conn = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        self.owner_id = None
+        self.last_sig = None
+        node = Gio.DBusNodeInfo.new_for_xml(MPRIS_XML)
+        for i, iface in enumerate(node.interfaces):
+            self.conn.register_object(
+                MPRIS_PATH, iface, self._on_method, self._on_get, self._on_set)
+
+    # -- datos --
+    def _sess(self):
+        return self.d.active
+
+    def _status(self):
+        s = self._sess()
+        if not s:
+            return "Stopped"
+        return {"PLAYING": "Playing", "BUFFERING": "Playing", "PAUSED": "Paused"}.get(s.state, "Stopped")
+
+    def _metadata(self):
+        V = self.GLib.Variant
+        s = self._sess()
+        md = {"mpris:trackid": V("o", "/org/casthelper/track/%d" % (s.n if s else 0))}
+        if s:
+            md["xesam:title"] = V("s", s.title or "")
+            md["xesam:artist"] = V("as", ["Chromecast · " + s.dev["name"]])
+            md["mpris:length"] = V("x", int(s.duration * 1_000_000))
+            if s.art_path and os.path.isfile(s.art_path):
+                md["mpris:artUrl"] = V("s", "file://" + urllib.parse.quote(s.art_path))
+        return md
+
+    def _prop(self, iface, name):
+        V = self.GLib.Variant
+        s = self._sess()
+        if iface == IFACE_ROOT:
+            return {
+                "CanQuit": V("b", False), "CanRaise": V("b", False), "HasTrackList": V("b", False),
+                "Identity": V("s", ("Chromecast · " + s.dev["name"]) if s else "Chromecast"),
+                "SupportedUriSchemes": V("as", []), "SupportedMimeTypes": V("as", []),
+            }.get(name)
+        return {
+            "PlaybackStatus": V("s", self._status()), "LoopStatus": V("s", "None"),
+            "Rate": V("d", 1.0), "Shuffle": V("b", False), "Metadata": V("a{sv}", self._metadata()),
+            "Volume": V("d", (s.volume / 100.0) if s else 0.0),
+            "Position": V("x", int((s.position() if s else 0.0) * 1_000_000)),
+            "MinimumRate": V("d", 1.0), "MaximumRate": V("d", 1.0),
+            "CanGoNext": V("b", False), "CanGoPrevious": V("b", False),
+            "CanPlay": V("b", True), "CanPause": V("b", True),
+            "CanSeek": V("b", True), "CanControl": V("b", True),
+        }.get(name)
+
+    def _on_get(self, conn, sender, path, iface, name):
+        return self._prop(iface, name)
+
+    def _on_set(self, conn, sender, path, iface, name, value):
+        if iface == IFACE_PLAYER and name == "Volume":
+            self.d.run_async(lambda s: s.set_volume(value.get_double() * 100))
+            return True
+        return False
+
+    def _on_method(self, conn, sender, path, iface, method, params, inv):
+        if iface == IFACE_PLAYER:
+            args = params.unpack()
+            if method == "Play":
+                self.d.run_async(lambda s: s.play())
+            elif method == "Pause":
+                self.d.run_async(lambda s: s.pause())
+            elif method == "PlayPause":
+                self.d.run_async(lambda s: s.toggle())
+            elif method == "Stop":
+                self.d.run_async(lambda s: self.d.do_stop())
+            elif method == "Seek":
+                off = args[0] / 1e6
+                self.d.run_async(lambda s: s.seek(s.position() + off))
+            elif method == "SetPosition":
+                pos = args[1] / 1e6
+                self.d.run_async(lambda s: s.seek(pos))
+        inv.return_value(None)
+
+    # -- publicacion --
+    def sync(self):
+        """Llamar desde cualquier hilo: programa la actualizacion en el main loop."""
+        self.GLib.idle_add(self._sync_main)
+
+    def _sync_main(self):
+        Gio, GLib = self.Gio, self.GLib
+        s = self._sess()
+        if s and self.owner_id is None:
+            self.owner_id = Gio.bus_own_name_on_connection(
+                self.conn, MPRIS_NAME, Gio.BusNameOwnerFlags.NONE, None, None)
+        elif not s and self.owner_id is not None:
+            Gio.bus_unown_name(self.owner_id)
+            self.owner_id = None
+        sig = (self._status(), s.title if s else None, round(s.duration) if s else 0,
+               s.volume if s else 0, s.n if s else 0, bool(s and s.art_path))
+        if sig != self.last_sig:
+            self.last_sig = sig
+            changed = {
+                "PlaybackStatus": self._prop(IFACE_PLAYER, "PlaybackStatus"),
+                "Metadata": self._prop(IFACE_PLAYER, "Metadata"),
+                "Volume": self._prop(IFACE_PLAYER, "Volume"),
+            }
+            self._emit(IFACE_PLAYER, changed)
+            self._emit(IFACE_ROOT, {"Identity": self._prop(IFACE_ROOT, "Identity")})
+        return False
+
+    def _emit(self, iface, changed):
+        GLib = self.GLib
+        try:
+            self.conn.emit_signal(
+                None, MPRIS_PATH, "org.freedesktop.DBus.Properties", "PropertiesChanged",
+                GLib.Variant("(sa{sv}as)", (iface, changed, [])))
+        except Exception:  # noqa: BLE001
+            log.exception("PropertiesChanged")
+
+    def seeked(self, pos):
+        def go():
+            try:
+                self.conn.emit_signal(None, MPRIS_PATH, IFACE_PLAYER, "Seeked",
+                                      self.GLib.Variant("(x)", (int(pos * 1_000_000),)))
+            except Exception:  # noqa: BLE001
+                log.exception("Seeked")
+            return False
+        self.GLib.idle_add(go)
+
+
+# ── daemon ───────────────────────────────────────────────────────────────────
+class Daemon:
+    def __init__(self):
+        self.lock = threading.RLock()
+        self.cmd_lock = threading.RLock()
+        self.active = None
+        self.error = None
+        self.devices = {}      # uuid -> dict(uuid,name,model,host,port)
+        self.cast_info = {}    # uuid -> CastInfo (mDNS vivo)
+        self.casts = {}        # uuid -> Chromecast
+        self.server = MediaServer(port_from_env())
+        self.browser = None
+        self.zc = None
+        self.mpris = None
+        self.no_art = False
+        self._stop = threading.Event()
+        self._load_cache()
+
+    # -- dispositivos --
+    def _load_cache(self):
+        try:
+            for d in json.load(open(CACHE_PATH, encoding="utf-8")):
+                self.devices[d["uuid"]] = d
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _save_cache(self):
+        try:
+            atomic_write(CACHE_PATH, json.dumps(list(self.devices.values()), ensure_ascii=False, indent=1))
+        except Exception:  # noqa: BLE001
+            log.exception("cache de dispositivos")
+
+    def start_discovery(self):
+        import pychromecast
+        from pychromecast.discovery import AbstractCastListener, CastBrowser, create_zeroconf
+        d = self
+
+        class L(AbstractCastListener):
+            def add_cast(self, uuid, service):
+                d._on_device(uuid)
+
+            def update_cast(self, uuid, service):
+                d._on_device(uuid)
+
+            def remove_cast(self, uuid, service, cast_info):
+                pass  # mantenemos el ultimo host conocido
+
+        self.zc = create_zeroconf()
+        self.browser = CastBrowser(L(), self.zc)
+        self.browser.start_discovery()
+        self._pychromecast = pychromecast
+
+    def _on_device(self, uuid):
+        info = self.browser.devices.get(uuid)
+        if not info:
+            return
+        self.cast_info[str(uuid)] = info
+        rec = {"uuid": str(uuid), "name": info.friendly_name or info.host,
+               "model": info.model_name or "", "host": info.host, "port": info.port or 8009}
+        if self.devices.get(rec["uuid"]) != rec:
+            self.devices[rec["uuid"]] = rec
+            self._save_cache()
+        self.publish()
+
+    def device_list(self):
+        return sorted(self.devices.values(), key=lambda x: x["name"])
+
+    def find_device(self, key):
+        key_l = key.lower()
+        if key in self.devices:
+            return self.devices[key]
+        for d in self.devices.values():
+            if d["name"].lower() == key_l:
+                return d
+        for d in self.devices.values():
+            if key_l in d["name"].lower() or d["uuid"].startswith(key_l):
+                return d
+        return None
+
+    def get_cast(self, dev):
+        import uuid as uuidlib
+        pc = self._pychromecast
+        c = self.casts.get(dev["uuid"])
+        if c is not None and not c.socket_client.stop.is_set() and c.socket_client.is_alive():
+            return c
+        info = self.cast_info.get(dev["uuid"])
+        if info is not None:
+            c = pc.get_chromecast_from_cast_info(info, self.zc, tries=3, retry_wait=2, timeout=10)
+        else:
+            c = pc.get_chromecast_from_host(
+                (dev["host"], dev.get("port") or 8009, uuidlib.UUID(dev["uuid"]), dev.get("model"), dev["name"]),
+                tries=3, retry_wait=2, timeout=10)
+        c.wait(timeout=20)
+        self.casts[dev["uuid"]] = c
+        return c
+
+    # -- estado --
+    def publish(self):
+        with self.lock:
+            s = self.active
+            st = {
+                "updated": time.time(),
+                "devices": [{k: d[k] for k in ("uuid", "name", "model", "host")} for d in self.device_list()],
+                "active": s.as_dict() if s else None,
+                "error": self.error,
+            }
+            try:
+                atomic_write(STATE_PATH, json.dumps(st, ensure_ascii=False))
+            except Exception:  # noqa: BLE001
+                log.exception("state.json")
+        if self.mpris:
+            self.mpris.sync()
+
+    def mpris_seeked(self, pos):
+        if self.mpris:
+            self.mpris.seeked(pos)
+
+    def set_active(self, s):
+        with self.lock:
+            old = self.active
+            self.active = s
+        if old is not None and old is not s:
+            old.cleanup()
+        self.publish()
+
+    def end_session(self, s, error=None):
+        with self.lock:
+            if self.active is not s:
+                return
+            self.active = None
+            if error:
+                self.error = error
+        s.cleanup()
+        self.publish()
+
+    def fail(self, s, msg):
+        with self.lock:
+            self.error = msg
+            if self.active is s:
+                self.active = None
+        s.cleanup()
+        self.publish()
+
+    def run_async(self, fn):
+        """Ejecuta fn(sesion_activa) en un hilo (usado por MPRIS)."""
+        def go():
+            s = self.active
+            if not s:
+                return
+            try:
+                with self.cmd_lock:
+                    fn(s)
+            except Exception:  # noqa: BLE001
+                log.exception("orden MPRIS")
+        threading.Thread(target=go, daemon=True).start()
+
+    def ticker(self):
+        while not self._stop.wait(1.0):
+            s = self.active
+            if s and s.state in ("PLAYING", "BUFFERING"):
+                self.publish()
+
+    # -- comandos --
+    def handle(self, req):
+        cmd = req.get("cmd")
+        fn = getattr(self, "cmd_" + str(cmd).replace("-", "_"), None)
+        if fn is None:
+            return {"ok": False, "error": f"comando desconocido: {cmd}"}
+        try:
+            with self.cmd_lock:
+                return fn(req)
+        except (ValueError, RuntimeError) as e:
+            self.error = str(e) if cmd == "cast" else self.error
+            if cmd == "cast":
+                self.publish()
+            return {"ok": False, "error": str(e)}
+        except Exception as e:  # noqa: BLE001
+            log.exception("comando %s", cmd)
+            return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+    def cmd_devices(self, req):
+        t0 = time.time()
+        while not self.devices and time.time() - t0 < 4:
+            time.sleep(0.2)
+        return {"ok": True, "devices": self.device_list()}
+
+    def cmd_probe(self, req):
+        path = os.path.abspath(os.path.expanduser(req["path"]))
+        info = probe_file(path)
+        a = default_audio(info["audio"])
+        mode, reason, err = plan_playback(path, info, a["index"] if a else None)
+        out = {"ok": True, "duration": info["duration"],
+               "video": {k: info["video"][k] for k in ("codec", "width", "height")},
+               "audio": info["audio"], "subs": info["subs"],
+               "external_subs": info["external_subs"], "mode": mode, "reason": reason,
+               "default_audio": a["index"] if a else None,
+               "default_sub": describe_default_sub(info)}
+        if err:
+            out["playable"] = False
+            out["warning"] = err
+        else:
+            out["playable"] = True
+        return out
+
+    def _sub_spec(self, req, info):
+        if req.get("no_subs"):
+            return ("none",)
+        if req.get("sub_file"):
+            p = os.path.abspath(os.path.expanduser(req["sub_file"]))
+            if not os.path.isfile(p):
+                raise ValueError(f"no existe el archivo de subtítulos: {p}")
+            meta = ext_sub_info(p)
+            return ("file", p, meta)
+        if req.get("sub") is not None:
+            n = int(req["sub"])
+            for s in info["subs"]:
+                if s["index"] == n:
+                    if not s["text"]:
+                        raise ValueError(f"la pista de subtítulos {n} es de imagen ({s['codec']}); no soportada")
+                    return ("embedded", n, s)
+            raise ValueError(f"pista de subtítulos {n} inexistente")
+        return default_sub_spec(info)
+
+    def cmd_cast(self, req):
+        dev = self.find_device(req["device"])
+        if not dev:
+            raise ValueError(f"dispositivo no encontrado: {req['device']}")
+        src = req["source"]
+        start = float(req.get("start") or 0)
+        if re.match(r"^https?://", src):
+            self.server_ok = None
+            s = Session(self, dev, src, "url", req.get("title") or src)
+            self.error = None
+            self.set_active(s)
+            threading.Thread(target=s.run_load, args=(0, None), daemon=True).start()
+            return {"ok": True, "mode": "url", "preparing": True}
+        path = os.path.abspath(os.path.expanduser(src))
+        info = probe_file(path)
+        aidx = req.get("audio")
+        if aidx is None:
+            a = default_audio(info["audio"])
+            aidx = a["index"] if a else None
+        else:
+            aidx = int(aidx)
+        mode, reason, err = plan_playback(path, info, aidx)
+        if err:
+            raise ValueError(err)
+        spec = self._sub_spec(req, info)
+        self.server.start()  # puede lanzar RuntimeError "puerto ocupado"; el daemon sigue vivo
+        s = Session(self, dev, path, mode, req.get("title") or clean_title(path))
+        s.info = info
+        s.duration = info["duration"]
+        s.audio_index = aidx if mode == "transcode" else None
+        self.error = None
+        self.set_active(s)
+        threading.Thread(target=s.run_load, args=(start, spec), daemon=True).start()
+        return {"ok": True, "mode": mode, "reason": reason, "preparing": True,
+                "subs": (lang_label(spec[2].get("lang"), spec[2].get("title", ""), spec[2].get("forced"))
+                         if spec[0] != "none" else None)}
+
+    def _need_active(self):
+        s = self.active
+        if not s:
+            raise ValueError("nada reproduciendo")
+        return s
+
+    def cmd_play(self, req):
+        self._need_active().play()
+        return {"ok": True}
+
+    def cmd_pause(self, req):
+        self._need_active().pause()
+        return {"ok": True}
+
+    def cmd_toggle(self, req):
+        self._need_active().toggle()
+        return {"ok": True}
+
+    def do_stop(self):
+        s = self._need_active()
+        s.stop()
+        self.end_session(s)
+
+    def cmd_stop(self, req):
+        self.do_stop()
+        return {"ok": True}
+
+    def cmd_seek(self, req):
+        self._need_active().seek(float(req["pos"]))
+        return {"ok": True}
+
+    def cmd_volume(self, req):
+        self._need_active().set_volume(int(req["value"]))
+        return {"ok": True}
+
+    def cmd_mute(self, req):
+        self._need_active().mute()
+        return {"ok": True}
+
+    def cmd_fake_active(self, req):
+        """Solo pruebas: sesion ficticia, sin Chromecast."""
+        self.set_active(FakeSession(self))
+        return {"ok": True, "fake": True}
+
+    # -- socket --
+    def serve_socket(self):
+        d = self
+
+        class H(socketserver.StreamRequestHandler):
+            def handle(self):
+                line = self.rfile.readline()
+                if not line:
+                    return
+                try:
+                    req = json.loads(line)
+                    resp = d.handle(req)
+                except json.JSONDecodeError:
+                    resp = {"ok": False, "error": "JSON inválido"}
+                self.wfile.write((json.dumps(resp, ensure_ascii=False) + "\n").encode())
+
+        class S(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+            daemon_threads = True
+
+        if os.path.exists(SOCK_PATH):
+            os.unlink(SOCK_PATH)
+        srv = S(SOCK_PATH, H)
+        os.chmod(SOCK_PATH, 0o600)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        return srv
+
+    def shutdown(self):
+        self._stop.set()
+        s = self.active
+        if s:
+            s.cleanup()
+        for v in list(self.server.routes.values()):
+            if v.kind == "transcode":
+                kill_proc(v.proc)
+        try:
+            os.unlink(SOCK_PATH)
+        except OSError:
+            pass
+        try:
+            if self.browser:
+                self.browser.stop_discovery()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def describe_default_sub(info):
+    spec = default_sub_spec(info)
+    if spec[0] == "none":
+        return None
+    meta = spec[2]
+    return {"kind": spec[0], "ref": spec[1], "label": lang_label(meta.get("lang"), meta.get("title", ""), meta.get("forced"))}
+
+
+def default_sub_spec(info):
+    """Por defecto: forzada en español (incrustada de texto o externa); si no, ninguna."""
+    for s in info["subs"]:
+        if s["forced"] and s["text"] and is_spanish(s["lang"]):
+            return ("embedded", s["index"], s)
+    for e in info.get("external_subs_info", []):
+        if e["forced"] and is_spanish(e["lang"]):
+            return ("file", e["path"], e)
+    return ("none",)
+
+
+def run_daemon():
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    _import_cast_libs()
+    ensure_dirs()
+    d = Daemon()
+    try:
+        d.mpris = Mpris(d)
+    except Exception as e:  # noqa: BLE001
+        log.warning("MPRIS desactivado: %s", e)
+    d.start_discovery()
+    srv = d.serve_socket()
+    d.publish()
+    threading.Thread(target=d.ticker, daemon=True).start()
+    log.info("cast-helper listo: socket %s, puerto HTTP %d", SOCK_PATH, d.server.port)
+
+    def bye(*_):
+        log.info("cerrando")
+        d.shutdown()
+        srv.shutdown()
+        if d.mpris:
+            d.mpris.GLib.idle_add(loop.quit)
+        else:
+            ev.set()
+        return False
+
+    if d.mpris:
+        GLib = d.mpris.GLib
+        loop = GLib.MainLoop()
+        for sg in (signal.SIGTERM, signal.SIGINT):
+            GLib.unix_signal_add(GLib.PRIORITY_HIGH, sg, bye)
+        loop.run()
+    else:
+        ev = threading.Event()
+        for sg in (signal.SIGTERM, signal.SIGINT):
+            signal.signal(sg, bye)
+        ev.wait()
+    return 0
+
+
+# ── cliente ──────────────────────────────────────────────────────────────────
+def send(req, timeout=120):
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(timeout)
+    try:
+        s.connect(SOCK_PATH)
+    except OSError:
+        return {"ok": False, "error": "daemon no activo"}
+    try:
+        s.sendall((json.dumps(req) + "\n").encode())
+        buf = b""
+        while not buf.endswith(b"\n"):
+            chunk = s.recv(65536)
+            if not chunk:
+                break
+            buf += chunk
+        return json.loads(buf) if buf else {"ok": False, "error": "sin respuesta del daemon"}
+    except socket.timeout:
+        return {"ok": False, "error": "el daemon no respondió a tiempo"}
+    finally:
+        s.close()
+
+
+def serve_test(args):
+    """Oculto: sirve un archivo por HTTP sin Chromecast, o crea una sesion ficticia."""
+    if args.fake_active:
+        r = send({"cmd": "fake_active"})
+        print(json.dumps(r, ensure_ascii=False))
+        return 0 if r.get("ok") else 1
+    if not args.path:
+        print("uso: serve-test <ruta> [--start S] | serve-test --fake-active", file=sys.stderr)
+        return 2
+    path = os.path.abspath(os.path.expanduser(args.path))
+    info = probe_file(path)
+    a = default_audio(info["audio"])
+    aidx = a["index"] if a else None
+    mode, reason, err = plan_playback(path, info, aidx)
+    if err:
+        print(err, file=sys.stderr)
+        return 1
+    srv = MediaServer(port_from_env())
+    srv.start()
+    name = "test.mp4"
+    if mode == "direct":
+        rt = Route("direct", path, "video/webm" if path.endswith(".webm") else "video/mp4")
+    else:
+        rt = Route("transcode", path, "video/mp4", info=info, audio=aidx)
+        rt.offset = float(args.start or 0)
+    srv.add(name, rt)
+    print(f"http://127.0.0.1:{srv.port}/{name}", flush=True)
+    print(f"mode={mode} ({reason})", file=sys.stderr, flush=True)
+    try:
+        time.sleep(args.seconds)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        kill_proc(rt.proc)
+    return 0
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="cast-helper", description="Helper de Chromecast para el panel Quickshell")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("daemon", help="proceso largo (unidad systemd)")
+    sub.add_parser("devices", help="lista los Chromecast")
+    p = sub.add_parser("probe", help="analiza un archivo")
+    p.add_argument("path")
+    p = sub.add_parser("cast", help="reproduce un archivo o URL")
+    p.add_argument("device")
+    p.add_argument("source")
+    p.add_argument("--audio", type=int)
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--sub", type=int)
+    g.add_argument("--sub-file")
+    g.add_argument("--no-subs", action="store_true")
+    p.add_argument("--start", type=float)
+    p.add_argument("--title")
+    for c in ("play", "pause", "toggle", "stop", "mute"):
+        sub.add_parser(c)
+    p = sub.add_parser("seek")
+    p.add_argument("pos", type=float)
+    p = sub.add_parser("volume")
+    p.add_argument("value", type=int)
+    p = sub.add_parser("serve-test", help=argparse.SUPPRESS)
+    p.add_argument("path", nargs="?")
+    p.add_argument("--start", type=float)
+    p.add_argument("--seconds", type=float, default=60)
+    p.add_argument("--fake-active", action="store_true")
+
+    args = ap.parse_args()
+    if args.cmd == "daemon":
+        return run_daemon()
+    if args.cmd == "serve-test":
+        _import_cast_libs_optional()
+        return serve_test(args)
+    req = {"cmd": args.cmd}
+    if args.cmd == "probe":
+        req["path"] = os.path.abspath(os.path.expanduser(args.path))
+    elif args.cmd == "cast":
+        src = args.source
+        if not re.match(r"^https?://", src):
+            src = os.path.abspath(os.path.expanduser(src))
+        req.update(device=args.device, source=src, audio=args.audio, sub=args.sub,
+                   sub_file=args.sub_file, no_subs=args.no_subs, start=args.start, title=args.title)
+    elif args.cmd == "seek":
+        req["pos"] = args.pos
+    elif args.cmd == "volume":
+        req["value"] = args.value
+    resp = send(req)
+    print(json.dumps(resp, ensure_ascii=False))
+    return 0 if resp.get("ok") else 1
+
+
+def _import_cast_libs_optional():
+    return None
+
+
+if __name__ == "__main__":
+    sys.exit(main())
