@@ -109,6 +109,12 @@ Item {
         Cast.mirrorSet(o);
     }
 
+    readonly property string summary: {
+        const q = quality === "auto" ? "Calidad auto" : quality;
+        const e = encoder === "auto" ? (opt?.encoder_auto === "nvidia" ? "GPU (auto)" : "CPU (auto)") : encoder === "nvidia" ? "GPU" : "CPU";
+        return [q, e, audioOn ? "con audio" : "sin audio"].join(" · ");
+    }
+
     function sourceLabel(src): string {
         if (!src)
             return "";
@@ -117,8 +123,20 @@ Item {
         if (src.startsWith("monitor:"))
             return "Pantalla " + src.substring(8);
         if (src.startsWith("workspace:"))
-            return "Workspace " + src.substring(10);
+            return "Escritorio " + src.substring(10);
         return src === "window" ? "Ventana" : src === "extend" ? "Pantalla extendida" : src;
+    }
+
+    // `mirror options` puede fallar si el drawer se abre mientras el daemon arranca: reintentar.
+    property int optTries: 0
+    Timer {
+        interval: 1500
+        repeat: true
+        running: root.opt === null && root.optTries < 4
+        onTriggered: {
+            root.optTries++;
+            Cast.mirrorOptions();
+        }
     }
 
     Connections {
@@ -169,57 +187,88 @@ Item {
         ColumnLayout {
             Layout.fillWidth: true
             visible: root.mirroring
-            spacing: Tokens.spacing.medium
+            spacing: Tokens.spacing.small
 
             StyledRect {
                 Layout.fillWidth: true
                 implicitHeight: pl.implicitHeight + Tokens.padding.large * 2
-                radius: Tokens.rounding.large
+                radius: Tokens.rounding.extraLarge
                 color: Colours.palette.m3primaryContainer
 
-                ColumnLayout {
+                RowLayout {
                     id: pl
 
                     anchors.fill: parent
                     anchors.margins: Tokens.padding.large
-                    spacing: 2
+                    spacing: Tokens.spacing.medium
 
-                    StyledText {
-                        Layout.fillWidth: true
-                        text: "Proyectando en " + (root.act?.device_name ?? "")
-                        color: Colours.palette.m3onPrimaryContainer
-                        font: Tokens.font.body.large
-                        elide: Text.ElideRight
+                    StyledRect {
+                        implicitWidth: 44
+                        implicitHeight: 44
+                        radius: Tokens.rounding.full
+                        color: Colours.palette.m3primary
+
+                        MaterialIcon {
+                            anchors.centerIn: parent
+                            text: "cast_connected"
+                            fill: 1
+                            color: Colours.palette.m3onPrimary
+                            fontStyle: Tokens.font.icon.medium
+                        }
                     }
-                    StyledText {
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        text: (root.act?.state === "PLAYING" ? "" : "Conectando · ") + (root.act?.source ? root.sourceLabel(root.act.source) : "Pantalla " + (root.act?.monitor ?? ""))
-                        color: Colours.palette.m3onPrimaryContainer
-                        font: Tokens.font.body.small
-                        opacity: 0.8
-                    }
-                    StyledText {
-                        Layout.fillWidth: true
-                        visible: root.act?.quality !== undefined || root.act?.encoder !== undefined
-                        text: [root.act?.quality, root.act?.encoder ? (root.act.encoder === "nvidia" ? "NVIDIA" : "CPU") + (root.act?.encoder_mode === "auto" ? " (auto)" : "") : ""].filter(x => x).join(" · ")
-                        color: Colours.palette.m3onPrimaryContainer
-                        font: Tokens.font.body.small
-                        opacity: 0.8
+                        spacing: 0
+
+                        StyledText {
+                            Layout.fillWidth: true
+                            text: root.act?.device_name ?? ""
+                            color: Colours.palette.m3onPrimaryContainer
+                            font: Tokens.font.title.small
+                            elide: Text.ElideRight
+                        }
+                        StyledText {
+                            Layout.fillWidth: true
+                            text: (root.act?.state === "PLAYING" ? "" : "Conectando · ") + (root.act?.source ? root.sourceLabel(root.act.source) : "Pantalla " + (root.act?.monitor ?? ""))
+                            color: Colours.palette.m3onPrimaryContainer
+                            font: Tokens.font.body.small
+                            opacity: 0.85
+                            elide: Text.ElideRight
+                        }
+                        StyledText {
+                            Layout.fillWidth: true
+                            visible: text !== ""
+                            text: [root.act?.quality, root.act?.encoder ? (root.act.encoder === "nvidia" ? "GPU" : "CPU") + (root.act?.encoder_mode === "auto" ? " (auto)" : "") : "", root.act?.latency ? "~" + Math.round(root.act.latency * 1000) + " ms" : ""].filter(x => x).join(" · ")
+                            color: Colours.palette.m3onPrimaryContainer
+                            font: Tokens.font.label.small
+                            opacity: 0.7
+                        }
                     }
                 }
             }
 
-            Tuning {
+            StyledRect {
                 Layout.fillWidth: true
-                quality: root.act?.quality ?? "auto"
-                encoder: root.act?.encoder_mode ?? "auto"
-                audio: root.act?.audio ?? true
-                onPicked: (k, v) => root.pickedLive(k, v)
+                implicitHeight: liveTuning.implicitHeight + Tokens.padding.large * 2
+                radius: Tokens.rounding.large
+                color: Colours.tPalette.m3surfaceContainer
+
+                Tuning {
+                    id: liveTuning
+
+                    anchors.fill: parent
+                    anchors.margins: Tokens.padding.large
+                    quality: root.act?.quality_mode ?? "auto"
+                    encoder: root.act?.encoder_mode ?? "auto"
+                    audio: root.act?.audio ?? true
+                    onPicked: (k, v) => root.pickedLive(k, v)
+                }
             }
 
             TextButton {
                 Layout.fillWidth: true
-                text: "Desconectar"
+                Layout.topMargin: Tokens.spacing.small
+                text: "Dejar de proyectar"
                 type: TextButton.Tonal
                 onClicked: {
                     Cast.stop();
@@ -228,16 +277,169 @@ Item {
             }
         }
 
-        // --- Elegir destino
+        // --- Elegir qué y dónde
         ColumnLayout {
             Layout.fillWidth: true
             visible: !root.mirroring
             spacing: Tokens.spacing.small
 
+            RowLayout {
+                Layout.fillWidth: true
+                visible: root.opt !== null
+                spacing: Tokens.spacing.small
+
+                Repeater {
+                    model: [["monitor", "Pantalla", "desktop_windows"], ["workspace", "Escritorio", "grid_view"], ["window", "Ventana", "select_window"], ["extend", "Extender", "add_to_queue"]]
+
+                    SourceTile {
+                        required property var modelData
+
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 1
+                        label: modelData[1]
+                        icon: modelData[2]
+                        selected: root.srcKind === modelData[0]
+                        onClicked: root.srcKind = modelData[0]
+                    }
+                }
+            }
+
+            // Detalle de la fuente: monitores a escala / escritorios / explicación
+            Row {
+                Layout.alignment: Qt.AlignHCenter
+                Layout.topMargin: Tokens.spacing.extraSmall
+                visible: root.srcKind === "monitor" && root.availableMonitors.length > 1
+                spacing: Tokens.spacing.small
+
+                Repeater {
+                    model: root.availableMonitors
+
+                    StyledRect {
+                        id: mon
+
+                        required property var modelData
+                        readonly property bool on: root.effMonitor === modelData.name
+
+                        height: 46
+                        width: Math.round(height * modelData.width / Math.max(1, modelData.height))
+                        radius: Tokens.rounding.small
+                        color: on ? Colours.palette.m3secondaryContainer : Colours.tPalette.m3surfaceContainer
+                        border.width: 2
+                        border.color: on ? Colours.palette.m3primary : "transparent"
+
+                        StateLayer {
+                            radius: Tokens.rounding.small
+                            onClicked: root.monitor = mon.modelData.name
+                        }
+                        StyledText {
+                            anchors.centerIn: parent
+                            text: mon.modelData.name
+                            font: Tokens.font.label.small
+                            color: mon.on ? Colours.palette.m3onSecondaryContainer : Colours.palette.m3onSurfaceVariant
+                        }
+                    }
+                }
+            }
+
+            Flow {
+                Layout.fillWidth: true
+                Layout.topMargin: Tokens.spacing.extraSmall
+                visible: root.srcKind === "workspace" && root.workspaces.length > 0
+                spacing: Tokens.spacing.small
+
+                Repeater {
+                    model: root.workspaces
+
+                    StyledRect {
+                        id: ws
+
+                        required property var modelData
+                        readonly property bool on: root.effWorkspace === String(modelData.id)
+                        readonly property string label: modelData.name && modelData.name !== String(modelData.id) ? modelData.name : String(modelData.id)
+
+                        implicitWidth: Math.max(48, wsl.implicitWidth + Tokens.padding.large * 2)
+                        implicitHeight: 52
+                        radius: on ? Tokens.rounding.large : Tokens.rounding.medium
+                        color: on ? Colours.palette.m3primary : Colours.tPalette.m3surfaceContainer
+
+                        Behavior on radius {
+                            Anim {
+                                type: Anim.FastSpatial
+                            }
+                        }
+
+                        StateLayer {
+                            radius: ws.radius
+                            color: ws.on ? Colours.palette.m3onPrimary : Colours.palette.m3onSurface
+                            onClicked: root.srcWorkspace = String(ws.modelData.id)
+                        }
+                        Column {
+                            anchors.centerIn: parent
+                            spacing: 4
+
+                            StyledText {
+                                id: wsl
+
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                text: ws.label
+                                font: Tokens.font.title.small
+                                color: ws.on ? Colours.palette.m3onPrimary : Colours.palette.m3onSurface
+                            }
+                            // un punto por ventana (máx. 4); vacío = escritorio sin ventanas
+                            Row {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                spacing: 3
+                                height: 4
+
+                                Repeater {
+                                    model: Math.min(4, ws.modelData.windows)
+
+                                    Rectangle {
+                                        width: 4
+                                        height: 4
+                                        radius: 2
+                                        color: ws.on ? Colours.palette.m3onPrimary : Colours.palette.m3onSurfaceVariant
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: Tokens.padding.small
+                Layout.topMargin: Tokens.spacing.extraSmall
+                visible: root.srcKind === "window" || root.srcKind === "extend"
+                spacing: Tokens.spacing.small
+
+                MaterialIcon {
+                    text: "info"
+                    color: Colours.palette.m3onSurfaceVariant
+                }
+                StyledText {
+                    Layout.fillWidth: true
+                    text: root.srcKind === "window" ? "Al conectar, elige la ventana en el selector del sistema." : "La tele será una pantalla más, vacía, a la que mover ventanas."
+                    color: Colours.palette.m3onSurfaceVariant
+                    font: Tokens.font.body.small
+                    wrapMode: Text.WordWrap
+                }
+            }
+
+            // --- Dónde
+            StyledText {
+                Layout.topMargin: Tokens.spacing.medium
+                Layout.leftMargin: Tokens.padding.small
+                text: "Enviar a"
+                color: Colours.palette.m3primary
+                font: Tokens.font.label.large
+            }
             StyledText {
                 Layout.fillWidth: true
+                Layout.leftMargin: Tokens.padding.small
                 visible: root.scanning
-                text: "Buscando pantallas en la red…"
+                text: "Buscando teles en la red…"
                 color: Colours.palette.m3onSurfaceVariant
                 font: Tokens.font.body.small
             }
@@ -265,7 +467,7 @@ Item {
 
                     StateLayer {
                         radius: Tokens.rounding.large
-                        disabled: root.busy || root.availableMonitors.length === 0
+                        disabled: root.busy || (root.srcKind === "monitor" && root.availableMonitors.length === 0)
                         onClicked: root.start(row.modelData)
                     }
 
@@ -299,119 +501,105 @@ Item {
                                 elide: Text.ElideRight
                             }
                         }
-                        MaterialIcon {
-                            text: "chevron_right"
-                            color: Colours.palette.m3onSurfaceVariant
+                        StyledRect {
+                            implicitWidth: 36
+                            implicitHeight: 36
+                            radius: Tokens.rounding.full
+                            color: Colours.palette.m3primary
+
+                            MaterialIcon {
+                                anchors.centerIn: parent
+                                text: "cast"
+                                color: Colours.palette.m3onPrimary
+                            }
                         }
                     }
                 }
             }
 
-            // --- Qué proyectar
-            StyledText {
-                Layout.topMargin: Tokens.spacing.small
-                text: "Qué proyectar"
-                color: Colours.palette.m3onSurfaceVariant
-                font: Tokens.font.body.small
-            }
-            Flow {
-                Layout.fillWidth: true
-                spacing: Tokens.spacing.small
-
-                Repeater {
-                    model: root.opt ? [["monitor", "Pantalla", "desktop_windows"], ["workspace", "Workspace", "grid_view"], ["window", "Ventana", "web_asset"], ["extend", "Extender", "add_to_queue"]] : [["monitor", "Pantalla", "desktop_windows"]]
-
-                    Chip {
-                        required property var modelData
-
-                        label: modelData[1]
-                        icon: modelData[2]
-                        selected: root.srcKind === modelData[0]
-                        onClicked: root.srcKind = modelData[0]
-                    }
-                }
-            }
-            Flow {
-                Layout.fillWidth: true
-                visible: root.srcKind === "monitor" && root.availableMonitors.length > 1
-                spacing: Tokens.spacing.small
-
-                Repeater {
-                    model: root.availableMonitors
-
-                    Chip {
-                        required property var modelData
-
-                        label: modelData.name
-                        selected: root.effMonitor === modelData.name
-                        onClicked: root.monitor = modelData.name
-                    }
-                }
-            }
-            Flow {
-                Layout.fillWidth: true
-                visible: root.srcKind === "workspace"
-                spacing: Tokens.spacing.small
-
-                Repeater {
-                    model: root.workspaces
-
-                    Chip {
-                        required property var modelData
-
-                        label: (modelData.name && modelData.name !== String(modelData.id) ? modelData.name : String(modelData.id)) + " · " + modelData.windows + (modelData.windows === 1 ? " ventana" : " ventanas")
-                        selected: root.effWorkspace === String(modelData.id)
-                        onClicked: root.srcWorkspace = String(modelData.id)
-                    }
-                }
-            }
-            StyledText {
-                Layout.fillWidth: true
-                visible: root.srcKind === "window" || root.srcKind === "extend"
-                text: root.srcKind === "window" ? "Se abrirá el selector del sistema para elegir la ventana." : "Se crea una pantalla nueva y vacía en la tele para extender el escritorio."
-                color: Colours.palette.m3onSurfaceVariant
-                font: Tokens.font.body.small
-                wrapMode: Text.WordWrap
-            }
-
-            // --- Avanzado (plegable)
+            // --- Ajustes (plegable, con resumen)
             StyledRect {
                 Layout.fillWidth: true
+                Layout.topMargin: Tokens.spacing.small
                 visible: root.opt !== null
-                implicitHeight: adv.implicitHeight + Tokens.padding.large * 2
+                implicitHeight: advCol.implicitHeight + Tokens.padding.large * 2
                 radius: Tokens.rounding.large
                 color: Colours.tPalette.m3surfaceContainer
+                clip: true
 
-                StateLayer {
-                    radius: Tokens.rounding.large
-                    onClicked: root.advanced = !root.advanced
-                }
-                RowLayout {
-                    id: adv
+                ColumnLayout {
+                    id: advCol
 
-                    anchors.fill: parent
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
                     anchors.margins: Tokens.padding.large
-                    anchors.leftMargin: Tokens.padding.large
-                    anchors.rightMargin: Tokens.padding.large
+                    spacing: Tokens.spacing.medium
 
-                    StyledText {
+                    Item {
                         Layout.fillWidth: true
-                        text: "Avanzado"
-                        font: Tokens.font.body.medium
+                        implicitHeight: advHead.implicitHeight
+
+                        StateLayer {
+                            anchors.fill: parent
+                            anchors.margins: -Tokens.padding.large
+                            anchors.bottomMargin: root.advanced ? 0 : -Tokens.padding.large
+                            radius: Tokens.rounding.large
+                            onClicked: root.advanced = !root.advanced
+                        }
+                        RowLayout {
+                            id: advHead
+
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            spacing: Tokens.spacing.medium
+
+                            MaterialIcon {
+                                text: "tune"
+                                color: Colours.palette.m3onSurfaceVariant
+                                fontStyle: Tokens.font.icon.medium
+                            }
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 0
+
+                                StyledText {
+                                    Layout.fillWidth: true
+                                    text: "Ajustes"
+                                    font: Tokens.font.body.medium
+                                }
+                                StyledText {
+                                    Layout.fillWidth: true
+                                    visible: !root.advanced
+                                    text: root.summary
+                                    color: Colours.palette.m3onSurfaceVariant
+                                    font: Tokens.font.label.small
+                                    elide: Text.ElideRight
+                                }
+                            }
+                            MaterialIcon {
+                                text: "expand_more"
+                                rotation: root.advanced ? 180 : 0
+                                color: Colours.palette.m3onSurfaceVariant
+
+                                Behavior on rotation {
+                                    Anim {
+                                        type: Anim.FastSpatial
+                                    }
+                                }
+                            }
+                        }
                     }
-                    MaterialIcon {
-                        text: root.advanced ? "expand_less" : "expand_more"
-                        color: Colours.palette.m3onSurfaceVariant
+
+                    Tuning {
+                        Layout.fillWidth: true
+                        visible: root.advanced
+                        quality: root.quality
+                        encoder: root.encoder
+                        audio: root.audioOn
+                        onPicked: (k, v) => root.pickedIdle(k, v)
                     }
                 }
-            }
-            Tuning {
-                Layout.fillWidth: true
-                visible: root.opt !== null && root.advanced
-                quality: root.quality
-                encoder: root.encoder
-                audio: root.audioOn
-                onPicked: (k, v) => root.pickedIdle(k, v)
             }
         }
 

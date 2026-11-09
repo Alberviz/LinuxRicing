@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Layouts
 import Caelestia.Config
@@ -5,15 +7,14 @@ import qs.components
 import qs.components.controls
 import qs.services
 
-// Calidad / Codificador / Audio. Sirve en reposo (elige lo de la próxima proyección) y proyectando
-// (cambia en caliente): quien lo usa decide qué hacer con `picked`.
+// Filas de ajustes (Calidad / Codificador / Audio) para meter dentro de una tarjeta. Sirve en reposo
+// (lo de la próxima proyección) y proyectando (en caliente): quien lo usa decide qué hacer con `picked`.
 ColumnLayout {
     id: root
 
     property string quality: "auto"
     property string encoder: "auto"
     property bool audio: true
-    property bool showAudio: true
     signal picked(string key, var value)
 
     readonly property var opt: Cast.options
@@ -25,97 +26,83 @@ ColumnLayout {
             return "";
         const parts = [p.ac ? "enchufado" : "batería"];
         if (p.profile === "power-saver")
-            parts.push("modo ahorro");
-        else if (p.ac)
-            parts.push(p.profile === "performance" ? "rendimiento" : "equilibrado");
-        return (opt.encoder_auto === "nvidia" ? "NVIDIA" : "CPU") + " · " + parts.join(", ");
+            parts.push("ahorro");
+        return "Auto: " + (opt.encoder_auto === "nvidia" ? "GPU" : "CPU") + " · " + parts[parts.length - 1];
     }
 
-    spacing: Tokens.spacing.small
+    spacing: Tokens.spacing.medium
 
-    StyledText {
-        visible: root.opt !== null
-        text: "Calidad"
-        color: Colours.palette.m3onSurfaceVariant
-        font: Tokens.font.body.small
-    }
-    Flow {
+    component SettingRow: RowLayout {
+        id: sr
+
+        property string icon
+        property string title
+        property string subtitle
+
         Layout.fillWidth: true
-        visible: root.opt !== null
-        spacing: Tokens.spacing.small
+        spacing: Tokens.spacing.medium
 
-        Repeater {
-            model: [["auto", "Auto"], ["720p", "720p"], ["1080p", "1080p"]]
-
-            Chip {
-                required property var modelData
-
-                label: modelData[1]
-                selected: root.quality === modelData[0]
-                onClicked: root.picked("quality", modelData[0])
-            }
+        MaterialIcon {
+            Layout.alignment: Qt.AlignVCenter
+            text: sr.icon
+            color: Colours.palette.m3onSurfaceVariant
+            fontStyle: Tokens.font.icon.medium
         }
-    }
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 0
 
-    StyledText {
-        visible: root.hasEncoder
-        text: "Codificador"
-        color: Colours.palette.m3onSurfaceVariant
-        font: Tokens.font.body.small
-    }
-    Flow {
-        Layout.fillWidth: true
-        visible: root.hasEncoder
-        spacing: Tokens.spacing.small
-
-        Repeater {
-            model: [["auto", "Auto"], ["cpu", "CPU"], ["nvidia", "NVIDIA"]]
-
-            Chip {
-                required property var modelData
-
-                label: modelData[1]
-                selected: root.encoder === modelData[0]
-                onClicked: root.picked("encoder", modelData[0])
-            }
-        }
-    }
-    StyledText {
-        Layout.fillWidth: true
-        visible: root.hasEncoder && root.encoder === "auto" && root.autoReason() !== ""
-        text: "Ahora elegirá: " + root.autoReason()
-        color: Colours.palette.m3onSurfaceVariant
-        font: Tokens.font.body.small
-        wrapMode: Text.WordWrap
-    }
-
-    StyledRect {
-        Layout.fillWidth: true
-        visible: root.showAudio
-        implicitHeight: al.implicitHeight + Tokens.padding.large * 2
-        radius: Tokens.rounding.large
-        color: Colours.tPalette.m3surfaceContainer
-
-        RowLayout {
-            id: al
-
-            anchors.fill: parent
-            anchors.margins: Tokens.padding.large
-            spacing: Tokens.spacing.medium
-
-            MaterialIcon {
-                text: "volume_up"
-                color: Colours.palette.m3onSurfaceVariant
+            StyledText {
+                Layout.fillWidth: true
+                text: sr.title
+                font: Tokens.font.body.medium
+                elide: Text.ElideRight
             }
             StyledText {
                 Layout.fillWidth: true
-                text: "Enviar el audio del sistema"
-                font: Tokens.font.body.medium
+                visible: sr.subtitle !== ""
+                text: sr.subtitle
+                color: Colours.palette.m3onSurfaceVariant
+                font: Tokens.font.label.small
+                wrapMode: Text.WordWrap
             }
-            StyledSwitch {
-                checked: root.audio
-                onToggled: root.picked("audio", checked)
-            }
+        }
+    }
+
+    SettingRow {
+        visible: root.opt !== null
+        icon: "high_quality"
+        title: "Calidad"
+        subtitle: root.quality === "auto" ? "Auto: 720p" : root.quality === "1080p" ? "Más nítido" : "Más fluido"
+
+        Segmented {
+            model: [["auto", "Auto"], ["720p", "720p"], ["1080p", "1080p"]]
+            value: root.quality
+            onPicked: v => root.picked("quality", v)
+        }
+    }
+
+    SettingRow {
+        visible: root.hasEncoder
+        icon: "memory"
+        title: "Codificador"
+        subtitle: root.encoder === "auto" ? root.autoReason() : root.encoder === "nvidia" ? "Despierta la gráfica" : "Usa más CPU"
+
+        Segmented {
+            model: [["auto", "Auto"], ["cpu", "CPU"], ["nvidia", "GPU"]]
+            value: root.encoder
+            onPicked: v => root.picked("encoder", v)
+        }
+    }
+
+    SettingRow {
+        icon: root.audio ? "volume_up" : "volume_off"
+        title: "Audio del sistema"
+        subtitle: root.audio ? "Se oye en la tele" : "Solo imagen"
+
+        StyledSwitch {
+            checked: root.audio
+            onToggled: root.picked("audio", checked)
         }
     }
 }
