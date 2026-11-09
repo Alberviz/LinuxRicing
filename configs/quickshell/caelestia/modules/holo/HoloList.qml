@@ -56,6 +56,32 @@ Item {
             readonly property bool abierto: (HoloState.paneles || []).some(p => p && p.id === "v" + fila.modelData.n)
             readonly property bool enviado: !!(fila.modelData && fila.modelData.enviado)
 
+            // Acción ejecutada sobre esta fila (borrada, movida…): se va deslizando y se apaga
+            property real fuera: 0
+
+            opacity: 1 - fuera
+            transform: Translate {
+                x: fila.fuera * 70
+            }
+
+            Connections {
+                function onFx(ev: var): void {
+                    if ((ev.filas || []).indexOf(fila.modelData.n) >= 0)
+                        desaparece.start();
+                }
+
+                target: HoloState
+            }
+            NumberAnimation {
+                id: desaparece
+
+                target: fila
+                property: "fuera"
+                to: 1
+                duration: 420
+                easing.type: Easing.InCubic
+            }
+
             width: listView.width
             height: (typeof HoloGeo !== "undefined" && HoloGeo.fila !== undefined) ? HoloGeo.fila : 38
 

@@ -133,6 +133,36 @@ Toda la sincronización viaja por el bus de eventos de Laura (`laura/events.py`)
 
 ---
 
+## 🗂️ Gestión de archivos (borrar, mover, renombrar)
+
+Sobre la lista que se ve en pantalla (o la carpeta que se acaba de listar):
+
+| Frase | Herramienta |
+|---|---|
+| «borra la 2» · «elimina esas» | `borrar_archivos` (papelera, **siempre con confirmación**) |
+| «mueve la 3 a Universidad» | `mover_archivos` (confirma si son más de 5) |
+| «renombra la 1 a factura.pdf» | `renombrar_archivo` |
+| «crea una carpeta que se llame Facturas» | `crear_carpeta` |
+| «deshaz» | `deshacer_archivos` |
+
+**Flujo:** la tool solo crea un *plan*; si requiere confirmación aparece el panel «confirmar»
+(archivos afectados, tamaño total, **Cancelar / Borrar**) y Laura pregunta por voz. Vale decir
+«sí»/«no» **o** pulsar el botón, lo que llegue primero; el plan caduca a los 60 s (si contestas
+tarde, un «sí» suelto aún lo resuelve). Al ejecutarse, las filas se van, aparece la papelera
+en la esquina y la carpeta se vuelve a listar (los números cambian).
+
+- **Papelera:** todo va a `~/.local/share/Trash` (nunca `rm`). El diario
+  `~/.local/state/laura/archivos.jsonl` permite «deshaz» incluso tras reiniciar.
+- **Alcance** (`[archivos]` en `assistant/config.toml`): Descargas, Documentos, Escritorio,
+  Imágenes, Vídeos, Música y `~/proyectos`. Nunca ocultos, `.git`, `vault`, ni enlaces que
+  salgan de esas carpetas. Máximo 50 operaciones por plan.
+- **Código:** `assistant/laura/archivos.py` (motor), `confirmar_archivos.py` (voz/panel),
+  `tools/archivos.py`, y en QML `HoloConfirm.qml`.
+- **Demo sin daemon:** `qs -c caelestia ipc call holo demoConfirm borrar` (o `mover`) y
+  `ipc call holo demoResolver true|false`.
+- Spec y plan: `docs/superpowers/specs/2026-11-09-laura-archivos-design.md`,
+  `docs/superpowers/plans/2026-11-09-laura-archivos-fase1.md`.
+
 ## 🧪 Pruebas y Diagnóstico
 
 ### Modo Demostración Rápido (sin dependencias del daemon)

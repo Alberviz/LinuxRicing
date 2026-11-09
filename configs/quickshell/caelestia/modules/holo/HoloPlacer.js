@@ -31,6 +31,12 @@ function size(panel, W, H) {
         return { w: Math.round(w), h: Math.round(h) };
     }
 
+    if (panel.kind === "confirmar") {
+        const n = (panel.payload && Array.isArray(panel.payload.items)) ? Math.max(1, panel.payload.items.length) : 1;
+        const mas = (panel.payload && panel.payload.mas > 0) ? 22 : 0;
+        return { w: 400, h: 46 + 74 + 26 * n + mas + 64 };
+    }
+
     const tipo = (panel.payload && panel.payload.tipo) || panel.tipo || "otro";
 
     switch (tipo) {

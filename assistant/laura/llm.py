@@ -83,11 +83,15 @@ class Session:
         self.messages.append({"role": role, "content": content})
 
 
+def _ultimo_usuario(session: Session) -> str:
+    return next((m.get("content") or "" for m in reversed(session.messages) if m.get("role") == "user"), "")
+
+
 def _ollama_body(session: Session, stream: bool) -> bytes:
     return json.dumps({
         "model": session.model_now(),
         "messages": session.messages,
-        "tools": tools_mod.TOOLS,
+        "tools": tools_mod.activas(_ultimo_usuario(session)),
         "stream": stream,
         "options": {"num_ctx": CFG["llm"].get("num_ctx", 4096),
                     **{k: CFG["llm"][k] for k in ("temperature", "num_predict") if k in CFG["llm"]}},
@@ -277,6 +281,8 @@ def converse(session: Session, user_text: str, on_sentence=None,
                 }
             if eff == "confirm:comando" and result.get("confirmar"):
                 return "", actions, {"destino": "comando", "peticion": result["comando"], "motivo": ""}
+            if eff == "confirm:archivos" and result.get("confirmar"):
+                return "", actions, {"destino": "archivos", "peticion": result["plan"], "motivo": ""}
             if result.get("ok"):
                 actions.append(tools_mod.accion_overlay(fn["name"], result))
     return (messages[-1].get("content") or "Hecho.").strip(), actions, None

@@ -28,6 +28,7 @@ class Tool:
     icon: str = "bolt"
     effect: str | None = None
     wants_apps: bool = False
+    cuando: Callable[[str], bool] | None = None   # herramienta contextual: solo se ofrece si esto es True
 
 
 REGISTRY: dict[str, Tool] = {}
@@ -35,7 +36,8 @@ REGISTRY: dict[str, Tool] = {}
 
 def tool(name: str, description: str, props: dict | None = None,
          required: list[str] | None = None, icon: str = "bolt",
-         effect: str | None = None, wants_apps: bool = False):
+         effect: str | None = None, wants_apps: bool = False,
+         cuando: Callable[[str], bool] | None = None):
     params: dict = {"type": "object", "properties": props or {}}
     if required:
         params["required"] = required
@@ -44,9 +46,16 @@ def tool(name: str, description: str, props: dict | None = None,
                            "parameters": params}}
 
     def deco(fn):
-        REGISTRY[name] = Tool(name, fn, schema, icon, effect, wants_apps)
+        REGISTRY[name] = Tool(name, fn, schema, icon, effect, wants_apps, cuando)
         return fn
     return deco
+
+
+def activas(texto: str) -> list[dict]:
+    """Esquemas que se le pasan al LLM en esta petición. El contexto de Ollama va al límite
+    (~7,5k de 8k tokens solo con las tools de siempre), así que las herramientas con `cuando`
+    solo se ofrecen si la frase las menciona."""
+    return [t.schema for t in REGISTRY.values() if t.cuando is None or t.cuando(texto or "")]
 
 
 def effect_of(name: str) -> str | None:
@@ -76,7 +85,7 @@ def accion_overlay(name: str, result: dict) -> dict:
 
 
 # Importar los módulos registra sus tools (el orden fija el de TOOLS).
-from . import sistema, tareas, memoria, avisos, web, dispositivos, escalada, segundo_plano, workspace, tele, warp, spotify, dj, holo  # noqa: E402,F401
+from . import sistema, tareas, memoria, avisos, web, dispositivos, escalada, segundo_plano, workspace, tele, warp, spotify, dj, holo, archivos  # noqa: E402,F401
 
 TOOLS = [t.schema for t in REGISTRY.values()]
 DISPATCH = {n: t.fn for n, t in REGISTRY.items()}

@@ -21,6 +21,7 @@ Singleton {
     signal closed(var ids)
     signal sent(string pid)
     signal cleared()
+    signal fx(var ev)
 
     function handle(ev): void {
         if (!ev || ev.type !== "holo")
@@ -47,6 +48,9 @@ Singleton {
                 root.sent(ev.ids[0]);
             else if (ev.panel && ev.panel.id)
                 root.sent(ev.panel.id);
+            break;
+        case "fx":
+            root.fx(ev);
             break;
         case "clear":
             root.cleared();
@@ -97,6 +101,23 @@ Singleton {
 
     function externo(n: int): void {
         Laura.ctrl("holo-ext " + n);
+    }
+
+    // Confirmación de un plan de archivos (borrar, mover…): el daemon ejecuta una sola vez
+    function confirmar(plan: string): void {
+        if (plan === "demo") {
+            root._demoResolver(true);
+            return;
+        }
+        Laura.ctrl("holo-confirm " + plan);
+    }
+
+    function cancelar(plan: string): void {
+        if (plan === "demo") {
+            root._demoResolver(false);
+            return;
+        }
+        Laura.ctrl("holo-cancel " + plan);
     }
 
     // Modo demo local sin necesidad de daemon
@@ -240,8 +261,68 @@ Singleton {
         });
     }
 
+    // Demo del panel de confirmación (sin daemon): `ipc call holo demoConfirm borrar|mover`
+    function demoConfirm(accion: string): void {
+        root.demo();
+        demoTimer.stop();
+        const ac = accion === "mover" ? "mover" : "borrar";
+        const panel = {
+            id: "confirmar",
+            kind: "confirmar",
+            titulo: ac === "borrar" ? "Borrar tres archivos" : "Mover tres archivos",
+            item_n: null,
+            payload: {
+                plan: "demo",
+                accion: ac,
+                titulo: ac === "borrar" ? "Borrar tres archivos" : "Mover tres archivos",
+                items: [
+                    { nombre: "WhatsApp 21.04.jpg", tamano: 412000, es_dir: false, nuevo: null },
+                    { nombre: "backup_config.tar.gz", tamano: 3200000, es_dir: false, nuevo: null },
+                    { nombre: "dataset_v1.csv", tamano: 95000, es_dir: false, nuevo: null }
+                ],
+                mas: 0,
+                total_bytes: 3707000,
+                destino: ac === "mover" ? "Universidad" : null,
+                segundos: 60,
+                expira: Date.now() / 1000 + 60
+            }
+        };
+        root.handle({
+            type: "holo",
+            op: "confirm",
+            items: root.items,
+            paneles: root.paneles.concat([panel]),
+            seleccionado: null,
+            panel: panel,
+            ids: null
+        });
+    }
+
+    function _demoResolver(si: bool): void {
+        const sin = root.paneles.filter(p => p.id !== "confirmar");
+        root.handle({
+            type: "holo",
+            op: "close",
+            items: root.items,
+            paneles: sin,
+            seleccionado: null,
+            panel: null,
+            ids: ["confirmar"]
+        });
+        if (si)
+            root.fx({ fx: "borrar", filas: [6, 7, 8], ids: [] });
+    }
+
     IpcHandler {
         target: "holo"
+
+        function demoConfirm(accion: string): void {
+            root.demoConfirm(accion);
+        }
+
+        function demoResolver(si: bool): void {
+            root._demoResolver(si);
+        }
 
         function demo(): void {
             root.demo();

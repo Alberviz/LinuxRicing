@@ -119,6 +119,14 @@ PanelWindow {
                 veilIn.start();
         }
 
+        // La ventana acaba de mostrarse y aún no tiene su tamaño real (arranca en 500×500 hasta
+        // que el compositor la configura): colocar ahora daría cajas absurdas, y cada panel se
+        // coloca una sola vez. Se reintenta en cuanto mida lo que la pantalla.
+        if (ps.length > 0 && screen && (width < screen.width * 0.9 || height < screen.height * 0.9)) {
+            reintento.restart();
+            return;
+        }
+
         // Salidas (en cascada si se van varios a la vez)
         let k = 0;
         for (const pid of idsVivos()) {
@@ -133,7 +141,7 @@ PanelWindow {
         if (ids.indexOf("lista") >= 0)
             np["lista"] = cajaLista((HoloState.items || []).length, conVisores);
         for (const p of ps) {
-            if (p.kind !== "visor" || np[p.id])
+            if ((p.kind !== "visor" && p.kind !== "confirmar") || np[p.id])
                 continue;
             const ocupados = [];
             for (const id of ids)
@@ -227,12 +235,35 @@ PanelWindow {
             if (root.reg[pid])
                 root.reg[pid].enviar();
         }
+        // Un plan de archivos se ha ejecutado: los visores afectados se van (borrar → papelera)
+        function onFx(ev: var): void {
+            if (!root.enfocada)
+                return;
+            for (const id of (ev.ids || [])) {
+                const p = root.reg[id];
+                if (!p)
+                    continue;
+                if (ev.fx === "borrar")
+                    p.desintegrar();
+                else
+                    p.salir(0);
+            }
+            if (ev.fx === "borrar")
+                papelera.pulsar();
+        }
 
         target: HoloState
     }
 
     ListModel {
         id: vivos
+    }
+
+    Timer {
+        id: reintento
+
+        interval: 40
+        onTriggered: root.sync()
     }
 
     NumberAnimation {
@@ -464,6 +495,61 @@ PanelWindow {
             anchors.fill: parent
             capa: root
             opacity: root.veil
+        }
+
+        // Papelera: aparece un instante en la esquina cuando se borra algo (one-shot)
+        Item {
+            id: papelera
+
+            property real p: 0
+
+            function pulsar(): void {
+                pulso.restart();
+            }
+
+            x: root.width - 90
+            y: root.height - 90
+            width: 44
+            height: 44
+            z: 1
+            opacity: p
+            visible: p > 0.001
+            scale: 0.8 + 0.4 * p
+
+            Rectangle {
+                anchors.fill: parent
+                radius: 22
+                color: Qt.alpha(Colours.palette.m3error, 0.18)
+                border.width: 1
+                border.color: Qt.alpha(Colours.palette.m3error, 0.7)
+            }
+            MaterialIcon {
+                anchors.centerIn: parent
+                text: "delete"
+                fontStyle: Tokens.font.icon.small
+                color: Colours.palette.m3error
+            }
+            SequentialAnimation {
+                id: pulso
+
+                NumberAnimation {
+                    target: papelera
+                    property: "p"
+                    to: 1
+                    duration: 160
+                    easing.type: Easing.OutCubic
+                }
+                PauseAnimation {
+                    duration: 520
+                }
+                NumberAnimation {
+                    target: papelera
+                    property: "p"
+                    to: 0
+                    duration: 260
+                    easing.type: Easing.InQuad
+                }
+            }
         }
 
         // ------------------------------------------------------------ paneles

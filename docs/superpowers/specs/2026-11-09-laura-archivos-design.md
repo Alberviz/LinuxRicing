@@ -66,7 +66,7 @@ con más de 5 operaciones. `crear_carpeta` y mover/renombrar de 1–5 operacione
 directamente (tienen deshacer).
 
 **Ejecutar** (`ejecutar(plan)`):
-- `borrar` → `gio trash` por origen.
+- `borrar` → papelera freedesktop **propia** (`files/` + `info/*.trashinfo`), no `gio trash`.
 - `mover`/`renombrar` → `shutil.move`; **nunca sobrescribe**: si el destino existe se usa
   `nombre (2).ext`, `(3)`…; el destino real queda en el diario.
 - `crear_carpeta` → `mkdir` (sin `parents` fuera de raíces).
@@ -74,9 +74,9 @@ directamente (tienen deshacer).
   hecho: se informa y se puede deshacer.
 
 **Diario** `~/.local/state/laura/archivos.jsonl` (append-only, una línea por operación):
-`{accion_id, ts, accion, origen, destino, trash_path?}`. Tras `gio trash` se localiza el
-fichero en `~/.local/share/Trash` buscando el `.trashinfo` cuyo `Path=` coincide y tiene la
-`DeletionDate` más reciente.
+`{accion_id, ts, accion, origen, destino, trash_path?}`. La papelera propia conoce la ruta exacta
+de lo borrado (`trash_files`, `trash_info`) y escribe el `.trashinfo` estándar, así que los
+gestores de archivos también la ven.
 
 **Deshacer** (`deshacer()`): revierte la **última acción completa** (todas sus operaciones):
 mover/renombrar → devolver a `origen` (si ya existe algo en `origen`, se conserva con sufijo);
@@ -85,17 +85,16 @@ sigue vacía. Marca la acción como deshecha para no repetirla. Funciona tras re
 
 ### 2. Herramientas — `assistant/laura/tools/archivos.py`
 
-`borrar_archivos(numeros | rutas)`, `mover_archivos(numeros | rutas, destino)`,
-`renombrar_archivo(numero | ruta, nombre)`, `crear_carpeta(nombre, en?)`,
+`borrar_archivos(numeros)`, `mover_archivos(numeros, destino)`,
+`renombrar_archivo(numero, nombre)`, `crear_carpeta(nombre, en?)`,
 `deshacer_archivos()`.
-- `numeros` resuelven contra la lista holográfica (`escena().resolver`); `rutas` absolutas
-  para el resto de casos. `destino` acepta nombre de carpeta (Descargas, «Universidad»…) o ruta.
+- `numeros` resuelven contra la lista holográfica (`escena().resolver`; sin números, el
+  seleccionado). `destino` acepta nombre de carpeta (Descargas, «Universidad»…) o ruta.
 - Las tools **solo planifican**. Si `requiere_confirmacion`, devuelven `effect="confirm:archivos"`
   con el plan (el mecanismo ya existente para `escalate:*`); si no, ejecutan y devuelven
   «decir» («Hecho. Dime “deshaz” si te arrepientes»).
-- Descripciones de las tools y una línea en el system prompt (`config.toml`) para el routing
-  («borra/quita/elimina» → `borrar_archivos`; «mueve/pasa a» → `mover_archivos`; «deshaz» →
-  `deshacer_archivos`). Evaluación con frases en `assistant/eval/frases.toml`.
+- Las descripciones de las tools llevan los ejemplos de routing (el system prompt no se toca:
+  el contexto va al límite). Evaluación con frases en `assistant/eval/frases.toml`.
 
 ### 3. Confirmación en el ciclo — `daemon.cycle()` / `escalation.py`
 
@@ -117,9 +116,9 @@ Nada se ejecuta sin un `confirmar` explícito de ese `plan.id`.
   botones Confirmar / Cancelar, barra de cuenta atrás de **un solo tramo** (sin bucle).
   Borrar en rojo (`m3error`), mover con la carpeta destino.
 - `HoloPanel.qml` / `HoloList.qml`: `fx` **desintegrar** (filas/visores afectados se estiran,
-  se desvanecen hacia la papelera en la esquina inferior; unos pocos `Rectangle` animados, sin
-  `Canvas` ni `shadowBlur`) y **volar** (el panel va hasta la fila/carpeta destino). Todo
-  one-shot; coste cero en reposo.
+  se encogen hacia una papelera que aparece un instante en la esquina inferior derecha; sin
+  partículas, `Canvas` ni `shadowBlur`). Al mover, la fila se desliza y se apaga y los visores
+  afectados vuelven a la píldora. Todo one-shot; coste cero en reposo.
 - Tras ejecutar, la escena **vuelve a listar** la carpeta (números nuevos; Laura lo avisa).
 - Tras tocar QML: sincronizar a `~/.config/quickshell/caelestia/` y reinicio completo del shell.
 
@@ -157,3 +156,15 @@ Pedido por Alberto durante este diseño; **no** forma parte de esta spec. Se bra
 aparte tras la fase 1 (listas holográficas de correos y agenda, Laura lee lo importante,
 herramientas completas de correo, delegación en segundo plano; modelos por defecto Gemini
 3.8 Flash medium / Claude Haiku 5.5 medium).
+
+## Desviaciones respecto al diseño original (decididas al implementar)
+
+- **Papelera propia** en vez de `gio trash` (ruta exacta de lo borrado, testeable sin `gio`).
+- **Tools contextuales** (`tools.activas()`): solo se ofrecen al LLM si la frase las pide, y
+  sin parámetro `rutas`. Medido con Ollama: el prompt (sistema + 51 tools) ya ocupaba 7.502
+  de 8.192 tokens; con las 5 tools nuevas pasaba a 8.149. `num_ctx` sube a **10240**
+  (8.152 tokens con «borra la 2»; +156 MiB de VRAM, 4.097 de 6.141 MiB).
+- **Animaciones sin partículas**: el panel se encoge hacia la papelera de la esquina.
+- **Bug previo corregido de paso** en `HoloLayer.qml`: la ventana arranca en 500×500 hasta que
+  el compositor la configura; los paneles colocados en ese instante (se colocan una sola vez)
+  quedaban con una caja absurda. `sync()` ahora espera a que mida lo que la pantalla.
