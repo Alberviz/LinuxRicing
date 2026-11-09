@@ -29,6 +29,8 @@ Singleton {
     // El selector de archivos está abierto: el drawer de utilities no debe cerrarse.
     property bool picking: false
     property var monitors: []
+    // Opciones del backend (`mirror options`): monitores, workspaces, energía, defaults. null = backend antiguo.
+    property var options: null
     readonly property bool mirroring: active?.mode === "mirror"
     // Cuántas tarjetas están mirando; el sondeo solo corre si hay alguna.
     property int observers: 0
@@ -86,6 +88,33 @@ Singleton {
             a.push("--no-audio");
         run(a);
     }
+    // o: {source: "monitor:X"|"workspace:N"|"window"|"extend", quality, encoder, audio}
+    function mirrorStartEx(uuid: string, o: var): void {
+        cmdError = "";
+        const a = ["mirror", "start", "--device", uuid, "--source", o.source, "--quality", o.quality, "--encoder", o.encoder, "--audio", o.audio ? "on" : "off"];
+        run(a);
+    }
+    // En caliente: o puede traer quality / encoder / audio (bool)
+    function mirrorSet(o: var): void {
+        const a = ["mirror", "set"];
+        if (o.quality !== undefined)
+            a.push("--quality", o.quality);
+        if (o.encoder !== undefined)
+            a.push("--encoder", o.encoder);
+        if (o.audio !== undefined)
+            a.push("--audio", o.audio ? "on" : "off");
+        run(a);
+    }
+    function mirrorOptions(): void {
+        run(["mirror", "options"], (code, r) => {
+            if (r && r.ok !== false && r.monitors) {
+                root.options = r;
+            } else {
+                root.options = null;
+                root.cmdError = "";
+            }
+        });
+    }
     function mirrorAudio(on: bool): void {
         run(["mirror", "audio", on ? "on" : "off"]);
     }
@@ -138,20 +167,22 @@ Singleton {
 
         Process {
             property var done: null
+            property var result: null
 
             stdout: StdioCollector {
                 id: out
             }
 
             onExited: code => {
+                let r = null;
                 try {
-                    const r = JSON.parse(out.text.trim().split("\n").pop());
+                    r = JSON.parse(out.text.trim().split("\n").pop());
                     root.cmdError = r.ok === false ? (r.error ?? "") : "";
                 } catch (e) {
                     root.cmdError = code === 0 ? "" : "cast-helper no responde";
                 }
                 if (done)
-                    done(code);
+                    done(code, r);
                 destroy();
             }
         }

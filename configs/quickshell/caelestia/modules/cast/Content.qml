@@ -21,6 +21,17 @@ Item {
     property string monitor: ""
     property bool busy: false
     readonly property bool scanning: Cast.devices.length === 0
+    // Qué proyectar / ajustes de la próxima proyección (los defaults vienen del backend)
+    property string srcKind: "monitor"
+    property string srcWorkspace: ""
+    property string quality: "auto"
+    property string encoder: "auto"
+    property bool audioOn: true
+    property bool advanced: false
+    readonly property var opt: Cast.options
+    readonly property var workspaces: opt?.workspaces ?? []
+    readonly property string effWorkspace: workspaces.some(w => String(w.id) === srcWorkspace) ? srcWorkspace : (workspaces.length > 0 ? String(workspaces[0].id) : "")
+    readonly property string sourceString: srcKind === "monitor" ? "monitor:" + effMonitor : srcKind === "workspace" ? "workspace:" + effWorkspace : srcKind
     readonly property string lastFile: `${Quickshell.env("HOME")}/.config/caelestia/cast-last-monitor`
 
     implicitHeight: col.implicitHeight
@@ -40,6 +51,7 @@ Item {
         Cast.observers++;
         Cast.refresh();
         Cast.scan();
+        Cast.mirrorOptions();
     }
     Component.onDestruction: Cast.observers--
 
@@ -53,16 +65,67 @@ Item {
     }
     readonly property string effMonitor: Cast.monitors.some(m => m.name === monitor) ? monitor : (Cast.monitors[0]?.name ?? "")
 
+    function applyDefaults(): void {
+        const d = opt?.defaults;
+        if (!d)
+            return;
+        quality = d.quality ?? quality;
+        encoder = d.encoder ?? encoder;
+        audioOn = d.audio ?? audioOn;
+    }
+
     function start(dev): void {
         busy = true;
         if (effMonitor)
             lastView.setText(effMonitor);
-        Cast.mirrorStart(dev.uuid, effMonitor, true);
+        if (opt)
+            Cast.mirrorStartEx(dev.uuid, {
+                source: sourceString,
+                quality: quality,
+                encoder: encoder,
+                audio: audioOn
+            });
+        else
+            Cast.mirrorStart(dev.uuid, effMonitor, true);
+    }
+
+    function pickedIdle(key, value): void {
+        if (key === "quality")
+            quality = value;
+        else if (key === "encoder")
+            encoder = value;
+        else
+            audioOn = value;
+    }
+
+    function pickedLive(key, value): void {
+        if (!opt && key === "audio") {
+            Cast.mirrorAudio(value);
+            return;
+        }
+        const o = {};
+        o[key] = value;
+        Cast.mirrorSet(o);
+    }
+
+    function sourceLabel(src): string {
+        if (!src)
+            return "";
+        if (!src.includes(":") && src !== "window" && src !== "extend")
+            return "Pantalla " + src;
+        if (src.startsWith("monitor:"))
+            return "Pantalla " + src.substring(8);
+        if (src.startsWith("workspace:"))
+            return "Workspace " + src.substring(10);
+        return src === "window" ? "Ventana" : src === "extend" ? "Pantalla extendida" : src;
     }
 
     Connections {
         target: Cast
 
+        function onOptionsChanged() {
+            root.applyDefaults();
+        }
         function onMirroringChanged() {
             root.busy = false;
         }
@@ -129,7 +192,15 @@ Item {
                     }
                     StyledText {
                         Layout.fillWidth: true
-                        text: (root.act?.state === "PLAYING" ? "Pantalla " : "Conectando · pantalla ") + (root.act?.monitor ?? "")
+                        text: (root.act?.state === "PLAYING" ? "" : "Conectando · ") + (root.act?.source ? root.sourceLabel(root.act.source) : "Pantalla " + (root.act?.monitor ?? ""))
+                        color: Colours.palette.m3onPrimaryContainer
+                        font: Tokens.font.body.small
+                        opacity: 0.8
+                    }
+                    StyledText {
+                        Layout.fillWidth: true
+                        visible: root.act?.quality !== undefined || root.act?.encoder !== undefined
+                        text: [root.act?.quality, root.act?.encoder ? (root.act.encoder === "nvidia" ? "NVIDIA" : "CPU") + (root.act?.encoder_mode === "auto" ? " (auto)" : "") : ""].filter(x => x).join(" · ")
                         color: Colours.palette.m3onPrimaryContainer
                         font: Tokens.font.body.small
                         opacity: 0.8
@@ -137,33 +208,12 @@ Item {
                 }
             }
 
-            StyledRect {
+            Tuning {
                 Layout.fillWidth: true
-                implicitHeight: al.implicitHeight + Tokens.padding.large * 2
-                radius: Tokens.rounding.large
-                color: Colours.tPalette.m3surfaceContainer
-
-                RowLayout {
-                    id: al
-
-                    anchors.fill: parent
-                    anchors.margins: Tokens.padding.large
-                    spacing: Tokens.spacing.medium
-
-                    MaterialIcon {
-                        text: "volume_up"
-                        color: Colours.palette.m3onSurfaceVariant
-                    }
-                    StyledText {
-                        Layout.fillWidth: true
-                        text: "Enviar el audio del sistema"
-                        font: Tokens.font.body.medium
-                    }
-                    StyledSwitch {
-                        checked: root.act?.audio ?? true
-                        onToggled: Cast.mirrorAudio(checked)
-                    }
-                }
+                quality: root.act?.quality ?? "auto"
+                encoder: root.act?.encoder_mode ?? "auto"
+                audio: root.act?.audio ?? true
+                onPicked: (k, v) => root.pickedLive(k, v)
             }
 
             TextButton {
@@ -182,47 +232,6 @@ Item {
             Layout.fillWidth: true
             visible: !root.mirroring
             spacing: Tokens.spacing.small
-
-            // Qué pantalla (solo si hay más de una)
-            RowLayout {
-                Layout.fillWidth: true
-                visible: Cast.monitors.length > 1
-                spacing: Tokens.spacing.small
-
-                StyledText {
-                    text: "Pantalla"
-                    color: Colours.palette.m3onSurfaceVariant
-                    font: Tokens.font.body.small
-                }
-                Repeater {
-                    model: Cast.monitors
-
-                    StyledRect {
-                        id: mchip
-
-                        required property var modelData
-                        readonly property bool sel: root.effMonitor === modelData.name
-
-                        implicitWidth: mt.implicitWidth + Tokens.padding.large * 2
-                        implicitHeight: mt.implicitHeight + Tokens.padding.small * 2
-                        radius: Tokens.rounding.full
-                        color: sel ? Colours.palette.m3secondaryContainer : Colours.tPalette.m3surfaceContainer
-
-                        StateLayer {
-                            radius: Tokens.rounding.full
-                            onClicked: root.monitor = mchip.modelData.name
-                        }
-                        StyledText {
-                            id: mt
-
-                            anchors.centerIn: parent
-                            text: mchip.modelData.name
-                            font: Tokens.font.body.small
-                            color: mchip.sel ? Colours.palette.m3onSecondaryContainer : Colours.palette.m3onSurfaceVariant
-                        }
-                    }
-                }
-            }
 
             StyledText {
                 Layout.fillWidth: true
@@ -295,6 +304,113 @@ Item {
                         }
                     }
                 }
+            }
+
+            // --- Qué proyectar
+            StyledText {
+                Layout.topMargin: Tokens.spacing.small
+                text: "Qué proyectar"
+                color: Colours.palette.m3onSurfaceVariant
+                font: Tokens.font.body.small
+            }
+            Flow {
+                Layout.fillWidth: true
+                spacing: Tokens.spacing.small
+
+                Repeater {
+                    model: root.opt ? [["monitor", "Pantalla", "desktop_windows"], ["workspace", "Workspace", "grid_view"], ["window", "Ventana", "web_asset"], ["extend", "Extender", "add_to_queue"]] : [["monitor", "Pantalla", "desktop_windows"]]
+
+                    Chip {
+                        required property var modelData
+
+                        label: modelData[1]
+                        icon: modelData[2]
+                        selected: root.srcKind === modelData[0]
+                        onClicked: root.srcKind = modelData[0]
+                    }
+                }
+            }
+            Flow {
+                Layout.fillWidth: true
+                visible: root.srcKind === "monitor" && Cast.monitors.length > 1
+                spacing: Tokens.spacing.small
+
+                Repeater {
+                    model: Cast.monitors
+
+                    Chip {
+                        required property var modelData
+
+                        label: modelData.name
+                        selected: root.effMonitor === modelData.name
+                        onClicked: root.monitor = modelData.name
+                    }
+                }
+            }
+            Flow {
+                Layout.fillWidth: true
+                visible: root.srcKind === "workspace"
+                spacing: Tokens.spacing.small
+
+                Repeater {
+                    model: root.workspaces
+
+                    Chip {
+                        required property var modelData
+
+                        label: (modelData.name && modelData.name !== String(modelData.id) ? modelData.name : String(modelData.id)) + " · " + modelData.windows + (modelData.windows === 1 ? " ventana" : " ventanas")
+                        selected: root.effWorkspace === String(modelData.id)
+                        onClicked: root.srcWorkspace = String(modelData.id)
+                    }
+                }
+            }
+            StyledText {
+                Layout.fillWidth: true
+                visible: root.srcKind === "window" || root.srcKind === "extend"
+                text: root.srcKind === "window" ? "Se abrirá el selector del sistema para elegir la ventana." : "Se crea una pantalla nueva y vacía en la tele para extender el escritorio."
+                color: Colours.palette.m3onSurfaceVariant
+                font: Tokens.font.body.small
+                wrapMode: Text.WordWrap
+            }
+
+            // --- Avanzado (plegable)
+            StyledRect {
+                Layout.fillWidth: true
+                visible: root.opt !== null
+                implicitHeight: adv.implicitHeight + Tokens.padding.large * 2
+                radius: Tokens.rounding.large
+                color: Colours.tPalette.m3surfaceContainer
+
+                StateLayer {
+                    radius: Tokens.rounding.large
+                    onClicked: root.advanced = !root.advanced
+                }
+                RowLayout {
+                    id: adv
+
+                    anchors.fill: parent
+                    anchors.margins: Tokens.padding.large
+                    anchors.leftMargin: Tokens.padding.large
+                    anchors.rightMargin: Tokens.padding.large
+
+                    StyledText {
+                        Layout.fillWidth: true
+                        text: "Avanzado"
+                        font: Tokens.font.body.medium
+                    }
+                    MaterialIcon {
+                        text: root.advanced ? "expand_less" : "expand_more"
+                        color: Colours.palette.m3onSurfaceVariant
+                    }
+                }
+            }
+            Tuning {
+                Layout.fillWidth: true
+                visible: root.opt !== null && root.advanced
+                quality: root.quality
+                encoder: root.encoder
+                audio: root.audioOn
+                onPicked: (k, v) => root.pickedIdle(k, v)
             }
         }
 
