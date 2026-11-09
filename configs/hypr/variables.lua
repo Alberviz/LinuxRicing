@@ -141,6 +141,7 @@ return {
     kbClearNotifs              = "CTRL + ALT + C",
     kbShowPanels               = "SUPER + P",
     kbCastPanel                = "SUPER + K",   -- Proyectar (como Win+K)
+    kbWarp                     = "SUPER + SHIFT + K",   -- Warp: lo copiado (o lo subrayado) al móvil
     kbLock                     = "SUPER + L",
     kbRestoreLock              = "SUPER + ALT + L",
     kbSleep                    = "SUPER + SHIFT + L",

@@ -18,7 +18,7 @@ bandeja «Para el PC», llegadas por `llegadas.jsonl`) más tres cosas nuevas:
 |---|---|
 | Nombre | **Warp** |
 | Texto que llega al PC | Se copia **solo** al portapapeles (`wl-copy`) y el agujero blanco suelta una tarjeta «Copiado» con un trozo. Sin modo secreto. |
-| Texto del PC al móvil | **Atajo** `Super+Shift+M` (selección primaria; si no hay, portapapeles) **y** arrastrar texto seleccionado al borde de arriba. |
+| Texto del PC al móvil | **Atajo** `Super+Shift+K` (portapapeles; si está vacío, selección primaria — `Super+Shift+M` ya era silenciar) **y** arrastrar texto seleccionado al borde de arriba. |
 | Móvil | Tarjeta «Llegó del PC» con el texto y botón **Copiar** (la web no puede escribir el portapapeles sin un toque). Compartir → Olimpo manda texto como texto. Botón **Enviar texto al PC** en Inicio (caja + Pegar + Enviar). |
 | Asistentes | Texto dictado, portapapeles, captura, último archivo de una carpeta **y** búsqueda de archivos por descripción (pregunta si duda). |
 | App nativa Android | Fuera de alcance; apuntada en `olimpo/docs/roadmap.md`. |
@@ -45,7 +45,8 @@ bandeja «Para el PC», llegadas por `llegadas.jsonl`) más tres cosas nuevas:
 warp texto "…" | warp texto -        texto (argumento o stdin)
 warp portapapeles                    wl-paste: texto → texto; imagen → archivo PNG temporal
 warp seleccion                       wl-paste --primary (lo subrayado)
-warp rapido                          selección; si está vacía, portapapeles (lo usa el atajo)
+warp rapido                          portapapeles; si está vacío, selección (lo usa el atajo; la selección
+                                     primaria guarda lo último subrayado aunque sea viejo: lo copiado manda)
 warp captura                         grim del monitor enfocado → PNG
 warp ultimo [carpeta]                archivo más reciente (por defecto Descargas)
 warp buscar "<descripción>"          candidatos (no envía)
@@ -88,7 +89,7 @@ Opciones: --json (una línea JSON en stdout; contrato con Laura y el puente) · 
 
 ### PC: atajo y Laura
 
-- `Super+Shift+M` → `warp rapido` (en la config de Hyprland de este repo).
+- `Super+Shift+K` → `warp rapido` (en la config de Hyprland de este repo).
 - Tool de Laura `assistant/laura/tools/warp.py`: acciones `texto`, `portapapeles`, `captura`, `ultimo`, `buscar`, `archivo`.
   Instrucción en la descripción: con `buscar`, si `claro` → enviar el primero; si no → leer los candidatos y preguntar.
 
