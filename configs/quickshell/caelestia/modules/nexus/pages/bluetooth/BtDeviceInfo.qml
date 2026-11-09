@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Layouts
+import Quickshell
 import Quickshell.Bluetooth
 import Caelestia.Components
 import Caelestia.Config
@@ -29,6 +30,18 @@ PageBase {
             return Tr.trCtx("Connected", "bluetooth device state");
         return device.bonded ? Tr.trCtx("Paired", "bluetooth device state") : Tr.trCtx("Not paired", "bluetooth device state");
     }
+
+    readonly property var audioCard: connected ? BluetoothAudioProfile.cardFor(device?.address ?? "") : null
+    readonly property var audioProfiles: audioCard?.profiles ?? []
+
+    // Perfil A2DP/códec: solo si hay tarjeta bluez con perfiles de sink
+    Component.onCompleted: {
+        BluetoothAudioProfile.watchers++;
+        BluetoothAudioProfile.refresh();
+    }
+    Component.onDestruction: BluetoothAudioProfile.watchers--
+
+    onConnectedChanged: BluetoothAudioProfile.refresh()
 
     onDeviceChanged: {
         // Auto close when device lost
@@ -183,6 +196,35 @@ PageBase {
                 if (root.device)
                     root.device.wakeAllowed = checked;
             }
+        }
+
+        // Perfil de audio (A2DP / códec)
+        Variants {
+            id: profileVariants
+
+            model: root.audioProfiles
+
+            MenuItem {
+                required property var modelData
+
+                text: modelData.codec ? modelData.codec : modelData.name
+                icon: modelData.name === root.audioCard?.active ? "check" : ""
+                activeIcon: "graphic_eq"
+            }
+        }
+
+        SelectRow {
+            Layout.topMargin: Tokens.spacing.large - parent.spacing
+            visible: root.audioProfiles.length > 0
+            first: true
+            last: true
+            label: Tr.trCtx("Audio profile", "bluetooth audio codec selector")
+            subtext: Tr.trCtx("Codec used to stream audio to this device", "bluetooth audio codec selector")
+            menuItems: profileVariants.instances
+            active: menuItems.find(i => root.audioProfiles[menuItems.indexOf(i)]?.name === root.audioCard?.active) ?? null
+            fallbackIcon: "graphic_eq"
+            fallbackText: Tr.trCtx("Unknown", "bluetooth audio codec")
+            onSelected: item => BluetoothAudioProfile.setProfile(root.device?.address ?? "", root.audioProfiles[menuItems.indexOf(item)]?.name)
         }
 
         // Information
