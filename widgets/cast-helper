@@ -461,6 +461,34 @@ def build_mirror_cmds(monitor, audio, size, profile=None, token="x"):
     return gsr, ff
 
 
+# ── Cast Streaming (openscreen) ──────────────────────────────────────────────
+CAST_SENDER = os.environ.get("CAST_SENDER", os.path.expanduser("~/.local/lib/linuxricing/cast_sender"))
+STREAM_SIZE = os.environ.get("CAST_STREAM_SIZE", "1280x720")     # el emisor recodifica a VP8 por software
+STREAM_PLAYOUT_MS = int(os.environ.get("CAST_STREAM_PLAYOUT_MS", "150"))   # búfer de reproducción del receptor
+STREAM_KBPS = int(os.environ.get("CAST_STREAM_KBPS", "8000"))
+MIRROR_BACKEND = os.environ.get("CAST_MIRROR_BACKEND", "auto")   # auto | cast-streaming | hls
+
+
+def stream_available():
+    return os.access(CAST_SENDER, os.X_OK)
+
+
+def build_stream_cmds(monitor, host, port):
+    """gpu-screen-recorder -> ffmpeg (repite SPS/PPS en cada keyframe) -> cast_sender (stdin = mpegts)."""
+    gsr = ["gpu-screen-recorder", "-w", monitor, "-f", str(MIRROR_FPS), "-c", "mpegts", "-k", "h264",
+           "-bm", "cbr", "-q", str(MIRROR_KBPS), "-keyint", "0.5", "-cursor", "yes", "-fm", "cfr",
+           "-ffmpeg-video-opts", "tune=ull;zerolatency=1;rc-lookahead=0;bf=0;delay=0",
+           "-s", STREAM_SIZE, "-o", "/dev/stdout"]
+    ff = ["ffmpeg", "-nostdin", "-loglevel", "error", "-fflags", "nobuffer+flush_packets", "-flags", "low_delay",
+          "-probesize", "32768", "-analyzeduration", "0", "-f", "mpegts", "-i", "pipe:0", "-c:v", "copy",
+          "-bsf:v", "dump_extra=freq=keyframe", "-an", "-muxdelay", "0", "-muxpreload", "0",
+          "-flush_packets", "1", "-f", "mpegts", "pipe:1"]
+    snd = [CAST_SENDER, "-n", "-c", "vp8", "-m", str(STREAM_KBPS * 1000), f"{host}:{port}", "pipe:0"]
+    env = dict(os.environ, CAST_LIVE="1", CAST_NO_AUDIO="1", CAST_PLAYOUT_MS=str(STREAM_PLAYOUT_MS),
+               CAST_INFLIGHT_MS="300")
+    return gsr, ff, snd, env
+
+
 def build_ffmpeg_cmd(path, info, audio_index, start):
     v = info["video"]
     cmd = ["ffmpeg", "-nostdin", "-loglevel", "error"]
@@ -1051,6 +1079,13 @@ class Session:
     def cleanup(self):
         """Limpia rutas/ficheros (no toca el Chromecast)."""
         self.dead = True
+        rt = self.route
+        if rt is not None and getattr(rt, "procs", None):      # espejo HLS: no dejar gsr/ffmpeg huérfanos
+            for q in rt.procs:
+                try:
+                    q.terminate()
+                except Exception:  # noqa: BLE001
+                    pass
         srv = self.daemon.server
         for k, v in list(srv.routes.items()):
             if v is self.route or k in self.sub_names:
@@ -1144,7 +1179,7 @@ class MirrorSession(Session):
     def as_dict(self):
         d = super().as_dict()
         d.update(monitor=self.monitor, audio=self.audio, position=0, duration=0,
-                 profile=self.profile, latency=self.latency())
+                 profile=self.profile, backend="hls", latency=self.latency())
         return d
 
     def latency(self):
@@ -1211,6 +1246,136 @@ class MirrorSession(Session):
 
     def seek(self, pos):
         raise RuntimeError("no se puede mover el tiempo al duplicar la pantalla")
+
+
+class CastStreamSession(Session):
+    """Duplicar pantalla por Cast Streaming (openscreen): UDP/RTP en vivo, ~0,2-0,4 s. Sin audio por ahora."""
+
+    def __init__(self, daemon, dev, monitor, audio, size, profile=None):
+        super().__init__(daemon, dev, monitor, "mirror", f"Duplicando pantalla · {monitor}")
+        self.monitor = monitor
+        self.audio = False
+        self.want_audio = audio
+        self.size = size
+        self.procs = []
+        self.stopping = False
+        self.t_stream = 0.0
+        self.attempt = 0
+
+    def as_dict(self):
+        d = super().as_dict()
+        d.update(monitor=self.monitor, audio=self.audio, position=0, duration=0,
+                 profile="cast-streaming", backend="cast-streaming",
+                 latency=round(STREAM_PLAYOUT_MS / 1000.0 + 0.15, 2) if self.state == "PLAYING" else None)
+        return d
+
+    # -- procesos --
+    def _kill_all(self):
+        procs, self.procs = self.procs, []
+        for p in reversed(procs):          # primero el emisor: avisa al receptor de que se acaba
+            if p.poll() is None:
+                try:
+                    p.terminate()
+                except OSError:
+                    pass
+        deadline = time.time() + 4
+        for p in procs:
+            try:
+                p.wait(timeout=max(0.1, deadline - time.time()))
+            except subprocess.TimeoutExpired:
+                try:
+                    p.kill()
+                    p.wait(timeout=2)
+                except Exception:  # noqa: BLE001
+                    pass
+
+    def _start_pipeline(self):
+        import select
+        gsr_c, ff_c, snd_c, env = build_stream_cmds(self.monitor, self.dev["host"], self.dev.get("port") or 8009)
+        gsr = subprocess.Popen(gsr_c, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
+        ff = subprocess.Popen(ff_c, stdin=gsr.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                              start_new_session=True)
+        gsr.stdout.close()
+        self.procs = [gsr, ff]
+        # el emisor sondea el flujo al abrirlo: esperar a que ya salgan datos
+        r, _, _ = select.select([ff.stdout], [], [], 12)
+        if not r:
+            raise RuntimeError("la captura de pantalla no produce vídeo")
+        snd = subprocess.Popen(snd_c, stdin=ff.stdout, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               env=env, start_new_session=True)
+        ff.stdout.close()
+        self.procs = [gsr, ff, snd]
+        return snd
+
+    def run_load(self, start, sub_spec):
+        try:
+            self.ip = local_ip_for(self.dev["host"])
+            for attempt in range(1, 4):
+                self.attempt = attempt
+                snd = self._start_pipeline()
+                t0 = time.time()
+                streaming = False
+                for raw in iter(snd.stdout.readline, b""):
+                    line = raw.decode("utf-8", "replace")
+                    if "Streaming to" in line and not streaming:
+                        streaming = True
+                        self.t_stream = time.time()
+                        self.state = "PLAYING"
+                        self.preparing = False
+                        self.loaded = True
+                        self.seen_active = True
+                        self.daemon.publish()
+                    elif "Last reported statistics" in line:
+                        m = re.search(r'"video_statistics":\{[^}]*', line)
+                        if m:
+                            g = lambda k: (re.search(r'"%s":([0-9.]+)' % k, m.group(0)) or [0, "?"])[1]  # noqa: E731
+                            log.info("cast-streaming: e2e %s ms, fps %s, tardíos %s de %s", g("AvgEndToEndLatencyMs"),
+                                     g("EnqueueFps"), g("NumLateFrames"), g("NumFramesCaptured"))
+                    elif "ERROR" in line:
+                        log.warning("cast_sender: %s", line.strip()[:200])
+                snd.wait()
+                if self.dead or self.stopping:
+                    return
+                self._kill_all()
+                if streaming:      # sesión viva que terminó (parada en la tele / red)
+                    self.daemon.end_session(self, error=None)
+                    return
+                log.warning("cast_sender terminó sin llegar a emitir (intento %d, %.1fs)", attempt, time.time() - t0)
+                time.sleep(1.0)
+            raise RuntimeError("el emisor Cast Streaming no arrancó")
+        except Exception as e:  # noqa: BLE001
+            if self.dead or self.stopping:
+                return
+            log.exception("Cast Streaming falló; se usa HLS")
+            self._kill_all()
+            self.daemon.fallback_hls(self, why=str(e))
+
+    def set_audio(self, on):
+        if on:      # el audio aún solo va por HLS
+            self.daemon.fallback_hls(self, why=None, audio=True)
+
+    def seek(self, pos):
+        raise RuntimeError("no se puede mover el tiempo al duplicar la pantalla")
+
+    def play(self):
+        raise RuntimeError("no se puede pausar el espejo")
+
+    pause = play
+
+    def _need_cast(self):
+        if self.cast is None:
+            self.cast = self.daemon.get_cast(self.dev)
+        return self.cast
+
+    def stop(self):
+        self.stopping = True
+        self._kill_all()
+        super().stop()   # cast.quit_app() si hay conexión (el emisor ya cerró la app)
+
+    def cleanup(self):
+        self.stopping = True
+        self._kill_all()
+        super().cleanup()
 
 
 class FakeSession(Session):
@@ -1716,7 +1881,7 @@ class Daemon:
             return {"ok": True}
         if act == "audio":
             s = self._need_active()
-            if not isinstance(s, MirrorSession):
+            if not isinstance(s, (MirrorSession, CastStreamSession)):
                 raise ValueError("no se está duplicando la pantalla")
             s.set_audio(bool(req.get("on", True)))
             self.publish()
@@ -1736,12 +1901,37 @@ class Daemon:
             raise ValueError(f"pantalla desconocida: {mon}")
         m = next(x for x in self.monitors if x["name"] == mon)
         size = "1920x1080" if m["width"] > 1920 else None
-        self.server.start()
-        s = MirrorSession(self, dev, mon, bool(req.get("audio", True)), size, req.get("profile"))
+        want_audio = bool(req.get("audio", True))
+        backend = req.get("backend") or MIRROR_BACKEND
+        # auto: Cast Streaming (~0,3 s, sin audio) si cast_sender está instalado; «mirror audio on» pasa a HLS
+        use_stream = stream_available() and backend in ("auto", "cast-streaming")
+        if backend == "cast-streaming" and not stream_available():
+            raise ValueError("falta cast_sender: ejecuta tools/build-openscreen.sh")
+        if use_stream:
+            s = CastStreamSession(self, dev, mon, want_audio, size)
+        else:
+            self.server.start()
+            s = MirrorSession(self, dev, mon, want_audio, size, req.get("profile"))
         self.error = None
         self.set_active(s)
         threading.Thread(target=s.run_load, args=(0, None), daemon=True).start()
-        return {"ok": True, "mode": "mirror", "monitor": mon, "preparing": True}
+        return {"ok": True, "mode": "mirror", "monitor": mon, "preparing": True,
+                "backend": "cast-streaming" if use_stream else "hls"}
+
+    def fallback_hls(self, old, why=None, audio=None):
+        """Cambia una sesión Cast Streaming a espejo HLS (con audio si se pide)."""
+        if why:
+            log.warning("fallback a HLS: %s", why)
+        with self.lock:
+            if self.active is not old:
+                return
+        self.server.start()
+        s = MirrorSession(self, old.dev, old.monitor, old.want_audio if audio is None else bool(audio),
+                          old.size, None)
+        self.error = None
+        old._kill_all()
+        self.set_active(s)
+        threading.Thread(target=s.run_load, args=(0, None), daemon=True).start()
 
     def _need_active(self):
         s = self.active
@@ -1990,6 +2180,8 @@ def main():
     p.add_argument("--monitor")
     p.add_argument("--no-audio", action="store_true")
     p.add_argument("--profile", choices=sorted(MIRROR_PROFILES))
+    p.add_argument("--backend", choices=["auto", "cast-streaming", "hls"],
+                   help="auto = Cast Streaming si está instalado (sin audio), si no HLS")
     p = sub.add_parser("subs", help="cambia el subtítulo activo: <n>|off")
     p.add_argument("value")
     p = sub.add_parser("audio", help="cambia la pista de audio: <n>")
@@ -2022,7 +2214,8 @@ def main():
         req.update(device=args.device, source=src, audio=args.audio, sub=args.sub,
                    sub_file=args.sub_file, no_subs=args.no_subs, start=args.start, title=args.title)
     elif args.cmd == "mirror":
-        req.update(action=args.action, device=args.device, monitor=args.monitor, audio=not args.no_audio, profile=args.profile)
+        req.update(action=args.action, device=args.device, monitor=args.monitor, audio=not args.no_audio, profile=args.profile,
+                   backend=args.backend)
         if args.action == "audio":
             req["on"] = (args.value or "on").lower() not in ("off", "0", "no")
     elif args.cmd == "seek":

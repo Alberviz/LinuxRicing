@@ -1,0 +1,202 @@
+diff --git a/cast/standalone_common/ffmpeg_glue.cc b/cast/standalone_common/ffmpeg_glue.cc
+index 5a9e4f4..bfce293 100644
+--- a/cast/standalone_common/ffmpeg_glue.cc
++++ b/cast/standalone_common/ffmpeg_glue.cc
+@@ -2,6 +2,11 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++#include <cstdlib>
++#include <cstring>
++#include <fcntl.h>
++#include <unistd.h>
++#include <string>
+ #include "cast/standalone_common/ffmpeg_glue.h"
+ 
+ #include <libavcodec/version.h>
+@@ -21,7 +26,29 @@ AVFormatContext* CreateAVFormatContextForFile(const char* path) {
+ #pragma GCC diagnostic pop
+ #endif  // LIBAVCODEC_VERSION_MAJOR < 59
+ 
+-  int result = avformat_open_input(&format_context, path, nullptr, nullptr);
++  // Modo en vivo (CAST_LIVE=1): sin sondeo largo ni búfer de entrada (la fuente es un pipe en tiempo real).
++  AVDictionary* live_opts = nullptr;
++  if (std::getenv("CAST_LIVE")) {
++    av_dict_set(&live_opts, "probesize", "32768", 0);
++    av_dict_set(&live_opts, "analyzeduration", "0", 0);
++    av_dict_set(&live_opts, "fflags", "nobuffer", 0);
++  }
++  // En vivo: una ruta absoluta (FIFO) se abre aquí en bloqueante y se pasa como fd:N; "pipe:0" usa la entrada estándar.
++  int live_fd = -1;
++  std::string live_path;
++  if (std::getenv("CAST_LIVE")) {
++    if (path[0] == '/') {
++      live_fd = open(path, O_RDONLY);
++      if (live_fd >= 0) {
++        live_path = "pipe:" + std::to_string(live_fd);
++        path = live_path.c_str();
++      }
++    } else if (std::strcmp(path, "pipe:0") == 0) {
++      live_fd = 0;
++    }
++  }
++  int result = avformat_open_input(&format_context, path, nullptr, &live_opts);
++  av_dict_free(&live_opts);
+   if (result < 0) {
+     OSP_LOG_ERROR << "Cannot open " << path << ": " << AvErrorToString(result);
+     return nullptr;
+@@ -33,6 +60,10 @@ AVFormatContext* CreateAVFormatContextForFile(const char* path) {
+                   << AvErrorToString(result);
+     return nullptr;
+   }
++  // Tras sondear, lecturas no bloqueantes: un capturador no frena al otro (av_read_frame devuelve EAGAIN).
++  if (live_fd >= 0) {
++    fcntl(live_fd, F_SETFL, fcntl(live_fd, F_GETFL) | O_NONBLOCK);
++  }
+   return format_context;
+ }
+ 
+diff --git a/cast/standalone_sender/looping_file_sender.cc b/cast/standalone_sender/looping_file_sender.cc
+index 9453870..3485177 100644
+--- a/cast/standalone_sender/looping_file_sender.cc
++++ b/cast/standalone_sender/looping_file_sender.cc
+@@ -2,6 +2,7 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++#include <cstdlib>
+ #include "cast/standalone_sender/looping_file_sender.h"
+ 
+ #include <array>
+@@ -209,9 +210,11 @@ void LoopingFileSender::SendFileAgain() {
+   OSP_CHECK_EQ(num_capturers_running_, 0);
+   num_capturers_running_ = settings_.should_include_audio ? 2 : 1;
+   capture_begin_time_ = latest_frame_time_ = env_.now() + seconds(1);
++  // Modo en vivo: el audio llega por su propio pipe (CAST_AUDIO_PATH), porque cada capturador abre su fuente.
++  const char* audio_path = std::getenv("CAST_AUDIO_PATH");
+   if (settings_.should_include_audio) {
+     audio_capturer_ = std::make_unique<SimulatedAudioCapturer>(
+-        env_, settings_.path_to_file.c_str(), audio_encoder_->num_channels(),
++        env_, audio_path ? audio_path : settings_.path_to_file.c_str(), audio_encoder_->num_channels(),
+         audio_encoder_->sample_rate(), *capture_begin_time_, *this);
+   }
+   video_capturer_ = std::make_unique<SimulatedVideoCapturer>(
+diff --git a/cast/standalone_sender/main.cc b/cast/standalone_sender/main.cc
+index 18e4810..5af39aa 100644
+--- a/cast/standalone_sender/main.cc
++++ b/cast/standalone_sender/main.cc
+@@ -2,6 +2,7 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++#include <cstdlib>
+ #include <cinttypes>
+ #include <csignal>
+ #include <cstdio>
+@@ -297,6 +298,7 @@ int StandaloneSenderMain(int argc, char* argv[]) {
+                          .path_to_file = args->file_path,
+                          .max_bitrate = args->max_bitrate,
+                          .should_include_video = true,
++                         .should_include_audio = !std::getenv("CAST_NO_AUDIO"),
+                          .use_android_rtp_hack = args->use_android_rtp_hack,
+                          .use_remoting = args->use_remoting,
+                          .should_loop_video = args->should_loop_video,
+diff --git a/cast/standalone_sender/simulated_capturer.cc b/cast/standalone_sender/simulated_capturer.cc
+index 4ec6750..0bec92e 100644
+--- a/cast/standalone_sender/simulated_capturer.cc
++++ b/cast/standalone_sender/simulated_capturer.cc
+@@ -2,6 +2,7 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++#include <cstdlib>
+ #include "cast/standalone_sender/simulated_capturer.h"
+ 
+ #include <libavformat/version.h>
+@@ -147,6 +148,10 @@ void SimulatedCapturer::StartDecodingNextFrame() {
+       avcodec_send_packet(decoder_context_.get(), nullptr);
+       next_task_.Schedule([this] { ConsumeNextDecodedFrame(); },
+                           Alarm::kImmediately);
++    } else if (read_frame_result == AVERROR(EAGAIN)) {
++      // Modo en vivo: aún no hay datos en el pipe; reintentar en unos ms.
++      next_task_.ScheduleFromNow([this] { StartDecodingNextFrame(); },
++                                 std::chrono::milliseconds(2));
+     } else {
+       // All other error codes are fatal.
+       OnError("av_read_frame", read_frame_result);
+@@ -225,6 +230,15 @@ void SimulatedCapturer::ConsumeNextDecodedFrame() {
+     return;  // Stop. Fatal error occurred.
+   }
+   reference_time += *delay_adjustment_or_null;
++  // Modo en vivo: el fotograma se «captura» al llegar (sin el desfase de 1 s ni la espera al reloj del archivo).
++  if (std::getenv("CAST_LIVE")) {
++    // Reloj recuperado: base = mínimo de (ahora - marca) => la referencia nunca supera «ahora» y se suaviza la ráfaga.
++    const Clock::time_point candidate = now_() - frame_timestamp;
++    if (!live_base_ || candidate < *live_base_) {
++      live_base_ = candidate;
++    }
++    reference_time = *live_base_ + frame_timestamp;
++  }
+ 
+   next_task_.Schedule(
+       [this, reference_time] {
+diff --git a/cast/standalone_sender/simulated_capturer.h b/cast/standalone_sender/simulated_capturer.h
+index 5dcb0bc..8eacd36 100644
+--- a/cast/standalone_sender/simulated_capturer.h
++++ b/cast/standalone_sender/simulated_capturer.h
+@@ -107,6 +107,7 @@ class SimulatedCapturer {
+   // The last frame's stream timestamp. This is used to detect bad stream
+   // timestamps in the file.
+   std::optional<Clock::duration> last_frame_timestamp_;
++  std::optional<Clock::time_point> live_base_;  // modo en vivo: instante de la marca 0 (mínimo de ahora-marca)
+ 
+   // Used to schedule the next task to execute and when it should execute. There
+   // is only ever one task scheduled/running at any time.
+diff --git a/cast/streaming/impl/sender_impl.cc b/cast/streaming/impl/sender_impl.cc
+index 4c27119..03c1bf4 100644
+--- a/cast/streaming/impl/sender_impl.cc
++++ b/cast/streaming/impl/sender_impl.cc
+@@ -2,6 +2,7 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++#include <cstdlib>
+ #include "cast/streaming/impl/sender_impl.h"
+ 
+ #include <algorithm>
+@@ -116,6 +117,10 @@ Clock::duration SenderImpl::GetInFlightMediaDuration(
+ }
+ 
+ Clock::duration SenderImpl::GetMaxInFlightMediaDuration() const {
++  // Modo en vivo: CAST_INFLIGHT_MS fija la ventana de fotogramas sin confirmar.
++  if (const char* ms = std::getenv("CAST_INFLIGHT_MS")) {
++    return std::chrono::milliseconds(std::atoi(ms));
++  }
+   if (config_.max_in_flight_media_duration) {
+     return config_.max_in_flight_media_duration.value();
+   }
+diff --git a/cast/streaming/public/offer_messages.cc b/cast/streaming/public/offer_messages.cc
+index 125797c..5c647ec 100644
+--- a/cast/streaming/public/offer_messages.cc
++++ b/cast/streaming/public/offer_messages.cc
+@@ -2,6 +2,7 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++#include <cstdlib>
+ #include "cast/streaming/public/offer_messages.h"
+ 
+ #include <inttypes.h>
+@@ -251,7 +252,11 @@ Json::Value Stream::ToJson() const {
+   static_assert(sizeof(ssrc) <= sizeof(Json::UInt),
+                 "this code assumes Ssrc fits in a Json::UInt");
+   root["ssrc"] = static_cast<Json::UInt>(ssrc);
+-  root["targetDelay"] = static_cast<int>(target_delay.count());
++  {
++    // Modo en vivo: CAST_PLAYOUT_MS fija el búfer de reproducción del receptor (por defecto 400 ms).
++    const char* po = std::getenv("CAST_PLAYOUT_MS");
++    root["targetDelay"] = po ? std::atoi(po) : static_cast<int>(target_delay.count());
++  }
+   root["aesKey"] = HexEncode(aes_key.data(), aes_key.size());
+   root["aesIvMask"] = HexEncode(aes_iv_mask.data(), aes_iv_mask.size());
+   root["receiverRtcpEventLog"] = receiver_rtcp_event_log;

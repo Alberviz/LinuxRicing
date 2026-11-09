@@ -121,6 +121,28 @@ físicas de botón (el tap-to-drag del touchpad no genera BTN_LEFT en evdev); si
   Medida real a ojo: `cast-helper mirror test-latency` abre un cronómetro grande a pantalla completa; proyecta esa pantalla y
   fotografía monitor y tele juntos (diferencia de tiempos = latencia).
 
+### Backend Cast Streaming (openscreen) — preferido, sin audio
+
+`cast-helper mirror start` usa por defecto **Cast Streaming** (el protocolo de «Transmitir pantalla» de Chrome: Mirroring App en la tele,
+RTP/UDP cifrado, búfer de reproducción de 150 ms) si existe `~/.local/lib/linuxricing/cast_sender`; si no existe, o si falla 3 veces al
+arrancar, cae solo a HLS. `--backend hls|cast-streaming|auto` (o `CAST_MIRROR_BACKEND`) lo fuerza. `state.json` → `active.backend`.
+
+- **Latencia:** medida por el propio emisor (histograma end-to-end captura→reproducción): **~170-200 ms**, ~29 fps, ~5 % de fotogramas
+  tardíos; a eso se suma captura+NVENC+pantalla de la tele (estimación pantalla a pantalla < 0,6 s; `active.latency` muestra el estimado
+  0,3 s). Medición real pendiente con `cast-helper mirror test-latency`.
+- **Pipeline:** `gpu-screen-recorder` (h264, GOP 0,5 s, 1280x720 por defecto, `CAST_STREAM_SIZE`) -> `ffmpeg -c copy -bsf:v dump_extra`
+  (repite SPS/PPS en cada keyframe) -> `cast_sender` leyendo mpegts por stdin; el emisor decodifica y recodifica a **VP8 por software**
+  (~1 núcleo de CPU) y lo manda por UDP. Variables: `CAST_STREAM_PLAYOUT_MS` (150), `CAST_STREAM_KBPS` (8000), `CAST_MIRROR_FPS` (30).
+- **Sin audio:** al emitir con el audio en vivo el emisor (un solo hilo) deja sin fotogramas al vídeo; por eso `mirror audio on`
+  cambia la sesión a HLS (con audio, ~2,3 s). Pendiente: audio por hilo propio en el parche.
+- **Cortafuegos:** no hace falta regla en UFW. El emisor inicia el flujo UDP y el RTCP de vuelta entra por el seguimiento de conexión
+  (comprobado: paquetes del receptor recibidos con UFW activo). Los `[UFW BLOCK]` de 192.168.1.5 que se ven son RST TCP del 8009.
+- **Instalación:** `tools/build-openscreen.sh` descarga openscreen (commit fijado), le aplica `tools/openscreen-live.patch` (modo en vivo:
+  entrada por pipe sin bloqueo, reloj recuperado, `CAST_PLAYOUT_MS`, `CAST_INFLIGHT_MS`, `CAST_NO_AUDIO`) y lo compila (clang+ninja,
+  ~2000 objetivos, ~20 min) a `~/.local/lib/linuxricing/cast_sender`. El código de openscreen no se guarda en el repo.
+- **Notas:** el puerto de la tele es el 8009 explícito (sin puerto el emisor usa otro y falla con `ConnectionFailed`). A veces el primer
+  arranque falla («Invalid data» al sondear): el helper reintenta hasta 3 veces antes de caer a HLS.
+
 ## Cambiar subtítulos y audio en reproducción
 
 - Al hacer `cast` se cargan TODAS las pistas de texto (incrustadas -> VTT, externas `<base>*.srt|vtt`) como `MediaTrack`; solo se activa la elegida.
