@@ -665,24 +665,41 @@ StyledRect {
             }
         }
 
-        // Fuente: grupo de botones conectados; el elegido se ensancha y muestra la etiqueta
-        Row {
+        // Fuente: grupo de botones conectados; el elegido se ensancha y muestra la etiqueta.
+        // OJO: Item y no Row. Con un Row (posicionador) el ancho de los hijos dependía del ancho del Row y el del
+        // Row de los hijos: con la columna oculta (sin Layout que fije el ancho) el polish no convergía y el shell
+        // se quedaba al 100 % de CPU al abrir el panel. Aquí el ancho lo fija SOLO el Layout y la x se calcula a mano.
+        Item {
             id: srcRow
 
-            // Ancho proporcional a `grow` (el elegido ~3,4x), animado
+            readonly property real spacing: 3
+            readonly property real avail: Math.max(0, width - spacing * 3)
+            // Suma de los `grow` (animados); no depende de ninguna geometría
             readonly property real totalGrow: {
                 let t = 0;
-                for (const c of children)
-                    if (c.grow !== undefined)
-                        t += c.grow;
-                return t || 1;
+                for (let i = 0; i < srcRep.count; i++) {
+                    const it = srcRep.itemAt(i);
+                    t += it ? it.grow : 1;
+                }
+                return t > 0 ? t : 1;
+            }
+            function growBefore(n: int): real {
+                let t = 0;
+                for (let i = 0; i < n; i++) {
+                    const it = srcRep.itemAt(i);
+                    t += it ? it.grow : 1;
+                }
+                return t;
             }
 
             Layout.fillWidth: true
+            implicitWidth: 0
+            implicitHeight: 40
             visible: Cast.options !== null
-            spacing: 3
 
             Repeater {
+                id: srcRep
+
                 model: [["monitor", "Pantalla", "desktop_windows"], ["workspace", "Escritorio", "grid_view"], ["window", "Ventana", "select_window"], ["extend", "Extender", "add_to_queue"]]
 
                 StyledRect {
@@ -693,8 +710,9 @@ StyledRect {
                     readonly property bool on: mirrorCol.shownKind === modelData[0]
                     property real grow: on ? 3.4 : 1
 
-                    width: (srcRow.width - srcRow.spacing * 3) * grow / srcRow.totalGrow
-                    implicitHeight: 40
+                    x: srcRow.avail * srcRow.growBefore(index) / srcRow.totalGrow + srcRow.spacing * index
+                    width: srcRow.avail * grow / srcRow.totalGrow
+                    height: 40
                     radius: on ? Tokens.rounding.full : Tokens.rounding.small
                     topLeftRadius: on || index === 0 ? Tokens.rounding.full : Tokens.rounding.small
                     bottomLeftRadius: topLeftRadius
