@@ -1,11 +1,13 @@
 diff --git a/cast/standalone_common/ffmpeg_glue.cc b/cast/standalone_common/ffmpeg_glue.cc
-index 5a9e4f4..bfce293 100644
+index 5a9e4f4..4e9f178 100644
 --- a/cast/standalone_common/ffmpeg_glue.cc
 +++ b/cast/standalone_common/ffmpeg_glue.cc
-@@ -2,6 +2,11 @@
+@@ -2,6 +2,13 @@
  // Use of this source code is governed by a BSD-style license that can be
  // found in the LICENSE file.
  
++#include <algorithm>
++#include <cerrno>
 +#include <cstdlib>
 +#include <cstring>
 +#include <fcntl.h>
@@ -14,7 +16,7 @@ index 5a9e4f4..bfce293 100644
  #include "cast/standalone_common/ffmpeg_glue.h"
  
  #include <libavcodec/version.h>
-@@ -21,7 +26,29 @@ AVFormatContext* CreateAVFormatContextForFile(const char* path) {
+@@ -21,7 +28,72 @@ AVFormatContext* CreateAVFormatContextForFile(const char* path) {
  #pragma GCC diagnostic pop
  #endif  // LIBAVCODEC_VERSION_MAJOR < 59
  
@@ -27,6 +29,7 @@ index 5a9e4f4..bfce293 100644
 +    av_dict_set(&live_opts, "fflags", "nobuffer", 0);
 +  }
 +  // En vivo: una ruta absoluta (FIFO) se abre aquí en bloqueante y se pasa como fd:N; "pipe:0" usa la entrada estándar.
++  const char* orig_path = path;
 +  int live_fd = -1;
 +  std::string live_path;
 +  if (std::getenv("CAST_LIVE")) {
@@ -40,18 +43,61 @@ index 5a9e4f4..bfce293 100644
 +      live_fd = 0;
 +    }
 +  }
-+  int result = avformat_open_input(&format_context, path, nullptr, &live_opts);
++  // Audio en vivo: E/S propia (read no bloqueante tras sondear) para que ffmpeg no duerma esperando datos.
++  const AVInputFormat* live_fmt = nullptr;
++  const char* audio_env = std::getenv("CAST_AUDIO_PATH");
++  const bool live_audio = live_fd > 0 && audio_env && std::strcmp(audio_env, orig_path) == 0;
++  const bool live_video = live_fd == 0;
++  if (live_audio || live_video) {
++    format_context = avformat_alloc_context();
++    auto* iobuf = static_cast<unsigned char*>(av_malloc(live_video ? 188 * 64 : 4096));
++    format_context->pb = avio_alloc_context(
++        iobuf, live_video ? 188 * 64 : 4096, 0, reinterpret_cast<void*>(static_cast<intptr_t>(live_fd)),
++        [](void* opaque, uint8_t* buf, int size) -> int {
++          const int fd = static_cast<int>(reinterpret_cast<intptr_t>(opaque));
++          if (fd == 0) {
++            // vídeo mpegts: entregar solo paquetes TS completos (188 B)
++            static uint8_t stage[1 << 16];
++            static int have = 0;
++            const bool blocking = !(fcntl(fd, F_GETFL) & O_NONBLOCK);
++            ssize_t r;
++            do {
++              r = read(fd, stage + have, sizeof(stage) - have);
++              if (r > 0) have += static_cast<int>(r);
++              else if (r == 0 && have < 188) return AVERROR_EOF;
++            } while (blocking && have < 188);
++            int out = std::min(size, have) / 188 * 188;
++            if (out == 0) return AVERROR(EAGAIN);
++            std::memcpy(buf, stage, out);
++            std::memmove(stage, stage + out, have - out);
++            have -= out;
++            return out;
++          }
++          const ssize_t n = read(fd, buf, size);
++          if (n > 0) return static_cast<int>(n);
++          if (n == 0) return AVERROR_EOF;
++          return errno == EAGAIN ? AVERROR(EAGAIN) : AVERROR(EIO);
++        },
++        nullptr, nullptr);
++    format_context->flags |= AVFMT_FLAG_CUSTOM_IO;
++    path = "";
++    if (live_video) {
++      live_fmt = av_find_input_format("mpegts");
++    }
++  }
++  int result = avformat_open_input(&format_context, path, live_fmt, &live_opts);
 +  av_dict_free(&live_opts);
    if (result < 0) {
      OSP_LOG_ERROR << "Cannot open " << path << ": " << AvErrorToString(result);
      return nullptr;
-@@ -33,6 +60,10 @@ AVFormatContext* CreateAVFormatContextForFile(const char* path) {
+@@ -33,6 +105,11 @@ AVFormatContext* CreateAVFormatContextForFile(const char* path) {
                    << AvErrorToString(result);
      return nullptr;
    }
 +  // Tras sondear, lecturas no bloqueantes: un capturador no frena al otro (av_read_frame devuelve EAGAIN).
 +  if (live_fd >= 0) {
 +    fcntl(live_fd, F_SETFL, fcntl(live_fd, F_GETFL) | O_NONBLOCK);
++    format_context->opaque = reinterpret_cast<void*>(static_cast<intptr_t>(live_fd + 1));
 +  }
    return format_context;
  }
@@ -102,18 +148,57 @@ index 18e4810..5af39aa 100644
                           .use_remoting = args->use_remoting,
                           .should_loop_video = args->should_loop_video,
 diff --git a/cast/standalone_sender/simulated_capturer.cc b/cast/standalone_sender/simulated_capturer.cc
-index 4ec6750..0bec92e 100644
+index 4ec6750..ed0c540 100644
 --- a/cast/standalone_sender/simulated_capturer.cc
 +++ b/cast/standalone_sender/simulated_capturer.cc
-@@ -2,6 +2,7 @@
+@@ -2,6 +2,10 @@
  // Use of this source code is governed by a BSD-style license that can be
  // found in the LICENSE file.
  
++#include <unistd.h>
++#include <algorithm>
 +#include <cstdlib>
++#include <sys/ioctl.h>
  #include "cast/standalone_sender/simulated_capturer.h"
  
  #include <libavformat/version.h>
-@@ -147,6 +148,10 @@ void SimulatedCapturer::StartDecodingNextFrame() {
+@@ -137,6 +141,35 @@ void SimulatedCapturer::StartDecodingNextFrame() {
+     return;
+   }
+ 
++  // Modo en vivo: ffmpeg reintenta EAGAIN dormido (bloquea el hilo único); solo leer si hay datos suficientes.
++  if (format_context_->opaque && std::getenv("CAST_LIVE")) {
++    const int fd = static_cast<int>(reinterpret_cast<intptr_t>(format_context_->opaque)) - 1;
++    int avail = 0;
++    const int need = media_type_ == AVMEDIA_TYPE_AUDIO ? 1 : 1;
++    AVIOContext* pb = format_context_->pb;
++    // Audio atrasado (cola de PulseAudio mientras arrancaba): descartar para estar «en directo»; si no, el
++    // reloj de muestras del codificador Opus se adelanta al real y el receptor retrasa audio y vídeo.
++    if (media_type_ == AVMEDIA_TYPE_AUDIO && ioctl(fd, FIONREAD, &avail) == 0 && avail > 9600) {
++      static uint8_t sink[1 << 16];
++      int drop = avail - 3840;
++      while (drop > 0) {
++        const ssize_t n = read(fd, sink, std::min<int>(drop, sizeof(sink)));
++        if (n <= 0) break;
++        drop -= static_cast<int>(n);
++      }
++      if (pb) pb->buf_ptr = pb->buf_end;
++    }
++    const bool buffered = pb && (pb->buf_end - pb->buf_ptr) >= need;
++    if (!buffered && (ioctl(fd, FIONREAD, &avail) != 0 || avail < need)) {
++      next_task_.ScheduleFromNow([this] { StartDecodingNextFrame(); },
++                                 std::chrono::milliseconds(2));
++      return;
++    }
++  }
++  if (format_context_->opaque && format_context_->pb && std::getenv("CAST_LIVE")) {
++    format_context_->pb->eof_reached = 0;  // EAGAIN no es fin de fichero
++    format_context_->pb->error = 0;
++  }
+   capture_begin_time_ = now_();
+   const int read_frame_result =
+       av_read_frame(format_context_.get(), packet_.get());
+@@ -147,6 +180,10 @@ void SimulatedCapturer::StartDecodingNextFrame() {
        avcodec_send_packet(decoder_context_.get(), nullptr);
        next_task_.Schedule([this] { ConsumeNextDecodedFrame(); },
                            Alarm::kImmediately);
@@ -124,7 +209,7 @@ index 4ec6750..0bec92e 100644
      } else {
        // All other error codes are fatal.
        OnError("av_read_frame", read_frame_result);
-@@ -225,6 +230,15 @@ void SimulatedCapturer::ConsumeNextDecodedFrame() {
+@@ -225,6 +262,18 @@ void SimulatedCapturer::ConsumeNextDecodedFrame() {
      return;  // Stop. Fatal error occurred.
    }
    reference_time += *delay_adjustment_or_null;
@@ -136,6 +221,9 @@ index 4ec6750..0bec92e 100644
 +      live_base_ = candidate;
 +    }
 +    reference_time = *live_base_ + frame_timestamp;
++    if (media_type_ == AVMEDIA_TYPE_AUDIO || std::getenv("CAST_NOFILTER")) {
++      reference_time = now_();   // el audio llega por ráfagas de ~100 ms: marca = llegada
++    }
 +  }
  
    next_task_.Schedule(
@@ -152,6 +240,30 @@ index 5dcb0bc..8eacd36 100644
  
    // Used to schedule the next task to execute and when it should execute. There
    // is only ever one task scheduled/running at any time.
+diff --git a/cast/standalone_sender/streaming_ffmpeg_encoder.cc b/cast/standalone_sender/streaming_ffmpeg_encoder.cc
+index 1d4e60f..8ce6383 100644
+--- a/cast/standalone_sender/streaming_ffmpeg_encoder.cc
++++ b/cast/standalone_sender/streaming_ffmpeg_encoder.cc
+@@ -2,6 +2,7 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++#include <cstdlib>
+ #include "cast/standalone_sender/streaming_ffmpeg_encoder.h"
+ 
+ #include <algorithm>
+@@ -359,7 +360,10 @@ void StreamingFfmpegEncoder::PrepareEncoder(int width,
+     // fallback to the default system encoder if not found.
+     const char* const preferred_name =
+         (params_.codec == VideoCodec::kHevc) ? "libx265" : "libx264";
+-    const AVCodec* codec = avcodec_find_encoder_by_name(preferred_name);
++    // CAST_ENCODER=h264_nvenc|h264_vaapi|h264_qsv fuerza un codificador (p. ej. por hardware).
++    const char* forced_name = std::getenv("CAST_ENCODER");
++    const AVCodec* codec =
++        avcodec_find_encoder_by_name(forced_name ? forced_name : preferred_name);
+     if (!codec) {
+       codec = avcodec_find_encoder(codec_id);
+     }
 diff --git a/cast/streaming/impl/sender_impl.cc b/cast/streaming/impl/sender_impl.cc
 index 4c27119..03c1bf4 100644
 --- a/cast/streaming/impl/sender_impl.cc
