@@ -51,7 +51,7 @@ def _cmd(*args: str) -> dict:
     return d if d.get("ok") else {"ok": False, "error": str(d.get("error") or "cast-helper falló")[:200]}
 
 
-@tool("tele", "Controla la tele (Chromecast): ver qué suena, pausar, reanudar, parar, volumen, silenciar, saltar o ir a un punto. Para MANDAR algo a la tele usa mandar_a_tele.",
+@tool("tele", "Controla la tele (Chromecast): ver qué suena, pausar, reanudar, parar, volumen, silenciar, saltar o ir a un punto, de la pantalla o vídeos mandados con mandar_a_tele. Para MANDAR algo a la tele usa mandar_a_tele. La música de Spotify en la tele NO va aquí: usa spotify.",
       {"accion": {"type": "string", "enum": _ACCIONES},
        "valor": {"type": "number", "description": "volumen: 0 a 100; saltar: segundos (negativo = atrás); ir_a: segundo absoluto"}},
       required=["accion"], icon="tv")
@@ -71,7 +71,10 @@ def tele(accion: str, valor: float | None = None) -> dict:
     if accion not in _ACCIONES:
         return {"ok": False, "error": f"acción desconocida: {accion}"}
     if not act:
-        return {"ok": False, "error": "no hay nada reproduciendo en la tele"}
+        # Esta tool solo ve lo que manda cast-helper; Spotify Connect en el Chromecast no aparece aquí.
+        return {"ok": False, "error": "no hay pantalla ni vídeo mandados a la tele. Si lo que suena en la tele es "
+                                      "Spotify, usa spotify (pasar_al_pc para traerlo a los altavoces) o "
+                                      "control_musica (parar/pausar). No digas que Spotify está cerrado."}
     if accion in ("volumen", "saltar", "ir_a") and valor is None:
         return {"ok": False, "error": f"«{accion}» necesita un valor"}
     if accion == "volumen":

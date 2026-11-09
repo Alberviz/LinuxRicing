@@ -55,7 +55,7 @@ def test_validaciones(entorno):
     assert not t.tele("hackear")["ok"]
     assert entorno.llamadas() == []
     entorno.estado(None)
-    assert "nada reproduciendo" in t.tele("pausar")["error"] and entorno.llamadas() == []
+    assert "ni vídeo mandados" in t.tele("pausar")["error"] and entorno.llamadas() == []
 
 
 # ───────────── mandar_a_tele ─────────────

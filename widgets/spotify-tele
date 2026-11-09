@@ -197,15 +197,39 @@ async function resolve(q, tipo) {
   const m = q.match(/open\.spotify\.com\/(?:intl-[a-z]+\/)?(track|playlist|album|artist)\/([A-Za-z0-9]+)/);
   if (m) return {nombre: q, uri: `spotify:${m[1]}:${m[2]}`, tipo: m[1], de: ""};
   const n = norm(q);
+  if (!n) return null;
   if (!tipo || tipo === "auto" || tipo === "playlist") {
-    const mine = await myPlaylists();
-    const hit = mine.find(p => norm(p.nombre) === n) || mine.find(p => norm(p.nombre).includes(n) || (n.length > 3 && n.includes(norm(p.nombre))));
+    // Ojo: hay playlists sin nombre (o solo con emoji) que normalizan a "" — y "" está contenido en cualquier
+    // texto, así que antes se colaban como resultado de cualquier petición. Fuera las de nombre < 2 letras, y
+    // la regla «la petición contiene el nombre» solo para nombres largos.
+    const mine = (await myPlaylists()).filter(p => norm(p.nombre).length >= 2);
+    const hit = mine.find(p => norm(p.nombre) === n) ||
+                (n.length >= 4 && mine.find(p => norm(p.nombre).includes(n))) ||
+                mine.find(p => norm(p.nombre).length >= 5 && n.includes(norm(p.nombre)));
     if (hit) return hit;
+    if (tipo === "playlist") {
+      // Pidió «mi playlist X» y no hay coincidencia clara (p. ej. el STT oyó «Reality for Life» por
+      // «RealG4life»): mejor preguntar por las parecidas que poner una cualquiera de la búsqueda.
+      const parecidas = mine.map(p => ({...p, sim: dice(n, norm(p.nombre))})).filter(p => p.sim >= 0.3)
+                            .sort((a, b) => b.sim - a.sim).slice(0, 3);
+      if (parecidas.length && parecidas[0].sim >= 0.75) return parecidas[0];
+      if (parecidas.length) return {dudas: parecidas.filter(p => p.sim >= parecidas[0].sim - 0.1).map(p => p.nombre)};
+    }
   }
-  const found = await search(q, tipo);
+  const found = (await search(q, tipo)).filter(x => norm(x.nombre));
   if (!found.length) return null;
   const me = norm((P.UserAPI && (await P.UserAPI.getUser()).displayName) || "");
   return (me && found.find(x => x.tipo === "playlist" && norm(x.de) === me)) || found[0];
+}
+// Parecido entre dos textos normalizados (coeficiente de Dice sobre bigramas), 0..1.
+function dice(a, b) {
+  if (a === b) return 1;
+  if (a.length < 2 || b.length < 2) return 0;
+  const bg = s => { const m = new Map(); for (let i = 0; i < s.length - 1; i++) { const k = s.slice(i, i + 2); m.set(k, (m.get(k) || 0) + 1); } return m; };
+  const A = bg(a), B = bg(b);
+  let c = 0;
+  for (const [k, v] of A) c += Math.min(v, B.get(k) || 0);
+  return 2 * c / (a.length + b.length - 2);
 }
 async function transferTo(dev) {
   if (dev.isActive) return true;
@@ -247,6 +271,7 @@ def cmd_poner(a) -> dict:
     body = r"""
 const item = await resolve(ARGS.q, ARGS.tipo);
 if (!item) return {ok: false, error: `no encuentro «${ARGS.q}» en Spotify`};
+if (item.dudas) return {ok: false, error: `no tengo ninguna playlist que se llame «${ARGS.q}»`, candidatos: item.dudas};
 let dev = null;
 if (ARGS.donde === "tele") {
   dev = findTele(ARGS.tele);

@@ -6,6 +6,7 @@ Si Spotify no está abierto, el CLI lo abre."""
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import socket
 import subprocess
@@ -29,6 +30,20 @@ _CONTROL = {"reiniciar_cancion": ("reiniciar", None),
             "anadir_a_la_cola": ("cola", None), "poner_a_continuacion": ("despues", None),
             "temporizador": ("temporizador", None)}
 _TIPOS = ["auto", "playlist", "cancion", "album", "artista"]
+# El modelo a veces mete el tipo dentro de `que` («playlist: RealG4Life», «mi playlist de X»); con el prefijo la
+# búsqueda en la biblioteca ya no coincide. Se quita y pasa a `tipo`.
+_PREFIJO = re.compile(r"^\s*(?:(?:mi|la)\s+)?(?:(?P<pl>playlist|lista)\s*(?::|\s+de\s+|\s+)|"
+                      r"(?P<otro>canci[oó]n|tema|[aá]lbum|disco|artista)\s*:\s*)", re.I)
+_TIPO_PREFIJO = {"cancion": "cancion", "canción": "cancion", "tema": "cancion", "album": "album",
+                 "álbum": "album", "disco": "album", "artista": "artista"}
+
+
+def _limpiar_que(que: str, tipo: str | None) -> tuple[str, str | None]:
+    m = _PREFIJO.match(que)
+    if not m or not que[m.end():].strip():
+        return que.strip(), tipo
+    t = "playlist" if m.group("pl") else _TIPO_PREFIJO.get(m.group("otro").lower())
+    return que[m.end():].strip().strip("«»\"'"), (tipo if tipo in _TIPOS and tipo != "auto" else t)
 
 
 def _bin() -> str | None:
@@ -59,7 +74,9 @@ def _suena(a: dict | None) -> str:
 
 
 @tool("spotify",
-      "Spotify. poner: que=canción/playlist/álbum/artista, donde=tele|pc («manda la playlist X a la tele»). "
+      "Spotify. poner: que=SOLO el nombre (el tipo va en tipo), donde=tele|pc («manda la playlist X a la tele»). "
+      "Si dice «en la tele» o «manda Spotify a la tele», donde=tele. Si devuelve candidatos, pregunta cuál. "
+      "«Quita la música de la tele / que suene en mis altavoces» = pasar_al_pc. "
       "poner_a_continuacion («pon después X») y anadir_a_la_cola usan que. volumen: valor 0-100; temporizador: minutos. "
       "Pausa/siguiente/anterior: control_musica.",
       {"accion": {"type": "string", "enum": _ACCIONES},
@@ -77,17 +94,25 @@ def spotify(accion: str, que: str | None = None, tipo: str | None = None, donde:
     if accion == "poner":
         if not que:
             return {"ok": False, "error": "¿qué pongo?"}
+        que, tipo = _limpiar_que(que, tipo)
         args = ["poner", que, "--tipo", tipo if tipo in _TIPOS else "auto", "--donde", donde or "actual"]
         if desde_inicio:
             args.append("--desde-inicio")
         r = _cmd(*args)
         if not r.get("ok"):
+            if r.get("candidatos"):
+                c = r["candidatos"]
+                r["decir"] = (f"No tengo ninguna playlist «{que}». ¿Te refieres a "
+                              + (c[0] if len(c) == 1 else ", ".join(c[:-1]) + " o " + c[-1]) + "?")
             return r
         p, a = r.get("puesto") or {}, r.get("ahora") or {}
+        nombre = p.get("nombre") or que
         dev = a.get("dispositivo") or ""
         lugar = "" if not dev else (" en este PC" if dev.lower() == socket.gethostname().lower() else f" en la tele ({dev})")
-        return {"ok": True, "resumen": f"Spotify: {p.get('nombre', que)}"[:48],
-                "decir": f"Poniendo {p.get('nombre', que)}{lugar}.", "ahora": a}
+        out = {"ok": True, "resumen": f"Spotify: {nombre}"[:48], "decir": f"Poniendo {nombre}{lugar}.", "ahora": a}
+        if "tele" in lugar and isinstance(a.get("volumen"), (int, float)) and a["volumen"] < 10:
+            out["decir"] += f" Ojo, la tele está al {a['volumen']} % de volumen."
+        return out
     if accion in ("pasar_a_tele", "pasar_al_pc"):
         r = _cmd("pasar", "tele" if accion == "pasar_a_tele" else "pc")
         if not r.get("ok"):

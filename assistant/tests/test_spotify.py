@@ -55,3 +55,33 @@ def test_que_suena_y_validaciones(cli):
     assert "Mbappe" in t.spotify("que_suena")["decir"]
     assert not t.spotify("volumen")["ok"] and not t.spotify("anadir_a_la_cola")["ok"] and not t.spotify("hackear")["ok"]
     assert cli() == ["estado"]
+
+
+@pytest.mark.parametrize("que,tipo,esperado", [
+    ("playlist: RealG4Life", None, ("RealG4Life", "playlist")),
+    ("mi playlist de RealG4Life", None, ("RealG4Life", "playlist")),
+    ("Playlist Relaxing Jazz", "auto", ("Relaxing Jazz", "playlist")),
+    ("canción: Mbappe", None, ("Mbappe", "cancion")),
+    ("álbum: Thriller", "album", ("Thriller", "album")),
+    ("bad bunny", None, ("bad bunny", None)),
+    ("playlist", None, ("playlist", None)),
+])
+def test_limpiar_prefijo_de_tipo(que, tipo, esperado):
+    assert t._limpiar_que(que, tipo) == esperado
+
+
+def test_poner_quita_el_prefijo(cli):
+    assert t.spotify("poner", que="playlist: RealG4Life", donde="tele")["ok"]
+    assert cli() == ["poner|RealG4Life|--tipo|playlist|--donde|tele"]
+
+
+def test_poner_con_candidatos_pregunta(tmp_path, monkeypatch):
+    monkeypatch.setattr(t, "_cmd", lambda *a, **k: {"ok": False, "error": "no tengo", "candidatos": ["RealG4lifebaby", "la miaa_real"]})
+    r = t.spotify("poner", que="playlist: Reality for Life")
+    assert not r["ok"] and "RealG4lifebaby o la miaa_real" in r["decir"]
+
+
+def test_poner_sin_nombre_no_deja_hueco(monkeypatch):
+    monkeypatch.setattr(t, "_cmd", lambda *a, **k: {"ok": True, "puesto": {"nombre": ""}, "ahora": {"dispositivo": "Comedor", "volumen": 3}})
+    r = t.spotify("poner", que="RealG4Life", donde="tele")
+    assert "Poniendo RealG4Life en la tele (Comedor)." in r["decir"] and "3 %" in r["decir"]
