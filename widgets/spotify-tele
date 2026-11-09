@@ -151,6 +151,17 @@ function findTele(name) {
   if (name) { const n = norm(name); return ds.find(d => norm(d.name) === n) || ds.find(d => norm(d.name).includes(n)); }
   return ds.find(d => d.type === "cast_video" || d.type === "cast_audio" || d.type === "tv");
 }
+function playlistSort(uri) {
+  if (ARGS.orden === "original") return null;
+  if (ARGS.orden === "recientes") return {field: "ADDED_AT", order: "DESC"};
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k.endsWith(":sortedState")) { const v = JSON.parse(localStorage.getItem(k) || "{}")[uri]; if (v && v.field) return v; }
+    }
+  } catch (e) {}
+  return null;
+}
 function localDev() { return P.ConnectAPI.getState().devices.find(d => d.isLocal || d.id === "local_device"); }
 async function myPlaylists() {
   const out = [];
@@ -247,18 +258,27 @@ if (dev && !(await transferTo(dev))) return {ok: false, error: `no he podido pas
 // el aleatorio del dispositivo, así que el aleatorio se fija DESPUÉS de que empiece a sonar.
 const alea = ARGS.inicio ? false : ARGS.aleatorio;
 let opts = {};
-if (ARGS.inicio && item.tipo === "playlist") {
-  try { const c = await P.PlaylistAPI.getContents(item.uri, {limit: 1}); const f = c.items && c.items[0];
-        if (f) opts = {skipTo: {uri: f.uri, uid: f.uid, index: 0}}; } catch (e) {}
+// Las playlists suenan en el orden con el que Alberto las ve en el cliente (p. ej. «Añadido recientemente»): Spotify
+// lo guarda por playlist en localStorage («<usuario>:sortedState») y la interfaz lo pasa como playlistQueryOptions.sort.
+let ctx = {uri: item.uri};
+if (item.tipo === "playlist") {
+  const sort = playlistSort(item.uri);
+  if (sort) ctx.playlistQueryOptions = {offset: 0, limit: 25, filter: "", sort: sort, filterPredicates: [],
+                                        descriptorFilter: [], trackExtensions: [222], extendedPlaceholderTypes: []};
+  if (ARGS.inicio) {
+    try { const c = await P.PlaylistAPI.getContents(item.uri, sort ? {limit: 1, sort: sort} : {limit: 1});
+          const f = c.items && c.items[0];
+          if (f) opts = {skipTo: {uri: f.uri, uid: f.uid, index: 0}}; } catch (e) {}
+  }
 } else if (ARGS.inicio) opts = {skipTo: {index: 0}};
-await P.PlayerAPI.play({uri: item.uri}, {featureIdentifier: "laura"}, opts);
+await P.PlayerAPI.play(ctx, {featureIdentifier: "playlist"}, opts);
 for (let i = 0; i < 16; i++) { await sleep(500); const st = P.PlayerAPI.getState(); if (st.item && !st.isPaused && st.context && st.context.uri === item.uri) break; }
 if (alea !== null) { try { await P.PlayerAPI.setShuffle(alea); } catch (e) {} await sleep(600); }
 return {ok: true, puesto: item, ahora: now()};
 """
     alea = None if a.aleatorio is None else a.aleatorio
     return run_js(body, {"q": a.texto, "tipo": a.tipo, "donde": a.donde, "tele": a.tele, "aleatorio": alea,
-                         "inicio": a.desde_inicio})
+                         "inicio": a.desde_inicio, "orden": a.orden})
 
 
 def cmd_pasar(a) -> dict:
@@ -349,6 +369,8 @@ def main() -> int:
     g.add_argument("--aleatorio", dest="aleatorio", action="store_true", default=None)
     g.add_argument("--en-orden", dest="aleatorio", action="store_false")
     p.add_argument("--desde-inicio", action="store_true", help="primera canción y sin aleatorio")
+    p.add_argument("--orden", choices=["guardado", "recientes", "original"], default="guardado",
+                   help="playlists: el orden que tienes en Spotify (por defecto), añadidas recientemente u original")
     p = sub.add_parser("control")
     p.add_argument("accion", choices=ACCIONES)
     p.add_argument("valor", nargs="?")

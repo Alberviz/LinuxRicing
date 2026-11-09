@@ -243,7 +243,10 @@ Spicetify (`Spicetify.Platform`). El cliente de Linux ve el Chromecast como disp
   escritorio. Para playlists mira antes tu biblioteca (`RootlistAPI`) y prefiere las tuyas.
 - **Poner en la tele:** primero `ConnectAPI.transferPlayback` y esperar a que la tele sea el dispositivo activo
   (~3-4 s; si se llama a `play()` antes, la sesión vuelve al PC), luego `PlayerAPI.play`.
-- **Desde el inicio:** `skipTo` a la primera pista (con su `uid`) y el aleatorio se apaga DESPUÉS de que empiece a
+- **Orden de las playlists:** el que Alberto tiene en el cliente (p. ej. «Añadido recientemente»). Spotify lo guarda por
+  playlist en `localStorage["<usuario>:sortedState"]` y la interfaz lo pasa al reproductor como
+  `playlistQueryOptions.sort` (`{field: "ADDED_AT", order: "DESC"}`); `spotify-tele` hace lo mismo (`--orden guardado|recientes|original`).
+- **Desde el inicio:** `skipTo` a la primera pista de ese orden (con su `uid`) y el aleatorio se apaga DESPUÉS de que empiece a
   sonar (`play()` de un contexto nuevo vuelve a encender el aleatorio del dispositivo).
 - Mandos: `spotify-tele control …` (aleatorio, repetir, volumen, me gusta, cola, a continuación, temporizador).
   Pausa/siguiente/anterior van por `playerctl` (MPRIS de Spotify, que manda también cuando suena en la tele).
