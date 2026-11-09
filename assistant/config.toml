@@ -16,7 +16,7 @@ model_quality = ""     # modelo mayor para «modo calidad» (di «modo calidad»
                        # Vacío = desactivado. En el examen (eval/) qwen2.5:7b sacó 54 %
                        # frente a 79 % del 4B: el modo calidad empeora, así que se deja off.
 url = "http://localhost:11434/api/chat"
-num_ctx = 8192         # ventana de contexto de Ollama. 6144 se quedó corto con ~40 tools (el esquema solo ya pasa de 6k tokens).
+num_ctx = 10240         # ventana de contexto de Ollama. 6144 se quedó corto con ~40 tools (el esquema solo ya pasa de 6k tokens).
                        # Presupuesto VRAM en la RTX 4050 (6 GB) con Whisper+Kokoro
                        # ya en CUDA (~1 GB): 4096≈3,1 GB · 6144≈3,4 GB · 8192≈3,7 GB
                        # de LLM. 6144 deja ~1,5 GB de aire; subir a 8192 solo si las
