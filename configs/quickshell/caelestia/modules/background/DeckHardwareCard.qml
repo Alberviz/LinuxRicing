@@ -102,6 +102,33 @@ GridLayout {
         }
     }
 
+    // GPU Intel (iGPU, la que mueve Hyprland/Quickshell)
+    ColumnLayout {
+        Layout.fillWidth: true
+        visible: root.deck.igpuPresent
+        spacing: Tokens.spacing.extraSmall
+        RowLayout {
+            Layout.fillWidth: true
+            MaterialIcon { text: "memory"; fontStyle: Tokens.font.icon.small; color: Colours.palette.m3secondary }
+            StyledText { text: "GPU (Intel)"; font: Tokens.font.label.medium; color: Colours.palette.m3onSurface }
+            Item { Layout.fillWidth: true }
+            StyledText { text: `${root.deck.igpuFreq} MHz (${root.deck.igpuUtil}%)`; font: Tokens.font.label.medium; color: Colours.palette.m3secondary }
+        }
+        StyledRect {
+            Layout.fillWidth: true
+            implicitHeight: 8
+            radius: 4
+            color: (root.deck.transparentWidgets ? Qt.alpha(Colours.palette.m3surfaceContainerHigh, 0.5) : Colours.palette.m3surfaceContainerHigh)
+            StyledRect {
+                width: parent.width * (root.deck.igpuUtil / 100.0)
+                height: parent.height
+                radius: 4
+                color: Colours.palette.m3secondary
+                Behavior on width { Anim { duration: 300 } }
+            }
+        }
+    }
+
     // VRAM
     ColumnLayout {
         Layout.fillWidth: true

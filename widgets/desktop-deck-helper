@@ -139,7 +139,32 @@ def get_weather():
         }))
 
 
+def _find_intel_gt():
+    """Ruta sysfs gt0 de la iGPU Intel (i915), o None."""
+    try:
+        for card in sorted(Path("/sys/class/drm").glob("card[0-9]*")):
+            if card.name.count("-"):
+                continue
+            if (card / "device/driver").resolve().name == "i915":
+                gt = card / "gt/gt0"
+                if (gt / "rc6_residency_ms").exists():
+                    return gt
+    except Exception:
+        pass
+    return None
+
+
+def _rc6_ms(gt):
+    try:
+        return int((gt / "rc6_residency_ms").read_text())
+    except Exception:
+        return None
+
+
 def get_hardware():
+    igt = _find_intel_gt()
+    rc6_a = _rc6_ms(igt) if igt else None
+    t_a = time.monotonic()
     # 1. CPU Usage
     cpu_pct = 0
     try:
@@ -175,6 +200,19 @@ def get_hardware():
     except Exception:
         pass
 
+    # 2b. Intel iGPU: uso = tiempo fuera de RC6 (sin intel_gpu_top) durante la ventana de medida
+    igpu_util = 0
+    igpu_freq = 0
+    if igt is not None and rc6_a is not None:
+        rc6_b = _rc6_ms(igt)
+        dt_ms = (time.monotonic() - t_a) * 1000.0
+        if rc6_b is not None and dt_ms > 0:
+            igpu_util = int(max(0.0, min(100.0, 100.0 * (1.0 - (rc6_b - rc6_a) / dt_ms))))
+        try:
+            igpu_freq = int((igt / "rps_act_freq_mhz").read_text())
+        except Exception:
+            pass
+
     # 3. GPU Telemetry
     gpu_temp = 45
     gpu_util = 0
@@ -204,6 +242,9 @@ def get_hardware():
         "ram_total": ram_total_gb,
         "gpu_temp": gpu_temp,
         "gpu_util": gpu_util,
+        "igpu_util": igpu_util,
+        "igpu_freq": igpu_freq,
+        "igpu_present": igt is not None,
         "vram_pct": vram_pct,
         "vram_used": vram_used_gb,
         "vram_total": vram_total_gb,
