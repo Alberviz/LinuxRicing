@@ -59,6 +59,9 @@ StyledWindow {
     property bool typing: false
     property string draft: ""
     readonly property bool lit: Laura.borderActive || typing || holdT.running
+    // Con hologramas en pantalla la píldora se queda (es de donde salen; ver HoloLayer),
+    // pero SIN borde de luz ni reloj: solo una tarjeta estática.
+    readonly property bool conHolo: HoloState.activo
     Timer {
         id: holdT
 
@@ -106,7 +109,7 @@ StyledWindow {
         front.start();
     }
 
-    visible: lit || progress > 0.001
+    visible: lit || progress > 0.001 || conHolo
 
     // --- Estado de la presentación ---
     readonly property string phase: Laura.state
@@ -133,7 +136,7 @@ StyledWindow {
     Timer {
         interval: 33
         repeat: true
-        running: win.visible
+        running: win.visible && (win.lit || win.progress > 0.001)
         property real last: 0
         onRunningChanged: last = Date.now()
         onTriggered: {
@@ -235,7 +238,7 @@ StyledWindow {
         anchors.bottom: parent.bottom
         anchors.bottomMargin: Tokens.padding.extraLarge * 2
 
-        readonly property bool hasContent: win.lit && (youText.length > 0 || showHer || win.listening || win.typing)
+        readonly property bool hasContent: (win.lit || win.conHolo) && (youText.length > 0 || showHer || win.listening || win.typing)
         visible: opacity > 0.001
         opacity: hasContent ? 1 : 0
         Behavior on opacity {
