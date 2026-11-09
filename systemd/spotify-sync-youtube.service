@@ -1,0 +1,8 @@
+[Unit]
+Description=Sincronizar playlists de YouTube con Spotify (spotify-tele)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/alberviz/.local/bin/spotify-tele playlist sync-todo --si-abierto
+Environment=PATH=/home/alberviz/.local/bin:/usr/local/bin:/usr/bin:/bin

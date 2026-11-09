@@ -53,6 +53,7 @@ effect = "jarvis"         # jarvis | subnautica | robot | dry
 
 [tts.kokoro]
 voice = "ef_dora"         # ef_dora | em_alex
+device = "cpu"            # cpu (ahorra VRAM y evita colisiones de contexto CUDA con Ollama) | cuda | auto
 
 [tts.piper]
 voice = "es_ES-davefx-medium"   # modelo en ~/.local/share/piper/voices/
@@ -188,6 +189,11 @@ remitentes_importantes = ["edu", ".ac.", "universidad", "universit", "uj.edu.pl"
 "con mi novia" = "Nuestra historia 💖"
 "de mi novia" = "Nuestra historia 💖"
 "bonita" = "Nuestra historia 💖"
+
+# Playlists de YouTube que se sincronizan con Spotify (con `spotify-tele playlist sync-todo` o al arrancar el PC)
+# Formato: "Nombre de Playlist en Spotify" = "URL completa o ID de la playlist de YouTube"
+[spotify.sync_youtube]
+# "Mis Favoritas YT" = "https://www.youtube.com/playlist?list=..."
 
 [ubicacion]
 ciudad = ""

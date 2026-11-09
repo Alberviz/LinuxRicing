@@ -425,6 +425,7 @@ if [ "$SELECTED_RGB" = true ]; then
             fi
         done
         cp -u "$BASE_DIR/systemd/"*.service "$HOME/.config/systemd/user/" 2>/dev/null || true
+        cp -u "$BASE_DIR/systemd/"*.timer "$HOME/.config/systemd/user/" 2>/dev/null || true
         systemctl --user daemon-reload || true
         # openrgb + battery-lighting siempre; argb-wave solo si su script existe; wifi-smart-roam si existe
         UNITS="openrgb.service battery-lighting.service"
@@ -441,6 +442,10 @@ if [ "$SELECTED_RGB" = true ]; then
         # drag-watch: sin él los portales de arrastre no aparecen
         if [ -f "$BASE_DIR/widgets/drag-watch" ] && [ -f "$BASE_DIR/systemd/drag-watch.service" ]; then
             systemctl --user enable --now drag-watch.service 2>/dev/null || true
+        fi
+        # spotify-sync-youtube: timer para sincronizar playlists de YouTube periódicamente
+        if [ -f "$BASE_DIR/systemd/spotify-sync-youtube.timer" ]; then
+            systemctl --user enable --now spotify-sync-youtube.timer 2>/dev/null || true
         fi
     fi
 

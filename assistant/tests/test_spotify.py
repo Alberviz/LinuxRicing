@@ -175,3 +175,36 @@ def test_buscar_generico(falso):
     llamadas, resp = falso
     resp["encontrar"] = {"ok": True, "encontrado": {"nombre": "Mbappe", "uri": "spotify:track:Z", "tipo": "cancion", "de": "Eladio"}}
     assert t.spotify("buscar", que="mbappe")["decir"] == "He encontrado «Mbappe» de Eladio. ¿La pongo?"
+
+
+def test_cola_nueva_y_limpiar(falso):
+    llamadas, resp = falso
+    resp["cola"] = {"ok": True, "total": 3, "reproduciendo": {"nombre": "Dakiti"}}
+    r = t.spotify("cola_nueva", que="Dakiti, Memorias, Sparks", donde="tele")
+    assert llamadas[0] == ["cola", "nueva", "Dakiti", "Memorias", "Sparks", "--donde", "tele"]
+    assert "Puesta la cola con 3 canciones" in r["decir"]
+
+    r_clean = t.spotify("cola_limpiar")
+    assert llamadas[1] == ["cola", "limpiar"]
+    assert "vaciada" in r_clean["decir"]
+
+
+def test_crear_y_anadir_playlist(falso):
+    llamadas, resp = falso
+    resp["playlist"] = {"ok": True, "uri": "spotify:playlist:NEW"}
+    r = t.spotify("crear_playlist", que="Cyberpunk Focus")
+    assert llamadas[0] == ["playlist", "crear", "Cyberpunk Focus"]
+    assert "He creado la playlist «Cyberpunk Focus»" in r["decir"]
+
+    r_add = t.spotify("anadir_a_playlist", que="Turbo Killer", valor="Cyberpunk Focus")
+    assert llamadas[1] == ["playlist", "anadir", "Cyberpunk Focus", "Turbo Killer"]
+    assert "Añadida «Turbo Killer» a la playlist «Cyberpunk Focus»" in r_add["decir"]
+
+
+def test_sincronizar_youtube(falso):
+    llamadas, resp = falso
+    resp["playlist"] = {"ok": True, "anadidas": 5}
+    r = t.spotify("sincronizar_youtube")
+    assert llamadas[0] == ["playlist", "sync-todo"]
+    assert "5 canciones añadidas" in r["decir"]
+

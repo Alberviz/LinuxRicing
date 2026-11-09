@@ -19,7 +19,7 @@ from . import tool
 _ACCIONES = ["poner", "buscar", "poner_lo_encontrado", "poner_a_continuacion", "anadir_a_la_cola", "pasar_a_tele", "pasar_al_pc", "que_suena",
              "reiniciar_cancion", "aleatorio_si",
              "aleatorio_no", "repetir_lista", "repetir_cancion", "repetir_no", "volumen", "subir", "bajar",
-             "me_gusta", "no_me_gusta", "temporizador"]
+             "me_gusta", "no_me_gusta", "temporizador", "cola_nueva", "cola_limpiar", "crear_playlist", "anadir_a_playlist", "sincronizar_youtube"]
 # acción de Laura -> (acción del CLI, valor fijo). Acciones explícitas: el modelo pequeño confundía
 # «aleatorio no» con «repetir lista» y «pon después X» con «poner X».
 # pausar/siguiente/anterior NO están aquí: los lleva control_musica (playerctl), que también manda en Spotify
@@ -267,6 +267,48 @@ def spotify(accion: str, que: str | None = None, tipo: str | None = None, donde:
         if not r.get("abierto"):
             return {"ok": True, "decir": "Spotify está cerrado.", "resumen": "Spotify cerrado"}
         return {"ok": True, "decir": _suena(r), "resumen": "Qué suena", "ahora": r}
+    if accion == "crear_playlist":
+        if not que:
+            return {"ok": False, "error": "¿cómo llamo a la playlist?"}
+        r = _cmd("playlist", "crear", que)
+        if not r.get("ok"):
+            return r
+        return {"ok": True, "resumen": f"Playlist {que} creada", "decir": f"He creado la playlist «{que}» en tu Spotify."}
+    if accion == "anadir_a_playlist":
+        if not que:
+            return {"ok": False, "error": "¿qué canción añado?"}
+        pl = valor or "Favoritos"
+        r = _cmd("playlist", "anadir", pl, que)
+        if not r.get("ok"):
+            return r
+        return {"ok": True, "resumen": f"Añadido a {pl}", "decir": f"Añadida «{que}» a la playlist «{pl}»."}
+    if accion == "cola_nueva":
+        if not que:
+            return {"ok": False, "error": "¿qué canciones pongo en la cola?"}
+        temas = [t.strip() for t in que.split(",") if t.strip()] or [que.strip()]
+        args = ["cola", "nueva", *temas]
+        if donde:
+            args.extend(["--donde", donde])
+        r = _cmd(*args)
+        if not r.get("ok"):
+            return r
+        tot = r.get("total", len(temas))
+        rep = (r.get("reproduciendo") or {}).get("nombre") or "la primera canción"
+        return {"ok": True, "resumen": f"Cola con {tot} canciones", "decir": f"Puesta la cola con {tot} canciones. Empieza con {rep}."}
+    if accion == "cola_limpiar":
+        r = _cmd("cola", "limpiar")
+        if not r.get("ok"):
+            return r
+        return {"ok": True, "resumen": "Cola vaciada", "decir": "Cola de reproducción vaciada."}
+    if accion == "sincronizar_youtube":
+        if que and valor:
+            r = _cmd("playlist", "sync-youtube", que, valor)
+        else:
+            r = _cmd("playlist", "sync-todo")
+        if not r.get("ok"):
+            return r
+        anad = r.get("anadidas", 0)
+        return {"ok": True, "resumen": "Playlists sincronizadas", "decir": f"Sincronización completada: {anad} canciones añadidas a Spotify."}
     cli, fijo = _CONTROL[accion]
     if fijo is not None:
         valor = fijo
