@@ -213,7 +213,8 @@ def _suena(a: dict | None) -> str:
       "y, si Alberto dice que sí, poner_lo_encontrado. "
       "«Quita la música de la tele / que suene en mis altavoces» = pasar_al_pc. "
       "poner_a_continuacion («pon después X») y anadir_a_la_cola usan que. volumen: valor 0-100 (solo si dice un número); «sube/baja un poco» = subir/bajar sin valor; temporizador: minutos. "
-      "Pausa/siguiente/anterior: control_musica.",
+      "cola_nueva: que=canciones CONCRETAS separadas por comas. Si pide un TIPO de música o N canciones sin "
+      "nombrarlas, usa cola_dj. Pausa/siguiente/anterior: control_musica.",
       {"accion": {"type": "string", "enum": _ACCIONES},
        "que": {"type": "string"},
        "tipo": {"type": "string", "enum": _TIPOS},

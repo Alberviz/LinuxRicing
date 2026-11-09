@@ -251,6 +251,16 @@ async function resolve(q, tipo) {
   }
   const found = (await search(q, tipo)).filter(x => norm(x.nombre));
   if (!found.length) return null;
+  if (tipo === "cancion") {
+    // «Título Artista» (colas del DJ, «añade X a la cola»): el primer resultado a veces es otra canción
+    // (pedir «Noche de Entierro Luny Tunes» daba «MUVI» de Kendo Kaponi). Mejor el que más se parezca, y si
+    // ninguno se parece, nada: una canción de menos es mejor que una cualquiera.
+    // Sin artista en la petición («mbappe») cuenta solo el título y, a igualdad, manda el orden de Spotify.
+    const sc = found.map(x => ({x, s: Math.round(100 * Math.max(dice(n, norm(x.nombre)),
+                                                         dice(n, norm(x.nombre + " " + (x.de || ""))))) / 100}))
+                    .sort((a, b) => b.s - a.s);
+    return sc[0].s >= 0.3 ? sc[0].x : null;
+  }
   const me = norm((P.UserAPI && (await P.UserAPI.getUser()).displayName) || "");
   return (me && found.find(x => x.tipo === "playlist" && norm(x.de) === me)) || found[0];
 }
