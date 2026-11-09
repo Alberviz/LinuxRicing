@@ -15,6 +15,7 @@ import "modules/rgbcontrol"
 import "modules/rebootdialog"
 import "modules/projectdialog"
 import "modules/assistant"
+import "modules/holo"
 import "modules/lock"
 import QtQuick
 import Quickshell
@@ -44,6 +45,7 @@ ShellRoot {
     RebootDialog {}
     ProjectDialog {}
     Assistant {}
+    HoloOverlay {}
     Lock {
         id: lock
     }

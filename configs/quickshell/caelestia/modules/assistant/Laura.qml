@@ -169,6 +169,9 @@ Singleton {
         if (t.length > 0)
             _ctrl("ask " + t, null);
     }
+    function ctrl(cmd: string): void {
+        _ctrl(cmd, null);
+    }
     function dismiss(id: string): void {
         root.jobs = root.jobs.filter(j => j.id !== id);
         _ctrl("job-dismiss " + id, null);
@@ -426,6 +429,9 @@ Singleton {
             break;
         case "job":
             root._upsert(ev, true);
+            break;
+        case "holo":
+            HoloState.handle(ev);
             break;
         }
     }
