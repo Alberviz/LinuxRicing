@@ -265,6 +265,15 @@ def main() -> None:
     srv.bind(sock_path)
     srv.listen(4)
     bus.start()
+    from .holo import escena
+    from .holo_preview import limpiar_cache
+    limpiar_cache()
+    escena()
+    bus.on_connect.append(
+        lambda: escena().snapshot()
+        if escena().snapshot()["paneles"]
+        else {"type": "holo", "op": "clear", "items": [], "paneles": [], "seleccionado": None, "panel": None, "ids": None}
+    )
     bus.emit(type="state", value="idle", mode="centro")
     log(f"listo. control: {sock_path}  ·  eventos: {bus.path}")
 
@@ -323,6 +332,10 @@ def main() -> None:
                 jobs_mod.expire_externos()
             except Exception as e:  # noqa: BLE001
                 log(f"caducidad de sesiones externas: {e}")
+            try:
+                escena().caducar()
+            except Exception as e:  # noqa: BLE001
+                log(f"caducidad de holograma: {e}")
             time.sleep(30)
 
     threading.Thread(target=janitor, daemon=True).start()
@@ -414,6 +427,8 @@ def main() -> None:
                 return jobs.external(json.loads(arg))
             except (ValueError, TypeError) as e:
                 return {"ok": False, "error": f"ext: json no válido ({e})"}
+        if cmd.startswith("holo-"):
+            return escena().control(cmd, arg)
         if cmd == "job-dismiss":
             return jobs.dismiss(arg)
         if cmd == "jobs":

@@ -55,6 +55,13 @@ class Session:
         extra = f"Ahora mismo es {fecha_hora_texto()}."
         if bloque:
             extra += "\n\n" + bloque
+        try:
+            from .holo import escena
+            ctx = escena().contexto()
+        except Exception:
+            ctx = ""
+        if ctx:
+            extra += "\n\n" + ctx
         self.messages[0] = {"role": "system", "content": self.base_prompt + "\n\n" + extra}
 
     def trim(self) -> None:

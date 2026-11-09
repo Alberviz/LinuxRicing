@@ -45,18 +45,29 @@ def _warp(*args: str, entrada: str | None = None) -> dict:
       "seleccion (SOLO si dice «lo seleccionado/subrayado»), captura (de la pantalla), ultimo (envía el más reciente de "
       "«carpeta»), listar (qué hay en «carpeta»: NO envía; léele los nombres) y buscar («consulta», opcional «carpeta»; NO "
       "envía) + archivo (envía «ruta»). Para un archivo descrito («una captura de WhatsApp de descargas»): buscar; si "
-      "claro=true, archivo con el primero; si no, léele dos o tres nombres y pregunta cuál. Sin candidatos: dilo.",
+      "claro=true, archivo con el primero; si no, léele dos o tres nombres y pregunta cuál. Sin candidatos: dilo. "
+      "Si hay archivos en pantalla, «envía la N / esa al móvil» = archivo con «numero» (sin numero = el seleccionado).",
       {"accion": {"type": "string", "enum": _ACCIONES},
        "texto": {"type": "string", "description": "texto/nota: el contenido, tal cual"},
        "nombre": {"type": "string", "description": "nota: nombre corto del .md"},
        "consulta": {"type": "string", "description": "buscar: palabras del nombre y/o tipo (pdf, foto, captura…)"},
        "carpeta": {"type": "string", "description": "listar/ultimo/buscar: Descargas, Documentos, Escritorio, Imágenes…"},
-       "ruta": {"type": "string", "description": "archivo: ruta absoluta (de listar o buscar)"}},
+       "ruta": {"type": "string", "description": "archivo: ruta absoluta (de listar o buscar)"},
+       "numero": {"type": "integer", "description": "archivo: número de la lista que se ve en pantalla («envía la 2», «manda esa»)"}},
       required=["accion"], icon="cell_tower")
 def warp(accion: str, texto: str | None = None, nombre: str | None = None, consulta: str | None = None, carpeta: str | None = None,
-         ruta: str | None = None) -> dict:
+         ruta: str | None = None, numero: int | None = None) -> dict:
     if accion not in _ACCIONES:
         return {"ok": False, "error": f"acción desconocida: {accion}"}
+    n: int | None = None
+    if accion == "archivo" and not (ruta or "").strip() and (numero is not None or not (consulta or "").strip()):
+        from ..holo import escena
+        it = escena().resolver(numero)
+        if it:
+            ruta = it.ruta
+            n = it.n
+        elif numero is not None:
+            return {"ok": False, "error": "no hay nada con ese número en pantalla"}
     if accion == "texto":
         if not (texto or "").strip():
             return {"ok": False, "error": "¿qué texto mando?"}
@@ -79,6 +90,13 @@ def warp(accion: str, texto: str | None = None, nombre: str | None = None, consu
         if not d.get("ok"):
             return d
         c = d.get("candidatos") or []
+        if c:
+            try:
+                from ..holo import escena
+                titulo = Path(d["carpeta"]).name if d.get("carpeta") else f"«{consulta}»"
+                escena().listar(titulo, c)
+            except Exception:
+                pass
         d["decir"] = ("No encuentro nada parecido." if not c else
                       f"Encontré {c[0]['nombre']}." if d.get("claro") else
                       "Hay varios: " + "; ".join(x["nombre"] for x in c[:3]) + ". ¿Cuál?")
@@ -89,6 +107,13 @@ def warp(accion: str, texto: str | None = None, nombre: str | None = None, consu
         if not d.get("ok"):
             return d
         c = d.get("candidatos") or []
+        if c:
+            try:
+                from ..holo import escena
+                titulo = Path(d["carpeta"]).name if d.get("carpeta") else (carpeta or "Archivos")
+                escena().listar(titulo, c)
+            except Exception:
+                pass
         d["decir"] = (f"{Path(d.get('carpeta', '')).name or 'La carpeta'} está vacía." if not c else
                       f"Lo más reciente: " + "; ".join(x["nombre"] for x in c[:5]) + ". ¿Cuál mando?")
         d["resumen"] = "Mirando la carpeta"
@@ -103,6 +128,12 @@ def warp(accion: str, texto: str | None = None, nombre: str | None = None, consu
         if not (ruta or "").strip():
             return {"ok": False, "error": "falta la ruta (usa antes buscar)"}
         d = _warp("archivo", ruta)
+        if d.get("ok") and n is not None:
+            try:
+                from ..holo import escena
+                escena().marcar_enviado(n)
+            except Exception:
+                pass
     elif accion == "ultimo":
         d = _warp("ultimo", *([carpeta] if carpeta else []))
     else:

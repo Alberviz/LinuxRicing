@@ -10,6 +10,7 @@ Eventos que se emiten (ver `laurad.py`):
     {"type":"amplitude","value":0.0-1.0}
     {"type":"transcript","value":"lo que dijo Alberto"}
     {"type":"result","actions":[{"icon":"volume_up","text":"Subir volumen"}, ...]}
+    {"type":"holo","op":"snapshot|list|open|close|select|sent|page|clear",...}
 
 Al conectarse, un lector nuevo recibe de inmediato el último `state` conocido
 para poder pintar la ventana correcta sin esperar al siguiente ciclo.
@@ -29,6 +30,7 @@ class EventBus:
         self._lock = threading.Lock()
         self._last_state: dict | None = None
         self._srv: socket.socket | None = None
+        self.on_connect: list = []
 
     def start(self) -> None:
         if os.path.exists(self.path):
@@ -61,6 +63,13 @@ class EventBus:
                 snapshot = self._last_state
             if snapshot is not None:
                 self._send(conn, snapshot)
+            for fn in list(self.on_connect):
+                try:
+                    obj = fn()
+                    if obj is not None:
+                        self._send(conn, obj)
+                except Exception:
+                    pass
 
     @staticmethod
     def _send(conn: socket.socket, obj: dict) -> bool:
