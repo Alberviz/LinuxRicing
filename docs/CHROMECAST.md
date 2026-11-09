@@ -66,7 +66,15 @@ VLC 3 con Chromecast se congela con MKV de alto bitrate y audio Dolby (`httpd bu
 
 - Drawer Proyectar (rediseño 2026-11-09, sin chips): fuente en 4 tarjetas, escritorios como mini-tarjetas numeradas con un punto
   por ventana, monitores dibujados a escala, Calidad/Codificador en botones segmentados dentro de una tarjeta «Ajustes» plegable
-  con resumen. Falta probar con una proyección real el estado «proyectando» (ajustes en caliente) y las fuentes Ventana/Extender.
+  con resumen. Falta probar con una proyección real las fuentes Ventana/Extender y el cambio de fuente desde la tarjeta.
+- Tarjeta del panel rápido al proyectar la pantalla (≠ mini-reproductor): miniatura «EN VIVO», qué se ve y en qué tele, grupo de
+  fuentes (cambiar reconecta con los mismos ajustes), escritorios, Calidad/Codificador/Audio en caliente, volumen y Detener.
+  Prueba sin tele: `cast-helper serve-test --fake-mirror [workspace:2]`.
+- 1080p (medido 2026-11-09): VP8 por CPU 29,8 fps, 123 ms, 6 % tardíos (~470 % CPU en modo ahorro); NVENC 28 fps pero >90 %
+  tardíos (entrecorta). Por eso el codificador «auto» usa CPU a 1080p. Arreglados: `hypr_wake` hacía `dpms on` aunque la pantalla
+  estuviera encendida y gpu-screen-recorder no encontraba `eDP-2` (~2 de cada 3 arranques); un cambio en caliente durante el
+  arranque dejaba el emisor sin captura y la sesión «PLAYING» sin imagen (ahora vigilante de la captura + reintentos).
+  stderr de la captura en `$XDG_RUNTIME_DIR/cast-helper/capture.log`.
 
 - Espejo: medir la latencia real con audio (`cast-helper mirror test-latency`); desfase audio/vídeo ~40 ms sin ajustar; 1080p
   (`CAST_STREAM_SIZE=1920x1080`, ~230 % CPU) y NVENC (`CAST_STREAM_CODEC=h264 CAST_ENCODER=h264_nvenc`, ~48 % CPU pero despierta la RTX) son opcionales.
