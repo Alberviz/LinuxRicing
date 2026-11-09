@@ -233,6 +233,23 @@ Todo lo del móvil vive en Olimpo (`~/proyectos/olimpo`, desplegado en la Pi); v
   «proyecta la pantalla» / «el escritorio N» → `mirror start`. Spotify todavía no (no es un vídeo; necesita Spotify Connect). Su servicio apunta a `~/proyectos/LinuxRicing/assistant` (antes `~/LinuxRicing`, que no existe, y estaba en bucle 203/EXEC).
 - **Aurora:** skill `tele` en su repo (instalada en `~/.hermes/skills/productivity/tele/`), llama a Horas local en la Pi con `aurora.token`.
 
+## Spotify en la tele (Spotify Connect)
+
+`widgets/spotify-tele` (instalado en `~/.local/bin`) controla el cliente de escritorio de Spotify por su puerto de
+depuración (`--remote-debugging-port=9222` en `~/.config/spotify-flags.conf`) usando las APIs internas que expone
+Spicetify (`Spicetify.Platform`). El cliente de Linux ve el Chromecast como dispositivo Connect («Comedor», `cast_video`).
+
+- **Buscar:** GraphQL del propio cliente (`searchTopResultsList`); la Web API pública devuelve 429 con el client id del
+  escritorio. Para playlists mira antes tu biblioteca (`RootlistAPI`) y prefiere las tuyas.
+- **Poner en la tele:** primero `ConnectAPI.transferPlayback` y esperar a que la tele sea el dispositivo activo
+  (~3-4 s; si se llama a `play()` antes, la sesión vuelve al PC), luego `PlayerAPI.play`.
+- **Desde el inicio:** `skipTo` a la primera pista (con su `uid`) y el aleatorio se apaga DESPUÉS de que empiece a
+  sonar (`play()` de un contexto nuevo vuelve a encender el aleatorio del dispositivo).
+- Mandos: `spotify-tele control …` (aleatorio, repetir, volumen, me gusta, cola, a continuación, temporizador).
+  Pausa/siguiente/anterior van por `playerctl` (MPRIS de Spotify, que manda también cuando suena en la tele).
+- **Laura:** tool `spotify` (`assistant/laura/tools/spotify.py`). Con ~40 tools el esquema pasa de 6k tokens:
+  `llm.num_ctx` subió a 8192.
+
 ## Historia (2026-11-08/09)
 
 1. VLC 3 se congelaba con el MKV Dolby → conversión puntual a MP4/AAC y `catt cast`.

@@ -745,3 +745,34 @@ args = [{que = "pantalla"}]
 texto = "pon el escritorio tres en la tele"
 espera = ["mandar_a_tele"]
 args = [{que = "escritorio", destino = "3"}]
+
+# ---------- spotify ----------
+[[frase]]
+texto = "manda la playlist de realg4life a la tele"
+espera = ["spotify"]
+args = [{accion = "poner", que = "realg4life", donde = "tele"}]
+
+[[frase]]
+texto = "pon la playlist realg4life en la tele desde el principio y sin aleatorio"
+espera = ["spotify"]
+args = [{accion = "poner", donde = "tele", desde_inicio = true}]
+
+[[frase]]
+texto = "pasa la música de spotify a la tele"
+espera = ["spotify"]
+args = [{accion = "pasar_a_tele"}]
+
+[[frase]]
+texto = "quita el aleatorio en spotify"
+espera = ["spotify"]
+args = [{accion = "aleatorio_no"}]
+
+[[frase]]
+texto = "pon después mbappe de eladio carrión"
+espera = ["spotify"]
+args = [{accion = "poner_a_continuacion"}]
+
+[[frase]]
+texto = "dale me gusta a esta canción"
+espera = ["spotify"]
+args = [{accion = "me_gusta"}]

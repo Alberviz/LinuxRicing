@@ -323,6 +323,14 @@ if [ -f "$BASE_DIR/widgets/caelestia-power-tweaks" ]; then
     echo -e "  ${SUCCESS}✔ caelestia-power-tweaks enlazado en ~/.local/bin${RESET}"
 fi
 
+# 4d3. spotify-tele (Spotify Connect por CDP+Spicetify: buscar, poner y pasar música a la tele; lo usa Laura)
+if [ -f "$BASE_DIR/widgets/spotify-tele" ]; then
+    mkdir -p "$HOME/.local/bin"
+    cp -u "$BASE_DIR/widgets/spotify-tele" "$HOME/.local/bin/spotify-tele"
+    chmod +x "$HOME/.local/bin/spotify-tele"
+    echo -e "  ${SUCCESS}✔ spotify-tele instalado en ~/.local/bin${RESET}"
+fi
+
 # 4e. Instalar cast-helper (daemon Chromecast + cliente; lo usa la tarjeta «Chromecast» del panel rápido)
 if [ -f "$BASE_DIR/widgets/cast-helper" ]; then
     mkdir -p "$HOME/.local/bin"

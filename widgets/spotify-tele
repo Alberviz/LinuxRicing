@@ -1,0 +1,371 @@
+#!/usr/bin/env python3
+"""spotify-tele — Spotify Connect desde la terminal (y para Laura): buscar, poner y pasar música a la tele.
+
+Habla con el cliente de escritorio de Spotify por su puerto de depuración (CDP, `--remote-debugging-port=9222`
+en ~/.config/spotify-flags.conf) y usa las APIs internas que expone Spicetify (`Spicetify.Platform`):
+  - búsqueda GraphQL del propio cliente (la Web API pública devuelve 429 con el client id del escritorio),
+  - ConnectAPI (el cliente de Linux ve los Chromecast como dispositivos Connect: «Comedor», cast_video),
+  - PlayerAPI para reproducir una URI en el dispositivo activo.
+Si Spotify no está abierto, lo arranca (minimizado no se puede; aparece su ventana) y espera a que cargue.
+
+  spotify-tele buscar "realg4life" [--tipo playlist|cancion|album|artista]
+  spotify-tele poner "realg4life" [--tipo …] [--donde tele|pc|actual] [--aleatorio]
+  spotify-tele poner "realg4life" --donde tele --desde-inicio      (primera canción, sin aleatorio)
+  spotify-tele control pausar|reanudar|siguiente|anterior|reiniciar|aleatorio si/no|repetir no/lista/cancion|
+                       volumen N|subir|bajar|ir_a SEG|adelantar|atrasar|me_gusta|no_me_gusta|cola TEXTO|despues TEXTO|
+                       temporizador MIN
+  spotify-tele pasar tele|pc
+  spotify-tele estado | dispositivos
+Salida: una línea JSON ({"ok": true, …} | {"ok": false, "error": …}).
+"""
+from __future__ import annotations
+
+import argparse
+import base64
+import json
+import os
+import socket
+import struct
+import subprocess
+import sys
+import time
+import urllib.parse
+import urllib.request
+
+CDP = "http://127.0.0.1:9222"
+TELE_DEFAULT = os.environ.get("SPOTIFY_TELE_DEVICE", "")  # vacío = el primer cast_video
+
+
+# ───────────── websocket mínimo (solo stdlib) ─────────────
+class WS:
+    def __init__(self, url: str, timeout: float = 30):
+        u = urllib.parse.urlparse(url)
+        self.s = socket.create_connection((u.hostname, u.port or 80), timeout=timeout)
+        key = base64.b64encode(os.urandom(16)).decode()
+        req = (f"GET {u.path} HTTP/1.1\r\nHost: {u.hostname}:{u.port}\r\nUpgrade: websocket\r\n"
+               f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n")
+        self.s.sendall(req.encode())
+        buf = b""
+        while b"\r\n\r\n" not in buf:
+            ch = self.s.recv(4096)
+            if not ch:
+                raise ConnectionError("CDP cerró la conexión")
+            buf += ch
+        if b" 101 " not in buf.split(b"\r\n", 1)[0]:
+            raise ConnectionError("CDP rechazó el websocket")
+        self.rest = buf.split(b"\r\n\r\n", 1)[1]
+
+    def _read(self, n: int) -> bytes:
+        while len(self.rest) < n:
+            ch = self.s.recv(65536)
+            if not ch:
+                raise ConnectionError("CDP cerró la conexión")
+            self.rest += ch
+        out, self.rest = self.rest[:n], self.rest[n:]
+        return out
+
+    def send(self, text: str) -> None:
+        data = text.encode()
+        hdr = bytearray([0x81])
+        n = len(data)
+        if n < 126:
+            hdr.append(0x80 | n)
+        elif n < 65536:
+            hdr += bytes([0x80 | 126]) + struct.pack(">H", n)
+        else:
+            hdr += bytes([0x80 | 127]) + struct.pack(">Q", n)
+        mask = os.urandom(4)
+        self.s.sendall(bytes(hdr) + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
+
+    def recv(self) -> str:
+        msg = b""
+        while True:
+            b0, b1 = self._read(2)
+            n = b1 & 0x7F
+            if n == 126:
+                n = struct.unpack(">H", self._read(2))[0]
+            elif n == 127:
+                n = struct.unpack(">Q", self._read(8))[0]
+            payload = self._read(n)
+            op = b0 & 0x0F
+            if op == 8:
+                raise ConnectionError("CDP cerró el websocket")
+            if op in (0, 1, 2):
+                msg += payload
+                if b0 & 0x80:
+                    return msg.decode("utf-8", "replace")
+
+
+# ───────────── Spotify por CDP ─────────────
+def _page() -> dict | None:
+    try:
+        tabs = json.load(urllib.request.urlopen(CDP + "/json", timeout=2))
+    except OSError:
+        return None
+    return next((t for t in tabs if t.get("type") == "page" and "xpui" in t.get("url", "")), None)
+
+
+def _eval(page: dict, js: str, timeout: float = 40):
+    ws = WS(page["webSocketDebuggerUrl"], timeout)
+    ws.send(json.dumps({"id": 1, "method": "Runtime.evaluate",
+                        "params": {"expression": js, "awaitPromise": True, "returnByValue": True}}))
+    while True:
+        m = json.loads(ws.recv())
+        if m.get("id") == 1:
+            r = m.get("result", {})
+            if "exceptionDetails" in r:
+                d = r["exceptionDetails"]
+                raise RuntimeError((d.get("exception") or {}).get("description") or d.get("text") or "error JS")
+            return r.get("result", {}).get("value")
+
+
+def spotify_page(launch: bool = True) -> dict:
+    """La página xpui con Spicetify listo; abre Spotify si hace falta."""
+    page = _page()
+    if not page and launch:
+        subprocess.Popen(["spotify"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         stdin=subprocess.DEVNULL, start_new_session=True)
+    t0 = time.time()
+    while time.time() - t0 < 30:
+        page = page or _page()
+        if page:
+            try:
+                if _eval(page, "!!(window.Spicetify && Spicetify.Platform && Spicetify.Platform.ConnectAPI "
+                               "&& Spicetify.GraphQL && Spicetify.GraphQL.Definitions)", 5):
+                    return page
+            except (OSError, RuntimeError, ConnectionError):
+                page = None
+        time.sleep(1)
+    raise RuntimeError("Spotify no responde (¿está abierto con el puerto de depuración 9222 y Spicetify?)")
+
+
+# Funciones JS comunes. `ARGS` se inyecta como JSON.
+JS_LIB = r"""
+const P = Spicetify.Platform, G = Spicetify.GraphQL;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const norm = s => (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "");
+const KIND = {Playlist: "playlist", Album: "album", Track: "cancion", Artist: "artista"};
+function devices() { return P.ConnectAPI.getState().devices.map(d => ({id: d.id, nombre: d.name, tipo: d.type, activo: d.isActive, local: d.isLocal})); }
+function findTele(name) {
+  const ds = P.ConnectAPI.getState().devices;
+  if (name) { const n = norm(name); return ds.find(d => norm(d.name) === n) || ds.find(d => norm(d.name).includes(n)); }
+  return ds.find(d => d.type === "cast_video" || d.type === "cast_audio" || d.type === "tv");
+}
+function localDev() { return P.ConnectAPI.getState().devices.find(d => d.isLocal || d.id === "local_device"); }
+async function myPlaylists() {
+  const out = [];
+  try {
+    const walk = items => { for (const it of items || []) { if (it.type === "playlist") out.push({nombre: it.name, uri: it.uri, tipo: "playlist", de: "tu biblioteca"}); if (it.items) walk(it.items); } };
+    const root = await P.RootlistAPI.getContents({limit: 5000});
+    walk(root.items);
+  } catch (e) {}
+  return out;
+}
+async function search(q, tipo) {
+  const def = G.Definitions.searchTopResultsList || {name: "searchTopResultsList", operation: "query",
+    sha256Hash: "12d940b3f7381506a82ff5382eb59b0ed65118656e6bcdfbe4cebc528f75d29d", value: null};
+  const r = await G.Request(def, {query: q, limit: 20, offset: 0, numberOfTopResults: 20,
+    includeArtistHasConcertsField: false, includeAudiobooks: false, includeAuthors: false, includePreReleases: false,
+    includeAlbumPreReleases: false, includeEpisodeContentRatingsV2: false, isPrefix: null, sectionFilters: ["GENERIC"]});
+  const s = r.data && r.data.searchV2;
+  if (!s) throw new Error("la búsqueda de Spotify no devolvió nada");
+  const res = [];
+  for (const i of (s.topResultsV2 && s.topResultsV2.itemsV2) || []) {
+    const d = (i.item && i.item.data) || {};
+    const k = KIND[d.__typename];
+    if (!k || !d.uri) continue;
+    const de = k === "playlist" ? (d.ownerV2 && d.ownerV2.data && d.ownerV2.data.name) :
+               k === "cancion" ? (d.artists && d.artists.items && d.artists.items[0] && d.artists.items[0].profile.name) :
+               k === "album" ? (d.artists && d.artists.items && d.artists.items[0] && d.artists.items[0].profile.name) : "";
+    res.push({nombre: d.name || (d.profile && d.profile.name), uri: d.uri, tipo: k, de: de || ""});
+  }
+  return tipo && tipo !== "auto" ? res.filter(x => x.tipo === tipo) : res;
+}
+async function resolve(q, tipo) {
+  if (/^spotify:/.test(q)) return {nombre: q, uri: q, tipo: q.split(":")[1], de: ""};
+  const m = q.match(/open\.spotify\.com\/(?:intl-[a-z]+\/)?(track|playlist|album|artist)\/([A-Za-z0-9]+)/);
+  if (m) return {nombre: q, uri: `spotify:${m[1]}:${m[2]}`, tipo: m[1], de: ""};
+  const n = norm(q);
+  if (!tipo || tipo === "auto" || tipo === "playlist") {
+    const mine = await myPlaylists();
+    const hit = mine.find(p => norm(p.nombre) === n) || mine.find(p => norm(p.nombre).includes(n) || (n.length > 3 && n.includes(norm(p.nombre))));
+    if (hit) return hit;
+  }
+  const found = await search(q, tipo);
+  if (!found.length) return null;
+  const me = norm((P.UserAPI && (await P.UserAPI.getUser()).displayName) || "");
+  return (me && found.find(x => x.tipo === "playlist" && norm(x.de) === me)) || found[0];
+}
+async function transferTo(dev) {
+  if (dev.isActive) return true;
+  await P.ConnectAPI.transferPlayback(dev.id, {});
+  for (let i = 0; i < 24; i++) {
+    await sleep(500);
+    const a = P.ConnectAPI.getState().activeDevice;
+    if (a && a.id === dev.id) return true;
+  }
+  return false;
+}
+function now() {
+  const ps = P.PlayerAPI.getState(), a = P.ConnectAPI.getState().activeDevice;
+  const it = ps.item || {};
+  return {sonando: !!ps.item && !ps.isPaused, cancion: it.name || null,
+          artista: (it.artists && it.artists[0] && it.artists[0].name) || null,
+          contexto: (ps.context && ps.context.uri) || null, dispositivo: a ? a.name : null,
+          aleatorio: !!(ps.shuffle || ps.smartShuffle), repetir: ["no", "lista", "cancion"][ps.repeat || 0],
+          volumen: Math.round(((a && !a.isLocal && typeof a.volume === "number" && a.volume > 0) ? a.volume : (Spicetify.Player.getVolume() || 0)) * 100),
+          posicion_s: Math.round((Spicetify.Player.getProgress() || 0) / 1000),
+          duracion_s: Math.round((Spicetify.Player.getDuration() || 0) / 1000),
+          me_gusta: (() => { try { return !!Spicetify.Player.getHeart(); } catch (e) { return null; } })()};
+}
+"""
+
+
+def run_js(body: str, args: dict, launch: bool = True):
+    page = spotify_page(launch)
+    js = "(async () => { const ARGS = " + json.dumps(args) + ";\n" + JS_LIB + "\n" + body + "\n})()"
+    return _eval(page, js, 60)
+
+
+def cmd_buscar(a) -> dict:
+    res = run_js("return await search(ARGS.q, ARGS.tipo);", {"q": a.texto, "tipo": a.tipo})
+    return {"ok": True, "resultados": (res or [])[:10]}
+
+
+def cmd_poner(a) -> dict:
+    body = r"""
+const item = await resolve(ARGS.q, ARGS.tipo);
+if (!item) return {ok: false, error: `no encuentro «${ARGS.q}» en Spotify`};
+let dev = null;
+if (ARGS.donde === "tele") {
+  dev = findTele(ARGS.tele);
+  if (!dev) return {ok: false, error: "Spotify no ve la tele (¿encendida y en la misma red?)", dispositivos: devices()};
+} else if (ARGS.donde === "pc") dev = localDev();
+// Primero mover la sesión (si no, play() la vuelve a coger el PC mientras la tele aún conecta) y luego reproducir.
+if (dev && !(await transferTo(dev))) return {ok: false, error: `no he podido pasar Spotify a ${dev.name}`};
+// «Desde el inicio» = primera canción y sin aleatorio. Ojo: play() de un contexto nuevo vuelve a encender
+// el aleatorio del dispositivo, así que el aleatorio se fija DESPUÉS de que empiece a sonar.
+const alea = ARGS.inicio ? false : ARGS.aleatorio;
+let opts = {};
+if (ARGS.inicio && item.tipo === "playlist") {
+  try { const c = await P.PlaylistAPI.getContents(item.uri, {limit: 1}); const f = c.items && c.items[0];
+        if (f) opts = {skipTo: {uri: f.uri, uid: f.uid, index: 0}}; } catch (e) {}
+} else if (ARGS.inicio) opts = {skipTo: {index: 0}};
+await P.PlayerAPI.play({uri: item.uri}, {featureIdentifier: "laura"}, opts);
+for (let i = 0; i < 16; i++) { await sleep(500); const st = P.PlayerAPI.getState(); if (st.item && !st.isPaused && st.context && st.context.uri === item.uri) break; }
+if (alea !== null) { try { await P.PlayerAPI.setShuffle(alea); } catch (e) {} await sleep(600); }
+return {ok: true, puesto: item, ahora: now()};
+"""
+    alea = None if a.aleatorio is None else a.aleatorio
+    return run_js(body, {"q": a.texto, "tipo": a.tipo, "donde": a.donde, "tele": a.tele, "aleatorio": alea,
+                         "inicio": a.desde_inicio})
+
+
+def cmd_pasar(a) -> dict:
+    body = r"""
+const dev = ARGS.donde === "pc" ? localDev() : findTele(ARGS.tele);
+if (!dev) return {ok: false, error: ARGS.donde === "pc" ? "no encuentro este PC en Spotify" : "Spotify no ve la tele", dispositivos: devices()};
+if (!(await transferTo(dev))) return {ok: false, error: `no he podido pasar Spotify a ${dev.name}`};
+return {ok: true, ahora: now()};
+"""
+    return run_js(body, {"donde": a.donde, "tele": a.tele})
+
+
+ACCIONES = ["pausar", "reanudar", "alternar", "siguiente", "anterior", "reiniciar", "aleatorio", "repetir",
+            "volumen", "subir", "bajar", "ir_a", "adelantar", "atrasar", "me_gusta", "no_me_gusta", "cola",
+            "despues", "temporizador"]
+
+
+def cmd_control(a) -> dict:
+    body = r"""
+const S = Spicetify.Player, v = ARGS.valor;
+const num = () => { const n = parseFloat(v); if (isNaN(n)) throw new Error(`«${ARGS.accion}» necesita un número`); return n; };
+const onoff = () => !/^(no|off|false|0|quita|desactiva)/i.test(String(v ?? "si"));
+switch (ARGS.accion) {
+  case "pausar": await P.PlayerAPI.pause(); break;
+  case "reanudar": await P.PlayerAPI.resume(); break;
+  case "alternar": S.togglePlay(); break;
+  case "siguiente": await P.PlayerAPI.skipToNext(); break;
+  case "anterior": await P.PlayerAPI.skipToPrevious(); break;
+  case "reiniciar": await P.PlayerAPI.seekTo(0); break;
+  case "aleatorio": await P.PlayerAPI.setShuffle(onoff()); break;
+  case "repetir": {
+    const m = String(v ?? "lista").toLowerCase();
+    await P.PlayerAPI.setRepeat(/^(no|off|quita|desactiva|0)/.test(m) ? 0 : /(cancion|canción|tema|track|una|2)/.test(m) ? 2 : 1); break;
+  }
+  case "volumen": S.setVolume(Math.max(0, Math.min(100, num())) / 100); break;
+  case "subir": S.setVolume(Math.min(1, S.getVolume() + (v ? num() : 10) / 100)); break;
+  case "bajar": S.setVolume(Math.max(0, S.getVolume() - (v ? num() : 10) / 100)); break;
+  case "ir_a": await P.PlayerAPI.seekTo(Math.max(0, num()) * 1000); break;
+  case "adelantar": await P.PlayerAPI.seekTo(S.getProgress() + (v ? num() : 15) * 1000); break;
+  case "atrasar": await P.PlayerAPI.seekTo(Math.max(0, S.getProgress() - (v ? num() : 15) * 1000)); break;
+  case "me_gusta": S.setHeart(true); break;
+  case "no_me_gusta": S.setHeart(false); break;
+  case "cola": case "despues": {
+    if (!v) throw new Error("¿qué canción añado?");
+    const item = await resolve(String(v), "cancion");
+    if (!item) return {ok: false, error: `no encuentro «${v}» en Spotify`};
+    if (ARGS.accion === "despues") await P.PlayerAPI.playAsNextInQueue ? P.PlayerAPI.playAsNextInQueue([{uri: item.uri}]) : P.PlayerAPI.addToQueue([{uri: item.uri}]);
+    else await P.PlayerAPI.addToQueue([{uri: item.uri}]);
+    await sleep(300);
+    return {ok: true, encolado: item, ahora: now()};
+  }
+  case "temporizador": {
+    const min = num();
+    await P.PlayerAPI.setSleepTimer(min > 0 ? {type: "duration", durationMs: min * 60000} : null);
+    break;
+  }
+  default: return {ok: false, error: `acción desconocida: ${ARGS.accion}`};
+}
+await sleep(900);
+return {ok: true, ahora: now()};
+"""
+    return run_js(body, {"accion": a.accion, "valor": a.valor})
+
+
+def cmd_estado(a) -> dict:
+    if not _page():
+        return {"ok": True, "abierto": False}
+    return {"ok": True, "abierto": True, **run_js("return now();", {}, launch=False)}
+
+
+def cmd_dispositivos(a) -> dict:
+    return {"ok": True, "dispositivos": run_js("return devices();", {})}
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(prog="spotify-tele", description=__doc__.split("\n")[0])
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    tipos = ["auto", "playlist", "cancion", "album", "artista"]
+    p = sub.add_parser("buscar")
+    p.add_argument("texto")
+    p.add_argument("--tipo", choices=tipos, default="auto")
+    p = sub.add_parser("poner")
+    p.add_argument("texto", help="texto a buscar, URI spotify: o enlace open.spotify.com")
+    p.add_argument("--tipo", choices=tipos, default="auto")
+    p.add_argument("--donde", choices=["tele", "pc", "actual"], default="actual")
+    p.add_argument("--tele", default=TELE_DEFAULT, help="nombre del dispositivo (por defecto el primer Chromecast)")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--aleatorio", dest="aleatorio", action="store_true", default=None)
+    g.add_argument("--en-orden", dest="aleatorio", action="store_false")
+    p.add_argument("--desde-inicio", action="store_true", help="primera canción y sin aleatorio")
+    p = sub.add_parser("control")
+    p.add_argument("accion", choices=ACCIONES)
+    p.add_argument("valor", nargs="?")
+    p = sub.add_parser("pasar")
+    p.add_argument("donde", choices=["tele", "pc"])
+    p.add_argument("--tele", default=TELE_DEFAULT)
+    sub.add_parser("estado")
+    sub.add_parser("dispositivos")
+    a = ap.parse_args()
+    try:
+        r = {"buscar": cmd_buscar, "poner": cmd_poner, "control": cmd_control, "pasar": cmd_pasar, "estado": cmd_estado,
+             "dispositivos": cmd_dispositivos}[a.cmd](a)
+    except Exception as e:  # noqa: BLE001
+        r = {"ok": False, "error": str(e)[:300]}
+    print(json.dumps(r, ensure_ascii=False))
+    return 0 if r.get("ok") else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
