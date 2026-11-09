@@ -36,11 +36,13 @@ Quién hace qué: lo instantáneo lo haces tú con tus herramientas (buscar_web 
 """
 
 [wake]
-enabled = false        # activación por voz diciendo «Laura», además del atajo.
-model = "models/laura.onnx"  # modelo openWakeWord de «Laura» (.onnx o .tflite).
-                       # Si no existe, se ignora y queda solo el atajo. Ver
-                       # README para entrenarlo (openWakeWord + piper-sample-gen).
-threshold = 0.5        # 0..1. Súbelo (0.6-0.7) si hay disparos falsos.
+enabled = true         # activación por voz diciendo «Laura despierta», además del atajo.
+                       # (no «Laura» sola: es también el nombre de la novia de Alberto)
+model = "models/laura.onnx"  # modelo openWakeWord de «Laura despierta» (wake_train/).
+                       # Si no existe, se ignora y queda solo el atajo.
+threshold = 0.8        # 0..1. Con patience 3: ~0,2 falsos/h en el examen.
+patience = 3           # ventanas de 80 ms seguidas sobre el umbral para disparar.
+                       # Súbelo a 4 si salta solo; bájalo a 2 si no te oye.
 cooldown = 3.0         # segundos "sordo" tras un disparo (evita re-triggers).
 
 [tts]
@@ -194,6 +196,17 @@ remitentes_importantes = ["edu", ".ac.", "universidad", "universit", "uj.edu.pl"
 # Formato: "Nombre de Playlist en Spotify" = "URL completa o ID de la playlist de YouTube"
 [spotify.sync_youtube]
 "RealG4lifebaby" = "https://music.youtube.com/playlist?list=PLIOU3MuqBfRw"
+
+# Lista de exclusiones por playlist para evitar sincronizar canciones no deseadas, antiguas o falsos positivos
+[spotify.sync_youtube_excluir]
+"RealG4lifebaby" = [
+    "lollypop",
+    "kidd keo",
+    "nada personal",
+    "love sosa",
+    "chief keef",
+    "mala",
+]
 
 [ubicacion]
 ciudad = ""

@@ -291,6 +291,7 @@ async function getPlaylistContents(uri, limit = 1000) {
     const c = await P.PlaylistAPI.getContents(uri, {limit});
     return (c?.items || []).map(it => ({
       uri: it.uri,
+      uid: it.uid || "",
       nombre: it.name,
       artista: (it.artists || []).map(a => a.name).join(", "),
       duracion_s: Math.round((it.duration?.milliseconds || 0) / 1000)
@@ -470,13 +471,20 @@ def norm_py(s: str) -> str:
 
 def limpiar_titulo_youtube(title: str, artist: str = "") -> str:
     """Limpia sufijos típicos de YouTube (Video Oficial, HD, Letra, etc.) para mejorar la búsqueda en Spotify."""
+    t = re.sub(r"(?i)\s*[\(\[]\s*(?:ft\.?|feat\.?)\s+[^\)\]]+[\)\]]", "", title)
+    t = re.sub(r"(?i)\s*(?:ft\.?|feat\.?)\s+[^\-\(\]]+", "", t)
     t = re.sub(
         r"(?i)\s*[\(\[](?:official\s*(?:music\s*)?video|video\s*oficial|audio\s*oficial|official\s*audio|visualizer|letra|lyrics|videoclip|hd|4k|remastered|lyric\s*video|en\s*vivo|live(?:[^\)\]]*)?)[\)\]]",
         "",
-        title,
+        t,
     )
-    t = re.sub(r"(?i)\s*(?:ft\.?|feat\.?)\s+[^\-\(\]]+", "", t)
+    t = re.sub(r"\s*[\(\[]\s*[\)\]]", "", t)
+    t = re.sub(r"\s*[\(\[]\s*$", "", t)
     t = t.strip()
+
+    if artist:
+        artist = re.sub(r"(?i)\s*-\s*topic", "", artist).strip()
+
     if " - " in t:
         parts = t.split(" - ", 1)
         if not artist or artist.lower() in parts[0].lower():
@@ -518,6 +526,37 @@ def _sync_youtube_a_spotify(playlist_spotify: str, url_youtube: str, crear: bool
     if not temas_yt:
         return {"ok": True, "playlist": playlist_spotify, "anadidas": 0, "mensaje": "la playlist de YouTube está vacía"}
 
+    cfg_exclusiones = []
+    cfg_path = Path.home() / "proyectos/LinuxRicing/assistant/config.toml"
+    if cfg_path.exists():
+        try:
+            import tomllib
+            c_toml = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
+            cfg_exclusiones = (c_toml.get("spotify") or {}).get("sync_youtube_excluir", {}).get(playlist_spotify) or []
+        except Exception:
+            pass
+    excluir_norm = [norm_py(x) for x in cfg_exclusiones if x]
+
+    def es_excluido(texto: str) -> bool:
+        if not excluir_norm or not texto:
+            return False
+        t_n = norm_py(texto)
+        return any(ex in t_n for ex in excluir_norm)
+
+    def es_coincidencia_valida(c_nom: str, c_art: str, t_orig: dict) -> bool:
+        nom_n = norm_py(c_nom)
+        art_n = norm_py(c_art)
+        yt_tit_n = norm_py(t_orig.get("titulo_yt", ""))
+        yt_art_n = norm_py(t_orig.get("artista_yt", ""))
+        yt_bus_n = norm_py(t_orig.get("busqueda", ""))
+        if nom_n and (nom_n in yt_tit_n or nom_n in yt_bus_n or yt_tit_n in nom_n):
+            return True
+        if art_n and yt_art_n and (art_n in yt_art_n or yt_art_n in art_n):
+            palabras_yt = [p for p in re.split(r"\W+", t_orig.get("titulo_yt", "").lower()) if len(p) >= 3]
+            if any(norm_py(p) in nom_n for p in palabras_yt):
+                return True
+        return False
+
     body_prep = r"""
 let pl = await resolve(ARGS.playlist, "playlist");
 if (!pl && ARGS.crear) {
@@ -540,19 +579,23 @@ return {ok: true, uri: pl.uri, nombre: pl.nombre, existentes: contents};
 
     a_buscar = []
     ya_estaban = 0
+    omitidas_exclusion = 0
     for t in temas_yt:
         b = t["busqueda"]
+        if es_excluido(t["titulo_yt"]) or es_excluido(t["artista_yt"]) or es_excluido(b):
+            omitidas_exclusion += 1
+            continue
         if (norm_py(t["titulo_yt"]) in firmas_nombres or
             norm_py(b) in firmas_nombres or
             norm_py(f"{t['artista_yt']} {t['titulo_yt']}") in firmas_completas):
             ya_estaban += 1
             continue
-        a_buscar.append(b)
+        a_buscar.append(t)
 
     if not a_buscar:
         return {"ok": True, "playlist": playlist_spotify, "uri": pl_uri, "anadidas": 0,
-                "ya_estaban": ya_estaban, "total_yt": len(temas_yt),
-                "mensaje": "todas las canciones ya estaban en la playlist de Spotify"}
+                "ya_estaban": ya_estaban, "omitidas_exclusion": omitidas_exclusion, "total_yt": len(temas_yt),
+                "mensaje": "todas las canciones ya estaban en la playlist o fueron excluidas"}
 
     body_res = r"""
 const res = [];
@@ -570,11 +613,18 @@ return res;
 
     for i in range(0, len(a_buscar), 25):
         chunk = a_buscar[i:i + 25]
-        res_chunk = run_js(body_res, {"queries": chunk}) or []
-        for item in res_chunk:
+        res_chunk = run_js(body_res, {"queries": [t["busqueda"] for t in chunk]}) or []
+        for item, t_orig in zip(res_chunk, chunk):
             c = item.get("cancion")
             if c and c.get("uri"):
                 c_nom = norm_py(c["nombre"])
+                c_art = norm_py(c.get("de") or c.get("artista") or "")
+                if es_excluido(c["nombre"]) or es_excluido(c.get("de") or ""):
+                    omitidas_exclusion += 1
+                    continue
+                if not es_coincidencia_valida(c["nombre"], c.get("de") or "", t_orig):
+                    no_encontradas.append(f"{t_orig['busqueda']} (rechazado por baja coincidencia)")
+                    continue
                 if c["uri"] not in uris_existentes and c_nom not in firmas_nombres:
                     uris_existentes.add(c["uri"])
                     firmas_nombres.add(c_nom)
@@ -583,7 +633,7 @@ return res;
                 else:
                     ya_estaban += 1
             else:
-                no_encontradas.append(item.get("query"))
+                no_encontradas.append(t_orig.get("busqueda"))
 
     if uris_nuevas:
         for i in range(0, len(uris_nuevas), 50):
@@ -597,6 +647,7 @@ return res;
         "uri": pl_uri,
         "anadidas": len(uris_nuevas),
         "ya_estaban": ya_estaban,
+        "omitidas_exclusion": omitidas_exclusion,
         "no_encontradas": no_encontradas[:10],
         "total_no_encontradas": len(no_encontradas),
         "canciones_anadidas": anadidas_info[:15],
@@ -680,11 +731,11 @@ const contents = await getPlaylistContents(pl.uri, 1000);
 const toRemove = [];
 for (const q of ARGS.canciones) {
     const n = norm(q);
-    const hit = contents.find(c => c.uri === q || norm(c.nombre) === n || norm(`${c.artista} ${c.nombre}`).includes(n));
+    const hit = contents.find(c => c.uri === q || c.uid === q || norm(c.nombre) === n || norm(`${c.artista} ${c.nombre}`).includes(n));
     if (hit) toRemove.push(hit);
 }
 if (!toRemove.length) return {ok: false, error: "no se encontraron las canciones especificadas dentro de la playlist"};
-await P.PlaylistAPI.remove(pl.uri, toRemove.map(x => ({uri: x.uri})));
+await P.PlaylistAPI.remove(pl.uri, toRemove.map(x => ({uri: x.uri, uid: x.uid || ""})));
 await sleep(300);
 return {ok: true, playlist: pl.nombre, uri: pl.uri, quitadas: toRemove.length, canciones: toRemove};
 """
