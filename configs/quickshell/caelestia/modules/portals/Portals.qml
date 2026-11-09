@@ -46,6 +46,7 @@ Variants {
         property var finalMsg: null
         property string sendPath: ""
         property bool warpSending: false
+        property bool teleExternalSending: false
         readonly property var mediaExt: ["mp4", "m4v", "mkv", "webm", "avi", "mov", "ts", "mpg", "mpeg", "wmv", "flv", "ogv", "mp3", "flac", "m4a", "aac", "ogg", "opus", "wav", "mka"]
         // 0..1 aparición global. Entra con muelle (ease-out) y sale acelerando (~380 ms); es
         // estado continuo, así que invertir a mitad no produce saltos.
@@ -116,6 +117,9 @@ Variants {
                     p.bad = "";
                     p.fileLine = "";
                     p.over = false;
+                    p.customKicker = "";
+                    p.customTitle = "";
+                    p.tIcon = "";
                 }
             }
         }
@@ -362,6 +366,8 @@ Variants {
                 finishTransfer(pTop, false, "Envío cancelado");
             } else {
                 teleTarget = "";
+                teleExternalSending = false;
+                teleWatchdog.stop();
                 Cast.stop();
                 finishTransfer(pRight, false, "Reproducción cancelada");
             }
@@ -395,6 +401,10 @@ Variants {
             } catch (e) {
                 return;
             }
+            if (d.destino === "tele" || d.tipo === "spotify") {
+                win.onTeleLine(line);
+                return;
+            }
             const nombre = d.tipo === "texto" ? "Texto · " + (d.fragmento ?? "").length + (d.fragmento?.length >= 140 ? "+" : "") + " caracteres" : (d.nombre ?? "Archivo");
             if (d.fase === "enviando") {
                 if (pTop.phase === "sending")
@@ -407,6 +417,7 @@ Variants {
                 pTop.tSub = d.origen && d.origen !== "terminal" ? "por " + d.origen : "";
                 warpSending = true;
                 icon.text = d.tipo === "texto" ? "content_paste" : "description";
+                icon.color = Colours.palette.m3onSurface;
                 if (d.origen !== "arrastre")
                     startAbsorb(pTop, width / 2 + 160 * u, height * 0.32);
             } else if ((d.fase === "ok" || d.fase === "error") && warpSending) {
@@ -414,6 +425,54 @@ Variants {
                 pTop.tName = nombre;
                 // una sola notificación aunque haya varias pantallas (cada una sigue salidas.jsonl)
                 finishTransfer(pTop, d.fase === "ok", d.fase === "ok" ? "Enviado a tu móvil" : (d.mensaje || "No se pudo enviar"), modelData.name !== Quickshell.screens[0]?.name);
+            }
+        }
+
+        Timer {
+            id: teleWatchdog
+
+            interval: 15000
+            onTriggered: {
+                if (pRight.phase === "sending" && win.teleExternalSending)
+                    win.finishTransfer(pRight, false, "Tiempo agotado conectando con la tele");
+            }
+        }
+
+        // Tele / Cast: salidas externas (Spotify Connect, Cast CLI, etc.)
+        function onTeleLine(line: string): void {
+            let d;
+            try {
+                d = JSON.parse(line);
+            } catch (e) {
+                return;
+            }
+            const esSpotify = d.tipo === "spotify";
+            const nombre = d.nombre || (esSpotify ? "Música" : "Vídeo");
+            if (d.fase === "enviando") {
+                if (pRight.phase === "sending")
+                    return;   // ya hay un envío en curso en el portal: no se pisa
+                retract.stop();
+                teleWatchdog.restart();
+                pRight.customKicker = esSpotify ? "TELE · SPOTIFY" : "TELE";
+                if (d.tele)
+                    pRight.customTitle = d.tele;
+                pRight.tIcon = esSpotify ? "music_note" : "cast";
+                pRight.phase = "sending";
+                pRight.tName = nombre;
+                pRight.tProgress = -1;
+                pRight.tText = esSpotify ? "Conectando con la tele…" : "Preparando…";
+                pRight.tSub = d.artista ? d.artista : (esSpotify ? "Spotify Connect" : "");
+                teleExternalSending = true;
+                icon.text = esSpotify ? "music_note" : "movie";
+                icon.color = esSpotify ? "#1db954" : Colours.palette.m3onSurface;
+                startAbsorb(pRight, width * 0.5, height * 0.5);
+            } else if ((d.fase === "ok" || d.fase === "error") && teleExternalSending) {
+                teleExternalSending = false;
+                teleWatchdog.stop();
+                pRight.tName = nombre;
+                const dev = d.tele || pRight.customTitle || pRight.title;
+                const okMsg = esSpotify ? ("Sonando en " + dev) : ("Reproduciendo en " + dev);
+                finishTransfer(pRight, d.fase === "ok", d.fase === "ok" ? okMsg : (d.mensaje || "No se pudo reproducir"), modelData.name !== Quickshell.screens[0]?.name);
             }
         }
 
@@ -571,6 +630,15 @@ Variants {
             }
         }
 
+        // Tele / Cast: salidas externas (Spotify Connect, cast, etc.)
+        Process {
+            command: ["sh", "-c", "d=\"${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/cast\"; mkdir -p \"$d\"; exec tail -n 0 -F \"$d/salidas.jsonl\" 2>/dev/null"]
+            running: true
+            stdout: SplitParser {
+                onRead: line => win.onTeleLine(line)
+            }
+        }
+
         Process {
             id: warpTextProc
 
@@ -666,6 +734,22 @@ Variants {
                     pRight.tName = "Wicked Part Uno (2025).mkv";
                     pRight.tProgress = -1;
                     pRight.tText = "Cargando en Гостиная…";
+                } else if (kind === "spotify") {
+                    win.onTeleLine(JSON.stringify({
+                        fase: "enviando",
+                        tipo: "spotify",
+                        nombre: "Dakiti",
+                        artista: "Bad Bunny",
+                        tele: "Tele Salón"
+                    }));
+                } else if (kind === "spotifyOk") {
+                    win.onTeleLine(JSON.stringify({
+                        fase: "ok",
+                        tipo: "spotify",
+                        nombre: "Dakiti",
+                        artista: "Bad Bunny",
+                        tele: "Tele Salón"
+                    }));
                 } else if (kind === "ok") {
                     pTop.phase = "sending";
                     pTop.tName = "Apuntes Redes T4.pdf";
@@ -675,6 +759,10 @@ Variants {
                     pTop.tName = "Wicked Part Uno (2025).mkv";
                     win.finishTransfer(pTop, false, "Olimpo: archivo demasiado grande (límite 50 MB)");
                 }
+            }
+
+            function teleEvent(jsonStr: string): void {
+                win.onTeleLine(jsonStr);
             }
 
             target: "portals"
@@ -711,6 +799,8 @@ Variants {
                             win.rejectDrop(pRight);
                             return;
                         }
+                        icon.text = "movie";
+                        icon.color = Colours.palette.m3onSurface;
                         win.startAbsorb(pRight);
                         win.sendTele(t);
                     }

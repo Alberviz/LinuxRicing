@@ -43,6 +43,9 @@ Item {
     property real tProgress: -1        // -1 indeterminado, 0..1
     property string tText: ""
     property string tSub: ""
+    property string tIcon: ""
+    property string customKicker: ""
+    property string customTitle: ""
     property real phaseT: 0
     readonly property Item maskItem: maskBox
     signal cancel
@@ -84,7 +87,7 @@ Item {
 
         property vector2d size: Qt.vector2d(width, height)
         property vector2d outward: root.edge === "right" ? Qt.vector2d(1, 0) : Qt.vector2d(0, -1)
-        property color tint: root.bad !== "" && root.over ? Qt.rgba(1, 0.3, 0.2, 0.8) : Qt.rgba(Colours.palette.m3primary.r, Colours.palette.m3primary.g, Colours.palette.m3primary.b, 0.18)
+        property color tint: root.bad !== "" && root.over ? Qt.rgba(1, 0.3, 0.2, 0.8) : (root.tIcon === "music_note" ? Qt.rgba(0.11, 0.73, 0.33, 0.28) : Qt.rgba(Colours.palette.m3primary.r, Colours.palette.m3primary.g, Colours.palette.m3primary.b, 0.18))
         property real rad: root.r
         property real upx: root.u
         property real en: root.e
@@ -111,7 +114,7 @@ Item {
 
         Text {
             x: root.edge === "right" ? hud.width - width : 0
-            text: root.kicker
+            text: root.customKicker || root.kicker
             font.family: "JetBrainsMono Nerd Font Mono"
             font.pixelSize: hud.fs * 0.8
             font.weight: Font.Medium
@@ -120,7 +123,7 @@ Item {
         }
         Text {
             x: root.edge === "right" ? hud.width - width : 0
-            text: root.title
+            text: root.customTitle || root.title
             font.pixelSize: hud.fs * 1.5
             font.weight: Font.Medium
             color: Colours.palette.m3onSurface
@@ -220,8 +223,8 @@ Item {
 
                 MaterialIcon {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: card.failed ? "error" : root.phase === "ok" ? "check_circle" : (root.edge === "right" ? "cast" : "smartphone")
-                    color: card.failed ? Colours.palette.m3error : Colours.palette.m3primary
+                    text: card.failed ? "error" : root.phase === "ok" ? "check_circle" : (root.tIcon ? root.tIcon : (root.edge === "right" ? "cast" : "smartphone"))
+                    color: card.failed ? Colours.palette.m3error : (root.tIcon === "music_note" && root.phase === "sending" ? "#1db954" : Colours.palette.m3primary)
                     fontStyle: Tokens.font.icon.medium
                 }
                 Text {

@@ -192,7 +192,7 @@ def mandar_a_tele(que: str, destino: str | None = None) -> dict:
     else:
         rep = _reproductor_actual()
         if rep and rep.get("spotify"):
-            return {"ok": False, "error": "lo que suena es Spotify, no un vídeo: Spotify todavía no sé pasarlo a la tele"}
+            return {"ok": False, "error": "lo que suena es Spotify, no un vídeo: usa «pasa Spotify a la tele»"}
         if rep:
             fuente, inicio, titulo = rep["fuente"], rep["posicion"], rep["titulo"] or None
         else:
