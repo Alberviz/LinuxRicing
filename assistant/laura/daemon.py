@@ -15,7 +15,7 @@ from .bargein import BargeIn
 from .config import CFG, bus, log, notify
 from . import avisos
 from .escalation import (_confirm_and_run_escalation, _handle_auto_escalation,
-                         _match_auto_case, voice_yes_no)
+                         _match_auto_case, responder_pendiente_archivos, voice_yes_no)
 from . import jobs as jobs_mod
 from . import vigia as vigia_mod
 from .jobs import JobManager, reap_orphans
@@ -111,6 +111,13 @@ def cycle(session: Session, jobs: JobManager, mode: str = "centro",
             notify("Tú", text)
             bus.emit(type="transcript", value=text)
             bye = _is_farewell(text)
+
+            # Un plan de archivos pendiente (borrar…) y Alberto contesta «sí»/«no» sin pasar por el LLM.
+            if responder_pendiente_archivos(text, mode, turn_cancel):
+                turns += 1
+                if mode != "centro" or bye or turns >= max_turns:
+                    break
+                continue
 
             # Modo A: casos rutinarios pre-programados (config.toml
             # [escalation].auto_cases) van directos a un Gemini ligero, sin
