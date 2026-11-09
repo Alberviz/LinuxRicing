@@ -141,10 +141,8 @@ Comandos nuevos (una línea, respuesta JSON):
   la píldora, los paneles y un margen de borde, y se escoge al azar una de las mejores posiciones
   libres para el tamaño pedido. La lista va a la izquierda o al centro; en modo constelación
   se llena todo.
-- **Envío:** la animación del visor hacia `(centro, top)` y, al llegar, se reutiliza la del
-  agujero negro de `modules/portals/Portals.qml`: hoy solo tiene `IpcHandler { target: "portals" }`
-  con `demo(kind)`, así que se añade una función `swallow(nombre, tipo)` que abre el agujero
-  y se traga una tarjeta sin volver a enviar nada (el envío real lo hace el daemon con `warp`).
+- **Envío:** el visor vuela hacia `(centro, top)` y se desvanece; el agujero negro lo abre solo
+  `Portals.qml` porque `warp archivo` ya escribe en `$XDG_RUNTIME_DIR/warp/salidas.jsonl`.
 - IPC de depuración: `qs -c caelestia ipc call holo demo` (escena falsa con 8 items, 2 visores).
 
 ## Errores
