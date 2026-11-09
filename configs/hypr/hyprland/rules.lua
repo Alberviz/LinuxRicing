@@ -33,6 +33,8 @@ local system_monitor_tag = "system_monitor"
 local music_player_tag = "music_player"
 local communication_app_tag = "communication_app"
 local todo_app_tag = "todo_app"
+local olimpo_tag = "olimpo_app"
+local whatsapp_tag = "whatsapp_app"
 
 
 ----------------------
@@ -44,6 +46,13 @@ hl.window_rule({ match = { fullscreen = false }, opacity = vars.windowOpacity ..
 
 -- Center all floating windows except xwayland windows (xwayland popups count as windows)
 hl.window_rule({ match = { float = true, xwayland = false }, center = true })
+
+-- Ignore maximize requests from all apps
+hl.window_rule({
+    name           = "suppress-maximize-events",
+    match          = { class = ".*" },
+    suppress_event = "maximize",
+})
 
 -- Picture in picture (move and resize done via resizer in execs.lua)
 hl.window_rule({
@@ -148,6 +157,20 @@ tagged_rule(communication_app_tag, {
 tagged_rule(todo_app_tag, {
     "todoist" -- Todoist
 }, "class")
+tagged_rule(olimpo_tag, {
+    "chrome-hgknnnmidhnefhfdiaapcoehkjnnfcgp-Profile_1"
+}, "class")
+tagged_rule(olimpo_tag, {
+    "chrome-hgknnnmidhnefhfdiaapcoehkjnnfcgp-Profile_1"
+}, "initial_class")
+tagged_rule(whatsapp_tag, {
+    "io.github.tobagin.karere",
+    "karere",
+    "whatsapp"
+}, "class")
+tagged_rule(whatsapp_tag, {
+    "io.github.tobagin.karere"
+}, "initial_class")
 
 
 -----------------------
@@ -193,6 +216,8 @@ create_tag(system_monitor_tag, { workspace = "special:sysmon" })
 create_tag(music_player_tag, { workspace = "special:music" })
 create_tag(communication_app_tag, { workspace = "special:communication" })
 create_tag(todo_app_tag, { workspace = "special:todo" })
+create_tag(olimpo_tag, { workspace = "special:olimpo" })
+create_tag(whatsapp_tag, { workspace = "special:whatsapp" })
 
 
 -------------------------

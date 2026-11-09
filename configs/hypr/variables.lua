@@ -108,6 +108,8 @@ return {
     kbMusicWs                  = "SUPER + M",
     kbCommunicationWs          = "SUPER + D",
     kbTodoWs                   = "SUPER + R",
+    kbOlimpoWs                 = "SUPER + O",
+    kbWhatsappWs               = "SUPER + G",
 
     -- Apps
     kbTerminal                 = "SUPER + Return",
@@ -137,10 +139,12 @@ return {
     kbSession                  = "CTRL + ALT + Delete",
     kbShowSidebar              = "SUPER + N",
     kbClearNotifs              = "CTRL + ALT + C",
-    kbShowPanels               = "SUPER + K",
+    kbShowPanels               = "SUPER + P",
+    kbCastPanel                = "SUPER + K",   -- Proyectar (como Win+K)
     kbLock                     = "SUPER + L",
     kbRestoreLock              = "SUPER + ALT + L",
     kbSleep                    = "SUPER + SHIFT + L",
+    kbRebootMenu               = "SUPER + SHIFT + R",
 
     -- Clipboard and emoji picker
     kbClipboard                = "SUPER + V",

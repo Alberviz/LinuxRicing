@@ -119,6 +119,32 @@ local function default_config()
         todo = {
             todoist = { enable = true, match = { { class = "todoist" } }, command = { "todoist" }, move = true },
         },
+        olimpo = {
+            olimpo = {
+                enable  = true,
+                match   = {
+                    { class = "chrome-hgknnnmidhnefhfdiaapcoehkjnnfcgp-Profile_1" },
+                    { initial_class = "chrome-hgknnnmidhnefhfdiaapcoehkjnnfcgp-Profile_1" },
+                    { title = "Olimpo" },
+                },
+                command = { "/usr/bin/chromium", "--profile-directory=Profile 1", "--app-id=hgknnnmidhnefhfdiaapcoehkjnnfcgp" },
+                move    = true,
+            },
+        },
+        whatsapp = {
+            karere = {
+                enable  = true,
+                match   = {
+                    { class = "io.github.tobagin.karere" },
+                    { initial_class = "io.github.tobagin.karere" },
+                    { class = "karere" },
+                    { title = "Karere" },
+                    { title = "WhatsApp" },
+                },
+                command = { "/usr/local/bin/karere" },
+                move    = true,
+            },
+        },
     }
 end
 

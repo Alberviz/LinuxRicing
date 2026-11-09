@@ -66,7 +66,9 @@ create_bind(vars.kbSession, hl.dsp.global("caelestia:session"))
 create_bind(vars.kbShowSidebar, hl.dsp.global("caelestia:sidebar"))
 create_bind(vars.kbClearNotifs, hl.dsp.global("caelestia:clearNotifs"), locked)
 create_bind(vars.kbShowPanels, hl.dsp.global("caelestia:showall"))
+create_bind(vars.kbCastPanel, hl.dsp.global("caelestia:castPanel"))
 create_bind(vars.kbLock, hl.dsp.global("caelestia:lock"))
+create_bind(vars.kbRebootMenu, hl.dsp.exec_cmd("pkill fuzzel || /home/alberviz/.local/bin/reboot-menu"))
 
 -- Restore lock
 create_bind(vars.kbRestoreLock, function()
@@ -113,7 +115,7 @@ create_bind(vars.kbWindowGroupCycleNext, hl.dsp.group.next(), repeating)
 create_bind(vars.kbWindowGroupCyclePrev, hl.dsp.group.prev(), repeating)
 create_bind(vars.kbToggleGroup, hl.dsp.group.toggle())
 create_bind(vars.kbUngroup, hl.dsp.window.move({ out_of_group = true }))
-create_bind(vars.kbGroupLockActive, hl.dsp.group.lock_active())
+create_bind(vars.kbGroupLockActive, hl.dsp.group.lock())
 
 -- Window actions
 for _, dir in ipairs({ "left", "right", "up", "down" }) do
@@ -157,6 +159,8 @@ create_bind(vars.kbSystemMonitorWs, fn.toggle("sysmon"))
 create_bind(vars.kbMusicWs, fn.toggle("music"))
 create_bind(vars.kbCommunicationWs, fn.toggle("communication"))
 create_bind(vars.kbTodoWs, fn.toggle("todo"))
+create_bind(vars.kbOlimpoWs, fn.toggle("olimpo"))
+create_bind(vars.kbWhatsappWs, fn.toggle("whatsapp"))
 
 -- Apps
 create_bind(vars.kbTerminal, hl.dsp.exec_cmd(vars.terminal))
@@ -226,3 +230,4 @@ create_bind(
         " -a 'Shell' -A 'Test1=I got it!' -A 'Test2=Another action'"
     )
 )
+

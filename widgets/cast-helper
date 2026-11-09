@@ -463,15 +463,222 @@ def build_mirror_cmds(monitor, audio, size, profile=None, token="x"):
 
 # ── Cast Streaming (openscreen) ──────────────────────────────────────────────
 CAST_SENDER = os.environ.get("CAST_SENDER", os.path.expanduser("~/.local/lib/linuxricing/cast_sender"))
-STREAM_SIZE = os.environ.get("CAST_STREAM_SIZE", "1280x720")     # el emisor recodifica a VP8 por software
 STREAM_PLAYOUT_MS = int(os.environ.get("CAST_STREAM_PLAYOUT_MS", "150"))   # búfer de reproducción del receptor
-STREAM_CODEC = os.environ.get("CAST_STREAM_CODEC", "vp8")           # vp8 (CPU) | h264 (+ CAST_ENCODER=h264_nvenc)
 STREAM_KBPS = int(os.environ.get("CAST_STREAM_KBPS", "8000"))
 MIRROR_BACKEND = os.environ.get("CAST_MIRROR_BACKEND", "auto")   # auto | cast-streaming | hls
+PREFS_PATH = os.path.expanduser("~/.config/caelestia/cast-mirror.json")
+VIRT_PATH = os.path.join(WORK_DIR, "virtual.json")
+VIRT_OUT = "CAST-1"
+QUALITY_SIZE = {"720p": (1280, 720), "1080p": (1920, 1080)}
+DEFAULT_PREFS = {"source": "monitor", "quality": "auto", "encoder": "auto", "audio": True}
 
 
 def stream_available():
     return os.access(CAST_SENDER, os.X_OK)
+
+
+def load_prefs():
+    p = dict(DEFAULT_PREFS)
+    try:
+        with open(PREFS_PATH) as f:
+            for k, v in json.load(f).items():
+                if k in p:
+                    p[k] = v
+    except Exception:  # noqa: BLE001
+        pass
+    return p
+
+
+def save_prefs(**kw):
+    p = load_prefs()
+    p.update({k: v for k, v in kw.items() if v is not None})
+    try:
+        os.makedirs(os.path.dirname(PREFS_PATH), exist_ok=True)
+        atomic_write(PREFS_PATH, json.dumps(p, ensure_ascii=False, indent=1))
+    except Exception:  # noqa: BLE001
+        log.warning("no se pudo guardar %s", PREFS_PATH)
+    return p
+
+
+def power_state():
+    """{ac: bool, profile: power-saver|balanced|performance|None}."""
+    ac = None
+    for d in glob.glob("/sys/class/power_supply/*"):
+        try:
+            with open(os.path.join(d, "type")) as f:
+                if f.read().strip() != "Mains":
+                    continue
+            with open(os.path.join(d, "online")) as f:
+                ac = (ac or False) or f.read().strip() == "1"
+        except OSError:
+            pass
+    prof = None
+    try:
+        prof = subprocess.run(["powerprofilesctl", "get"], capture_output=True, text=True, timeout=3).stdout.strip() or None
+    except Exception:  # noqa: BLE001
+        pass
+    return {"ac": True if ac is None else ac, "profile": prof}
+
+
+def encoder_auto(power):
+    """nvidia (h264_nvenc) con corriente y perfil distinto de ahorro; si no, cpu (VP8)."""
+    return "nvidia" if power["ac"] and power["profile"] != "power-saver" else "cpu"
+
+
+def resolve_encoder(mode, power):
+    return mode if mode in ("cpu", "nvidia") else encoder_auto(power)
+
+
+def resolve_quality(q, enc):
+    # auto = 720p: en las pruebas, 1080p con NVENC no mantuvo 28 fps ni pocos tardíos (ver docs); 1080p solo si se pide.
+    return q if q in QUALITY_SIZE else "720p"
+
+
+def hypr_json(what):
+    try:
+        return json.loads(subprocess.run(["hyprctl", "-j", what], capture_output=True, text=True, timeout=5).stdout or "[]")
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def hypr_move_ws(ws, mon):
+    subprocess.run(["hyprctl", "dispatch", f"hl.dsp.workspace.move({{workspace={ws}, monitor='{mon}'}})"],
+                   capture_output=True, timeout=5)
+
+
+def hypr_focus_ws(ws):
+    subprocess.run(["hyprctl", "dispatch", f"hl.dsp.focus({{workspace={ws}}})"], capture_output=True, timeout=5)
+
+
+def real_monitors():
+    return [m for m in hypr_json("monitors") if not m["name"].startswith("CAST-")]
+
+
+def mirror_options():
+    mons = [{"name": m["name"], "width": m["width"], "height": m["height"], "focused": bool(m.get("focused"))}
+            for m in real_monitors()]
+    wss = [{"id": w["id"], "name": w["name"], "monitor": w.get("monitor"), "windows": w.get("windows", 0)}
+           for w in hypr_json("workspaces") if isinstance(w.get("id"), int) and w["id"] > 0
+           and w.get("monitor") and not w["monitor"].startswith("CAST-")]
+    wins = [{"address": c["address"], "title": c.get("title", ""), "class": c.get("class", ""),
+             "workspace": (c.get("workspace") or {}).get("id")}
+            for c in hypr_json("clients") if c.get("mapped", True) and (c.get("workspace") or {}).get("id", 0) > 0]
+    pw = power_state()
+    pr = load_prefs()
+    return {"ok": True, "monitors": mons, "workspaces": wss, "windows": wins, "power": pw,
+            "encoder_auto": encoder_auto(pw),
+            "defaults": {"quality": pr["quality"], "encoder": pr["encoder"], "audio": bool(pr["audio"])}}
+
+
+class VirtualOutput:
+    """Salida headless de Hyprland (CAST-1) para duplicar un workspace o extender el escritorio.
+    Guarda en virtual.json lo movido para restaurarlo aunque el daemon se caiga."""
+
+    def __init__(self):
+        self.moved = []
+        self.focus = None
+        self.active = False
+
+    def _save(self):
+        try:
+            atomic_write(VIRT_PATH, json.dumps({"output": VIRT_OUT, "moved": self.moved, "focus": self.focus}))
+        except Exception:  # noqa: BLE001
+            pass
+
+    def create(self):
+        mons = hypr_json("monitors")
+        f = next((m for m in mons if m.get("focused")), None)
+        if f:
+            self.focus = {"monitor": f["name"], "ws": f["activeWorkspace"]["id"]}
+        if not any(m["name"] == VIRT_OUT for m in mons):
+            subprocess.run(["hyprctl", "output", "create", "headless", VIRT_OUT], capture_output=True, timeout=5)
+        for _ in range(30):
+            if any(m["name"] == VIRT_OUT for m in hypr_json("monitors")):
+                break
+            time.sleep(0.1)
+        else:
+            raise RuntimeError("Hyprland no creó la salida virtual")
+        self.active = True
+        self._save()
+
+    def attach_workspace(self, ws):
+        info = next((w for w in hypr_json("workspaces") if w.get("id") == ws), None)
+        if info is None:
+            raise ValueError(f"el workspace {ws} no existe")
+        self.moved.append({"ws": ws, "monitor": info["monitor"]})
+        self._save()
+        hypr_move_ws(ws, VIRT_OUT)
+
+    def extend_workspace(self):
+        for _ in range(20):
+            w = next((w for w in hypr_json("workspaces") if w.get("monitor") == VIRT_OUT), None)
+            if w:
+                return w["id"]
+            time.sleep(0.1)
+        return None
+
+    def release(self):
+        if not self.active:
+            return
+        self.active = False
+        restore_virtual({"moved": self.moved, "focus": self.focus})
+        try:
+            os.unlink(VIRT_PATH)
+        except OSError:
+            pass
+
+
+def restore_virtual(st):
+    """Devuelve los workspaces a su monitor, restaura el foco y borra las salidas CAST-*."""
+    names = {m["name"] for m in hypr_json("monitors")}
+    for it in reversed(st.get("moved") or []):
+        if it["monitor"] in names and any(w.get("id") == it["ws"] and w.get("monitor", "").startswith("CAST-")
+                                          for w in hypr_json("workspaces")):
+            hypr_move_ws(it["ws"], it["monitor"])
+    # cualquier workspace con ventanas que aún cuelgue de una CAST-* vuelve al monitor real principal
+    real = [m["name"] for m in real_monitors()]
+    if real:
+        for w in hypr_json("workspaces"):
+            if str(w.get("monitor", "")).startswith("CAST-") and w.get("windows", 0) > 0 and isinstance(w.get("id"), int):
+                hypr_move_ws(w["id"], real[0])
+    fo = st.get("focus")
+    if fo and fo["monitor"] in names:
+        hypr_focus_ws(fo["ws"])
+    for n in sorted(names):
+        if n.startswith("CAST-"):
+            subprocess.run(["hyprctl", "output", "remove", n], capture_output=True, timeout=5)
+
+
+def cleanup_orphan_virtual():
+    """Al arrancar el daemon: si quedó una salida CAST-* de una sesión anterior, restaurar."""
+    try:
+        if not any(m["name"].startswith("CAST-") for m in hypr_json("monitors")) and not os.path.exists(VIRT_PATH):
+            return
+        st = {}
+        try:
+            with open(VIRT_PATH) as f:
+                st = json.load(f)
+        except Exception:  # noqa: BLE001
+            pass
+        log.warning("restaurando salida virtual huérfana")
+        restore_virtual(st)
+        try:
+            os.unlink(VIRT_PATH)
+        except OSError:
+            pass
+    except Exception:  # noqa: BLE001
+        log.exception("limpieza de salidas virtuales")
+
+
+def intel_render_node():
+    for n in sorted(glob.glob("/sys/class/drm/renderD*")):
+        try:
+            with open(os.path.join(n, "device/vendor")) as f:
+                if f.read().strip() == "0x8086":
+                    return "/dev/dri/" + os.path.basename(n)
+        except OSError:
+            pass
+    return "/dev/dri/renderD128"
 
 
 def default_monitor_source():
@@ -482,18 +689,31 @@ def default_monitor_source():
         return "@DEFAULT_MONITOR@"
 
 
-def build_stream_cmds(monitor, host, port, audio_fifo=None):
-    """gpu-screen-recorder -> ffmpeg (repite SPS/PPS en cada keyframe) -> cast_sender (stdin = mpegts)."""
-    gsr = ["gpu-screen-recorder", "-w", monitor, "-f", str(MIRROR_FPS), "-c", "mpegts", "-k", "h264",
-           "-bm", "cbr", "-q", str(MIRROR_KBPS), "-keyint", "0.5", "-cursor", "yes", "-fm", "cfr",
-           "-ffmpeg-video-opts", "tune=ull;zerolatency=1;rc-lookahead=0;bf=0;delay=0",
-           "-s", STREAM_SIZE, "-o", "/dev/stdout"]
+def build_stream_cmds(source, host, port, audio_fifo, quality, encoder):
+    """captura (gpu-screen-recorder | wf-recorder para salida virtual) -> ffmpeg (SPS/PPS en cada keyframe)
+    -> cast_sender (stdin = mpegts). source = (tipo, valor): monitor/NAME, virtual/CAST-1, window/None."""
+    w, h = QUALITY_SIZE[quality]
+    kind, val = source
+    if kind == "virtual":
+        cap = ["wf-recorder", "-o", val, "-c", "h264_vaapi", "-d", intel_render_node(), "-D", "-r", str(MIRROR_FPS),
+               "-F", f"scale_vaapi=w={w}:h={h}:format=nv12", "-p", "low_power=1", "-p", "bf=0",
+               "-p", f"g={MIRROR_FPS // 2}", "-p", f"b={MIRROR_KBPS * 1000}", "-m", "mpegts", "-f", "/dev/stdout"]
+    else:
+        cap = ["gpu-screen-recorder", "-w", val if kind == "monitor" else "portal", "-f", str(MIRROR_FPS),
+               "-c", "mpegts", "-k", "h264", "-bm", "cbr", "-q", str(MIRROR_KBPS), "-keyint", "0.5", "-cursor", "yes",
+               "-fm", "cfr", "-ffmpeg-video-opts", "tune=ull;zerolatency=1;rc-lookahead=0;bf=0;delay=0",
+               "-s", f"{w}x{h}", "-o", "/dev/stdout"]
     ff = ["ffmpeg", "-nostdin", "-loglevel", "error", "-fflags", "nobuffer+flush_packets", "-flags", "low_delay",
           "-probesize", "32768", "-analyzeduration", "0", "-f", "mpegts", "-i", "pipe:0", "-c:v", "copy",
           "-bsf:v", "dump_extra=freq=keyframe", "-an", "-muxdelay", "0", "-muxpreload", "0",
           "-flush_packets", "1", "-f", "mpegts", "pipe:1"]
-    snd = [CAST_SENDER, "-n", "-c", STREAM_CODEC, "-m", str(STREAM_KBPS * 1000), f"{host}:{port}", "pipe:0"]
+    codec = "h264" if encoder == "nvidia" else "vp8"
+    snd = [CAST_SENDER, "-n", "-c", codec, "-m", str(STREAM_KBPS * 1000), f"{host}:{port}", "pipe:0"]
     env = dict(os.environ, CAST_LIVE="1", CAST_PLAYOUT_MS=str(STREAM_PLAYOUT_MS), CAST_INFLIGHT_MS="300")
+    if encoder == "nvidia":
+        env["CAST_ENCODER"] = "h264_nvenc"
+    else:
+        env.pop("CAST_ENCODER", None)
     aud = None
     if audio_fifo:
         env["CAST_AUDIO_PATH"] = audio_fifo
@@ -502,7 +722,7 @@ def build_stream_cmds(monitor, host, port, audio_fifo=None):
                "-flush_packets", "1", "-f", "wav", audio_fifo]
     else:
         env["CAST_NO_AUDIO"] = "1"
-    return gsr, ff, snd, env, aud
+    return cap, ff, snd, env, aud
 
 
 def build_ffmpeg_cmd(path, info, audio_index, start):
@@ -1265,24 +1485,36 @@ class MirrorSession(Session):
 
 
 class CastStreamSession(Session):
-    """Duplicar pantalla por Cast Streaming (openscreen): UDP/RTP en vivo, ~0,2-0,4 s, con audio opcional."""
+    """Duplicar pantalla por Cast Streaming (openscreen): UDP/RTP en vivo, ~0,15-0,3 s, con audio.
+    Fuentes: monitor | workspace (salida virtual) | extend (escritorio extendido) | window (portal)."""
 
-    def __init__(self, daemon, dev, monitor, audio, size, profile=None):
-        super().__init__(daemon, dev, monitor, "mirror", f"Duplicando pantalla · {monitor}")
-        self.monitor = monitor
+    def __init__(self, daemon, dev, source, quality, encoder, audio):
+        self.source = source           # "monitor:eDP-2" | "workspace:3" | "extend" | "window"
+        self.kind = source.split(":")[0]
+        self.monitor = source.split(":", 1)[1] if self.kind == "monitor" else self.kind
+        super().__init__(daemon, dev, source, "mirror", f"Duplicando pantalla · {self.monitor}")
+        self.source = source
+        self.quality_mode = quality
+        self.encoder_mode = encoder
         self.audio = bool(audio)
-        self.want_audio = audio
-        self.size = size
+        self.want_audio = self.audio
+        self.size = None
         self.restart = False
         self.procs = []
         self.stopping = False
+        self.virt = None
         self.t_stream = 0.0
         self.attempt = 0
+        self.power = power_state()
+        self.enc = resolve_encoder(encoder, self.power)
+        self.qual = resolve_quality(quality, self.enc)
 
     def as_dict(self):
         d = super().as_dict()
         d.update(monitor=self.monitor, audio=self.audio, position=0, duration=0,
-                 profile="cast-streaming", backend="cast-streaming",
+                 profile="cast-streaming", backend="cast-streaming", source=self.source,
+                 quality=self.qual, quality_mode=self.quality_mode, encoder=self.enc,
+                 encoder_mode=self.encoder_mode, power=self.power,
                  latency=round(STREAM_PLAYOUT_MS / 1000.0 + 0.15, 2) if self.state == "PLAYING" else None)
         return d
 
@@ -1306,8 +1538,25 @@ class CastStreamSession(Session):
                 except Exception:  # noqa: BLE001
                     pass
 
+    def _prepare_source(self):
+        """Devuelve (tipo, valor) para build_stream_cmds; crea la salida virtual si hace falta."""
+        if self.kind == "monitor":
+            return ("monitor", self.monitor)
+        if self.kind == "window":
+            return ("window", None)
+        if self.virt is None:
+            self.virt = VirtualOutput()
+            self.virt.create()
+            if self.kind == "workspace":
+                self.virt.attach_workspace(int(self.source.split(":")[1]))
+        return ("virtual", VIRT_OUT)
+
     def _start_pipeline(self):
         import select
+        self.power = power_state()
+        self.enc = resolve_encoder(self.encoder_mode, self.power)
+        self.qual = resolve_quality(self.quality_mode, self.enc)
+        src = self._prepare_source()
         fifo = None
         if self.audio:
             fifo = os.path.join(WORK_DIR, f"{self.token}-a.fifo")
@@ -1316,18 +1565,18 @@ class CastStreamSession(Session):
             except OSError:
                 pass
             os.mkfifo(fifo)
-        gsr_c, ff_c, snd_c, env, aud_c = build_stream_cmds(self.monitor, self.dev["host"],
-                                                           self.dev.get("port") or 8009, fifo)
-        gsr = subprocess.Popen(gsr_c, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
-        ff = subprocess.Popen(ff_c, stdin=gsr.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        cap_c, ff_c, snd_c, env, aud_c = build_stream_cmds(src, self.dev["host"], self.dev.get("port") or 8009,
+                                                           fifo, self.qual, self.enc)
+        cap = subprocess.Popen(cap_c, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
+        ff = subprocess.Popen(ff_c, stdin=cap.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                               start_new_session=True)
-        gsr.stdout.close()
-        self.procs = [gsr, ff]
-        # el emisor sondea el flujo al abrirlo: esperar a que ya salgan datos
-        r, _, _ = select.select([ff.stdout], [], [], 12)
+        cap.stdout.close()
+        self.procs = [cap, ff]
+        # el emisor sondea el flujo al abrirlo: esperar a que ya salgan datos (el selector de ventana puede tardar)
+        r, _, _ = select.select([ff.stdout], [], [], 90 if self.kind == "window" else 12)
         if not r:
             raise RuntimeError("la captura de pantalla no produce vídeo")
-        procs = [gsr, ff]
+        procs = [cap, ff]
         if aud_c:       # el emisor abre el FIFO al arrancar; ffmpeg escribe en cuanto haya lector
             procs.append(subprocess.Popen(aud_c, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                           start_new_session=True))
@@ -1337,7 +1586,23 @@ class CastStreamSession(Session):
         self.procs = procs + [snd]
         return snd
 
+    def _watch_power(self):
+        """Sondeo de 5 s: si cambia el encoder 'auto' (AC / perfil de energía), reconecta."""
+        while not (self.dead or self.stopping):
+            time.sleep(5)
+            if self.dead or self.stopping or not self.loaded:
+                continue
+            pw = power_state()
+            if pw != self.power:
+                self.power = pw
+                self.daemon.publish()
+                if self.encoder_mode == "auto" and resolve_encoder("auto", pw) != self.enc:
+                    log.info("cambio de energía %s: el encoder pasa a %s", pw, resolve_encoder("auto", pw))
+                    self.restart = True
+                    self._kill_all()
+
     def run_load(self, start, sub_spec):
+        threading.Thread(target=self._watch_power, daemon=True).start()
         try:
             self.ip = local_ip_for(self.dev["host"])
             attempt = 0
@@ -1369,11 +1634,12 @@ class CastStreamSession(Session):
                 if self.dead or self.stopping:
                     return
                 self._kill_all()
-                if self.restart:        # cambio de audio: reconectar sin contar como fallo
+                if self.restart:        # cambio de audio/calidad/encoder: reconectar sin contar como fallo
                     self.restart = False
                     self.state, self.preparing = "BUFFERING", True
                     self.daemon.publish()
                     time.sleep(1.0)
+                    attempt = 0
                     continue
                 if streaming:      # sesión viva que terminó (parada en la tele / red)
                     self.daemon.end_session(self, error=None)
@@ -1384,16 +1650,29 @@ class CastStreamSession(Session):
         except Exception as e:  # noqa: BLE001
             if self.dead or self.stopping:
                 return
-            log.exception("Cast Streaming falló; se usa HLS")
+            log.exception("Cast Streaming falló")
             self._kill_all()
-            self.daemon.fallback_hls(self, why=str(e))
+            if self.kind == "monitor":
+                self.daemon.fallback_hls(self, why=str(e))
+            else:
+                self.daemon.fail(self, f"No se pudo duplicar la pantalla: {e}")
+
+    def set_options(self, quality=None, encoder=None, audio=None):
+        ch = False
+        if quality is not None and quality != self.quality_mode:
+            self.quality_mode, ch = quality, True
+        if encoder is not None and encoder != self.encoder_mode:
+            self.encoder_mode, ch = encoder, True
+        if audio is not None and bool(audio) != self.audio:
+            self.audio, ch = bool(audio), True
+        save_prefs(quality=self.quality_mode, encoder=self.encoder_mode, audio=self.audio)
+        if ch:
+            self.restart = True
+            self._kill_all()        # run_load reconecta con los nuevos valores
+        self.daemon.publish()
 
     def set_audio(self, on):
-        if bool(on) == self.audio:
-            return
-        self.audio = bool(on)
-        self.restart = True
-        self._kill_all()        # run_load reconecta con/sin audio
+        self.set_options(audio=bool(on))
 
     def seek(self, pos):
         raise RuntimeError("no se puede mover el tiempo al duplicar la pantalla")
@@ -1408,6 +1687,14 @@ class CastStreamSession(Session):
             self.cast = self.daemon.get_cast(self.dev)
         return self.cast
 
+    def _release_virtual(self):
+        if self.virt is not None:
+            v, self.virt = self.virt, None
+            try:
+                v.release()
+            except Exception:  # noqa: BLE001
+                log.exception("restaurar salida virtual")
+
     def stop(self):
         self.stopping = True
         self._kill_all()
@@ -1416,6 +1703,7 @@ class CastStreamSession(Session):
     def cleanup(self):
         self.stopping = True
         self._kill_all()
+        self._release_virtual()
         super().cleanup()
 
 
@@ -1917,6 +2205,17 @@ class Daemon:
             self.monitors = list_monitors() or self.monitors
             self.publish()
             return {"ok": True, "monitors": self.monitors}
+        if act == "options":
+            return mirror_options()
+        if act == "set":
+            s = self._need_active()
+            if not isinstance(s, CastStreamSession):
+                raise ValueError("solo el backend Cast Streaming admite cambios en caliente")
+            for k, allowed in (("quality", ("auto", "720p", "1080p")), ("encoder", ("auto", "cpu", "nvidia"))):
+                if req.get(k) is not None and req[k] not in allowed:
+                    raise ValueError(f"{k}: {'|'.join(allowed)}")
+            s.set_options(req.get("quality"), req.get("encoder"), req.get("audio"))
+            return {"ok": True}
         if act == "stop":
             self.do_stop()
             return {"ok": True}
@@ -1928,35 +2227,55 @@ class Daemon:
             self.publish()
             return {"ok": True, "audio": s.audio}
         # start
-        if not self.monitors:
-            self.monitors = list_monitors()
-        if not self.monitors:
-            raise ValueError("no se encontró ninguna pantalla capturable (gpu-screen-recorder)")
+        pr = load_prefs()
+        quality = req.get("quality") or pr["quality"]
+        encoder = req.get("encoder") or pr["encoder"]
+        want_audio = pr["audio"] if req.get("audio") is None else bool(req["audio"])
+        src_req = req.get("source") or pr["source"] or "monitor"
+        if quality not in ("auto", "720p", "1080p") or encoder not in ("auto", "cpu", "nvidia"):
+            raise ValueError("quality: auto|720p|1080p; encoder: auto|cpu|nvidia")
         key = req.get("device")
         dev = self.find_device(key) if key else (self.device_list() or [None])[0]
         if not dev:
             raise ValueError("no hay ningún Chromecast")
-        names = [m["name"] for m in self.monitors]
-        mon = req.get("monitor") or names[0]
-        if mon not in names:
-            raise ValueError(f"pantalla desconocida: {mon}")
-        m = next(x for x in self.monitors if x["name"] == mon)
-        size = "1920x1080" if m["width"] > 1920 else None
-        want_audio = bool(req.get("audio", True))
+        if not self.monitors:
+            self.monitors = list_monitors()
+        kind, _, val = src_req.partition(":")
+        if kind == "monitor":
+            if not self.monitors:
+                raise ValueError("no se encontró ninguna pantalla capturable (gpu-screen-recorder)")
+            names = [m["name"] for m in self.monitors]
+            if not val:
+                foc = next((m["name"] for m in real_monitors() if m.get("focused")), None)
+                val = req.get("monitor") or (foc if foc in names else names[0])
+            if val not in names:
+                raise ValueError(f"pantalla desconocida: {val}")
+            source = f"monitor:{val}"
+        elif kind == "workspace":
+            if not val.isdigit():
+                raise ValueError("workspace:<id>")
+            source = f"workspace:{int(val)}"
+        elif kind in ("extend", "window"):
+            source = kind
+        else:
+            raise ValueError("source: monitor[:<salida>]|workspace:<id>|window|extend")
         backend = req.get("backend") or MIRROR_BACKEND
-        # auto: Cast Streaming (~0,3 s, sin audio) si cast_sender está instalado; «mirror audio on» pasa a HLS
         use_stream = stream_available() and backend in ("auto", "cast-streaming")
         if backend == "cast-streaming" and not stream_available():
             raise ValueError("falta cast_sender: ejecuta tools/build-openscreen.sh")
+        if not use_stream and kind != "monitor":
+            raise ValueError("esa fuente requiere el backend Cast Streaming")
+        save_prefs(source=("monitor" if kind == "monitor" else source), quality=quality, encoder=encoder, audio=want_audio)
         if use_stream:
-            s = CastStreamSession(self, dev, mon, want_audio, size)
+            s = CastStreamSession(self, dev, source, quality, encoder, want_audio)
         else:
+            m = next(x for x in self.monitors if x["name"] == val)
             self.server.start()
-            s = MirrorSession(self, dev, mon, want_audio, size, req.get("profile"))
+            s = MirrorSession(self, dev, val, want_audio, "1920x1080" if m["width"] > 1920 else None, req.get("profile"))
         self.error = None
         self.set_active(s)
         threading.Thread(target=s.run_load, args=(0, None), daemon=True).start()
-        return {"ok": True, "mode": "mirror", "monitor": mon, "preparing": True,
+        return {"ok": True, "mode": "mirror", "source": source, "monitor": s.monitor, "preparing": True,
                 "backend": "cast-streaming" if use_stream else "hls"}
 
     def fallback_hls(self, old, why=None, audio=None):
@@ -2099,6 +2418,7 @@ def run_daemon():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     _import_cast_libs()
     ensure_dirs()
+    cleanup_orphan_virtual()
     d = Daemon()
     d.monitors = list_monitors()
     try:
@@ -2215,11 +2535,15 @@ def main():
     for c in ("play", "pause", "toggle", "stop", "mute"):
         sub.add_parser(c)
     p = sub.add_parser("mirror", help="duplicar la pantalla en el Chromecast")
-    p.add_argument("action", choices=["start", "stop", "audio", "monitors", "test-latency"])
+    p.add_argument("action", choices=["start", "stop", "audio", "monitors", "test-latency", "options", "set"])
     p.add_argument("value", nargs="?", help="audio: on|off")
     p.add_argument("--device")
     p.add_argument("--monitor")
     p.add_argument("--no-audio", action="store_true")
+    p.add_argument("--audio", dest="audio_opt", choices=["on", "off"])
+    p.add_argument("--source", help="monitor[:<salida>] | workspace:<id> | window | extend")
+    p.add_argument("--quality", choices=["auto", "720p", "1080p"])
+    p.add_argument("--encoder", choices=["auto", "cpu", "nvidia"])
     p.add_argument("--profile", choices=sorted(MIRROR_PROFILES))
     p.add_argument("--backend", choices=["auto", "cast-streaming", "hls"],
                    help="auto = Cast Streaming si está instalado (sin audio), si no HLS")
@@ -2255,8 +2579,9 @@ def main():
         req.update(device=args.device, source=src, audio=args.audio, sub=args.sub,
                    sub_file=args.sub_file, no_subs=args.no_subs, start=args.start, title=args.title)
     elif args.cmd == "mirror":
-        req.update(action=args.action, device=args.device, monitor=args.monitor, audio=not args.no_audio, profile=args.profile,
-                   backend=args.backend)
+        aud = False if args.no_audio else (None if args.audio_opt is None else args.audio_opt == "on")
+        req.update(action=args.action, device=args.device, monitor=args.monitor, audio=aud, profile=args.profile,
+                   backend=args.backend, source=args.source, quality=args.quality, encoder=args.encoder)
         if args.action == "audio":
             req["on"] = (args.value or "on").lower() not in ("off", "0", "no")
     elif args.cmd == "seek":
