@@ -465,6 +465,7 @@ def build_mirror_cmds(monitor, audio, size, profile=None, token="x"):
 CAST_SENDER = os.environ.get("CAST_SENDER", os.path.expanduser("~/.local/lib/linuxricing/cast_sender"))
 STREAM_SIZE = os.environ.get("CAST_STREAM_SIZE", "1280x720")     # el emisor recodifica a VP8 por software
 STREAM_PLAYOUT_MS = int(os.environ.get("CAST_STREAM_PLAYOUT_MS", "150"))   # búfer de reproducción del receptor
+STREAM_CODEC = os.environ.get("CAST_STREAM_CODEC", "vp8")           # vp8 (CPU) | h264 (+ CAST_ENCODER=h264_nvenc)
 STREAM_KBPS = int(os.environ.get("CAST_STREAM_KBPS", "8000"))
 MIRROR_BACKEND = os.environ.get("CAST_MIRROR_BACKEND", "auto")   # auto | cast-streaming | hls
 
@@ -473,7 +474,15 @@ def stream_available():
     return os.access(CAST_SENDER, os.X_OK)
 
 
-def build_stream_cmds(monitor, host, port):
+def default_monitor_source():
+    try:
+        sink = subprocess.run(["pactl", "get-default-sink"], capture_output=True, text=True, timeout=4).stdout.strip()
+        return sink + ".monitor" if sink else "@DEFAULT_MONITOR@"
+    except Exception:  # noqa: BLE001
+        return "@DEFAULT_MONITOR@"
+
+
+def build_stream_cmds(monitor, host, port, audio_fifo=None):
     """gpu-screen-recorder -> ffmpeg (repite SPS/PPS en cada keyframe) -> cast_sender (stdin = mpegts)."""
     gsr = ["gpu-screen-recorder", "-w", monitor, "-f", str(MIRROR_FPS), "-c", "mpegts", "-k", "h264",
            "-bm", "cbr", "-q", str(MIRROR_KBPS), "-keyint", "0.5", "-cursor", "yes", "-fm", "cfr",
@@ -483,10 +492,17 @@ def build_stream_cmds(monitor, host, port):
           "-probesize", "32768", "-analyzeduration", "0", "-f", "mpegts", "-i", "pipe:0", "-c:v", "copy",
           "-bsf:v", "dump_extra=freq=keyframe", "-an", "-muxdelay", "0", "-muxpreload", "0",
           "-flush_packets", "1", "-f", "mpegts", "pipe:1"]
-    snd = [CAST_SENDER, "-n", "-c", "vp8", "-m", str(STREAM_KBPS * 1000), f"{host}:{port}", "pipe:0"]
-    env = dict(os.environ, CAST_LIVE="1", CAST_NO_AUDIO="1", CAST_PLAYOUT_MS=str(STREAM_PLAYOUT_MS),
-               CAST_INFLIGHT_MS="300")
-    return gsr, ff, snd, env
+    snd = [CAST_SENDER, "-n", "-c", STREAM_CODEC, "-m", str(STREAM_KBPS * 1000), f"{host}:{port}", "pipe:0"]
+    env = dict(os.environ, CAST_LIVE="1", CAST_PLAYOUT_MS=str(STREAM_PLAYOUT_MS), CAST_INFLIGHT_MS="300")
+    aud = None
+    if audio_fifo:
+        env["CAST_AUDIO_PATH"] = audio_fifo
+        aud = ["ffmpeg", "-y", "-nostdin", "-loglevel", "error", "-fflags", "nobuffer", "-f", "pulse",
+               "-i", default_monitor_source(), "-ac", "2", "-ar", "48000", "-c:a", "pcm_s16le",
+               "-flush_packets", "1", "-f", "wav", audio_fifo]
+    else:
+        env["CAST_NO_AUDIO"] = "1"
+    return gsr, ff, snd, env, aud
 
 
 def build_ffmpeg_cmd(path, info, audio_index, start):
@@ -1249,14 +1265,15 @@ class MirrorSession(Session):
 
 
 class CastStreamSession(Session):
-    """Duplicar pantalla por Cast Streaming (openscreen): UDP/RTP en vivo, ~0,2-0,4 s. Sin audio por ahora."""
+    """Duplicar pantalla por Cast Streaming (openscreen): UDP/RTP en vivo, ~0,2-0,4 s, con audio opcional."""
 
     def __init__(self, daemon, dev, monitor, audio, size, profile=None):
         super().__init__(daemon, dev, monitor, "mirror", f"Duplicando pantalla · {monitor}")
         self.monitor = monitor
-        self.audio = False
+        self.audio = bool(audio)
         self.want_audio = audio
         self.size = size
+        self.restart = False
         self.procs = []
         self.stopping = False
         self.t_stream = 0.0
@@ -1291,7 +1308,16 @@ class CastStreamSession(Session):
 
     def _start_pipeline(self):
         import select
-        gsr_c, ff_c, snd_c, env = build_stream_cmds(self.monitor, self.dev["host"], self.dev.get("port") or 8009)
+        fifo = None
+        if self.audio:
+            fifo = os.path.join(WORK_DIR, f"{self.token}-a.fifo")
+            try:
+                os.unlink(fifo)
+            except OSError:
+                pass
+            os.mkfifo(fifo)
+        gsr_c, ff_c, snd_c, env, aud_c = build_stream_cmds(self.monitor, self.dev["host"],
+                                                           self.dev.get("port") or 8009, fifo)
         gsr = subprocess.Popen(gsr_c, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
         ff = subprocess.Popen(ff_c, stdin=gsr.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                               start_new_session=True)
@@ -1301,16 +1327,22 @@ class CastStreamSession(Session):
         r, _, _ = select.select([ff.stdout], [], [], 12)
         if not r:
             raise RuntimeError("la captura de pantalla no produce vídeo")
+        procs = [gsr, ff]
+        if aud_c:       # el emisor abre el FIFO al arrancar; ffmpeg escribe en cuanto haya lector
+            procs.append(subprocess.Popen(aud_c, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                          start_new_session=True))
         snd = subprocess.Popen(snd_c, stdin=ff.stdout, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                env=env, start_new_session=True)
         ff.stdout.close()
-        self.procs = [gsr, ff, snd]
+        self.procs = procs + [snd]
         return snd
 
     def run_load(self, start, sub_spec):
         try:
             self.ip = local_ip_for(self.dev["host"])
-            for attempt in range(1, 4):
+            attempt = 0
+            while attempt < 3:
+                attempt += 1
                 self.attempt = attempt
                 snd = self._start_pipeline()
                 t0 = time.time()
@@ -1337,6 +1369,12 @@ class CastStreamSession(Session):
                 if self.dead or self.stopping:
                     return
                 self._kill_all()
+                if self.restart:        # cambio de audio: reconectar sin contar como fallo
+                    self.restart = False
+                    self.state, self.preparing = "BUFFERING", True
+                    self.daemon.publish()
+                    time.sleep(1.0)
+                    continue
                 if streaming:      # sesión viva que terminó (parada en la tele / red)
                     self.daemon.end_session(self, error=None)
                     return
@@ -1351,8 +1389,11 @@ class CastStreamSession(Session):
             self.daemon.fallback_hls(self, why=str(e))
 
     def set_audio(self, on):
-        if on:      # el audio aún solo va por HLS
-            self.daemon.fallback_hls(self, why=None, audio=True)
+        if bool(on) == self.audio:
+            return
+        self.audio = bool(on)
+        self.restart = True
+        self._kill_all()        # run_load reconecta con/sin audio
 
     def seek(self, pos):
         raise RuntimeError("no se puede mover el tiempo al duplicar la pantalla")

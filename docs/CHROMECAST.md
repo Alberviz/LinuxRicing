@@ -121,7 +121,7 @@ físicas de botón (el tap-to-drag del touchpad no genera BTN_LEFT en evdev); si
   Medida real a ojo: `cast-helper mirror test-latency` abre un cronómetro grande a pantalla completa; proyecta esa pantalla y
   fotografía monitor y tele juntos (diferencia de tiempos = latencia).
 
-### Backend Cast Streaming (openscreen) — preferido, sin audio
+### Backend Cast Streaming (openscreen) — preferido
 
 `cast-helper mirror start` usa por defecto **Cast Streaming** (el protocolo de «Transmitir pantalla» de Chrome: Mirroring App en la tele,
 RTP/UDP cifrado, búfer de reproducción de 150 ms) si existe `~/.local/lib/linuxricing/cast_sender`; si no existe, o si falla 3 veces al
@@ -132,13 +132,19 @@ arrancar, cae solo a HLS. `--backend hls|cast-streaming|auto` (o `CAST_MIRROR_BA
   0,3 s). Medición real pendiente con `cast-helper mirror test-latency`.
 - **Pipeline:** `gpu-screen-recorder` (h264, GOP 0,5 s, 1280x720 por defecto, `CAST_STREAM_SIZE`) -> `ffmpeg -c copy -bsf:v dump_extra`
   (repite SPS/PPS en cada keyframe) -> `cast_sender` leyendo mpegts por stdin; el emisor decodifica y recodifica a **VP8 por software**
-  (~1 núcleo de CPU) y lo manda por UDP. Variables: `CAST_STREAM_PLAYOUT_MS` (150), `CAST_STREAM_KBPS` (8000), `CAST_MIRROR_FPS` (30).
-- **Sin audio:** al emitir con el audio en vivo el emisor (un solo hilo) deja sin fotogramas al vídeo; por eso `mirror audio on`
-  cambia la sesión a HLS (con audio, ~2,3 s). Pendiente: audio por hilo propio en el parche.
+  (~1 núcleo de CPU) y lo manda por UDP. Variables: `CAST_STREAM_PLAYOUT_MS` (150), `CAST_STREAM_KBPS` (8000), `CAST_MIRROR_FPS` (30), `CAST_STREAM_CODEC`, `CAST_ENCODER`.
+- **Audio** (monitor del sink por defecto de PipeWire, `ffmpeg -f pulse` -> FIFO WAV -> segundo capturador del emisor): activo por defecto;
+  `mirror audio on|off` reconecta (~3 s) sin pasar a HLS. Medido con audio: e2e vídeo ~120 ms, 29,9 fps, <1 % tardíos; audio ~160 ms.
+  Claves del parche: lecturas no bloqueantes con E/S propia (ffmpeg dormía esperando datos y el audio dejaba sin fotogramas al vídeo,
+  que comparte hilo) y descarte del audio atrasado de PulseAudio (si no, el reloj de muestras de Opus se adelanta y todo se retrasa).
+- **Resolución y CPU:** 720p por defecto (VP8 por software, ~130 % de CPU = 1,3 núcleos). `CAST_STREAM_SIZE=1920x1080`: ~230 % de CPU,
+  mismos 30 fps y ~120 ms. Por hardware: `CAST_STREAM_CODEC=h264 CAST_ENCODER=h264_nvenc` (720p: ~48 % de CPU, 124 ms, 4 % tardíos;
+  en 1080p salió peor: 26 fps y muchos tardíos), pero despierta la RTX 4050 (en reposo D3cold), por eso no es el valor por defecto.
+  `h264_vaapi` no funciona (el emisor entrega fotogramas de sistema, no superficies VAAPI); VP9/AV1 no se probaron.
 - **Cortafuegos:** no hace falta regla en UFW. El emisor inicia el flujo UDP y el RTCP de vuelta entra por el seguimiento de conexión
   (comprobado: paquetes del receptor recibidos con UFW activo). Los `[UFW BLOCK]` de 192.168.1.5 que se ven son RST TCP del 8009.
 - **Instalación:** `tools/build-openscreen.sh` descarga openscreen (commit fijado), le aplica `tools/openscreen-live.patch` (modo en vivo:
-  entrada por pipe sin bloqueo, reloj recuperado, `CAST_PLAYOUT_MS`, `CAST_INFLIGHT_MS`, `CAST_NO_AUDIO`) y lo compila (clang+ninja,
+  entrada por pipe sin bloqueo, reloj recuperado, audio por FIFO, `CAST_PLAYOUT_MS`, `CAST_INFLIGHT_MS`, `CAST_NO_AUDIO`, `CAST_ENCODER`) y lo compila (clang+ninja,
   ~2000 objetivos, ~20 min) a `~/.local/lib/linuxricing/cast_sender`. El código de openscreen no se guarda en el repo.
 - **Notas:** el puerto de la tele es el 8009 explícito (sin puerto el emisor usa otro y falla con `ConnectionFailed`). A veces el primer
   arranque falla («Invalid data» al sondear): el helper reintenta hasta 3 veces antes de caer a HLS.
