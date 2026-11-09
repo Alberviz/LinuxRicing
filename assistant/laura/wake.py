@@ -22,13 +22,16 @@ class WakeListener:
     FRAME = 1280  # 80 ms a 16 kHz — tamaño que espera openWakeWord
 
     def __init__(self, model_path: str, threshold: float, cooldown: float,
-                 on_wake) -> None:
+                 on_wake, patience: int = 1) -> None:
         from openwakeword.model import Model
         kw = {} if model_path.endswith(".onnx") else {"inference_framework": "tflite"}
         self._oww = Model(wakeword_model_paths=[model_path], **kw)
         self._key = next(iter(self._oww.models))
         self._threshold = threshold
         self._cooldown = cooldown
+        # ventanas de 80 ms seguidas por encima del umbral para disparar: la frase de
+        # verdad da varias; los falsos suelen ser picos sueltos de 1-2 ventanas
+        self._patience = max(1, patience)
         self._on_wake = on_wake
         self._paused = threading.Event()
         self._stop = threading.Event()
@@ -46,6 +49,7 @@ class WakeListener:
 
     def _loop(self) -> None:
         last = 0.0
+        racha = 0
         buf = np.zeros(0, "float32")
         q = MIC.subscribe()
         try:
@@ -56,6 +60,7 @@ class WakeListener:
                     continue
                 if self._paused.is_set():
                     buf = buf[:0]
+                    racha = 0
                     continue
                 buf = np.concatenate([buf, chunk])
                 while buf.size >= self.FRAME:
@@ -67,9 +72,10 @@ class WakeListener:
                         log(f"wake listener: {e}")
                         time.sleep(1)
                         continue
+                    racha = racha + 1 if score >= self._threshold else 0
                     now = time.monotonic()
-                    if score >= self._threshold and now - last > self._cooldown:
-                        last = now
+                    if racha >= self._patience and now - last > self._cooldown:
+                        last, racha = now, 0
                         log(f"wake «{self._key}» ({score:.2f})")
                         self._on_wake()
         finally:
@@ -88,7 +94,8 @@ def _make_wake(on_wake) -> WakeListener | None:
         return None
     try:
         w = WakeListener(mp, float(wcfg.get("threshold", 0.5)),
-                         float(wcfg.get("cooldown", 3.0)), on_wake)
+                         float(wcfg.get("cooldown", 3.0)), on_wake,
+                         int(wcfg.get("patience", 1)))
         log(f"wake word activo: {mp}")
         return w
     except Exception as e:  # noqa: BLE001
