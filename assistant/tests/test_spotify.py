@@ -9,6 +9,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from laura.tools import spotify as t  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def sin_alias_reales(monkeypatch):
+    """Los tests no dependen de los alias de config.toml."""
+    monkeypatch.setattr(t, "_alias", lambda: {})
+
+
 @pytest.fixture
 def cli(tmp_path, monkeypatch):
     reg = tmp_path / "llamadas.txt"
@@ -85,3 +91,87 @@ def test_poner_sin_nombre_no_deja_hueco(monkeypatch):
     monkeypatch.setattr(t, "_cmd", lambda *a, **k: {"ok": True, "puesto": {"nombre": ""}, "ahora": {"dispositivo": "Comedor", "volumen": 3}})
     r = t.spotify("poner", que="RealG4Life", donde="tele")
     assert "Poniendo RealG4Life en la tele (Comedor)." in r["decir"] and "3 %" in r["decir"]
+
+
+ALIAS = {"lo de siempre": "RealG4lifebaby", "reggaeton": "RealG4lifebaby", "regueton": "RealG4lifebaby",
+         "nuestra historia": "Nuestra historia 💖", "con mi novia": "Nuestra historia 💖", "bonita": "Nuestra historia 💖"}
+
+
+@pytest.fixture
+def falso(monkeypatch):
+    """_cmd falso que registra los argumentos y contesta según el subcomando."""
+    llamadas, respuestas = [], {}
+    def cmd(*a, **k):
+        llamadas.append(list(a))
+        return respuestas.get(a[0], {"ok": True, "puesto": {"nombre": a[1] if len(a) > 1 else ""}, "ahora": {}})
+    monkeypatch.setattr(t, "_cmd", cmd)
+    monkeypatch.setattr(t, "_alias", lambda: {t._clave(k): v for k, v in ALIAS.items()})
+    t._PENDIENTE.clear()
+    return llamadas, respuestas
+
+
+@pytest.mark.parametrize("que,esperado", [
+    ("mi playlist de reguetón", "RealG4lifebaby"), ("reggaeton", "RealG4lifebaby"), ("lo de siempre", "RealG4lifebaby"),
+    ("la playlist que tengo con mi novia", "Nuestra historia 💖"), ("la playlist bonita", "Nuestra historia 💖"),
+    ("nuestrahistoria", None), ("Nuestra Historia", "Nuestra historia 💖"),
+])
+def test_alias(falso, que, esperado):
+    llamadas, _ = falso
+    t.spotify("poner", que=que, donde="tele")
+    assert llamadas[-1][1] == (esperado or que)
+    if esperado:
+        assert llamadas[-1][3] == "playlist"
+
+
+def test_lo_mas_nuevo_de_lo_de_siempre(falso):
+    llamadas, _ = falso
+    r = t.spotify("poner", que="lo más nuevo de lo de siempre", donde="tele")
+    assert llamadas == [["poner", "RealG4lifebaby", "--tipo", "playlist", "--donde", "tele", "--orden", "recientes", "--desde-inicio"]]
+    assert "lo último que añadiste" in r["decir"]
+    t.spotify("poner", que="lo de siempre", recientes=True)
+    assert llamadas[-1][-2:] == ["recientes", "--desde-inicio"]
+
+
+def test_lo_mas_nuevo_de_una_playlist_sin_alias(falso):
+    llamadas, resp = falso
+    resp["encontrar"] = {"ok": True, "encontrado": {"nombre": "Drill Elite ", "uri": "spotify:playlist:X", "tipo": "playlist"}}
+    r = t.spotify("poner", que="las últimas de drill elite")
+    assert llamadas[0] == ["encontrar", "drill elite", "--tipo", "auto"]
+    assert llamadas[1][:2] == ["poner", "spotify:playlist:X"] and "recientes" in llamadas[1]
+    assert "Drill Elite" in r["decir"]
+
+
+ULT = {"ok": True, "encontrado": {"nombre": "FILIPENSES", "uri": "spotify:album:4DMT", "tipo": "album", "de": "La Pantera",
+                                  "clase": "álbum", "anio": 2026, "mes": 11, "dia": 6}}
+
+
+@pytest.mark.parametrize("kw", [
+    {"accion": "poner", "que": "el último álbum de La Pantera"},
+    {"accion": "buscar", "que": "La Pantera", "ultimo": True, "tipo": "album"},
+    {"accion": "buscar", "que": "último disco de la pantera"},
+])
+def test_ultimo_album_pregunta_y_luego_pone(falso, kw):
+    llamadas, resp = falso
+    resp["ultimo"] = ULT
+    r = t.spotify(**kw, donde="tele")
+    assert llamadas[0][0] == "ultimo" and llamadas[0][1].lower() == "la pantera" and llamadas[0][-1] == "album"
+    assert r["ok"] and "«FILIPENSES»" in r["decir"] and "6 de noviembre de 2026" in r["decir"] and r["decir"].endswith("¿Lo pongo?")
+    r = t.spotify("poner_lo_encontrado")
+    assert llamadas[-1] == ["poner", "spotify:album:4DMT", "--tipo", "album", "--donde", "tele"]
+    assert r["decir"].startswith("Poniendo FILIPENSES")
+    assert not t.spotify("poner_lo_encontrado")["ok"]  # ya no queda nada pendiente
+
+
+def test_lo_ultimo_de_un_artista(falso):
+    llamadas, resp = falso
+    resp["encontrar"] = {"ok": True, "encontrado": {"nombre": "La Pantera", "uri": "spotify:artist:Y", "tipo": "artista"}}
+    resp["ultimo"] = ULT
+    r = t.spotify("poner", que="lo último de la pantera")
+    assert [l[0] for l in llamadas] == ["encontrar", "ultimo"] and llamadas[1][-1] == "cualquiera"
+    assert "¿Lo pongo?" in r["decir"]
+
+
+def test_buscar_generico(falso):
+    llamadas, resp = falso
+    resp["encontrar"] = {"ok": True, "encontrado": {"nombre": "Mbappe", "uri": "spotify:track:Z", "tipo": "cancion", "de": "Eladio"}}
+    assert t.spotify("buscar", que="mbappe")["decir"] == "He encontrado «Mbappe» de Eladio. ¿La pongo?"
