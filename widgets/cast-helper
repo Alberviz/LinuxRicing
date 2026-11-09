@@ -528,7 +528,10 @@ def encoder_auto(power):
     return "nvidia" if power["ac"] and power["profile"] != "power-saver" else "cpu"
 
 
-def resolve_encoder(mode, power):
+def resolve_encoder(mode, power, quality=None):
+    # NVENC a 1080p: ~28 fps pero >90 % de fotogramas tardíos (medido 2026-11-09); VP8 por CPU va fluido.
+    if mode not in ("cpu", "nvidia") and quality == "1080p":
+        return "cpu"
     return mode if mode in ("cpu", "nvidia") else encoder_auto(power)
 
 
@@ -554,8 +557,18 @@ def hypr_focus_ws(ws):
 
 
 def hypr_wake():
+    """Enciende la pantalla SOLO si está apagada (con DPMS off no hay nada que capturar). Un `dpms on` con la
+    pantalla ya encendida reconfigura la salida un instante y gpu-screen-recorder no encuentra el monitor
+    («display "eDP-2" not found»): fallaba ~2 de cada 3 arranques. Tras encender, esperar a que se asiente."""
     try:
+        if all(m.get("dpmsStatus", True) for m in real_monitors()):
+            return
         subprocess.run(["hyprctl", "dispatch", 'hl.dsp.dpms("on")'], capture_output=True, timeout=2)
+        for _ in range(20):
+            time.sleep(0.1)
+            if all(m.get("dpmsStatus", True) for m in real_monitors()):
+                break
+        time.sleep(1.5)
     except Exception:  # noqa: BLE001
         pass
 
@@ -1524,8 +1537,11 @@ class CastStreamSession(Session):
         self.virt = None
         self.t_stream = 0.0
         self.attempt = 0
+        self.plock = threading.Lock()   # protege procs/starting frente a set_options desde otro hilo
+        self.starting = False
+        self.capture_lost = False
         self.power = power_state()
-        self.enc = resolve_encoder(encoder, self.power)
+        self.enc = resolve_encoder(encoder, self.power, quality)
         self.qual = resolve_quality(quality, self.enc)
 
     def as_dict(self):
@@ -1579,11 +1595,43 @@ class CastStreamSession(Session):
                 self.virt.attach_workspace(int(self.source.split(":")[1]))
         return ("virtual", VIRT_OUT)
 
+    def _request_restart(self):
+        """Reconectar con los valores nuevos. Si la tubería está arrancando no se toca: run_load lo verá al
+        terminar el arranque (matarla a medias dejaba al emisor leyendo una tubería muerta)."""
+        with self.plock:
+            self.restart = True
+            if not self.starting:
+                self._kill_all()
+
+    def _watch_capture(self, snd, caps):
+        """Si la captura muere con el emisor vivo, el emisor no sale solo (se queda sin vídeo y la sesión
+        parece activa): se le mata para que run_load reintente."""
+        while snd.poll() is None:
+            if any(c.poll() is not None for c in caps):
+                if not (self.dead or self.stopping or self.restart):
+                    log.warning("la captura se cerró (%s); reintentando", [c.poll() for c in caps])
+                    self.capture_lost = True
+                try:
+                    os.killpg(snd.pid, signal.SIGTERM)
+                except OSError:
+                    pass
+                return
+            time.sleep(0.5)
+
     def _start_pipeline(self):
+        with self.plock:
+            self.starting = True
+        try:
+            return self._start_pipeline_inner()
+        finally:
+            with self.plock:
+                self.starting = False
+
+    def _start_pipeline_inner(self):
         import select
         hypr_wake()
         self.power = power_state()
-        self.enc = resolve_encoder(self.encoder_mode, self.power)
+        self.enc = resolve_encoder(self.encoder_mode, self.power, self.quality_mode)
         self.qual = resolve_quality(self.quality_mode, self.enc)
         src = self._prepare_source()
         fifo = None
@@ -1596,15 +1644,21 @@ class CastStreamSession(Session):
             os.mkfifo(fifo)
         cap_c, ff_c, snd_c, env, aud_c = build_stream_cmds(src, self.dev["host"], self.dev.get("port") or 8009,
                                                            fifo, self.qual, self.enc)
-        cap = subprocess.Popen(cap_c, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
-        ff = subprocess.Popen(ff_c, stdin=cap.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        caplog = open(os.path.join(WORK_DIR, "capture.log"), "ab")     # diagnóstico: por qué muere la captura
+        caplog.write(f"\n--- {time.strftime('%H:%M:%S')} {' '.join(cap_c)}\n".encode())
+        caplog.flush()
+        cap = subprocess.Popen(cap_c, stdout=subprocess.PIPE, stderr=caplog, start_new_session=True)
+        ff = subprocess.Popen(ff_c, stdin=cap.stdout, stdout=subprocess.PIPE, stderr=caplog,
                               start_new_session=True)
         cap.stdout.close()
+        caplog.close()
         self.procs = [cap, ff]
         # el emisor sondea el flujo al abrirlo: esperar a que ya salgan datos (el selector de ventana puede tardar)
         r, _, _ = select.select([ff.stdout], [], [], 90 if self.kind == "window" else 12)
         if not r:
             raise RuntimeError("la captura de pantalla no produce vídeo")
+        if cap.poll() is not None or ff.poll() is not None:
+            raise RuntimeError("la captura de pantalla se cerró al arrancar")
         procs = [cap, ff]
         if aud_c:       # el emisor abre el FIFO al arrancar; ffmpeg escribe en cuanto haya lector
             procs.append(subprocess.Popen(aud_c, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -1612,7 +1666,9 @@ class CastStreamSession(Session):
         snd = subprocess.Popen(snd_c, stdin=ff.stdout, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                env=env, start_new_session=True)
         ff.stdout.close()
-        self.procs = procs + [snd]
+        with self.plock:
+            self.procs = procs + [snd]
+        threading.Thread(target=self._watch_capture, args=(snd, [cap, ff]), daemon=True).start()
         return snd
 
     def _watch_power(self):
@@ -1625,10 +1681,9 @@ class CastStreamSession(Session):
             if pw != self.power:
                 self.power = pw
                 self.daemon.publish()
-                if self.encoder_mode == "auto" and resolve_encoder("auto", pw) != self.enc:
-                    log.info("cambio de energía %s: el encoder pasa a %s", pw, resolve_encoder("auto", pw))
-                    self.restart = True
-                    self._kill_all()
+                if self.encoder_mode == "auto" and resolve_encoder("auto", pw, self.quality_mode) != self.enc:
+                    log.info("cambio de energía %s: el encoder pasa a %s", pw, resolve_encoder("auto", pw, self.quality_mode))
+                    self._request_restart()
 
     def run_load(self, start, sub_spec):
         threading.Thread(target=self._watch_power, daemon=True).start()
@@ -1638,7 +1693,19 @@ class CastStreamSession(Session):
             while attempt < 3:
                 attempt += 1
                 self.attempt = attempt
-                snd = self._start_pipeline()
+                try:
+                    snd = self._start_pipeline()
+                except RuntimeError as e:      # la captura no arrancó: reintentar antes de rendirse
+                    self._kill_all()
+                    if self.dead or self.stopping:
+                        return
+                    log.warning("arranque de la captura fallido (intento %d): %s", attempt, e)
+                    if attempt >= 3:
+                        raise
+                    time.sleep(1.0)
+                    continue
+                if self.restart:        # llegó un cambio mientras arrancaba
+                    self._kill_all()
                 t0 = time.time()
                 streaming = False
                 for raw in iter(snd.stdout.readline, b""):
@@ -1670,6 +1737,12 @@ class CastStreamSession(Session):
                     time.sleep(1.0)
                     attempt = 0
                     continue
+                if self.capture_lost:   # la captura murió: reintento (cuenta como intento)
+                    self.capture_lost = False
+                    self.state, self.preparing = "BUFFERING", True
+                    self.daemon.publish()
+                    time.sleep(1.0)
+                    continue
                 if streaming:      # sesión viva que terminó (parada en la tele / red)
                     self.daemon.end_session(self, error=None)
                     return
@@ -1696,8 +1769,7 @@ class CastStreamSession(Session):
             self.audio, ch = bool(audio), True
         save_prefs(quality=self.quality_mode, encoder=self.encoder_mode, audio=self.audio)
         if ch:
-            self.restart = True
-            self._kill_all()        # run_load reconecta con los nuevos valores
+            self._request_restart()     # run_load reconecta con los nuevos valores
         self.daemon.publish()
 
     def set_audio(self, on):
@@ -1833,6 +1905,37 @@ MPRIS_NAME = "org.mpris.MediaPlayer2.casthelper"
 MPRIS_PATH = "/org/mpris/MediaPlayer2"
 IFACE_ROOT = "org.mpris.MediaPlayer2"
 IFACE_PLAYER = "org.mpris.MediaPlayer2.Player"
+
+
+class FakeMirrorSession(FakeSession):
+    """Espejo ficticio (pruebas de la tarjeta): admite `mirror set` y `mirror audio` sin tocar nada."""
+
+    def __init__(self, daemon, source="monitor:eDP-2"):
+        super().__init__(daemon)
+        self.mode, self.source, self.title = "mirror", source, "Duplicando pantalla"
+        self.kind = source.split(":")[0]
+        self.monitor = source.split(":", 1)[1] if self.kind == "monitor" else self.kind
+        self.state, self.duration, self._pos = "PLAYING", 0.0, 0.0
+        self.quality_mode, self.encoder_mode, self.audio = "auto", "auto", True
+        self.power = power_state()
+
+    def as_dict(self):
+        d = super().as_dict()
+        enc = resolve_encoder(self.encoder_mode, self.power, self.quality_mode)
+        d.update(monitor=self.monitor, audio=self.audio, backend="cast-streaming", source=self.source,
+                 quality=resolve_quality(self.quality_mode, enc), quality_mode=self.quality_mode,
+                 encoder=enc, encoder_mode=self.encoder_mode, power=self.power, latency=0.3, position=0, duration=0)
+        return d
+
+    def set_options(self, quality=None, encoder=None, audio=None):
+        self.quality_mode = quality or self.quality_mode
+        self.encoder_mode = encoder or self.encoder_mode
+        if audio is not None:
+            self.audio = bool(audio)
+        self.daemon.publish()
+
+    def set_audio(self, on):
+        self.set_options(audio=on)
 
 
 class Mpris:
@@ -2239,7 +2342,7 @@ class Daemon:
             return mirror_options()
         if act == "set":
             s = self._need_active()
-            if not isinstance(s, CastStreamSession):
+            if not isinstance(s, (CastStreamSession, FakeMirrorSession)):
                 raise ValueError("solo el backend Cast Streaming admite cambios en caliente")
             for k, allowed in (("quality", ("auto", "720p", "1080p")), ("encoder", ("auto", "cpu", "nvidia"))):
                 if req.get(k) is not None and req[k] not in allowed:
@@ -2377,7 +2480,8 @@ class Daemon:
 
     def cmd_fake_active(self, req):
         """Solo pruebas: sesion ficticia, sin Chromecast."""
-        self.set_active(FakeSession(self))
+        self.set_active(FakeMirrorSession(self, req.get("source") or "monitor:eDP-2") if req.get("mirror")
+                        else FakeSession(self))
         return {"ok": True, "fake": True}
 
     # -- socket --
@@ -2510,8 +2614,8 @@ def send(req, timeout=120):
 
 def serve_test(args):
     """Oculto: sirve un archivo por HTTP sin Chromecast, o crea una sesion ficticia."""
-    if args.fake_active:
-        r = send({"cmd": "fake_active"})
+    if args.fake_active or args.fake_mirror:
+        r = send({"cmd": "fake_active", "mirror": bool(args.fake_mirror), "source": args.fake_mirror or None})
         print(json.dumps(r, ensure_ascii=False))
         return 0 if r.get("ok") else 1
     if not args.path:
@@ -2590,6 +2694,7 @@ def main():
     p.add_argument("--start", type=float)
     p.add_argument("--seconds", type=float, default=60)
     p.add_argument("--fake-active", action="store_true")
+    p.add_argument("--fake-mirror", nargs="?", const="monitor:eDP-2", metavar="FUENTE")
 
     args = ap.parse_args()
     if args.cmd == "daemon":

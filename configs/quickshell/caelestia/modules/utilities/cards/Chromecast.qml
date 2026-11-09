@@ -8,6 +8,7 @@ import qs.components
 import qs.components.controls
 import qs.components.filedialog
 import qs.services
+import qs.modules.cast
 
 // Tarjeta «Chromecast» con dos estados:
 //  · Reposo: una fila compacta (dispositivo + «Elegir»); toda la tarjeta acepta archivos/URLs soltados.
@@ -32,7 +33,8 @@ StyledRect {
     readonly property real duration: act?.duration ?? 0
     readonly property real position: act?.position ?? 0
     readonly property string deviceName: act?.device_name ?? Cast.selectedDevice?.name ?? ""
-    readonly property real nonAnimHeight: (hasAct ? playerCol.implicitHeight : idleCol.implicitHeight) + Tokens.padding.large * 2
+    readonly property bool mirroring: act?.mode === "mirror"
+    readonly property real nonAnimHeight: (mirroring ? mirrorCol.implicitHeight : hasAct ? playerCol.implicitHeight : idleCol.implicitHeight) + Tokens.padding.large * 2
 
     implicitHeight: nonAnimHeight
 
@@ -47,7 +49,11 @@ StyledRect {
     Component.onCompleted: {
         Cast.observers++;
         Cast.refresh();
+        if (mirroring)
+            Cast.mirrorOptions();
     }
+    onMirroringChanged: if (mirroring)
+        Cast.mirrorOptions()
     Component.onDestruction: Cast.observers--
 
     function dropTarget(drop): string {
@@ -216,7 +222,7 @@ StyledRect {
         anchors.margins: Tokens.padding.large
         spacing: Tokens.spacing.medium
 
-        visible: root.hasAct
+        visible: root.hasAct && !root.mirroring
         opacity: visible ? 1 : 0
 
         Behavior on opacity {
@@ -447,6 +453,396 @@ StyledRect {
                 value: (root.act?.volume ?? 0) / 100
                 interactionOnMove: false
                 onInteraction: v => Cast.setVolume(v * 100)
+            }
+        }
+
+        ErrorRow {}
+    }
+
+    // ───────────── Proyectando la pantalla ─────────────
+    // Distinto del mini-reproductor: no hay tiempo ni pausa; se ve qué se emite, en directo, y se cambia
+    // la fuente / calidad / codificador / audio sin abrir el drawer (Super+K).
+    ColumnLayout {
+        id: mirrorCol
+
+        readonly property string src: root.act?.source ?? ""
+        readonly property string kind: src.includes(":") ? src.split(":")[0] : (src === "window" || src === "extend" ? src : "monitor")
+        readonly property bool live: root.act?.state === "PLAYING" && !Cast.preparing
+        property string pendingKind: ""
+        readonly property string shownKind: pendingKind || kind
+        readonly property var workspaces: Cast.options?.workspaces ?? []
+        readonly property string srcIcon: ({
+                monitor: "desktop_windows",
+                workspace: "grid_view",
+                window: "select_window",
+                extend: "add_to_queue"
+            })[kind] ?? "desktop_windows"
+        readonly property string srcTitle: {
+            if (kind === "monitor")
+                return "Pantalla " + (src.split(":")[1] ?? root.act?.monitor ?? "");
+            if (kind === "workspace")
+                return "Escritorio " + src.split(":")[1];
+            return kind === "window" ? "Una ventana" : "Escritorio extendido";
+        }
+        readonly property string detail: {
+            if (!live)
+                return Cast.preparing || root.act?.state === "BUFFERING" ? "Conectando…" : "En pausa";
+            const enc = root.act?.encoder ? (root.act.encoder === "nvidia" ? "GPU" : "CPU") : "";
+            const lat = root.act?.latency ? "~" + Math.round(root.act.latency * 1000) + " ms" : "";
+            return [root.act?.quality, enc, lat].filter(x => x).join(" · ");
+        }
+
+        function restartWith(source: string): void {
+            pendingKind = "";
+            Cast.mirrorStartEx(root.act.device_uuid, {
+                source: source,
+                quality: root.act?.quality_mode ?? "auto",
+                encoder: root.act?.encoder_mode ?? "auto",
+                audio: root.act?.audio ?? true
+            });
+        }
+
+        function pickKind(k: string): void {
+            if (k === kind && !pendingKind)
+                return;
+            if (k === "workspace") {
+                pendingKind = k === kind ? "" : k;       // primero elegir cuál
+                return;
+            }
+            if (k === "monitor") {
+                const m = Cast.options?.monitors?.find(x => x.focused) ?? Cast.options?.monitors?.[0];
+                restartWith("monitor" + (m ? ":" + m.name : ""));
+            } else {
+                restartWith(k);
+            }
+        }
+
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.margins: Tokens.padding.large
+        spacing: Tokens.spacing.medium
+
+        visible: root.mirroring
+        opacity: visible ? 1 : 0
+        onVisibleChanged: pendingKind = ""
+
+        Behavior on opacity {
+            Anim {}
+        }
+
+        // Cabecera: «en directo» + qué se ve + en qué tele
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Tokens.spacing.medium
+
+            StyledClippingRect {
+                implicitWidth: 112
+                implicitHeight: 63
+                radius: Tokens.rounding.medium
+
+                Rectangle {
+                    anchors.fill: parent
+
+                    gradient: Gradient {
+                        orientation: Gradient.Horizontal
+
+                        GradientStop {
+                            position: 0
+                            color: Colours.palette.m3primaryContainer
+                        }
+                        GradientStop {
+                            position: 1
+                            color: Colours.palette.m3tertiaryContainer
+                        }
+                    }
+                }
+
+                MaterialIcon {
+                    anchors.centerIn: parent
+                    anchors.verticalCenterOffset: 4
+                    text: mirrorCol.srcIcon
+                    fill: 1
+                    color: Colours.palette.m3onPrimaryContainer
+                    fontStyle: Tokens.font.icon.extraLarge
+                }
+
+                // Píldora EN VIVO
+                StyledRect {
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.margins: Tokens.padding.small / 2
+                    implicitWidth: liveRow.implicitWidth + Tokens.padding.small * 2
+                    implicitHeight: liveRow.implicitHeight + 2
+                    radius: Tokens.rounding.full
+                    color: mirrorCol.live ? Colours.palette.m3error : Qt.alpha(Colours.palette.m3scrim, 0.55)
+
+                    Row {
+                        id: liveRow
+
+                        anchors.centerIn: parent
+                        spacing: 4
+
+                        Rectangle {
+                            id: liveDot
+
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 6
+                            height: 6
+                            radius: 3
+                            color: mirrorCol.live ? Colours.palette.m3onError : "white"
+
+                            SequentialAnimation on opacity {
+                                running: mirrorCol.visible && mirrorCol.live
+                                loops: Animation.Infinite
+                                alwaysRunToEnd: true
+
+                                NumberAnimation {
+                                    to: 0.25
+                                    duration: 700
+                                    easing.type: Easing.InOutSine
+                                }
+                                NumberAnimation {
+                                    to: 1
+                                    duration: 700
+                                    easing.type: Easing.InOutSine
+                                }
+                            }
+                        }
+                        StyledText {
+                            text: mirrorCol.live ? "EN VIVO" : "CONECTANDO"
+                            color: mirrorCol.live ? Colours.palette.m3onError : "white"
+                            font.family: Tokens.font.label.small.family
+                            font.pointSize: Tokens.font.label.small.pointSize * 0.85
+                            font.weight: Font.Bold
+                            font.letterSpacing: 0.6
+                        }
+                    }
+                }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 0
+
+                StyledText {
+                    Layout.fillWidth: true
+                    text: mirrorCol.srcTitle
+                    font: Tokens.font.title.medium
+                    elide: Text.ElideRight
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 4
+
+                    MaterialIcon {
+                        text: "cast_connected"
+                        color: Colours.palette.m3primary
+                        fontStyle: Tokens.font.icon.small
+                    }
+                    StyledText {
+                        Layout.fillWidth: true
+                        text: "en " + root.deviceName
+                        color: Colours.palette.m3primary
+                        font: Tokens.font.body.small
+                        elide: Text.ElideRight
+                    }
+                }
+                StyledText {
+                    Layout.fillWidth: true
+                    text: mirrorCol.detail
+                    color: Colours.palette.m3onSurfaceVariant
+                    font: Tokens.font.label.small
+                    elide: Text.ElideRight
+                }
+            }
+
+            IconButton {
+                Layout.alignment: Qt.AlignTop
+                icon: "close"
+                type: IconButton.Text
+                onClicked: Cast.stop()
+            }
+        }
+
+        // Fuente: grupo de botones conectados; el elegido se ensancha y muestra la etiqueta
+        Row {
+            id: srcRow
+
+            // Ancho proporcional a `grow` (el elegido ~3,4x), animado
+            readonly property real totalGrow: {
+                let t = 0;
+                for (const c of children)
+                    if (c.grow !== undefined)
+                        t += c.grow;
+                return t || 1;
+            }
+
+            Layout.fillWidth: true
+            visible: Cast.options !== null
+            spacing: 3
+
+            Repeater {
+                model: [["monitor", "Pantalla", "desktop_windows"], ["workspace", "Escritorio", "grid_view"], ["window", "Ventana", "select_window"], ["extend", "Extender", "add_to_queue"]]
+
+                StyledRect {
+                    id: sb
+
+                    required property var modelData
+                    required property int index
+                    readonly property bool on: mirrorCol.shownKind === modelData[0]
+                    property real grow: on ? 3.4 : 1
+
+                    width: (srcRow.width - srcRow.spacing * 3) * grow / srcRow.totalGrow
+                    implicitHeight: 40
+                    radius: on ? Tokens.rounding.full : Tokens.rounding.small
+                    topLeftRadius: on || index === 0 ? Tokens.rounding.full : Tokens.rounding.small
+                    bottomLeftRadius: topLeftRadius
+                    topRightRadius: on || index === 3 ? Tokens.rounding.full : Tokens.rounding.small
+                    bottomRightRadius: topRightRadius
+                    color: on ? Colours.palette.m3primary : Colours.palette.m3surfaceContainerHigh
+
+                    Behavior on grow {
+                        Anim {
+                            type: Anim.FastSpatial
+                        }
+                    }
+
+                    StateLayer {
+                        radius: Tokens.rounding.full
+                        color: sb.on ? Colours.palette.m3onPrimary : Colours.palette.m3onSurface
+                        disabled: Cast.preparing
+                        onClicked: mirrorCol.pickKind(sb.modelData[0])
+                    }
+                    Row {
+                        anchors.centerIn: parent
+                        spacing: 6
+
+                        MaterialIcon {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: sb.modelData[2]
+                            fill: sb.on ? 1 : 0
+                            color: sb.on ? Colours.palette.m3onPrimary : Colours.palette.m3onSurfaceVariant
+                        }
+                        StyledText {
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: sb.on && sb.width > 100
+                            text: sb.modelData[1]
+                            color: Colours.palette.m3onPrimary
+                            font: Tokens.font.label.medium
+                        }
+                    }
+                }
+            }
+        }
+
+        // Escritorios (al elegir «Escritorio»): cambiar cuál se emite
+        Flow {
+            Layout.fillWidth: true
+            visible: mirrorCol.shownKind === "workspace" && mirrorCol.workspaces.length > 0
+            spacing: Tokens.spacing.small
+
+            Repeater {
+                model: mirrorCol.workspaces
+
+                StyledRect {
+                    id: ws
+
+                    required property var modelData
+                    readonly property bool on: mirrorCol.src === "workspace:" + modelData.id
+
+                    implicitWidth: Math.max(40, wsl.implicitWidth + Tokens.padding.medium * 2)
+                    implicitHeight: 40
+                    radius: on ? Tokens.rounding.full : Tokens.rounding.medium
+                    color: on ? Colours.palette.m3primary : Colours.palette.m3surfaceContainerHigh
+
+                    StateLayer {
+                        radius: ws.radius
+                        disabled: ws.on || Cast.preparing
+                        onClicked: mirrorCol.restartWith("workspace:" + ws.modelData.id)
+                    }
+                    Column {
+                        anchors.centerIn: parent
+                        spacing: 3
+
+                        StyledText {
+                            id: wsl
+
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            text: ws.modelData.name && ws.modelData.name !== String(ws.modelData.id) ? ws.modelData.name : String(ws.modelData.id)
+                            font: Tokens.font.label.large
+                            color: ws.on ? Colours.palette.m3onPrimary : Colours.palette.m3onSurface
+                        }
+                        Row {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            spacing: 3
+                            height: 3
+
+                            Repeater {
+                                model: Math.min(4, ws.modelData.windows)
+
+                                Rectangle {
+                                    width: 3
+                                    height: 3
+                                    radius: 1.5
+                                    color: ws.on ? Colours.palette.m3onPrimary : Colours.palette.m3onSurfaceVariant
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Ajustes en caliente
+        StyledRect {
+            Layout.fillWidth: true
+            implicitHeight: liveTune.implicitHeight + Tokens.padding.large * 2
+            radius: Tokens.rounding.medium
+            color: Colours.palette.m3surfaceContainerHigh
+
+            Tuning {
+                id: liveTune
+
+                anchors.fill: parent
+                anchors.margins: Tokens.padding.large
+                quality: root.act?.quality_mode ?? "auto"
+                encoder: root.act?.encoder_mode ?? "auto"
+                audio: root.act?.audio ?? true
+                onPicked: (k, v) => {
+                    if (Cast.options) {
+                        const o = {};
+                        o[k] = v;
+                        Cast.mirrorSet(o);
+                    } else if (k === "audio") {
+                        Cast.mirrorAudio(v);
+                    }
+                }
+            }
+        }
+
+        // Volumen de la tele + detener
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Tokens.spacing.small
+
+            IconButton {
+                icon: (root.act?.muted ?? false) || (root.act?.volume ?? 0) === 0 ? "volume_off" : "tv"
+                type: IconButton.Text
+                onClicked: Cast.mute()
+            }
+            StyledSlider {
+                Layout.fillWidth: true
+                implicitHeight: 16
+                value: (root.act?.volume ?? 0) / 100
+                interactionOnMove: false
+                onInteraction: v => Cast.setVolume(v * 100)
+            }
+            TextButton {
+                Layout.leftMargin: Tokens.spacing.small
+                text: "Detener"
+                type: TextButton.Tonal
+                onClicked: Cast.stop()
             }
         }
 

@@ -27,7 +27,7 @@ ColumnLayout {
         const parts = [p.ac ? "enchufado" : "batería"];
         if (p.profile === "power-saver")
             parts.push("ahorro");
-        return "Auto: " + (opt.encoder_auto === "nvidia" ? "GPU" : "CPU") + " · " + parts[parts.length - 1];
+        return (opt.encoder_auto === "nvidia" ? "GPU" : "CPU") + " · " + parts[parts.length - 1];
     }
 
     spacing: Tokens.spacing.medium
@@ -64,7 +64,7 @@ ColumnLayout {
                 text: sr.subtitle
                 color: Colours.palette.m3onSurfaceVariant
                 font: Tokens.font.label.small
-                wrapMode: Text.WordWrap
+                elide: Text.ElideRight
             }
         }
     }
@@ -73,7 +73,7 @@ ColumnLayout {
         visible: root.opt !== null
         icon: "high_quality"
         title: "Calidad"
-        subtitle: root.quality === "auto" ? "Auto: 720p" : root.quality === "1080p" ? "Más nítido" : "Más fluido"
+        subtitle: root.quality === "auto" ? "720p" : root.quality === "1080p" ? "Más nítido" : "Más fluido"
 
         Segmented {
             model: [["auto", "Auto"], ["720p", "720p"], ["1080p", "1080p"]]
@@ -86,7 +86,7 @@ ColumnLayout {
         visible: root.hasEncoder
         icon: "memory"
         title: "Codificador"
-        subtitle: root.encoder === "auto" ? root.autoReason() : root.encoder === "nvidia" ? "Despierta la gráfica" : "Usa más CPU"
+        subtitle: root.encoder === "auto" ? (root.quality === "1080p" ? "CPU · más fluido a 1080p" : root.autoReason()) : root.encoder === "nvidia" ? (root.quality === "1080p" ? "Entrecorta a 1080p" : "Despierta la gráfica") : "Usa más CPU"
 
         Segmented {
             model: [["auto", "Auto"], ["cpu", "CPU"], ["nvidia", "GPU"]]
