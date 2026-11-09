@@ -37,8 +37,8 @@ function size(panel, W, H) {
     case "imagen": {
         const pw = (panel.payload && panel.payload.w) || 0;
         const ph = (panel.payload && panel.payload.h) || 0;
-        const maxW = 0.30 * W;
-        const maxH = 0.62 * H;
+        const maxW = 0.26 * W;
+        const maxH = 0.54 * H;
         if (pw > 0 && ph > 0) {
             const aspect = pw / ph;
             if (maxW / maxH > aspect) {
@@ -50,9 +50,9 @@ function size(panel, W, H) {
         return { w: Math.round(0.26 * W), h: Math.round(0.50 * H) };
     }
     case "pdf":
-        return { w: Math.round(0.30 * W), h: Math.round(0.74 * H) };
+        return { w: Math.round(0.24 * W), h: Math.round(0.66 * H) };
     case "texto":
-        return { w: Math.round(0.34 * W), h: Math.round(0.56 * H) };
+        return { w: Math.round(0.27 * W), h: Math.round(0.42 * H) };
     case "video":
         return { w: Math.round(0.40 * W), h: Math.round(0.45 * H) };
     case "audio":
@@ -202,8 +202,13 @@ function place(W, H, ocupados, w, h, rnd) {
         }
 
         if (!hit) {
-            // Puntuación: distancia mínima + rnd() * 80
-            const score = minDist + random() * 80;
+            // Puntuación: agrupar los hologramas de forma orgánica alrededor del centro
+            // (cerca, pero con aire), con azar suficiente para que nunca caigan igual.
+            const cx = cand.x + w / 2 - W / 2;
+            const cy = cand.y + h / 2 - H * 0.44;
+            const centro = Math.hypot(cx, cy * 1.4);
+            const aire = Math.min(minDist, 90);
+            const score = aire * 0.6 - centro * 0.22 + random() * 150;
             if (score > bestScore) {
                 bestScore = score;
                 best = cand;
@@ -216,12 +221,42 @@ function place(W, H, ocupados, w, h, rnd) {
         }
     }
 
+    // Sin hueco en la rejilla gruesa: barrido fino (cada 16 px) antes de aceptar un solape
+    if (!best) {
+        let mejorHueco = -Infinity;
+        for (let y = margin; y + h <= H - margin; y += 16) {
+            for (let x = margin; x + w <= W - margin; x += 16) {
+                let libre = true;
+                let minD = Infinity;
+                for (let j = 0; j < allObstacles.length; j++) {
+                    const ob = allObstacles[j];
+                    if (x - gap < ob.x + ob.w && x + w + gap > ob.x && y - gap < ob.y + ob.h && y + h + gap > ob.y) {
+                        libre = false;
+                        break;
+                    }
+                    const dx = Math.max(0, Math.max(ob.x - (x + w), x - (ob.x + ob.w)));
+                    const dy = Math.max(0, Math.max(ob.y - (y + h), y - (ob.y + ob.h)));
+                    minD = Math.min(minD, Math.hypot(dx, dy));
+                }
+                if (!libre)
+                    continue;
+                const s = Math.min(minD, 90) * 0.6 - Math.hypot(x + w / 2 - W / 2, (y + h / 2 - H * 0.44) * 1.4) * 0.22 + random() * 150;
+                if (s > mejorHueco) {
+                    mejorHueco = s;
+                    best = { x: x, y: y };
+                }
+            }
+        }
+    }
+
     const chosen = best || fallback || candidates[0];
-    const rot = (random() * 4 - 2);
+    // Giro leve (±1,3°): suelto como un holograma, pero sin emborronar el texto
+    const rot = (random() * 2.6 - 1.3);
 
     return {
         x: chosen.x,
         y: chosen.y,
-        rot: rot
+        rot: rot,
+        libre: !!best
     };
 }

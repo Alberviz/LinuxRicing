@@ -2,54 +2,145 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Shapes
+import qs.components
 import qs.services
 import qs.modules.assistant
 
-// Hilos de puntos holográficos que conectan cada fila de la lista con su visor abierto.
+// Hilos de puntos que unen cada fila abierta de la lista con su visor.
+// Salen del borde derecho de la fila con un nodo, describen una curva suave y
+// entran en el lado más cercano del visor con otro nodo. Aparecen con un fundido
+// cuando el visor ya ha llegado (nada se anima en bucle).
 Item {
     id: root
 
-    required property var holoLayer
+    required property var capa
 
-    readonly property var visores: (HoloState.paneles || []).filter(p => p && p.kind === "visor" && p.item_n !== null && p.item_n !== undefined)
+    readonly property var visores: (HoloState.paneles || []).filter(p => p && p.kind === "visor" && p.item_n)
 
     Repeater {
         model: root.visores
 
-        Shape {
-            id: shape
+        Item {
+            id: hilo
 
             required property var modelData
 
+            readonly property var lista: root.capa.pos["lista"] ?? null
+            readonly property var caja: root.capa.pos[modelData.id] ?? null
+            readonly property bool ok: !!lista && !!caja
+            // Desde el borde de la lista que mira al visor
+            readonly property bool derecha: ok && caja.x + caja.w / 2 >= lista.x + lista.w / 2
+            property real x0: ok ? (derecha ? lista.x + lista.w : lista.x) : 0
+            property real y0: ok ? root.capa.filaY(modelData.item_n) : 0
+            readonly property real x1: ok ? (derecha ? caja.x : caja.x + caja.w) : 0
+            readonly property real y1: ok ? Math.max(caja.y + 28, Math.min(caja.y + caja.h - 28, y0 + (caja.y + caja.h / 2 - y0) * 0.35)) : 0
+            readonly property real tir: Math.max(60, Math.abs(x1 - x0) * 0.5) * (derecha ? 1 : -1)
+
             anchors.fill: parent
+            visible: ok
+            opacity: 0
 
-            readonly property var listPos: root.holoLayer ? root.holoLayer.posiciones["lista"] : null
-            readonly property var vPos: root.holoLayer ? root.holoLayer.posiciones[modelData.id] : null
-            readonly property int itemN: modelData.item_n ?? 1
+            Component.onCompleted: aparece.start()
 
-            readonly property real startX: listPos ? listPos.x + listPos.w : 0
-            readonly property real startY: listPos ? listPos.y + 64 + 38 * (itemN - 1) + 19 : 0
-            readonly property real endX: vPos ? (startX <= vPos.x ? vPos.x : vPos.x + vPos.w) : 0
-            readonly property real endY: vPos ? Math.max(vPos.y + 16, Math.min(vPos.y + vPos.h - 16, startY)) : 0
+            Behavior on x0 {
+                Anim {}
+            }
+            Behavior on y0 {
+                Anim {}
+            }
 
-            visible: !!listPos && !!vPos
+            SequentialAnimation {
+                id: aparece
 
-            ShapePath {
-                strokeColor: Qt.alpha(Colours.palette.m3primary, 0.7)
-                strokeWidth: 1.5
-                strokeStyle: ShapePath.DashLine
-                fillColor: "transparent"
+                PauseAnimation {
+                    duration: 640
+                }
+                NumberAnimation {
+                    target: hilo
+                    property: "opacity"
+                    to: 1
+                    duration: 360
+                    easing.type: Easing.OutCubic
+                }
+            }
 
-                startX: shape.startX
-                startY: shape.startY
+            Shape {
+                anchors.fill: parent
+                preferredRendererType: Shape.CurveRenderer
 
-                PathCubic {
-                    x: shape.endX
-                    y: shape.endY
-                    control1X: shape.startX + (shape.endX - shape.startX) * 0.5
-                    control1Y: shape.startY
-                    control2X: shape.endX - (shape.endX - shape.startX) * 0.5
-                    control2Y: shape.endY
+                // Halo del hilo
+                ShapePath {
+                    strokeColor: Qt.alpha(Colours.palette.m3primary, 0.10)
+                    strokeWidth: 5
+                    fillColor: "transparent"
+                    capStyle: ShapePath.RoundCap
+                    startX: hilo.x0
+                    startY: hilo.y0
+
+                    PathCubic {
+                        x: hilo.x1
+                        y: hilo.y1
+                        control1X: hilo.x0 + hilo.tir
+                        control1Y: hilo.y0
+                        control2X: hilo.x1 - hilo.tir
+                        control2Y: hilo.y1
+                    }
+                }
+                // Hilo de puntos
+                ShapePath {
+                    strokeColor: Qt.alpha(Colours.palette.m3primary, 0.75)
+                    strokeWidth: 1.4
+                    strokeStyle: ShapePath.DashLine
+                    dashPattern: [2, 3.5]
+                    fillColor: "transparent"
+                    capStyle: ShapePath.RoundCap
+                    startX: hilo.x0
+                    startY: hilo.y0
+
+                    PathCubic {
+                        x: hilo.x1
+                        y: hilo.y1
+                        control1X: hilo.x0 + hilo.tir
+                        control1Y: hilo.y0
+                        control2X: hilo.x1 - hilo.tir
+                        control2Y: hilo.y1
+                    }
+                }
+            }
+
+            // Nodos en los extremos
+            Repeater {
+                model: [
+                    {
+                        x: hilo.x0,
+                        y: hilo.y0
+                    },
+                    {
+                        x: hilo.x1,
+                        y: hilo.y1
+                    }
+                ]
+
+                Item {
+                    required property var modelData
+
+                    x: modelData.x - 5
+                    y: modelData.y - 5
+                    width: 10
+                    height: 10
+
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: 5
+                        color: Qt.alpha(Colours.palette.m3primary, 0.25)
+                    }
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: 5
+                        height: 5
+                        radius: 2.5
+                        color: Colours.palette.m3primary
+                    }
                 }
             }
         }

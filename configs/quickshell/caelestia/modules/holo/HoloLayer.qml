@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Shapes
 import Quickshell
 import Quickshell.Wayland
 import Caelestia.Config
@@ -9,19 +10,46 @@ import qs.services
 import qs.modules.assistant
 import "HoloPlacer.js" as HoloPlacer
 
-// Ventana a pantalla completa en la capa Overlay para presentar los hologramas de Laura.
-// Se visualiza exclusivamente en la pantalla enfocada y captura la tecla Escape para cerrar.
+// Capa de hologramas de Laura (una por pantalla; solo se enciende en la enfocada).
+//
+// Va en la capa Top, por DEBAJO de la píldora de Laura y de los portales de warp
+// (ambos en Overlay): el velo oscurece el escritorio pero Laura y el agujero negro
+// siguen encima.
+//
+// Los paneles viven en un ListModel propio (`vivos`, solo ids) y no directamente en
+// HoloState.paneles: así cada panel conserva su delegado cuando cambia la escena y
+// puede animar su salida antes de destruirse. Los datos de cada panel están en
+// `datos[pid]` y su caja final en `pos[pid]` ({x, y, w, h, rot}).
+//
+// Nada corre en bucle: todas las animaciones son de una sola vez (aparecer, volar,
+// barrido, salir). En reposo, coste cero.
 PanelWindow {
     id: root
 
     required property ShellScreen modelData
+
+    readonly property bool enfocada: Hypr.focusedMonitor?.name === modelData.name
+    readonly property bool hayEscena: HoloState.activo && enfocada
+    // Sigue en pie mientras corren las animaciones de salida
+    property bool shown: false
+    property real veil: 0
+
+    property var datos: ({})
+    property var pos: ({})
+    property var reg: ({})
+    property int zTop: 10
+
+    // Centro de la píldora de Laura (LauraOverlay: abajo, centrada, margen extraLarge*2)
+    readonly property point origen: Qt.point(width / 2, height - (screen ? contentItem.Tokens.padding.extraLarge * 2 : 48) - 26)
+
     screen: modelData
+    visible: shown
+    color: "transparent"
 
     WlrLayershell.namespace: "caelestia-holo"
-    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.layer: WlrLayer.Top
     WlrLayershell.exclusionMode: ExclusionMode.Ignore
-    WlrLayershell.keyboardFocus: root.visible ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
-    color: "transparent"
+    WlrLayershell.keyboardFocus: shown ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
 
     anchors.top: true
     anchors.bottom: true
@@ -31,145 +59,419 @@ PanelWindow {
     contentItem.Config.screen: screen ? screen.name : ""
     contentItem.Tokens.screen: screen ? screen.name : ""
 
-    property bool cerrando: false
+    // ---------------------------------------------------------------- geometría
 
-    Timer {
-        id: closeTimer
-        interval: 450
-        repeat: false
-        onTriggered: {
-            root.cerrando = false;
-            root.posiciones = ({});
-        }
+    function cajaLista(nItems: int, conVisores: bool): var {
+        const w = Math.round(Math.min(500, Math.max(380, width * 0.27)));
+        const h = Math.round(HoloGeo.cabecera + HoloGeo.listaArriba + HoloGeo.fila * Math.max(1, nItems) + HoloGeo.listaPie);
+        const x = conVisores ? Math.round(width * 0.055) : Math.round((width - w) / 2);
+        const y = Math.max(48, Math.round((height - h) / 2 - height * 0.05));
+        return {
+            x: x,
+            y: y,
+            w: w,
+            h: h,
+            rot: 0
+        };
     }
+
+    function cajaVisor(panel, ocupados): var {
+        const sz = HoloPlacer.size(panel, width, height);
+        // Si no hay hueco a tamaño completo, se encoge (nunca se monta sobre otro panel)
+        let w = sz.w, h = sz.h, p = null;
+        for (const f of [1, 0.85, 0.72, 0.6]) {
+            w = Math.round(sz.w * f);
+            h = Math.round(sz.h * f);
+            p = HoloPlacer.place(width, height, ocupados, w, h);
+            if (p.libre)
+                break;
+        }
+        return {
+            x: p.x,
+            y: p.y,
+            w: w,
+            h: h,
+            rot: p.rot
+        };
+    }
+
+    function idsVivos(): var {
+        const r = [];
+        for (let i = 0; i < vivos.count; i++)
+            r.push(vivos.get(i).pid);
+        return r;
+    }
+
+    // Reconciliar la escena del daemon con los paneles vivos
+    function sync(): void {
+        const ps = (enfocada ? HoloState.paneles : []) || [];
+        const ids = ps.map(p => p.id);
+
+        const d = Object.assign({}, datos);
+        for (const p of ps)
+            d[p.id] = p;
+        datos = d;
+
+        if (ps.length > 0) {
+            shown = true;
+            veilOut.stop();
+            if (veil < 1 && !veilIn.running)
+                veilIn.start();
+        }
+
+        // Salidas (en cascada si se van varios a la vez)
+        let k = 0;
+        for (const pid of idsVivos()) {
+            if (ids.indexOf(pid) < 0 && reg[pid] && !reg[pid].saliendo)
+                reg[pid].salir((k++) * 55);
+        }
+
+        // Cajas: la lista se recalcula siempre (cambia con los items y con los visores);
+        // cada visor se coloca UNA vez, al aparecer, esquivando lo que ya hay.
+        const np = Object.assign({}, pos);
+        const conVisores = ps.some(p => p.kind === "visor");
+        if (ids.indexOf("lista") >= 0)
+            np["lista"] = cajaLista((HoloState.items || []).length, conVisores);
+        for (const p of ps) {
+            if (p.kind !== "visor" || np[p.id])
+                continue;
+            const ocupados = [];
+            for (const id of ids)
+                if (np[id] && id !== p.id)
+                    ocupados.push(np[id]);
+            np[p.id] = cajaVisor(p, ocupados);
+        }
+        pos = np;
+
+        // Entradas
+        const vivosAhora = idsVivos();
+        for (const p of ps)
+            if (vivosAhora.indexOf(p.id) < 0)
+                vivos.append({
+                    pid: p.id
+                });
+
+        if (ps.length === 0 && vivos.count === 0)
+            apagar();
+    }
+
+    function quitar(pid: string): void {
+        for (let i = 0; i < vivos.count; i++) {
+            if (vivos.get(i).pid === pid) {
+                vivos.remove(i);
+                break;
+            }
+        }
+        const np = Object.assign({}, pos);
+        delete np[pid];
+        pos = np;
+        const r = Object.assign({}, reg);
+        delete r[pid];
+        reg = r;
+        if (vivos.count === 0 && !HoloState.activo)
+            apagar();
+    }
+
+    function apagar(): void {
+        if (!shown || veilOut.running)
+            return;
+        veilIn.stop();
+        veilOut.start();
+    }
+
+    // Un panel arrastrado y soltado se queda donde lo dejas
+    function mover(pid: string, x: real, y: real): void {
+        if (!pos[pid])
+            return;
+        const np = Object.assign({}, pos);
+        np[pid] = Object.assign({}, np[pid], {
+            x: x,
+            y: y
+        });
+        pos = np;
+    }
+
+    function alFrente(pid: string): void {
+        if (reg[pid])
+            reg[pid].z = ++zTop;
+    }
+
+    function registrar(pid: string, item: Item): void {
+        const r = Object.assign({}, reg);
+        r[pid] = item;
+        reg = r;
+    }
+
+    // Fila n de la lista: centro vertical en coordenadas de pantalla (para los hilos)
+    function filaY(n: int): real {
+        const l = pos["lista"];
+        if (!l)
+            return 0;
+        return l.y + HoloGeo.cabecera + HoloGeo.listaArriba + HoloGeo.fila * (n - 1) + HoloGeo.fila / 2;
+    }
+
+    onEnfocadaChanged: sync()
 
     Connections {
+        function onPanelesChanged(): void {
+            root.sync();
+        }
+        function onItemsChanged(): void {
+            root.sync();
+        }
+        function onSeleccionadoChanged(): void {
+            if (HoloState.seleccionado > 0)
+                root.alFrente("v" + HoloState.seleccionado);
+        }
+        function onSent(pid: string): void {
+            if (root.reg[pid])
+                root.reg[pid].enviar();
+        }
+
         target: HoloState
-        function onCleared(): void {
-            root.cerrando = true;
-            closeTimer.restart();
-        }
     }
 
-    visible: (HoloState.activo && (Hypr.focusedMonitor?.name === modelData.name)) || cerrando
+    ListModel {
+        id: vivos
+    }
 
-    // Gestión de colocaciones (calculadas una sola vez por id de panel)
-    property var posiciones: ({})
-    readonly property bool hasVisores: (HoloState.paneles || []).some(p => p && p.kind === "visor")
+    NumberAnimation {
+        id: veilIn
 
-    function getPos(panel) {
-        if (!panel || !panel.id)
-            return { x: 0, y: 0, w: 400, h: 300, rot: 0 };
+        target: root
+        property: "veil"
+        to: 1
+        duration: 320
+        easing.type: Easing.OutCubic
+        onStarted: sweep.start()
+    }
 
-        if (posiciones[panel.id])
-            return posiciones[panel.id];
+    SequentialAnimation {
+        id: veilOut
 
-        const newPos = Object.assign({}, posiciones);
-        let p;
-
-        if (panel.kind === "lista" || panel.id === "lista") {
-            const sz = HoloPlacer.size(panel, root.width, root.height);
-            const lx = root.hasVisores ? Math.round(0.08 * root.width) : Math.round((root.width - sz.w) / 2);
-            const ly = Math.round((root.height - sz.h) / 2);
-            p = { x: lx, y: ly, w: sz.w, h: sz.h, rot: 0 };
-        } else {
-            const sz = HoloPlacer.size(panel, root.width, root.height);
-            const ocupados = [];
-            const keys = Object.keys(posiciones);
-            for (let i = 0; i < keys.length; i++) {
-                ocupados.push(posiciones[keys[i]]);
+        PauseAnimation {
+            duration: 120
+        }
+        NumberAnimation {
+            target: root
+            property: "veil"
+            to: 0
+            duration: 340
+            easing.type: Easing.InOutQuad
+        }
+        ScriptAction {
+            script: {
+                if (!HoloState.activo || !root.enfocada) {
+                    root.shown = false;
+                    root.datos = ({});
+                    root.pos = ({});
+                }
             }
-            const pt = HoloPlacer.place(root.width, root.height, ocupados, sz.w, sz.h);
-            p = { x: pt.x, y: pt.y, w: sz.w, h: sz.h, rot: pt.rot };
         }
-
-        newPos[panel.id] = p;
-        posiciones = newPos;
-        return p;
     }
 
-    // Contenedor principal con captura de foco y tecla Escape
     Item {
         id: container
-        anchors.fill: parent
 
-        focus: root.visible
+        anchors.fill: parent
+        focus: root.shown
         Keys.onEscapePressed: HoloState.cerrarTodo()
 
-        // 1. Velo de oscurecimiento y ambientación
+        // ------------------------------------------------------------ velo de foco
         Item {
-            id: veil
-            anchors.fill: parent
+            id: veilItem
 
-            // Fondo oscuro
+            anchors.fill: parent
+            opacity: root.veil
+
+            // Oscuro con un punto de color del tema (no negro puro)
             Rectangle {
                 anchors.fill: parent
-                color: "black"
-                opacity: 0.62
+                color: Qt.rgba(Colours.palette.m3surface.r * 0.35, Colours.palette.m3surface.g * 0.35, Colours.palette.m3surface.b * 0.35, 0.74)
             }
 
-            // Resplandor que sube desde la píldora de Laura en el 45 % inferior
-            Rectangle {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.bottom: parent.bottom
-                height: parent.height * 0.45
-                gradient: Gradient {
-                    GradientStop {
-                        position: 0.0
-                        color: "transparent"
+            // Resplandor que sube desde la píldora de Laura
+            Shape {
+                anchors.fill: parent
+                preferredRendererType: Shape.CurveRenderer
+
+                ShapePath {
+                    strokeWidth: -1
+                    fillGradient: RadialGradient {
+                        centerX: root.width / 2
+                        centerY: root.height * 1.08
+                        centerRadius: root.height * 0.72
+                        focalX: centerX
+                        focalY: centerY
+
+                        GradientStop {
+                            position: 0
+                            color: Qt.alpha(Colours.palette.m3primary, 0.30)
+                        }
+                        GradientStop {
+                            position: 0.45
+                            color: Qt.alpha(Colours.palette.m3primary, 0.10)
+                        }
+                        GradientStop {
+                            position: 1
+                            color: "transparent"
+                        }
                     }
-                    GradientStop {
-                        position: 1.0
-                        color: Qt.alpha(Colours.palette.m3primary, 0.18)
+
+                    PathLine {
+                        x: root.width
+                        y: 0
+                    }
+                    PathLine {
+                        x: root.width
+                        y: root.height
+                    }
+                    PathLine {
+                        x: 0
+                        y: root.height
+                    }
+                    PathLine {
+                        x: 0
+                        y: 0
                     }
                 }
             }
 
-            // Malla de puntos sutil en mosaico
+            // Malla de puntos: eco de las estrellas del sistema solar
             Image {
                 anchors.fill: parent
                 fillMode: Image.Tile
                 source: Qt.resolvedUrl("assets/dots.png")
-                opacity: 0.25
+                opacity: 0.16
+                smooth: false
             }
 
-            // Bloqueo de clics hacia el fondo (solo botones o Escape cierran)
+            // Viñeta: apaga la malla y el color hacia los bordes
+            Shape {
+                anchors.fill: parent
+                preferredRendererType: Shape.CurveRenderer
+
+                ShapePath {
+                    strokeWidth: -1
+                    fillGradient: RadialGradient {
+                        centerX: root.width / 2
+                        centerY: root.height * 0.46
+                        centerRadius: Math.max(root.width, root.height) * 0.72
+                        focalX: centerX
+                        focalY: centerY
+
+                        GradientStop {
+                            position: 0.35
+                            color: "transparent"
+                        }
+                        GradientStop {
+                            position: 1
+                            color: Qt.rgba(0, 0, 0, 0.62)
+                        }
+                    }
+
+                    PathLine {
+                        x: root.width
+                        y: 0
+                    }
+                    PathLine {
+                        x: root.width
+                        y: root.height
+                    }
+                    PathLine {
+                        x: 0
+                        y: root.height
+                    }
+                    PathLine {
+                        x: 0
+                        y: 0
+                    }
+                }
+            }
+
+            // Bloquea los clics hacia lo de detrás; un clic en el vacío no cierra nada
             MouseArea {
                 anchors.fill: parent
                 acceptedButtons: Qt.AllButtons
-                onClicked: {}
             }
         }
 
-        // 2. Hilos de conexión entre lista y visores
-        HoloLinks {
-            id: links
-            anchors.fill: parent
-            holoLayer: root
+        // Barrido de escaneo: una línea de luz recorre la pantalla al encenderse la escena
+        Item {
+            id: sweepLine
+
+            property real p: 0
+
+            width: parent.width
+            height: 90
+            y: -height + (root.height + height) * p
+            opacity: p > 0 && p < 1 ? 1 : 0
+            visible: opacity > 0
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.bottom: line.top
+                gradient: Gradient {
+                    GradientStop {
+                        position: 0
+                        color: "transparent"
+                    }
+                    GradientStop {
+                        position: 1
+                        color: Qt.alpha(Colours.palette.m3primary, 0.07)
+                    }
+                }
+            }
+            Rectangle {
+                id: line
+
+                anchors.bottom: parent.bottom
+                width: parent.width
+                height: 1.5
+                gradient: Gradient {
+                    orientation: Gradient.Horizontal
+
+                    GradientStop {
+                        position: 0
+                        color: "transparent"
+                    }
+                    GradientStop {
+                        position: 0.5
+                        color: Qt.alpha(Colours.palette.m3primary, 0.55)
+                    }
+                    GradientStop {
+                        position: 1
+                        color: "transparent"
+                    }
+                }
+            }
+
+            NumberAnimation on p {
+                id: sweep
+
+                running: false
+                from: 0
+                to: 1
+                duration: 900
+                easing.type: Easing.InOutSine
+            }
         }
 
-        // 3. Paneles holográficos
+        // ------------------------------------------------------------ hilos fila → visor
+        HoloLinks {
+            anchors.fill: parent
+            capa: root
+            opacity: root.veil
+        }
+
+        // ------------------------------------------------------------ paneles
         Repeater {
-            model: HoloState.paneles
+            model: vivos
 
             HoloPanel {
-                id: panelComp
-
-                required property var modelData
-
-                panel: modelData
-                holoLayer: root
-
-                targetX: {
-                    if (panel.kind === "lista" || panel.id === "lista") {
-                        const w = root.posiciones["lista"]?.w ?? HoloPlacer.size(panel, root.width, root.height).w;
-                        return root.hasVisores ? Math.round(0.08 * root.width) : Math.round((root.width - w) / 2);
-                    }
-                    return root.getPos(panel).x;
-                }
-                targetY: root.getPos(panel).y
-                targetRot: root.getPos(panel).rot
+                capa: root
             }
         }
     }

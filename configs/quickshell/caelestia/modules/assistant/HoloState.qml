@@ -153,6 +153,19 @@ Singleton {
             payload: { tipo: "imagen", src: demoImg, w: 480, h: 480 }
         };
 
+        const v2 = {
+            id: "v2",
+            kind: "visor",
+            titulo: "practica3_redes.pdf",
+            item_n: 2,
+            payload: {
+                tipo: "pdf",
+                src: demoImg,
+                pagina: 1,
+                paginas: 12
+            }
+        };
+
         const v3 = {
             id: "v3",
             kind: "visor",
@@ -163,6 +176,18 @@ Singleton {
                 texto: "# Notas de reunión\n\n- Revisión de arquitectura de red\n- Pruebas de latencia completadas\n- Tareas pendientes para el sprint:\n  * Configurar cortafuegos\n  * Desplegar nuevo nodo de almacenamiento",
                 formato: "markdown",
                 truncado: false
+            }
+        };
+
+        const v7 = {
+            id: "v7",
+            kind: "visor",
+            titulo: "backup_config.tar.gz",
+            item_n: 7,
+            payload: {
+                tipo: "otro",
+                mime: "application/gzip",
+                icono: "folder_zip"
             }
         };
 
@@ -179,14 +204,38 @@ Singleton {
         });
 
         const p2 = p1.slice();
-        p2.push(v3);
+        p2.push(v2);
         root.handle({
             type: "holo",
             op: "open",
             items: root.items,
             paneles: p2,
+            seleccionado: 2,
+            panel: v2,
+            ids: null
+        });
+
+        const p3 = p2.slice();
+        p3.push(v3);
+        root.handle({
+            type: "holo",
+            op: "open",
+            items: root.items,
+            paneles: p3,
             seleccionado: 3,
             panel: v3,
+            ids: null
+        });
+
+        const p4 = p3.slice();
+        p4.push(v7);
+        root.handle({
+            type: "holo",
+            op: "open",
+            items: root.items,
+            paneles: p4,
+            seleccionado: 7,
+            panel: v7,
             ids: null
         });
     }
