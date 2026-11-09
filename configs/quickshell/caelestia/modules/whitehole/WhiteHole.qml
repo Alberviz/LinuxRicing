@@ -13,7 +13,8 @@ import qs.services
 // Warp — llegadas del móvil (puente de Olimpo). Lo que se envía cae por el agujero NEGRO (Portals); lo que llega sale
 // por el agujero BLANCO, en el mismo sitio (borde superior, centrado), como en Outer Wilds. Shader shaders/whitehole.frag:
 // núcleo incandescente, disco fino frío con Doppler, chorro hacia la pantalla y onda de destello en cada expulsión.
-// Cada llegada sale despedida y queda aparcada en una tarjeta (se apilan, máx. 5); se va (cae de vuelta) al usarla,
+// Coreografía: el agujero se abre (≈0,35 s), escupe la tarjeta con una onda y un cono de chispas y se cierra solo
+// (≈1 s después de la última). La tarjeta queda aparcada bajo el borde (se apilan, máx. 5) y se desvanece al usarla,
 // con la X o tras ~60 s sin interacción. Durante un arrastre (el portal negro ocupa ese sitio) las llegadas esperan.
 //   archivo: clic abrir · derecho mostrar en carpeta · arrastrar a otra app
 //   texto:   el puente ya lo copió al portapapeles; clic lo vuelve a copiar · arrastrar como texto
@@ -81,9 +82,9 @@ Scope {
             property real pulse: 0
             property bool holeOn: false
             readonly property real u: width / 1280
-            readonly property real holeR: 46 * u
+            readonly property real holeR: 24 * u
             readonly property real holeCx: width / 2                          // el «agujero del móvil»: borde superior, centrado
-            readonly property real holeCy: -(1 - show) * 1.4 * holeR          // centro EXACTAMENTE sobre el borde
+            readonly property real holeCy: -(1 - show) * 1.2 * holeR          // centro EXACTAMENTE sobre el borde
             readonly property var cards: [c0, c1, c2, c3, c4]
 
             function fmtSize(b: real): string {
@@ -100,25 +101,26 @@ Scope {
                 const free = cards.find(c => !c.active);
                 if (!free)
                     return;
+                closeTimer.stop();
+                if (!holeOn) {                        // primero se abre; escupe cuando ya está abierto (una sola espera)
+                    holeOn = true;
+                    openTimer.restart();
+                    return;
+                }
                 const e = pending.shift();
                 pending = pending;
-                holeOn = true;
-                closeTimer.stop();
                 free.launch(e);
                 pulseAnim.restart();
                 if (pending.length > 0)
                     spitTimer.start();
+                else
+                    closeTimer.restart();             // se cierra solo: la tarjeta se queda, el agujero no
             }
 
             function flash(): void {
                 pulseAnim.restart();
             }
 
-            // Si no queda ninguna tarjeta ni pendiente, el agujero se retrae
-            function checkEmpty(): void {
-                if (pending.length === 0 && !cards.some(c => c.active))
-                    closeTimer.restart();
-            }
 
             screen: modelData
             name: "arrivals"
@@ -177,20 +179,28 @@ Scope {
             }
 
             Timer {
+                id: openTimer
+
+                interval: PowerSaving.active ? 1 : 340
+                onTriggered: win.trySpit()
+            }
+
+            Timer {
                 id: closeTimer
 
-                interval: 500
+                interval: 1000
                 onTriggered: win.holeOn = false
             }
 
-            // Entrada con muelle; salida acelerando (~380 ms), igual que los portales
+            // Se abre con un pequeño rebote; se cierra hinchándose un instante y colapsando hacia el borde
             NumberAnimation {
                 id: showAnim
 
                 target: win
                 property: "show"
-                duration: PowerSaving.active ? 0 : (win.holeOn ? 420 : 380)
-                easing.type: win.holeOn ? Easing.OutCubic : Easing.InCubic
+                duration: PowerSaving.active ? 0 : (win.holeOn ? 380 : 560)
+                easing.type: win.holeOn ? Easing.OutBack : Easing.InBack
+                easing.overshoot: 1.4
             }
             onHoleOnChanged: {
                 showAnim.stop();
@@ -220,20 +230,20 @@ Scope {
             }
 
             ShaderEffect {
-                readonly property real half: 9 * win.holeR
+                readonly property real half: 8 * win.holeR
                 x: win.holeCx - half
                 y: win.holeCy - half
                 width: half * 2
                 height: half * 2
                 // durante un arrastre el portal del móvil (Portals) pinta el agujero negro en ese sitio: no se mezclan
-                visible: win.show > 0.01 && !DragWatch.dragging
+                visible: win.show > 0.005 && !DragWatch.dragging
 
                 property vector2d size: Qt.vector2d(width, height)
                 property color tint: Qt.rgba(Colours.palette.m3primary.r, Colours.palette.m3primary.g, Colours.palette.m3primary.b, 0.25)
-                property real rad: win.holeR * (0.5 + 0.5 * win.show)
+                property real rad: win.holeR * Math.max(0, 0.2 + 0.8 * win.show)
                 property real upx: win.u
                 property real en: 0.35 + 0.65 * win.pulse
-                property real vis: win.show
+                property real vis: Math.min(1, Math.max(0, win.show))
                 property real phase: win.phase
                 property real pulse: win.pulse
 
@@ -280,8 +290,9 @@ Scope {
                 property bool parked: false
                 property var entry: null
                 property real t: 0           // 0 = dentro del agujero, 1 = aparcada
-                readonly property real lx: win.width / 2 - width - 24 * win.u       // a la izquierda del eje: el HUD del portal queda a la derecha
-                readonly property real ly: win.holeR * 1.9 + slot * (height + 12)
+                property real out: 0         // 0 -> 1: se desvanece (salida)
+                readonly property real lx: win.holeCx - width / 2                   // centrada bajo el agujero
+                readonly property real ly: win.holeR * 2.6 + slot * (height + 12)   // por debajo del halo del agujero
                 readonly property bool isText: entry?.tipo === "texto"
                 readonly property bool isImage: !isText && (entry?.mime ?? "").startsWith("image/")
                 property bool recopied: false
@@ -291,31 +302,35 @@ Scope {
                     entry = e;
                     recopied = false;
                     t = 0;
+                    out = 0;
                     parked = false;
                     opacity = 0;
                     active = true;
                     emerge.restart();
                 }
-                // Vuelve a caer al agujero
+                // Salida: se encoge un poco, sube y se desvanece en su sitio (el agujero ya está cerrado)
                 function dismiss(): void {
+                    if (!active || leave.running)
+                        return;
                     life.stop();
                     parked = false;
                     emerge.stop();
-                    back.restart();
+                    fadeIn.stop();
+                    leave.restart();
                 }
 
                 width: 320
                 height: 88
-                x: win.holeCx - width / 2 + (lx - (win.holeCx - width / 2)) * t
-                y: win.holeCy - height / 2 + (ly - (win.holeCy - height / 2)) * t
+                x: lx
+                y: -height + (ly + height) * t - 18 * win.u * out
                 visible: active
                 opacity: 0
-                // Emerge del horizonte: pequeña y estirada hasta su tamaño
+                // Sale disparada del agujero: diminuta y estirada en vertical hasta su tamaño (con un leve rebote)
                 transform: Scale {
-                    origin.x: card.width
-                    origin.y: card.height / 2
-                    xScale: 0.15 + 0.85 * Math.min(1, card.t * 1.15)
-                    yScale: 0.08 + 0.92 * card.t
+                    origin.x: card.width / 2
+                    origin.y: 0
+                    xScale: (0.12 + 0.88 * Math.min(1, card.t)) * (1 - 0.08 * card.out)
+                    yScale: (0.25 + 0.75 * card.t) * (1 - 0.08 * card.out)
                 }
 
                 NumberAnimation {
@@ -325,8 +340,9 @@ Scope {
                     property: "t"
                     from: 0
                     to: 1
-                    duration: PowerSaving.active ? 0 : 750
-                    easing.type: Easing.OutCubic
+                    duration: PowerSaving.active ? 0 : 620
+                    easing.type: Easing.OutBack
+                    easing.overshoot: 1.2
                     onStarted: {
                         fadeIn.restart();
                         win.pulse = 1;
@@ -344,19 +360,27 @@ Scope {
                     to: 1
                     duration: 220
                 }
-                NumberAnimation {
-                    id: back
+                ParallelAnimation {
+                    id: leave
 
-                    target: card
-                    property: "t"
-                    to: 0
-                    duration: PowerSaving.active ? 0 : 450
-                    easing.type: Easing.InCubic
+                    NumberAnimation {
+                        target: card
+                        property: "out"
+                        to: 1
+                        duration: PowerSaving.active ? 0 : 260
+                        easing.type: Easing.InCubic
+                    }
+                    NumberAnimation {
+                        target: card
+                        property: "opacity"
+                        to: 0
+                        duration: PowerSaving.active ? 0 : 240
+                        easing.type: Easing.InQuad
+                    }
                     onFinished: {
                         card.active = false;
                         card.opacity = 0;
                         win.trySpit();
-                        win.checkEmpty();
                     }
                 }
                 Process {
