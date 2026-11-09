@@ -194,6 +194,9 @@ StyledClippingRect {
     property string ramTotal: "16.0 GB"
     property int gpuTemp: 0
     property int gpuUtil: 0
+    property bool igpuPresent: false
+    property int igpuUtil: 0
+    property int igpuFreq: 0
     property int vramPct: 0
     property string vramUsed: "0.0 GB"
     property string vramTotal: "6.0 GB"
@@ -212,6 +215,9 @@ StyledClippingRect {
                     deckRoot.ramTotal = h.ram_total ?? "16 GB";
                     deckRoot.gpuTemp = h.gpu_temp ?? 0;
                     deckRoot.gpuUtil = h.gpu_util ?? 0;
+                    deckRoot.igpuPresent = h.igpu_present ?? false;
+                    deckRoot.igpuUtil = h.igpu_util ?? 0;
+                    deckRoot.igpuFreq = h.igpu_freq ?? 0;
                     deckRoot.vramPct = h.vram_pct ?? 0;
                     deckRoot.vramUsed = h.vram_used ?? "0 GB";
                     deckRoot.vramTotal = h.vram_total ?? "6 GB";
