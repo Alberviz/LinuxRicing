@@ -64,7 +64,8 @@ VLC 3 con Chromecast se congela con MKV de alto bitrate y audio Dolby (`httpd bu
 
 ## Pendiente
 
-- Espejo por Cast Streaming con audio (hoy, activar el audio cae a HLS ~2,3 s), 1080p y codificación por hardware.
+- Espejo: medir la latencia real con audio (`cast-helper mirror test-latency`); desfase audio/vídeo ~40 ms sin ajustar; 1080p
+  (`CAST_STREAM_SIZE=1920x1080`, ~230 % CPU) y NVENC (`CAST_STREAM_CODEC=h264 CAST_ENCODER=h264_nvenc`, ~48 % CPU pero despierta la RTX) son opcionales.
 - Guardar en el repo el bind `Super+K` (`kbCastPanel`, y `showall` → `Super+Shift+K`): está aplicado en `~/.config/hypr` pero
   `configs/hypr/{variables,hyprland/keybinds}.lua` tienen cambios sin commitear de otro agente; parche en el scratchpad de la sesión
   2026-11-08 (`superk-hypr.patch`).
@@ -222,4 +223,4 @@ Todo lo del móvil vive en Olimpo (`~/proyectos/olimpo`, desplegado en la Pi); v
 3. Portales al arrastrar: zona en el borde → portales con `drag-watch` → rediseño con mockup interactivo (variantes A/B) → variante B
    en shader → feedback de tamaño/progreso/cancelar → animación de salida.
 4. Olimpo v2.11–v2.14: tele en el móvil, bandejas en ambos sentidos, Ajustes, reproductor «Aurora».
-5. Espejo: fMP4 (~4 s medidos) → HLS 0,5 s (2,5 s medidos) → Cast Streaming con openscreen (~0,2 s emisor→receptor, sin audio aún).
+5. Espejo: fMP4 (~4 s medidos) → HLS 0,5 s (2,5 s medidos) → Cast Streaming con openscreen (~0,12 s vídeo / ~0,16 s audio emisor→receptor, con audio desde `d3f0bea`).
