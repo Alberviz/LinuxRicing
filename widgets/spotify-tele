@@ -51,7 +51,35 @@ import urllib.request
 from pathlib import Path
 
 CDP = "http://127.0.0.1:9222"
-TELE_DEFAULT = os.environ.get("SPOTIFY_TELE_DEVICE", "")  # vacío = el primer cast_video
+
+
+def get_default_tele() -> str:
+    env = os.environ.get("SPOTIFY_TELE_DEVICE")
+    if env:
+        return env
+    cfg_path = Path.home() / "proyectos/LinuxRicing/assistant/config.toml"
+    if cfg_path.exists():
+        try:
+            import tomllib
+            cfg = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
+            t = (cfg.get("spotify") or {}).get("tele")
+            if t:
+                return str(t)
+        except Exception:
+            pass
+    st_path = Path(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}") / "cast-helper" / "state.json"
+    if st_path.exists():
+        try:
+            st = json.loads(st_path.read_text(encoding="utf-8"))
+            devs = st.get("devices") or []
+            if devs and devs[0].get("name"):
+                return str(devs[0]["name"])
+        except Exception:
+            pass
+    return "Comedor"
+
+
+TELE_DEFAULT = get_default_tele()
 
 
 # ───────────── websocket mínimo (solo stdlib) ─────────────
@@ -177,10 +205,30 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const norm = s => (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "");
 const KIND = {Playlist: "playlist", Album: "album", Track: "cancion", Artist: "artista"};
 function devices() { return P.ConnectAPI.getState().devices.map(d => ({id: d.id, nombre: d.name, tipo: d.type, activo: d.isActive, local: d.isLocal})); }
-function findTele(name) {
-  const ds = P.ConnectAPI.getState().devices;
-  if (name) { const n = norm(name); return ds.find(d => norm(d.name) === n) || ds.find(d => norm(d.name).includes(n)); }
-  return ds.find(d => d.type === "cast_video" || d.type === "cast_audio" || d.type === "tv");
+async function findTele(name) {
+  const isGeneric = !name || /^(tele|la tele|television|televisión)$/i.test(String(name).trim());
+  const target = isGeneric ? norm(ARGS.tele_default || "comedor") : norm(name);
+  const match = ds => {
+    if (target) {
+      const h = ds.find(d => norm(d.name) === target) || ds.find(d => norm(d.name).includes(target));
+      if (h) return h;
+    }
+    return ds.find(d => !d.isLocal && (d.type === "cast_video" || d.type === "cast_audio" || d.type === "tv" || /comedor/i.test(d.name)));
+  };
+
+  let ds = P.ConnectAPI.getState().devices;
+  let dev = match(ds);
+  if (dev) return dev;
+
+  try { await P.ConnectAPI.initiateLocalDiscovery(); } catch (e) {}
+  try { await P.ConnectAPI.updateListOfDevices(); } catch (e) {}
+  for (let i = 0; i < 6; i++) {
+    await sleep(400);
+    ds = P.ConnectAPI.getState().devices;
+    dev = match(ds);
+    if (dev) return dev;
+  }
+  return null;
 }
 function playlistSort(uri) {
   if (ARGS.orden === "original") return null;
@@ -344,7 +392,7 @@ if (!item) return {ok: false, error: `no encuentro «${ARGS.q}» en Spotify`};
 if (item.dudas) return {ok: false, error: `no tengo ninguna playlist que se llame «${ARGS.q}»`, candidatos: item.dudas};
 let dev = null;
 if (ARGS.donde === "tele") {
-  dev = findTele(ARGS.tele);
+  dev = await findTele(ARGS.tele);
   if (!dev) return {ok: false, error: "Spotify no ve la tele (¿encendida y en la misma red?)", dispositivos: devices()};
 } else if (ARGS.donde === "pc") dev = localDev();
 // Primero mover la sesión (si no, play() la vuelve a coger el PC mientras la tele aún conecta) y luego reproducir.
@@ -371,11 +419,13 @@ for (let i = 0; i < 16; i++) { await sleep(500); const st = P.PlayerAPI.getState
 if (alea !== null) { try { await P.PlayerAPI.setShuffle(alea); } catch (e) {} await sleep(600); }
 return {ok: true, puesto: item, ahora: now()};
 """
+    tele_dest = a.tele or TELE_DEFAULT
     if a.donde == "tele":
-        emit_tele_salida("enviando", "spotify", a.texto, {"tele": a.tele, "tipo_item": a.tipo or "auto"})
+        emit_tele_salida("enviando", "spotify", a.texto, {"tele": tele_dest, "tipo_item": a.tipo or "auto"})
     try:
         alea = None if a.aleatorio is None else a.aleatorio
-        res = run_js(body, {"q": a.texto, "tipo": a.tipo, "donde": a.donde, "tele": a.tele, "aleatorio": alea,
+        res = run_js(body, {"q": a.texto, "tipo": a.tipo, "donde": a.donde, "tele": tele_dest,
+                            "tele_default": TELE_DEFAULT, "aleatorio": alea,
                             "inicio": a.desde_inicio, "orden": a.orden})
         if a.donde == "tele":
             if res.get("ok"):
@@ -383,14 +433,14 @@ return {ok: true, puesto: item, ahora: now()};
                 ahora = res.get("ahora") or {}
                 cancion = p.get("nombre") or ahora.get("cancion") or a.texto
                 artista = p.get("de") or ahora.get("artista") or ""
-                tele_act = ahora.get("dispositivo") or a.tele
+                tele_act = ahora.get("dispositivo") or tele_dest
                 emit_tele_salida("ok", "spotify", cancion, {"artista": artista, "tele": tele_act})
             else:
-                emit_tele_salida("error", "spotify", a.texto, {"mensaje": res.get("error") or "Error en Spotify", "tele": a.tele})
+                emit_tele_salida("error", "spotify", a.texto, {"mensaje": res.get("error") or "Error en Spotify", "tele": tele_dest})
         return res
     except Exception as e:
         if a.donde == "tele":
-            emit_tele_salida("error", "spotify", a.texto, {"mensaje": str(e), "tele": a.tele})
+            emit_tele_salida("error", "spotify", a.texto, {"mensaje": str(e), "tele": tele_dest})
         raise
 
 
@@ -430,28 +480,29 @@ return {ok: true, encontrado: {nombre: x.name, uri: x.uri, tipo: "album", de: ar
 
 def cmd_pasar(a) -> dict:
     body = r"""
-const dev = ARGS.donde === "pc" ? localDev() : findTele(ARGS.tele);
+const dev = ARGS.donde === "pc" ? localDev() : await findTele(ARGS.tele);
 if (!dev) return {ok: false, error: ARGS.donde === "pc" ? "no encuentro este PC en Spotify" : "Spotify no ve la tele", dispositivos: devices()};
 if (!(await transferTo(dev))) return {ok: false, error: `no he podido pasar Spotify a ${dev.name}`};
 return {ok: true, ahora: now()};
 """
+    tele_dest = a.tele or TELE_DEFAULT
     if a.donde == "tele":
-        emit_tele_salida("enviando", "spotify", "Spotify", {"tele": a.tele})
+        emit_tele_salida("enviando", "spotify", "Spotify", {"tele": tele_dest})
     try:
-        res = run_js(body, {"donde": a.donde, "tele": a.tele})
+        res = run_js(body, {"donde": a.donde, "tele": tele_dest, "tele_default": TELE_DEFAULT})
         if a.donde == "tele":
             if res.get("ok"):
                 ahora = res.get("ahora") or {}
                 cancion = ahora.get("cancion") or "Spotify"
                 artista = ahora.get("artista") or ""
-                tele_act = ahora.get("dispositivo") or a.tele
+                tele_act = ahora.get("dispositivo") or tele_dest
                 emit_tele_salida("ok", "spotify", cancion, {"artista": artista, "tele": tele_act})
             else:
-                emit_tele_salida("error", "spotify", "Spotify", {"mensaje": res.get("error") or "No se pudo pasar", "tele": a.tele})
+                emit_tele_salida("error", "spotify", "Spotify", {"mensaje": res.get("error") or "No se pudo pasar", "tele": tele_dest})
         return res
     except Exception as e:
         if a.donde == "tele":
-            emit_tele_salida("error", "spotify", "Spotify", {"mensaje": str(e), "tele": a.tele})
+            emit_tele_salida("error", "spotify", "Spotify", {"mensaje": str(e), "tele": tele_dest})
         raise
 
 
@@ -826,7 +877,7 @@ def cmd_cola(a) -> dict:
         body = r"""
 let dev = null;
 if (ARGS.donde === "tele") {
-  dev = findTele(ARGS.tele);
+  dev = await findTele(ARGS.tele);
   if (!dev) return {ok: false, error: "Spotify no ve la tele", dispositivos: devices()};
   if (!(await transferTo(dev))) return {ok: false, error: `no he podido pasar Spotify a ${dev.name}`};
 } else if (ARGS.donde === "pc") {
@@ -849,25 +900,26 @@ await sleep(600);
 return {ok: true, reproduciendo: items[0], encoladas: items.slice(1), total: items.length, ahora: now()};
 """
         donde = getattr(a, "donde", None)
+        tele_dest = getattr(a, "tele", None) or TELE_DEFAULT
         if donde == "tele":
-            emit_tele_salida("enviando", "spotify", a.canciones[0], {"tele": a.tele, "total": len(a.canciones)})
+            emit_tele_salida("enviando", "spotify", a.canciones[0], {"tele": tele_dest, "total": len(a.canciones)})
         try:
-            res = run_js(body, {"canciones": a.canciones, "donde": a.donde, "tele": a.tele})
+            res = run_js(body, {"canciones": a.canciones, "donde": a.donde, "tele": tele_dest, "tele_default": TELE_DEFAULT})
             if donde == "tele":
                 if res.get("ok"):
                     rep = res.get("reproduciendo") or {}
                     cancion = rep.get("nombre") or a.canciones[0]
                     artista = rep.get("de") or ""
-                    tele_act = res.get("ahora", {}).get("dispositivo") or a.tele
+                    tele_act = res.get("ahora", {}).get("dispositivo") or tele_dest
                     total = res.get("total", len(a.canciones))
                     emit_tele_salida("ok", "spotify", f"{cancion} (+{total - 1} en cola)" if total > 1 else cancion,
                                      {"artista": artista, "tele": tele_act})
                 else:
-                    emit_tele_salida("error", "spotify", a.canciones[0], {"mensaje": res.get("error") or "Error en cola", "tele": a.tele})
+                    emit_tele_salida("error", "spotify", a.canciones[0], {"mensaje": res.get("error") or "Error en cola", "tele": tele_dest})
             return res
         except Exception as e:
             if donde == "tele":
-                emit_tele_salida("error", "spotify", a.canciones[0], {"mensaje": str(e), "tele": a.tele})
+                emit_tele_salida("error", "spotify", a.canciones[0], {"mensaje": str(e), "tele": tele_dest})
             raise
 
     if sub == "anadir":

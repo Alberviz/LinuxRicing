@@ -74,6 +74,17 @@ def _alias() -> dict[str, str]:
     return {_clave(k): v for k, v in tabla.items() if _clave(k)}
 
 
+def _cfg_tele() -> str:
+    try:
+        from ..config import CFG
+        t = (CFG.get("spotify") or {}).get("tele")
+        if t:
+            return str(t)
+    except Exception:
+        pass
+    return "Comedor"
+
+
 # «lo más nuevo de X», «las últimas (añadidas) de X» → la playlist X empezando por lo último que añadiste.
 _RECIENTES = re.compile(r"^\s*(?:lo|las?|los)\s+(?:m[aá]s\s+(?:nuev[oa]s?|recientes?)|[uú]ltim[oa]s?)"
                         r"(?:\s+(?:añadidas?|canciones|temas))?\s+(?:de|del)\s+(?P<resto>.+)$", re.I)
@@ -269,7 +280,10 @@ def spotify(accion: str, que: str | None = None, tipo: str | None = None, donde:
             return _poner(it["uri"], "playlist", donde, recientes=True, nombre=it.get("nombre"))
         return _poner(que, tipo, donde, desde_inicio, recientes=recientes, aleatorio=aleatorio)
     if accion in ("pasar_a_tele", "pasar_al_pc"):
-        r = _cmd("pasar", "tele" if accion == "pasar_a_tele" else "pc")
+        args = ["pasar", "tele" if accion == "pasar_a_tele" else "pc"]
+        if accion == "pasar_a_tele" and (valor or que):
+            args.extend(["--tele", valor or que])
+        r = _cmd(*args)
         if not r.get("ok"):
             return r
         return {"ok": True, "resumen": "Spotify a la tele" if accion == "pasar_a_tele" else "Spotify al PC",
