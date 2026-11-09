@@ -9,11 +9,12 @@ import qs.components
 import qs.components.controls
 import qs.services
 
-StyledRect {
+// Contenido del drawer «Proyectar» (ver Wrapper.qml). Sin marco propio: el fondo lo pinta el blob
+// del drawer en ContentWindow; aquí solo tarjetas, como en utilities.
+Item {
     id: root
 
-    property bool shown
-    signal close
+    required property ScreenState screenState
 
     readonly property bool mirroring: Cast.mirroring
     readonly property var act: Cast.active
@@ -22,26 +23,15 @@ StyledRect {
     readonly property bool scanning: Cast.devices.length === 0
     readonly property string lastFile: `${Quickshell.env("HOME")}/.config/caelestia/cast-last-monitor`
 
-    implicitWidth: 380
-    implicitHeight: col.implicitHeight + Tokens.padding.large * 2
-    radius: Tokens.rounding.extraLarge
-    color: Colours.palette.m3surfaceContainer
-    border.width: 1
-    border.color: Colours.palette.m3outlineVariant
-    opacity: shown ? 1 : 0
-    scale: shown ? 1 : 0.94
-    transformOrigin: Item.BottomRight
+    implicitHeight: col.implicitHeight
     focus: true
 
-    Behavior on opacity {
-        Anim {
-            type: Anim.FastEffects
-        }
+    Behavior on implicitHeight {
+        Anim {}
     }
-    Behavior on scale {
-        Anim {
-            type: Anim.FastSpatial
-        }
+
+    function close(): void {
+        screenState.cast = false;
     }
 
     Keys.onEscapePressed: root.close()
@@ -49,6 +39,7 @@ StyledRect {
         forceActiveFocus();
         Cast.observers++;
         Cast.refresh();
+        Cast.scan();
     }
     Component.onDestruction: Cast.observers--
 
@@ -81,15 +72,11 @@ StyledRect {
         }
     }
 
-    MouseArea {
-        anchors.fill: parent
-    }
-
     ColumnLayout {
         id: col
 
-        anchors.fill: parent
-        anchors.margins: Tokens.padding.large
+        anchors.left: parent.left
+        anchors.right: parent.right
         spacing: Tokens.spacing.medium
 
         RowLayout {
@@ -111,11 +98,6 @@ StyledRect {
                 running: visible
                 implicitSize: 22
                 strokeWidth: 3
-            }
-            IconButton {
-                icon: "close"
-                type: IconButton.Text
-                onClicked: root.close()
             }
         }
 
@@ -155,21 +137,32 @@ StyledRect {
                 }
             }
 
-            RowLayout {
+            StyledRect {
                 Layout.fillWidth: true
+                implicitHeight: al.implicitHeight + Tokens.padding.large * 2
+                radius: Tokens.rounding.large
+                color: Colours.tPalette.m3surfaceContainer
 
-                MaterialIcon {
-                    text: "volume_up"
-                    color: Colours.palette.m3onSurfaceVariant
-                }
-                StyledText {
-                    Layout.fillWidth: true
-                    text: "Enviar el audio del sistema"
-                    font: Tokens.font.body.medium
-                }
-                StyledSwitch {
-                    checked: root.act?.audio ?? true
-                    onToggled: Cast.mirrorAudio(checked)
+                RowLayout {
+                    id: al
+
+                    anchors.fill: parent
+                    anchors.margins: Tokens.padding.large
+                    spacing: Tokens.spacing.medium
+
+                    MaterialIcon {
+                        text: "volume_up"
+                        color: Colours.palette.m3onSurfaceVariant
+                    }
+                    StyledText {
+                        Layout.fillWidth: true
+                        text: "Enviar el audio del sistema"
+                        font: Tokens.font.body.medium
+                    }
+                    StyledSwitch {
+                        checked: root.act?.audio ?? true
+                        onToggled: Cast.mirrorAudio(checked)
+                    }
                 }
             }
 
@@ -213,7 +206,7 @@ StyledRect {
                         implicitWidth: mt.implicitWidth + Tokens.padding.large * 2
                         implicitHeight: mt.implicitHeight + Tokens.padding.small * 2
                         radius: Tokens.rounding.full
-                        color: sel ? Colours.palette.m3secondaryContainer : Colours.palette.m3surfaceContainerHigh
+                        color: sel ? Colours.palette.m3secondaryContainer : Colours.tPalette.m3surfaceContainer
 
                         StateLayer {
                             radius: Tokens.rounding.full
@@ -258,7 +251,7 @@ StyledRect {
                     Layout.fillWidth: true
                     implicitHeight: rl.implicitHeight + Tokens.padding.large * 2
                     radius: Tokens.rounding.large
-                    color: Colours.palette.m3surfaceContainerHigh
+                    color: Colours.tPalette.m3surfaceContainer
 
                     StateLayer {
                         radius: Tokens.rounding.large

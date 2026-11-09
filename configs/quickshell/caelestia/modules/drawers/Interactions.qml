@@ -23,6 +23,7 @@ CustomMouseArea {
     property bool dashboardShortcutActive
     property bool osdShortcutActive
     property bool utilitiesShortcutActive
+    property bool castShortcutActive
 
     function withinPanelHeight(panel: Item, x: real, y: real): bool {
         const panelY = root.borderThickness + panel.y;
@@ -78,6 +79,9 @@ CustomMouseArea {
 
             if (!utilitiesShortcutActive && !Cast.picking)
                 screenState.utilities = false;
+
+            if (!castShortcutActive)
+                screenState.cast = false;
 
             if (!popouts.currentName.startsWith("traymenu") || ((popouts.current as StackView)?.depth ?? 0) <= 1) {
                 popouts.hasCurrent = false;
@@ -228,7 +232,16 @@ CustomMouseArea {
         }
 
         // Show utilities on hover
-        const showUtilities = inBottomPanel(panels.utilities, x, y, true);
+        const showCast = screenState.cast && inBottomPanel(panels.castDrawer, x, y, true);
+        const showUtilities = !screenState.cast && inBottomPanel(panels.utilities, x, y, true);
+
+        // El drawer «Proyectar» comparte hueco con utilities; solo se abre por atajo, y se cierra al
+        // salir el ratón de él (igual que utilities abierto con atajo)
+        if (!castShortcutActive) {
+            screenState.cast = showCast;
+        } else if (showCast) {
+            castShortcutActive = false;
+        }
 
         // Always update visibility based on hover if not in shortcut mode
         if (!utilitiesShortcutActive) {
@@ -296,8 +309,27 @@ CustomMouseArea {
             }
         }
 
+        function onCastChanged() {
+            if (root.screenState.cast) {
+                // Comparte hueco con utilities/sidebar: se cierran al abrir este
+                root.screenState.utilities = false;
+                root.screenState.sidebar = false;
+                const inCastArea = root.inBottomPanel(root.panels.castDrawer, root.mouseX, root.mouseY);
+                if (!inCastArea)
+                    root.castShortcutActive = true;
+            } else {
+                root.castShortcutActive = false;
+            }
+        }
+
+        function onSidebarChanged() {
+            if (root.screenState.sidebar)
+                root.screenState.cast = false;
+        }
+
         function onUtilitiesChanged() {
             if (root.screenState.utilities) {
+                root.screenState.cast = false;
                 // Utilities became visible, immediately check if this should be shortcut mode
                 const inUtilitiesArea = root.inBottomPanel(root.panels.utilities, root.mouseX, root.mouseY);
                 if (!inUtilitiesArea) {

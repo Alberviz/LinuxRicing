@@ -68,7 +68,7 @@ StyledWindow {
     name: "drawers"
     WlrLayershell.exclusionMode: ExclusionMode.Ignore
     WlrLayershell.layer: (fsTransitionProg > 0 && contentItem.Config.general.showOverFullscreen) || (hasSpecialWorkspace && hasFullscreenOnNormalWs) ? WlrLayer.Overlay : WlrLayer.Top
-    WlrLayershell.keyboardFocus: screenState.launcher || screenState.session ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
+    WlrLayershell.keyboardFocus: screenState.launcher || screenState.session || screenState.cast ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
 
     mask: hasFullscreen ? emptyRegion : regions
 
@@ -115,7 +115,7 @@ StyledWindow {
         active: {
             const s = root.screenState;
             const conf = root.contentItem.Config;
-            if ((s.launcher && conf.launcher.enabled) || (s.session && conf.session.enabled) || (s.sidebar && conf.sidebar.enabled))
+            if ((s.launcher && conf.launcher.enabled) || (s.session && conf.session.enabled) || (s.sidebar && conf.sidebar.enabled) || s.cast)
                 return true;
             if (!conf.dashboard.showOnHover && s.dashboard && conf.dashboard.enabled)
                 return true;
@@ -128,6 +128,7 @@ StyledWindow {
             root.screenState.launcher = false;
             root.screenState.session = false;
             root.screenState.sidebar = false;
+            root.screenState.cast = false;
             root.screenState.dashboard = false;
             panels.popouts.hasCurrent = false;
             bar.closeTray();
@@ -232,6 +233,13 @@ StyledWindow {
         }
 
         PanelBg {
+            id: castBg
+
+            panel: panels.castDrawer
+            deformAmount: 0.15
+        }
+
+        PanelBg {
             id: popoutBg
 
             // Extra width to prevent vertical movement deformation partially detaching panel from bar
@@ -290,6 +298,9 @@ StyledWindow {
             }
             utilities.transform: Matrix4x4 {
                 matrix: utilsBg.deformMatrix
+            }
+            castDrawer.transform: Matrix4x4 {
+                matrix: castBg.deformMatrix
             }
             popouts.transform: Matrix4x4 {
                 matrix: popoutBg.deformMatrix
