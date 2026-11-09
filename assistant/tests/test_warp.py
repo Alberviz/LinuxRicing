@@ -52,3 +52,19 @@ def test_archivo_y_errores(falso):
     assert not w.warp("borrar_todo")["ok"]
     responder({"ok": False, "error": "La Pi no responde"})
     assert w.warp("portapapeles") == {"ok": False, "error": "La Pi no responde"}
+
+
+def test_nota_md_se_sube_y_se_borra(monkeypatch):
+    vistos = {}
+
+    def falso_warp(*args, entrada=None):
+        ruta = Path(args[1])
+        vistos.update(args=args, nombre=ruta.name, contenido=ruta.read_text(encoding="utf-8"), ruta=ruta)
+        return {"ok": True, "tipo": "archivo"}
+    monkeypatch.setattr(w, "_warp", falso_warp)
+    r = w.warp("nota", texto="# Prompt\nHaz una landing", nombre="prompt landing/../BarberBot.md")
+    assert r["ok"] and r["resumen"] == "prompt-landingBarberBot.md al móvil"
+    assert vistos["args"][0] == "archivo" and vistos["contenido"] == "# Prompt\nHaz una landing\n"
+    assert not vistos["ruta"].exists()
+    assert w.warp("nota", texto="hola")["resumen"] == "nota-de-laura.md al móvil"
+    assert not w.warp("nota", texto=" ")["ok"]

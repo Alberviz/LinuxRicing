@@ -11,7 +11,7 @@ Diseño: `docs/superpowers/specs/2026-11-09-warp-design.md`.
 | **`Super+Shift+K`** | `warp rapido`: lo copiado (texto o imagen); si el portapapeles está vacío, lo subrayado. |
 | Arrastrar un archivo al borde de arriba | El portal negro (drag-watch) → `olimpo enviar --progreso` (con barra, cancelar y aviso previo de tamaño). |
 | Arrastrar **texto** seleccionado al borde de arriba | `warp texto -` (solo desde ventanas que vigila drag-watch: navegadores y gestores de archivos). |
-| «Laura, manda X por warp» | Tool `assistant/laura/tools/warp.py`: texto dictado, portapapeles, selección, captura, último archivo de una carpeta, buscar + enviar (pregunta si hay dudas). |
+| «Laura, manda X por warp» | Tool `assistant/laura/tools/warp.py`: texto dictado, portapapeles, selección, captura, último archivo de una carpeta, buscar + enviar (pregunta si hay dudas) y `nota`: algo que ha escrito ella (un prompt, un resumen) como `.md`. |
 | Terminal | `warp texto "…"`, `warp archivo <ruta>`, `warp buscar "pdf práctica redes"`, `warp ultimo Descargas`, `warp captura`. |
 
 En el móvil llega a Olimpo como «Llegó del PC». Un texto sale con su contenido y un botón **Copiar** (una web no puede
