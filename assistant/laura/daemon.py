@@ -13,6 +13,8 @@ import time
 from .audio import listen, load_vad
 from .bargein import BargeIn
 from .config import CFG, bus, log, notify
+from .confirmar_archivos import grace_escucha
+from .holo import escena
 from . import avisos
 from .escalation import (_confirm_and_run_escalation, _handle_auto_escalation,
                          _match_auto_case, responder_pendiente_archivos, voice_yes_no)
@@ -90,7 +92,7 @@ def cycle(session: Session, jobs: JobManager, mode: str = "centro",
                 else:
                     audio = listen(max_seconds=CFG["audio"]["max_seconds"],
                                    cancel=cancel,
-                                   start_grace=None if first else (grace * 2 if espera_larga else grace),
+                                   start_grace=None if first else grace_escucha(grace, espera_larga, bool(escena().paneles)),
                                    preroll=pre)
                 if cancel.is_set():
                     break

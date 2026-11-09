@@ -35,13 +35,13 @@ def confirmar(plan, escena, decir: Callable[[str], None],
     `decir(texto)` habla; `escuchar(evento)` devuelve la frase dicha, o None si hubo silencio o
     se activó `evento` (lo resolvió el panel). Devuelve el estado final del plan."""
     decir(plan.pregunta())
+    # Si se corta el ciclo (pulsar «escribir», el atajo, «para») el plan NO se cancela: sigue
+    # pendiente y visible hasta que se confirme, se cancele de verdad o caduque.
     if cancelado():
-        escena.resolver_plan(plan.id, False)
         return plan.estado
     if not plan.evento.is_set():
         frase = escuchar(plan.evento)
         if cancelado():
-            escena.resolver_plan(plan.id, False)
             return plan.estado
     else:
         frase = None
@@ -55,6 +55,14 @@ def confirmar(plan, escena, decir: Callable[[str], None],
     res = escena.resolver_plan(plan.id, bool(interpretar(frase)))   # ambiguo = no
     decir(res.get("decir") or res.get("error") or "Hecho.")
     return plan.estado
+
+
+def grace_escucha(grace: float, espera_larga: bool, escena_activa: bool) -> float:
+    """Segundos de silencio que Laura aguanta antes de cerrar el ciclo. Con hologramas en
+    pantalla Alberto mira la lista antes de decir qué hacer: se espera el triple."""
+    if escena_activa:
+        return grace * 3
+    return grace * 2 if espera_larga else grace
 
 
 def responder_pendiente(texto: str, escena, decir: Callable[[str], None]) -> bool:

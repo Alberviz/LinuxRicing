@@ -61,10 +61,31 @@ def test_silencio_deja_pendiente(env):
     assert dicho[-1] == "Lo dejo pendiente en el panel."
 
 
-def test_cancelado_por_atajo_cancela_el_plan(env):
+def test_cortar_el_ciclo_no_cancela_el_plan(env):
+    """Pulsar «escribir», el atajo o «para» cierra la escucha pero el plan sigue pendiente."""
     esc, plan, f, dicho = montar(env)
     est = c.confirmar(plan, esc, dicho.append, lambda ev: "sí", cancelado=lambda: True)
-    assert est == "cancelado" and f.exists()
+    assert est == "pendiente" and f.exists() and a.pendiente() is plan and "confirmar" in esc.paneles
+    # y se puede confirmar después, escribiendo «sí»
+    assert c.responder_pendiente("sí", esc, dicho.append) is True and not f.exists()
+
+
+def test_cortar_mientras_escucha_tampoco_lo_cancela(env):
+    esc, plan, f, dicho = montar(env)
+    corte = {"v": False}
+
+    def escuchar(ev):
+        corte["v"] = True
+        return None
+
+    est = c.confirmar(plan, esc, dicho.append, escuchar, cancelado=lambda: corte["v"])
+    assert est == "pendiente" and f.exists()
+
+
+@pytest.mark.parametrize("grace,larga,escena,esperado", [(4, False, False, 4), (4, True, False, 8),
+                                                         (4, False, True, 12), (4, True, True, 12)])
+def test_grace_escucha(grace, larga, escena, esperado):
+    assert c.grace_escucha(grace, larga, escena) == esperado
 
 
 def test_responder_pendiente_tarde(env):

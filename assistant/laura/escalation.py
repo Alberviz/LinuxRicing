@@ -197,7 +197,7 @@ def _confirm_archivos(session: Session, plan_id: str, mode: str, cancel: threadi
     def escuchar(evento: threading.Event) -> str | None:
         bus.emit(type="state", value="listening", mode=mode)
         audio = listen(max_seconds=CFG["audio"]["max_seconds"], cancel=AnyEvent(cancel, evento),
-                       start_grace=CFG["audio"].get("followup_seconds", 4))
+                       start_grace=max(10, CFG["audio"].get("followup_seconds", 4) * 2))
         if cancel.is_set() or evento.is_set():
             return None
         bus.emit(type="state", value="thinking", mode=mode)
@@ -205,7 +205,8 @@ def _confirm_archivos(session: Session, plan_id: str, mode: str, cancel: threadi
         bus.emit(type="transcript", value=frase or "(sin respuesta)")
         return frase or None
 
-    confirmar_archivos.confirmar(plan, escena(), decir, escuchar, cancelado=cancel.is_set)
+    estado = confirmar_archivos.confirmar(plan, escena(), decir, escuchar, cancelado=cancel.is_set)
+    log(f"archivos: plan {plan.id} ({plan.accion}) -> {estado}")
     return False
 
 
@@ -214,4 +215,9 @@ def responder_pendiente_archivos(texto: str, mode: str, cancel: threading.Event)
     sin pasar por el LLM. True si lo ha gestionado."""
     from . import confirmar_archivos
     from .holo import escena
-    return confirmar_archivos.responder_pendiente(texto, escena(), lambda t: _say(t, mode, cancel))
+    from . import archivos
+    p = archivos.pendiente()
+    gestionado = confirmar_archivos.responder_pendiente(texto, escena(), lambda t: _say(t, mode, cancel))
+    if p is not None:
+        log(f"archivos: respuesta tardía {texto!r} con el plan {p.id} pendiente -> gestionada={gestionado}")
+    return gestionado
