@@ -64,6 +64,10 @@ VLC 3 con Chromecast se congela con MKV de alto bitrate y audio Dolby (`httpd bu
 
 ## Pendiente
 
+- Drawer Proyectar (rediseño 2026-11-09, sin chips): fuente en 4 tarjetas, escritorios como mini-tarjetas numeradas con un punto
+  por ventana, monitores dibujados a escala, Calidad/Codificador en botones segmentados dentro de una tarjeta «Ajustes» plegable
+  con resumen. Falta probar con una proyección real el estado «proyectando» (ajustes en caliente) y las fuentes Ventana/Extender.
+
 - Espejo: medir la latencia real con audio (`cast-helper mirror test-latency`); desfase audio/vídeo ~40 ms sin ajustar; 1080p
   (`CAST_STREAM_SIZE=1920x1080`, ~230 % CPU) y NVENC (`CAST_STREAM_CODEC=h264 CAST_ENCODER=h264_nvenc`, ~48 % CPU pero despierta la RTX) son opcionales.
 - Guardar en el repo el bind `Super+K` (`kbCastPanel`, y `showall` → `Super+Shift+K`): está aplicado en `~/.config/hypr` pero
