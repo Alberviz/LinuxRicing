@@ -147,11 +147,10 @@ def _del_portapapeles() -> str | None:
 
 
 @tool("mandar_a_tele",
-      "Manda algo a la tele (Chromecast): «manda este vídeo a la tele» (que=video, sin destino: el que suena en el PC o el "
-      "enlace copiado), un enlace o archivo concreto (que=video, destino=url/ruta), «proyecta la pantalla en la tele» "
-      "(que=pantalla) o un escritorio (que=escritorio, destino=número). Para pausar/volumen/parar usa tele.",
+      "Manda a la tele (Chromecast): que=video («manda este vídeo»: el que suena en el PC; destino=url/ruta opcional), "
+      "que=pantalla («proyecta la pantalla»), que=escritorio (destino=número).",
       {"que": {"type": "string", "enum": _QUE},
-       "destino": {"type": "string", "description": "video: url o ruta (opcional); escritorio: número (opcional)"}},
+       "destino": {"type": "string"}},
       required=["que"], icon="cast")
 def mandar_a_tele(que: str, destino: str | None = None) -> dict:
     if que not in _QUE:

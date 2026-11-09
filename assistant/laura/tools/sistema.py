@@ -14,7 +14,7 @@ def _run(cmd: list[str]) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True)
 
 
-@tool("control_musica", "Controla la música/vídeo: pausar o reanudar, siguiente, anterior, parar («quita la música» = parar).",
+@tool("control_musica", "Controla la música/vídeo del PC (reproductor genérico): pausar o reanudar, siguiente, anterior, parar («quita la música» = parar). Para poner algo concreto de Spotify o mandarlo a la tele usa spotify.",
       {"accion": {"type": "string", "enum": ["reproducir_pausar", "siguiente", "anterior", "parar"]}},
       required=["accion"], icon="music_note")
 def control_musica(accion: str) -> dict:
