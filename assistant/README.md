@@ -58,31 +58,34 @@ kokoro, sounddevice, soundfile; `playerctl`, `wpctl`, `ffmpeg`, `xdg-open`.
 Todo en `config.toml` (voz, efecto, modelo STT, prompt, apps que puede abrir,
 tiempos de grabación, modo calidad, wake word). Reinicia el daemon tras cambiarlo.
 
-## Activación por voz («Laura») — wake word
+## Activación por voz («Laura despierta») — wake word
 
-El daemon puede escuchar en segundo plano con un modelo diminuto (openWakeWord,
-CPU, no transcribe nada) y arrancar el ciclo al oír «Laura», además del atajo.
-Está **desactivado** hasta que haya un modelo entrenado.
+El daemon escucha en segundo plano con un modelo diminuto (openWakeWord, CPU, no
+transcribe nada) y arranca el ciclo al oír **«Laura despierta»**, además del atajo.
+No basta con «Laura» sola (es también el nombre de la novia de Alberto): el modelo
+se entrena con «Laura», «Laura, ven…» y «despierta» suelta como negativos.
 
-Puesta en marcha:
+Modelo: `models/laura.onnx`, entrenado en local con `wake_train/` (datos en
+`~/.local/share/laura/wake/`, fuera del repo):
 
-1. `openwakeword` + `onnxruntime` ya están en el venv.
-2. **Entrenar el modelo «Laura»** (cosa de Alberto). Los modelos de fábrica de openWakeWord son
-   para otras palabras. El propio proyecto tiene un cuaderno de entrenamiento
-   automático que genera cientos de muestras sintéticas con TTS
-   (`piper-sample-generator`) y entrena un modelo pequeño:
-   <https://github.com/dscripka/openWakeWord> → *Training new models* (el
-   notebook de Colab `automatic_model_training.ipynb`; palabra objetivo:
-   `laura`). Salida: `laura.onnx` (o `.tflite`).
-3. Deja el modelo en `assistant/models/laura.onnx`.
-4. En `config.toml`, `[wake] enabled = true`. Reinicia el daemon.
-5. Ajusta `[wake] threshold` (sube a 0.6-0.7 si se dispara solo).
+1. `sinteticos.py` — miles de clips TTS (voces Piper en español + mezclas de voces
+   Kokoro) de la frase y de negativos parecidos.
+2. `grabar.py` — tu voz: tomas de la frase, tomas «casi», habla normal y ambiente
+   (Enter por toma; `r` repite).
+3. `entrenar.py` — aumento (reverberación, filtros, ruido), embeddings congelados de
+   openWakeWord, clasificador pequeño → ONNX. Mide detección y falsos/hora con
+   ~5 h de `validation_set_features.npy` de openWakeWord. `--rehacer` recalcula la caché.
+4. `probar.py` — score en directo con la misma lógica que el daemon.
+
+En `config.toml` → `[wake]`: `enabled`, `threshold` (0.8) y `patience` (3 ventanas
+de 80 ms seguidas sobre el umbral; los falsos suelen ser picos sueltos). Examen
+inicial: ~88 % de tus tomas no vistas, ~0,2 falsos/h. Si salta solo, sube
+`patience` a 4; si no te oye, bájalo a 2 o graba más tomas y reentrena.
 
 Wake, `listen()` y el barge-in comparten **un único InputStream** (`laura/mic.py`,
 distribuidor con suscriptores): no compiten por el micro. Mientras hay un ciclo
 activo el wake listener descarta el audio (no se dispara con la voz de Laura).
-El pipeline ya está listo: solo falta `models/laura.onnx`. El atajo `SUPER+A`
-sigue funcionando igual.
+El atajo `SUPER+A` sigue funcionando igual.
 
 ## Voz (TTS), audio y barge-in
 
