@@ -106,6 +106,8 @@ Item {
                         if (!fila.modelData)
                             return Colours.palette.m3secondary;
                         switch (fila.modelData.tipo) {
+                        case "carpeta":
+                            return "transparent";
                         case "pdf":
                             return Colours.palette.m3error;
                         case "texto":
@@ -116,6 +118,15 @@ Item {
                         default:
                             return Colours.palette.m3secondary;
                         }
+                    }
+
+                    MaterialIcon {
+                        anchors.centerIn: parent
+                        visible: !!(fila.modelData && fila.modelData.tipo === "carpeta")
+                        text: "folder"
+                        fill: 1
+                        fontStyle: Tokens.font.icon.size(20).build()
+                        color: Colours.palette.m3primary
                     }
 
                     Image {

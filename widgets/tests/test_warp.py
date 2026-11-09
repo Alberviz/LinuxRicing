@@ -119,6 +119,18 @@ class Buscar(Base):
         self.assertEqual([x["nombre"] for x in d["candidatos"]], [f"f{i}.pdf" for i in range(8)])
         self.assertFalse(self.log.exists())                       # listar nunca envía
 
+    def test_listar_incluye_subcarpetas_solo_en_local(self):
+        self.hacer("Documentos/informe.pdf")
+        (self.raiz / "Documentos" / "Universidad").mkdir()
+        (self.raiz / "Documentos" / ".privada").mkdir()
+        c, d = self.correr("listar", "documentos")
+        self.assertEqual(c, 0)
+        self.assertEqual([x["nombre"] for x in d["candidatos"]], ["Universidad", "informe.pdf"])   # carpetas primero
+        self.assertTrue(d["candidatos"][0]["carpeta"])
+        self.assertNotIn("carpeta", d["candidatos"][1])
+        c, d = self.correr("listar", "documentos", "--remoto")                                       # desde el móvil: solo archivos
+        self.assertEqual([x["nombre"] for x in d["candidatos"]], ["informe.pdf"])
+
     def test_listar_remoto_no_entra_en_ocultas(self):
         self.hacer(".ssh/id_ed25519")
         c, d = self.correr("listar", str(self.raiz / ".ssh"), "--remoto")

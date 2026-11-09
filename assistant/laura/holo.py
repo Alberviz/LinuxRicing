@@ -43,6 +43,7 @@ class Escena:
         self.ultimo_uso: float = self.reloj()
         self.enviar_por_warp: Callable[[int], dict] = self._enviar_por_warp_default
         self.abrir_externo: Callable[[str], dict] = self._abrir_externo_default
+        self.listador: Callable[[str], dict] = self._listar_default
 
     def _tocar(self) -> None:
         """Actualiza la marca de tiempo de última actividad."""
@@ -163,6 +164,13 @@ class Escena:
                 if n < 1 or n > len(self.items):
                     return {"ok": False, "error": f"Solo hay {len(self.items)}."}
 
+            # Una carpeta no se «abre» como visor: se entra en ella y se lista su contenido
+            carpetas = [self.items[n - 1] for n in numeros if self.items[n - 1].tipo == "carpeta"]
+            if carpetas:
+                if len(numeros) == len(carpetas):
+                    return self.entrar(carpetas[0])
+                numeros = [n for n in numeros if self.items[n - 1].tipo != "carpeta"]
+
             abiertos: list[Item] = []
             for n in numeros:
                 item = self.items[n - 1]
@@ -185,6 +193,14 @@ class Escena:
                     self._emit("select")   # ya estaba abierto: pasa a ser «esa» y el QML lo trae al frente
 
             return {"ok": True, "abiertos": abiertos}
+
+    def entrar(self, item: Item) -> dict:
+        """Entra en una carpeta de la lista: la sustituye por su contenido."""
+        d = self.listador(item.ruta)
+        if not d.get("ok"):
+            return {"ok": False, "error": d.get("error") or f"No puedo abrir {item.nombre}."}
+        items = self.listar(item.nombre, d.get("candidatos") or [])
+        return {"ok": True, "abiertos": [], "carpeta": item.nombre, "n": len(items)}
 
     def cerrar(self, numeros: list[int] | None = None, todo: bool = False) -> int:
         """Cierra visores concretos o vacía la escena completa si todo=True."""
@@ -367,7 +383,11 @@ class Escena:
         if cmd == "holo-open":
             try:
                 n = int(arg.strip())
-                return self.abrir([n])
+                res = self.abrir([n])
+                if res.get("ok"):
+                    # Item no es JSON: la respuesta del socket de control debe ser serializable
+                    res = {**res, "abiertos": [asdict(it) for it in res.get("abiertos", [])]}
+                return res
             except ValueError:
                 return {"ok": False, "error": f"Número inválido: {arg}"}
 
@@ -430,6 +450,14 @@ class Escena:
             if isinstance(res, dict) and res.get("ok"):
                 self.marcar_enviado(n)
             return res if isinstance(res, dict) else {"ok": True}
+        except Exception as err:
+            return {"ok": False, "error": str(err)}
+
+    def _listar_default(self, ruta: str) -> dict:
+        """Listado predeterminado de una carpeta delegando en warp."""
+        try:
+            from .tools import warp
+            return warp._warp("listar", ruta)
         except Exception as err:
             return {"ok": False, "error": str(err)}
 

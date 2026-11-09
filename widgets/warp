@@ -182,6 +182,8 @@ def permitido(ruta: Path) -> None:
 def ficha(p: Path, puntos: float | None = None) -> dict:
     st = p.stat()
     d = {"ruta": str(p), "nombre": p.name, "tamano": st.st_size, "modificado": int(st.st_mtime)}
+    if p.is_dir():
+        d["carpeta"] = True
     if puntos is not None:
         d["puntos"] = round(puntos, 2)
     return d
@@ -279,8 +281,13 @@ def listar(carpeta: str | None, remoto: bool, n: int = 8) -> dict:
     if remoto:
         archivos = [p for p in archivos if _ok_remoto(p)]
     archivos.sort(key=lambda x: -x.stat().st_mtime)
-    return {"ok": True, "carpeta": str(c), "total": len(archivos), "candidatos": [ficha(p) for p in archivos[:n]],
-            "claro": False}
+    if remoto:
+        return {"ok": True, "carpeta": str(c), "total": len(archivos), "candidatos": [ficha(p) for p in archivos[:n]],
+                "claro": False}
+    # En local también se ven las subcarpetas (primero, por nombre): si no, Documentos o Vídeos parecen vacías
+    carpetas = sorted((p for p in c.iterdir() if p.is_dir() and not p.name.startswith(".")), key=lambda x: x.name.lower())
+    return {"ok": True, "carpeta": str(c), "total": len(carpetas) + len(archivos),
+            "candidatos": [ficha(p) for p in (carpetas + archivos[:n])[:12]], "claro": False}
 
 
 def _ok_remoto(p: Path) -> bool:
@@ -430,7 +437,8 @@ def legible(d: dict) -> str:
     if "candidatos" in d and "enviado" not in d:
         if not d["candidatos"]:
             return "Nada encontrado."
-        return "\n".join(f"{'→' if i == 0 and d.get('claro') else ' '} {c['ruta']}  ({tam(c['tamano'])})"
+        return "\n".join(f"{'→' if i == 0 and d.get('claro') else ' '} {c['ruta']}{'/' if c.get('carpeta') else ''}"
+                         f"{'' if c.get('carpeta') else '  (' + tam(c['tamano']) + ')'}"
                          for i, c in enumerate(d["candidatos"]))
     if d.get("tipo") == "texto":
         return f"✓ Texto enviado al móvil ({d['caracteres']} caracteres)"

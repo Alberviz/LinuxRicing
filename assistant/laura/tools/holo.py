@@ -71,6 +71,9 @@ def mostrar_archivos(carpeta: str | None = None, consulta: str | None = None) ->
         decir = "No hay nada."
     elif n == 1:
         decir = f"Tienes una cosa; la más reciente es {_nombre_corto(items[0].nombre)}."
+    elif any(it.tipo == "carpeta" for it in items):
+        nc = sum(it.tipo == "carpeta" for it in items)
+        decir = f"Tienes {_num_palabra(n)} cosas, {_num_palabra(nc)} de ellas carpetas."
     else:
         decir = f"Tienes {_num_palabra(n)} cosas; la más reciente es {_nombre_corto(items[0].nombre)}."
 
@@ -102,6 +105,11 @@ def abrir(numeros: list[int] | None = None, ruta: str | None = None) -> dict:
     res = holo.escena().abrir(numeros=numeros, ruta=ruta)
     if not res.get("ok"):
         return res
+
+    if res.get("carpeta"):
+        n = res.get("n", 0)
+        decir = "Está vacía." if n == 0 else f"En {res['carpeta']} tienes {_num_palabra(n)} cosas."
+        return {"ok": True, "decir": decir, "resumen": f"Dentro de {res['carpeta']}", "n": n}
 
     abiertos = res.get("abiertos", [])
     nombres = [it.nombre for it in abiertos]

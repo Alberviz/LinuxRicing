@@ -180,3 +180,35 @@ def test_cerrar_panel_lista():
     assert e.cerrar_panel("lista") == 2
     assert bus.ev[-1]["op"] == "clear"
     assert e.contexto() == ""
+
+
+def test_abrir_carpeta_entra_y_lista(tmp_path):
+    sub = tmp_path / "Universidad"
+    sub.mkdir()
+    e, bus, _ = nueva()
+    visto = {}
+
+    def listador(ruta):
+        visto["ruta"] = ruta
+        return {"ok": True, "candidatos": cand("a.pdf", "b.pdf")}
+
+    e.listador = listador
+    e.listar("Documentos", [{"ruta": str(sub), "nombre": "Universidad", "tamano": 0, "modificado": 1.0}])
+    assert e.items[0].tipo == "carpeta"
+    res = e.abrir([1])
+    assert res["ok"] and res["carpeta"] == "Universidad" and res["n"] == 2
+    assert visto["ruta"] == str(sub)
+    assert [it.nombre for it in e.items] == ["a.pdf", "b.pdf"]
+    assert e.paneles["lista"]["titulo"] == "Universidad"
+    assert list(e.paneles) == ["lista"]          # no se abre ningún visor para la carpeta
+
+
+def test_abrir_mezcla_ignora_carpetas(tmp_path):
+    sub = tmp_path / "Carpeta"
+    sub.mkdir()
+    f = tmp_path / "nota.txt"
+    f.write_text("hola")
+    e, _, _ = nueva()
+    e.listar("X", [{"ruta": str(sub), "nombre": "Carpeta"}, {"ruta": str(f), "nombre": "nota.txt"}])
+    res = e.abrir([1, 2])
+    assert res["ok"] and [it.nombre for it in res["abiertos"]] == ["nota.txt"]

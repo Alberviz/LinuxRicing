@@ -52,7 +52,9 @@ def _detectar_mime_file(ruta: str) -> str:
 
 
 def tipo_de(ruta: str) -> str:
-    """Clasifica una ruta en: imagen, pdf, texto, video, audio u otro."""
+    """Clasifica una ruta en: carpeta, imagen, pdf, texto, video, audio u otro."""
+    if os.path.isdir(ruta):
+        return "carpeta"
     ext = Path(ruta).suffix.lower().lstrip(".")
 
     if ext in EXT_IMAGEN:
@@ -231,6 +233,9 @@ def preparar(ruta: str, tipo: str | None = None) -> dict:
 
         if tipo is None:
             tipo = tipo_de(ruta)
+
+        if tipo == "carpeta":
+            return {"tipo": "otro", "mime": "inode/directory", "icono": "folder"}
 
         if tipo == "imagen":
             w, h = 0, 0
