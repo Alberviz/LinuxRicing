@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import socket
 import subprocess
 from pathlib import Path
 
@@ -52,7 +53,8 @@ def _cmd(*args: str, timeout: int = 75) -> dict:
 def _suena(a: dict | None) -> str:
     if not a or not a.get("cancion"):
         return "No suena nada en Spotify."
-    donde = f" en {a['dispositivo']}" if a.get("dispositivo") else ""
+    dev = a.get("dispositivo")
+    donde = "" if not dev else (" en este PC" if dev.lower() == socket.gethostname().lower() else f" en la tele ({dev})")
     return f"{a['cancion']} de {a.get('artista') or 'alguien'}{donde}" + ("" if a.get("sonando") else ", en pausa") + "."
 
 
@@ -82,7 +84,8 @@ def spotify(accion: str, que: str | None = None, tipo: str | None = None, donde:
         if not r.get("ok"):
             return r
         p, a = r.get("puesto") or {}, r.get("ahora") or {}
-        lugar = f" en {a['dispositivo']}" if a.get("dispositivo") else ""
+        dev = a.get("dispositivo") or ""
+        lugar = "" if not dev else (" en este PC" if dev.lower() == socket.gethostname().lower() else f" en la tele ({dev})")
         return {"ok": True, "resumen": f"Spotify: {p.get('nombre', que)}"[:48],
                 "decir": f"Poniendo {p.get('nombre', que)}{lugar}.", "ahora": a}
     if accion in ("pasar_a_tele", "pasar_al_pc"):
