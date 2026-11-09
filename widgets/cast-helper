@@ -22,6 +22,7 @@ import logging
 import os
 import re
 import secrets
+import shutil
 import signal
 import socket
 import socketserver
@@ -399,16 +400,18 @@ MIRROR_KBPS = int(os.environ.get("CAST_MIRROR_KBPS", "6000"))
 
 
 def list_monitors():
-    """Salidas capturables por gpu-screen-recorder: [{name,width,height}]."""
+    """Salidas capturables por gpu-screen-recorder (o Hyprland como fallback): [{name,width,height}]."""
+    res = []
     try:
         out = subprocess.run(["gpu-screen-recorder", "--list-monitors"], capture_output=True, text=True, timeout=8).stdout
+        for ln in out.splitlines():
+            m = re.match(r"^([^|]+)\|(\d+)x(\d+)", ln.strip())
+            if m:
+                res.append({"name": m.group(1), "width": int(m.group(2)), "height": int(m.group(3))})
     except Exception:  # noqa: BLE001
-        return []
-    res = []
-    for ln in out.splitlines():
-        m = re.match(r"^([^|]+)\|(\d+)x(\d+)", ln.strip())
-        if m:
-            res.append({"name": m.group(1), "width": int(m.group(2)), "height": int(m.group(3))})
+        pass
+    if not res:
+        res = [{"name": m["name"], "width": int(m["width"]), "height": int(m["height"])} for m in real_monitors()]
     return res
 
 
@@ -548,6 +551,13 @@ def hypr_move_ws(ws, mon):
 
 def hypr_focus_ws(ws):
     subprocess.run(["hyprctl", "dispatch", f"hl.dsp.focus({{workspace={ws}}})"], capture_output=True, timeout=5)
+
+
+def hypr_wake():
+    try:
+        subprocess.run(["hyprctl", "dispatch", 'hl.dsp.dpms("on")'], capture_output=True, timeout=2)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def real_monitors():
@@ -695,11 +705,20 @@ def build_stream_cmds(source, host, port, audio_fifo, quality, encoder):
     w, h = QUALITY_SIZE[quality]
     kind, val = source
     if kind == "virtual":
-        cap = ["wf-recorder", "-o", val, "-c", "h264_vaapi", "-d", intel_render_node(), "-D", "-r", str(MIRROR_FPS),
+        cap = ["wf-recorder", "-y", "-o", val, "-c", "h264_vaapi", "-d", intel_render_node(), "-D", "-r", str(MIRROR_FPS),
+               "-F", f"scale_vaapi=w={w}:h={h}:format=nv12", "-p", "low_power=1", "-p", "bf=0",
+               "-p", f"g={MIRROR_FPS // 2}", "-p", f"b={MIRROR_KBPS * 1000}", "-m", "mpegts", "-f", "/dev/stdout"]
+    elif kind == "monitor" and shutil.which("gpu-screen-recorder"):
+        cap = ["gpu-screen-recorder", "-w", val, "-f", str(MIRROR_FPS),
+               "-c", "mpegts", "-k", "h264", "-bm", "cbr", "-q", str(MIRROR_KBPS), "-keyint", "0.5", "-cursor", "yes",
+               "-fm", "cfr", "-ffmpeg-video-opts", "tune=ull;zerolatency=1;rc-lookahead=0;bf=0;delay=0",
+               "-s", f"{w}x{h}", "-o", "/dev/stdout"]
+    elif kind == "monitor":
+        cap = ["wf-recorder", "-y", "-o", val, "-c", "h264_vaapi", "-d", intel_render_node(), "-D", "-r", str(MIRROR_FPS),
                "-F", f"scale_vaapi=w={w}:h={h}:format=nv12", "-p", "low_power=1", "-p", "bf=0",
                "-p", f"g={MIRROR_FPS // 2}", "-p", f"b={MIRROR_KBPS * 1000}", "-m", "mpegts", "-f", "/dev/stdout"]
     else:
-        cap = ["gpu-screen-recorder", "-w", val if kind == "monitor" else "portal", "-f", str(MIRROR_FPS),
+        cap = ["gpu-screen-recorder", "-w", "portal", "-f", str(MIRROR_FPS),
                "-c", "mpegts", "-k", "h264", "-bm", "cbr", "-q", str(MIRROR_KBPS), "-keyint", "0.5", "-cursor", "yes",
                "-fm", "cfr", "-ffmpeg-video-opts", "tune=ull;zerolatency=1;rc-lookahead=0;bf=0;delay=0",
                "-s", f"{w}x{h}", "-o", "/dev/stdout"]
@@ -1524,17 +1543,26 @@ class CastStreamSession(Session):
         for p in reversed(procs):          # primero el emisor: avisa al receptor de que se acaba
             if p.poll() is None:
                 try:
-                    p.terminate()
+                    os.killpg(p.pid, signal.SIGTERM)
                 except OSError:
-                    pass
-        deadline = time.time() + 4
+                    try:
+                        p.terminate()
+                    except OSError:
+                        pass
+        deadline = time.time() + 3
         for p in procs:
             try:
                 p.wait(timeout=max(0.1, deadline - time.time()))
             except subprocess.TimeoutExpired:
                 try:
-                    p.kill()
-                    p.wait(timeout=2)
+                    os.killpg(p.pid, signal.SIGKILL)
+                except OSError:
+                    try:
+                        p.kill()
+                    except OSError:
+                        pass
+                try:
+                    p.wait(timeout=1)
                 except Exception:  # noqa: BLE001
                     pass
 
@@ -1553,6 +1581,7 @@ class CastStreamSession(Session):
 
     def _start_pipeline(self):
         import select
+        hypr_wake()
         self.power = power_state()
         self.enc = resolve_encoder(self.encoder_mode, self.power)
         self.qual = resolve_quality(self.quality_mode, self.enc)
@@ -1698,6 +1727,7 @@ class CastStreamSession(Session):
     def stop(self):
         self.stopping = True
         self._kill_all()
+        self._release_virtual()
         super().stop()   # cast.quit_app() si hay conexión (el emisor ya cerró la app)
 
     def cleanup(self):

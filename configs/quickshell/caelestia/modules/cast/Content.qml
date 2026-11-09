@@ -63,7 +63,8 @@ Item {
         printErrors: false
         onLoaded: root.monitor = text().trim()
     }
-    readonly property string effMonitor: Cast.monitors.some(m => m.name === monitor) ? monitor : (Cast.monitors[0]?.name ?? "")
+    readonly property var availableMonitors: (Cast.monitors && Cast.monitors.length > 0) ? Cast.monitors : (opt?.monitors ?? [])
+    readonly property string effMonitor: availableMonitors.some(m => m.name === monitor) ? monitor : (availableMonitors[0]?.name ?? "")
 
     function applyDefaults(): void {
         const d = opt?.defaults;
@@ -242,7 +243,7 @@ Item {
             }
             StyledText {
                 Layout.fillWidth: true
-                visible: !root.scanning && Cast.monitors.length === 0
+                visible: !root.scanning && root.availableMonitors.length === 0
                 text: "No hay ninguna pantalla capturable (¿está encendida?)"
                 color: Colours.palette.m3error
                 font: Tokens.font.body.small
@@ -264,7 +265,7 @@ Item {
 
                     StateLayer {
                         radius: Tokens.rounding.large
-                        disabled: root.busy || Cast.monitors.length === 0
+                        disabled: root.busy || root.availableMonitors.length === 0
                         onClicked: root.start(row.modelData)
                     }
 
@@ -332,11 +333,11 @@ Item {
             }
             Flow {
                 Layout.fillWidth: true
-                visible: root.srcKind === "monitor" && Cast.monitors.length > 1
+                visible: root.srcKind === "monitor" && root.availableMonitors.length > 1
                 spacing: Tokens.spacing.small
 
                 Repeater {
-                    model: Cast.monitors
+                    model: root.availableMonitors
 
                     Chip {
                         required property var modelData
