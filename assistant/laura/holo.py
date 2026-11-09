@@ -6,9 +6,24 @@ from pathlib import Path
 import subprocess
 import threading
 import time
+import traceback
 from typing import Callable
 
 from . import archivos, holo_preview
+
+
+def _log(msg: str) -> None:
+    """Traza en el log del daemon (si no hay config, p. ej. en tests, a stdout)."""
+    try:
+        from .config import log
+        log(msg)
+    except Exception:  # noqa: BLE001
+        print("[laura]", msg, flush=True)
+
+
+def _quien() -> str:
+    """Cadena de llamadas que han llevado hasta aquí (para saber qué vació la escena)."""
+    return " <- ".join(f.name for f in reversed(traceback.extract_stack(limit=6)[:-2]))
 
 
 @dataclass
@@ -215,7 +230,9 @@ class Escena:
 
             if todo:
                 cuantos = len(self.paneles)
+                _log(f"holo: escena vaciada ({cuantos} paneles) por {_quien()}")
                 self.paneles.clear()
+                _log(f"holo: escena vaciada (sin paneles) por {_quien()}")
                 self.items.clear()
                 self.seleccionado = None
                 self._emit("clear")
@@ -239,6 +256,7 @@ class Escena:
 
             # Si tras cerrar no queda ningún panel, la escena se vacía por completo
             if not self.paneles:
+                _log(f"holo: escena vaciada (sin paneles) por {_quien()}")
                 self.items.clear()
                 self.seleccionado = None
                 self._emit("clear")
@@ -364,6 +382,7 @@ class Escena:
             return
         del self.paneles[pid]
         if not self.paneles:
+            _log(f"holo: escena vaciada al quitar {pid} por {_quien()}")
             self.items.clear()
             self.seleccionado = None
             self._emit("clear")
@@ -424,6 +443,7 @@ class Escena:
                 self._quitar_panel("confirmar")
             hay_escena = bool(self.items) or bool(self.paneles)
             if hay_escena and (self.reloj() - self.ultimo_uso > self.ttl):
+                _log(f"holo: escena caducada tras {self.reloj() - self.ultimo_uso:.0f}s sin uso (ttl {self.ttl:.0f}s)")
                 self.items.clear()
                 self.paneles.clear()
                 self.seleccionado = None
@@ -477,6 +497,7 @@ class Escena:
 
         if cmd == "holo-close":
             arg_limpio = arg.strip()
+            _log(f"holo: control holo-close {arg_limpio!r} (desde la UI)")
             if arg_limpio == "all":
                 self.cerrar(todo=True)
                 return {"ok": True}
