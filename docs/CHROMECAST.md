@@ -228,7 +228,9 @@ Todo lo del móvil vive en Olimpo (`~/proyectos/olimpo`, desplegado en la Pi); v
   `accesos:administrar` (Ajustes › Accesos de agentes, cambios con PIN en el móvil y auditoría). En la Pi también:
   `python -m horas.tokens permisos <id> --añadir … --quitar …`.
 - **Laura:** tool `assistant/laura/tools/tele.py` (estado, pausar, reanudar, volumen, saltar, ir a minuto) sobre `cast-helper`, sin pasar
-  por Olimpo. Su servicio apunta a `~/proyectos/LinuxRicing/assistant` (antes `~/LinuxRicing`, que no existe, y estaba en bucle 203/EXEC).
+  por Olimpo. `mandar_a_tele` lanza contenido: «manda este vídeo a la tele» coge el vídeo que suena en el PC (MPRIS:
+  `xesam:url` del navegador o `file://` de mpv; sigue por el mismo minuto y lo pausa en el PC) o el enlace/archivo copiado;
+  «proyecta la pantalla» / «el escritorio N» → `mirror start`. Spotify todavía no (no es un vídeo; necesita Spotify Connect). Su servicio apunta a `~/proyectos/LinuxRicing/assistant` (antes `~/LinuxRicing`, que no existe, y estaba en bucle 203/EXEC).
 - **Aurora:** skill `tele` en su repo (instalada en `~/.hermes/skills/productivity/tele/`), llama a Horas local en la Pi con `aurora.token`.
 
 ## Historia (2026-11-08/09)

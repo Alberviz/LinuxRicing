@@ -95,7 +95,7 @@ def teclado_color(color: str, color_lateral: str = "") -> dict:
     return {"ok": True, "resumen": "Color del teclado"}
 
 
-@tool("selector_pantallas", "Abre el selector de proyección de pantallas.", icon="monitor")
+@tool("selector_pantallas", "Abre el selector de monitores externos por cable (HDMI: duplicar/extender). Para la tele/Chromecast usa mandar_a_tele.", icon="monitor")
 def selector_pantallas() -> dict:
     exe = _find("display-selector", "widgets/display-selector")
     if not exe:
