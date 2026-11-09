@@ -167,6 +167,14 @@ timeout = 20
 email = "albvizpon@gmail.com"   # cuenta de Google (user_google_email que exigen las herramientas)
 
 # Vigía: Laura se levanta sola para avisar de correo, eventos y tareas (solo en el escritorio).
+[archivos]
+# Gestión de archivos por voz (borrar a la papelera, mover, renombrar; con confirmación y «deshaz»).
+# raices = carpetas donde Laura puede actuar. Vacío = Descargas, Documentos, Escritorio, Imágenes,
+# Vídeos y Música (xdg-user-dirs) más ~/proyectos. Nunca toca ocultos, .git ni vault.
+# raices = ["~/Descargas", "~/Documentos"]
+max_ops = 50           # operaciones máximas por plan
+ttl = 60               # segundos que un plan espera confirmación
+
 [vigia]
 enabled = true
 cada_min = 5               # sin LLM en la ruta normal, se puede revisar a menudo

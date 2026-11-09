@@ -809,3 +809,36 @@ texto = "mándame por warp lo que acabo de copiar"
 espera = ["warp"]
 args = [{accion = "portapapeles"}]
 grupo = "warp"
+
+# ---------- archivos ----------
+[[frase]]
+texto = "borra la dos"
+espera = ["borrar_archivos"]
+grupo = "archivos"
+
+[[frase]]
+texto = "elimina esas tres capturas"
+espera = ["borrar_archivos"]
+grupo = "archivos"
+
+[[frase]]
+texto = "mueve la tres a universidad"
+espera = ["mover_archivos"]
+args = [{destino = "universidad"}]
+grupo = "archivos"
+
+[[frase]]
+texto = "renombra la uno a factura punto pdf"
+espera = ["renombrar_archivo"]
+grupo = "archivos"
+
+[[frase]]
+texto = "crea una carpeta que se llame facturas"
+espera = ["crear_carpeta"]
+args = [{nombre = "facturas"}]
+grupo = "archivos"
+
+[[frase]]
+texto = "deshaz lo último"
+espera = ["deshacer_archivos"]
+grupo = "archivos"
