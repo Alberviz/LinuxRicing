@@ -10,6 +10,7 @@ import qs.modules.osd as Osd
 import qs.modules.session as Session
 import qs.modules.sidebar as Sidebar
 import qs.modules.utilities as Utilities
+import qs.modules.cast as CastDrawer
 import qs.modules.bar.popouts as BarPopouts
 import qs.modules.utilities.toasts as Toasts
 
@@ -31,6 +32,7 @@ Item {
     readonly property alias popouts: popoutsWrapper.content
     readonly property alias popoutsWrapper: popoutsWrapper
     readonly property alias utilities: utilities
+    readonly property alias castDrawer: castDrawer
     readonly property alias toasts: toasts
     readonly property alias sidebar: sidebar
 
@@ -134,10 +136,19 @@ Item {
         anchors.right: parent.right
     }
 
+    CastDrawer.Wrapper {
+        id: castDrawer
+
+        screenState: root.screenState
+
+        anchors.bottom: parent.bottom
+        anchors.right: parent.right
+    }
+
     Toasts.Toasts {
         id: toasts
 
-        anchors.bottom: sidebar.visible ? parent.bottom : utilities.top
+        anchors.bottom: sidebar.visible ? parent.bottom : (castDrawer.visible ? castDrawer.top : utilities.top)
         anchors.right: sidebar.left
         anchors.margins: Tokens.padding.medium
     }
