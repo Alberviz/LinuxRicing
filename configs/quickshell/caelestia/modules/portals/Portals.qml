@@ -10,7 +10,9 @@ import qs.components.containers
 import qs.services
 
 // Portales de arrastre, variante B «clavado en el borde» (mockup portales-mockup.html).
-// DERECHO -> Chromecast (Cast), SUPERIOR -> móvil vía Olimpo (`olimpo enviar`).
+// DERECHO -> Chromecast (Cast), SUPERIOR -> móvil vía Olimpo (`olimpo enviar`): el agujero NEGRO de Warp (docs/WARP.md).
+// Además, todo lo que envía el CLI `warp` (atajo Super+Shift+M, Laura, Instinct, texto arrastrado) llega por
+// $XDG_RUNTIME_DIR/warp/salidas.jsonl y abre este mismo agujero, que se traga el envío.
 // `drag-watch` avisa de un arrastre en curso (DragWatch.qml). Fuera del arrastre: ventana sin
 // input, nada visible y NINGUNA animación ni temporizador corriendo (el FrameAnimation solo
 // corre mientras `active`). Wayland solo entrega el DnD a la superficie bajo el cursor, por
@@ -43,6 +45,7 @@ Variants {
         property bool sawJson: false
         property var finalMsg: null
         property string sendPath: ""
+        property bool warpSending: false
         readonly property var mediaExt: ["mp4", "m4v", "mkv", "webm", "avi", "mov", "ts", "mpg", "mpeg", "wmv", "flv", "ogv", "mp3", "flac", "m4a", "aac", "ogg", "opus", "wav", "mka"]
         // 0..1 aparición global. Entra con muelle (ease-out) y sale acelerando (~380 ms); es
         // estado continuo, así que invertir a mitad no produce saltos.
@@ -80,6 +83,12 @@ Variants {
 
         // Aviso previo a soltar: nombre, tamaño y si cabe / se puede reproducir
         function inspect(portal, drag): void {
+            if (portal.edge === "top" && !drag.hasUrls && drag.hasText) {   // Warp: texto suelto
+                portal.fileName = "Texto";
+                portal.bad = "";
+                portal.fileLine = "Texto · " + drag.text.length + " caracteres";
+                return;
+            }
             let t = "";
             if (drag.hasUrls && drag.urls.length > 0)
                 t = Cast.normalizeTarget(drag.urls[0].toString());
@@ -261,7 +270,7 @@ Variants {
             }
         }
 
-        function finishTransfer(portal, ok: bool, msg: string): void {
+        function finishTransfer(portal, ok: bool, msg: string, quiet): void {
             const name = portal.tName;
             portal.phase = ok ? "ok" : "error";
             portal.status = msg;
@@ -274,7 +283,8 @@ Variants {
             teleTarget = portal === pRight ? "" : teleTarget;
             retract.interval = ok ? 2600 : 6500;
             retract.restart();
-            notify(ok, msg, name);
+            if (!quiet)
+                notify(ok, msg, name);
         }
 
         function sendTele(t: string): void {
@@ -364,15 +374,55 @@ Variants {
             finishTransfer(portal, false, portal.bad);
         }
 
-        function startAbsorb(portal): void {
-            const a0 = Math.atan2(ly - portal.cy, lx - portal.cx);
-            const r0 = Math.hypot(lx - portal.cx, ly - portal.cy);
+        function startAbsorb(portal, fx, fy): void {
+            const sx = fx ?? lx, sy = fy ?? ly;
+            const a0 = Math.atan2(sy - portal.cy, sx - portal.cx);
+            const r0 = Math.hypot(sx - portal.cx, sy - portal.cy);
             absorb = {
                 p: portal,
                 t: 0,
                 a0: a0,
                 r0: r0
             };
+        }
+
+        // Warp: el CLI anuncia sus envíos (enviando → ok | error). Los textos no se muestran ni se notifican
+        // (pueden ser claves): solo «Texto · N caracteres».
+        function onWarpLine(line: string): void {
+            let d;
+            try {
+                d = JSON.parse(line);
+            } catch (e) {
+                return;
+            }
+            const nombre = d.tipo === "texto" ? "Texto · " + (d.fragmento ?? "").length + (d.fragmento?.length >= 140 ? "+" : "") + " caracteres" : (d.nombre ?? "Archivo");
+            if (d.fase === "enviando") {
+                if (pTop.phase === "sending")
+                    return;   // ya hay un envío en curso en el portal: no se pisa
+                retract.stop();
+                pTop.phase = "sending";
+                pTop.tName = nombre;
+                pTop.tProgress = -1;
+                pTop.tText = "Enviando…";
+                pTop.tSub = d.origen && d.origen !== "terminal" ? "por " + d.origen : "";
+                warpSending = true;
+                icon.text = d.tipo === "texto" ? "content_paste" : "description";
+                if (d.origen !== "arrastre")
+                    startAbsorb(pTop, width / 2 + 160 * u, height * 0.32);
+            } else if ((d.fase === "ok" || d.fase === "error") && warpSending) {
+                warpSending = false;
+                pTop.tName = nombre;
+                // una sola notificación aunque haya varias pantallas (cada una sigue salidas.jsonl)
+                finishTransfer(pTop, d.fase === "ok", d.fase === "ok" ? "Enviado a tu móvil" : (d.mensaje || "No se pudo enviar"), modelData.name !== Quickshell.screens[0]?.name);
+            }
+        }
+
+        // Warp: texto soltado en el portal de arriba → `warp texto -` (por stdin)
+        function sendText(texto: string): void {
+            if (warpTextProc.running)
+                return;
+            warpTextProc.pending = texto;
+            warpTextProc.running = true;
         }
 
         function targetOf(drop): string {
@@ -509,6 +559,37 @@ Variants {
                     win.finishTransfer(pTop, true, "Enviado a tu móvil");
                 else
                     win.finishTransfer(pTop, false, r?.error ?? (olimpoErr.text.trim().split("\n").pop() || "Olimpo no responde"));
+            }
+        }
+
+        // Warp: salidas del CLI (cero coste en reposo: tail bloqueado)
+        Process {
+            command: ["sh", "-c", "d=\"${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/warp\"; mkdir -p \"$d\"; exec tail -n 0 -F \"$d/salidas.jsonl\" 2>/dev/null"]
+            running: true
+            stdout: SplitParser {
+                onRead: line => win.onWarpLine(line)
+            }
+        }
+
+        Process {
+            id: warpTextProc
+
+            property string pending: ""
+
+            command: ["sh", "-c", "exec \"$HOME/.local/bin/warp\" texto - --json --origen arrastre"]
+            stdinEnabled: true
+            onStarted: {
+                write(pending);
+                stdinEnabled = false;
+                pending = "";
+            }
+            onExited: code => {
+                stdinEnabled = true;
+                if (code !== 0 && !win.warpSending && pTop.phase === "idle") {
+                    pTop.phase = "error";
+                    pTop.tName = "Texto";
+                    win.finishTransfer(pTop, false, "No se pudo lanzar «warp»");
+                }
             }
         }
 
@@ -655,9 +736,16 @@ Variants {
                         }
                     }
                     onDropped: drop => {
+                        if (!drop.hasUrls && drop.hasText && pTop.phase === "idle") {   // Warp: texto
+                            icon.text = "content_paste";
+                            win.startAbsorb(pTop);
+                            win.sendText(drop.text);
+                            return;
+                        }
                         const t = win.targetOf(drop);
                         if (!t || pTop.phase !== "idle")
                             return;
+                        icon.text = "description";
                         if (pTop.bad) {
                             win.rejectDrop(pTop);
                             return;

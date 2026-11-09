@@ -24,6 +24,7 @@
 #    rgb/{agent-notify,akko-rgb,battery-lighting,magichome-control,mchose-battery,
 #         mchose-lighting,rgb-notify-flash} -> ~/.local/bin/
 #    widgets/cast-helper            -> ~/.local/bin/  (daemon Chromecast; tarjeta del panel rápido)
+#    widgets/warp                   -> ~/.local/bin/  (Warp: texto y archivos al móvil; docs/WARP.md)
 #    widgets/drag-watch             -> ~/.local/bin/  (vigilante de arrastres; portales de Quickshell, requiere grupo input)
 #    systemd/*.service              -> ~/.config/systemd/user/
 # ==============================================================================
@@ -311,6 +312,14 @@ if [ -f "$BASE_DIR/widgets/cast-helper" ]; then
     cp -u "$BASE_DIR/widgets/cast-helper" "$HOME/.local/bin/cast-helper"
     chmod +x "$HOME/.local/bin/cast-helper"
     echo -e "  ${SUCCESS}✔ cast-helper instalado en ~/.local/bin${RESET}"
+fi
+
+# 4e2. Instalar warp (pasar texto y archivos al móvil por Olimpo; atajo Super+Shift+M, Laura y órdenes de Instinct)
+if [ -f "$BASE_DIR/widgets/warp" ]; then
+    mkdir -p "$HOME/.local/bin"
+    cp -u "$BASE_DIR/widgets/warp" "$HOME/.local/bin/warp"
+    chmod +x "$HOME/.local/bin/warp"
+    echo -e "  ${SUCCESS}✔ warp instalado en ~/.local/bin${RESET}"
 fi
 
 # 4f. Instalar drag-watch (detecta arrastres de archivos para los portales-agujero negro del shell)

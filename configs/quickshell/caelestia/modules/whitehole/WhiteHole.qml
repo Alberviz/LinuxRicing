@@ -10,13 +10,16 @@ import qs.components.containers
 import qs.components.controls
 import qs.services
 
-// Llegadas del móvil (puente de Olimpo): el MISMO agujero negro de los portales (variante B, clavado en
-// el borde superior (agujero del móvil); shader ../portals/shaders/portal.frag) se abre y el archivo emerge del horizonte y se
-// queda aparcado en una tarjeta junto al agujero (se apilan mientras el agujero sigue abierto en latente).
-// Se va (cae de vuelta al agujero y este se retrae) al abrirlo, con la X o tras ~60 s sin interacción.
-// Clic: abrir · botón derecho: mostrar en carpeta · arrastrar la tarjeta: soltar en otra app.
-// El puente añade una línea JSON por archivo a $XDG_RUNTIME_DIR/olimpo-puente/llegadas.jsonl
-// ({"ruta","nombre","tamano","mime","ts"}); `tail -F` las recibe (cero coste en reposo).
+// Warp — llegadas del móvil (puente de Olimpo). Lo que se envía cae por el agujero NEGRO (Portals); lo que llega sale
+// por el agujero BLANCO, en el mismo sitio (borde superior, centrado), como en Outer Wilds. Shader shaders/whitehole.frag:
+// núcleo incandescente, disco fino frío con Doppler, chorro hacia la pantalla y onda de destello en cada expulsión.
+// Cada llegada sale despedida y queda aparcada en una tarjeta (se apilan, máx. 5); se va (cae de vuelta) al usarla,
+// con la X o tras ~60 s sin interacción. Durante un arrastre (el portal negro ocupa ese sitio) las llegadas esperan.
+//   archivo: clic abrir · derecho mostrar en carpeta · arrastrar a otra app
+//   texto:   el puente ya lo copió al portapapeles; clic lo vuelve a copiar · arrastrar como texto
+// El puente añade una línea JSON por llegada a $XDG_RUNTIME_DIR/olimpo-puente/llegadas.jsonl: archivo
+// {"ruta","nombre","tamano","mime","ts"} o texto {"tipo":"texto","texto","caracteres","copiado","ts"}; `tail -F` las
+// recibe (cero coste en reposo). Diseño: docs/WARP.md.
 Scope {
     id: scope
 
@@ -24,8 +27,18 @@ Scope {
 
     signal arrived(var entry)
 
-    // Prueba sin puente: qs -c caelestia ipc call whitehole demo <ruta>
+    // Prueba sin puente: qs -c caelestia ipc call whitehole demo <ruta> · … demoTexto <texto>
     IpcHandler {
+        function demoTexto(texto: string): void {
+            scope.arrived({
+                tipo: "texto",
+                texto: texto,
+                caracteres: texto.length,
+                copiado: true,
+                ts: Date.now() / 1000
+            });
+        }
+
         function demo(path: string): void {
             const name = path.split("/").pop();
             scope.arrived({
@@ -47,7 +60,7 @@ Scope {
             onRead: line => {
                 try {
                     const d = JSON.parse(line);
-                    if (d.ruta)
+                    if (d.ruta || (d.tipo === "texto" && typeof d.texto === "string"))
                         scope.arrived(d);
                 } catch (e) {}
             }
@@ -64,8 +77,7 @@ Scope {
 
             property var pending: []
             property real show: 0          // presencia del agujero 0..1 (entra con muelle, sale acelerando)
-            property real spin: 0
-            property real pull: 0
+            property real phase: 0
             property real pulse: 0
             property bool holeOn: false
             readonly property real u: width / 1280
@@ -83,7 +95,7 @@ Scope {
             }
 
             function trySpit(): void {
-                if (pending.length === 0)
+                if (pending.length === 0 || DragWatch.dragging)   // el portal negro está en ese sitio: esperar
                     return;
                 const free = cards.find(c => !c.active);
                 if (!free)
@@ -96,6 +108,10 @@ Scope {
                 pulseAnim.restart();
                 if (pending.length > 0)
                     spitTimer.start();
+            }
+
+            function flash(): void {
+                pulseAnim.restart();
             }
 
             // Si no queda ninguna tarjeta ni pendiente, el agujero se retrae
@@ -132,6 +148,15 @@ Scope {
             Region {
                 item: c4
             }
+            }
+
+            Connections {
+                target: DragWatch
+
+                function onDraggingChanged() {
+                    if (!DragWatch.dragging)
+                        spitTimer.restart();
+                }
             }
 
             Connections {
@@ -183,48 +208,36 @@ Scope {
                 duration: PowerSaving.active ? 0 : 520
                 easing.type: Easing.OutCubic
             }
-            // Giro del disco y succión: solo corren mientras el agujero está presente
+            // Pulsos del chorro y giro del disco: solo mientras el agujero está presente
             NumberAnimation {
                 target: win
-                property: "spin"
+                property: "phase"
                 from: 0
-                to: 6.2831853
-                duration: 14000
-                loops: Animation.Infinite
-                running: win.show > 0.01 && !PowerSaving.active
-            }
-            NumberAnimation {
-                target: win
-                property: "pull"
-                from: 0
-                to: 40
-                duration: 40000
+                to: 1
+                duration: 1800
                 loops: Animation.Infinite
                 running: win.show > 0.01 && !PowerSaving.active
             }
 
             ShaderEffect {
-                readonly property real half: 7.5 * win.holeR
+                readonly property real half: 9 * win.holeR
                 x: win.holeCx - half
                 y: win.holeCy - half
                 width: half * 2
                 height: half * 2
-                // durante un arrastre el portal del móvil (Portals) pinta ese mismo agujero: no se duplica
+                // durante un arrastre el portal del móvil (Portals) pinta el agujero negro en ese sitio: no se mezclan
                 visible: win.show > 0.01 && !DragWatch.dragging
 
                 property vector2d size: Qt.vector2d(width, height)
-                property vector2d outward: Qt.vector2d(0, -1)
-                property color tint: Qt.rgba(Colours.palette.m3primary.r, Colours.palette.m3primary.g, Colours.palette.m3primary.b, 0.18)
-                property real rad: win.holeR
+                property color tint: Qt.rgba(Colours.palette.m3primary.r, Colours.palette.m3primary.g, Colours.palette.m3primary.b, 0.25)
+                property real rad: win.holeR * (0.5 + 0.5 * win.show)
                 property real upx: win.u
-                property real en: 0.45 + 0.3 * win.pulse
+                property real en: 0.35 + 0.65 * win.pulse
                 property real vis: win.show
-                property real armed: win.pulse > 0.2 ? 1 : 0
+                property real phase: win.phase
                 property real pulse: win.pulse
-                property real spin: win.spin
-                property real pull: win.pull
 
-                fragmentShader: Qt.resolvedUrl("../portals/shaders/portal.frag.qsb")
+                fragmentShader: Qt.resolvedUrl("shaders/whitehole.frag.qsb")
             }
 
             Card {
@@ -269,11 +282,14 @@ Scope {
                 property real t: 0           // 0 = dentro del agujero, 1 = aparcada
                 readonly property real lx: win.width / 2 - width - 24 * win.u       // a la izquierda del eje: el HUD del portal queda a la derecha
                 readonly property real ly: win.holeR * 1.9 + slot * (height + 12)
-                readonly property bool isImage: (entry?.mime ?? "").startsWith("image/")
+                readonly property bool isText: entry?.tipo === "texto"
+                readonly property bool isImage: !isText && (entry?.mime ?? "").startsWith("image/")
+                property bool recopied: false
                 readonly property string fileUrl: "file://" + (entry?.ruta ?? "")
 
                 function launch(e: var): void {
                     entry = e;
+                    recopied = false;
                     t = 0;
                     parked = false;
                     opacity = 0;
@@ -343,6 +359,31 @@ Scope {
                         win.checkEmpty();
                     }
                 }
+                Process {
+                    id: copyProc
+
+                    command: ["wl-copy"]
+                    stdinEnabled: true
+                    onStarted: {
+                        write(card.entry?.texto ?? "");
+                        stdinEnabled = false;
+                    }
+                    onExited: code => {
+                        stdinEnabled = true;
+                        if (code === 0) {
+                            card.recopied = true;
+                            win.flash();
+                            dismissSoon.restart();
+                        }
+                    }
+                }
+                Timer {
+                    id: dismissSoon
+
+                    interval: 900
+                    onTriggered: card.dismiss()
+                }
+
                 // Sin interacción durante ~60 s: se va sola
                 Timer {
                     id: life
@@ -358,7 +399,8 @@ Scope {
                     radius: Tokens.rounding.large
                     color: Qt.alpha(Colours.palette.m3surfaceContainer, 0.96)
                     border.width: 1.5
-                    border.color: Qt.alpha(Colours.palette.m3primary, 0.7)
+                    // borde blanco-azulado: viene del agujero blanco
+                    border.color: Qt.alpha(Qt.tint(Colours.palette.m3primary, Qt.rgba(0.9, 0.95, 1, 0.6)), 0.8)
 
                     Item {
                         id: thumbBox
@@ -385,6 +427,8 @@ Scope {
                             MaterialIcon {
                                 anchors.centerIn: parent
                                 text: {
+                                    if (card.isText)
+                                        return card.entry?.copiado === false && !card.recopied ? "content_paste_off" : "content_paste";
                                     const m = card.entry?.mime ?? "";
                                     if (m.startsWith("video/"))
                                         return "movie";
@@ -412,7 +456,7 @@ Scope {
 
                         Text {
                             width: parent.width
-                            text: card.entry?.nombre ?? ""
+                            text: card.isText ? (card.recopied ? "Copiado otra vez" : card.entry?.copiado === false ? "No se pudo copiar · clic para copiar" : "Copiado al portapapeles") : (card.entry?.nombre ?? "")
                             elide: Text.ElideMiddle
                             font.pixelSize: 15
                             font.weight: Font.Medium
@@ -420,6 +464,17 @@ Scope {
                         }
                         Text {
                             width: parent.width
+                            visible: card.isText
+                            text: (card.entry?.texto ?? "").replace(/\s+/g, " ").trim()
+                            elide: Text.ElideRight
+                            maximumLineCount: 1
+                            font.family: "JetBrainsMono Nerd Font Mono"
+                            font.pixelSize: 12
+                            color: Colours.palette.m3onSurfaceVariant
+                        }
+                        Text {
+                            width: parent.width
+                            visible: !card.isText
                             text: "Desde el móvil · " + win.fmtSize(card.entry?.tamano ?? 0)
                             font.family: "JetBrainsMono Nerd Font Mono"
                             font.pixelSize: 11
@@ -427,7 +482,7 @@ Scope {
                         }
                         Text {
                             width: parent.width
-                            text: "clic: abrir · derecho: carpeta · arrastra"
+                            text: card.isText ? "Desde el móvil · " + (card.entry?.caracteres ?? 0) + " caracteres · clic: copiar" : "clic: abrir · derecho: carpeta · arrastra"
                             font.pixelSize: 11
                             color: Qt.alpha(Colours.palette.m3onSurfaceVariant, 0.7)
                         }
@@ -440,7 +495,9 @@ Scope {
                         anchors.fill: parent
                         Drag.dragType: Drag.Automatic
                         Drag.supportedActions: Qt.CopyAction
-                        Drag.mimeData: {
+                        Drag.mimeData: card.isText ? {
+                            "text/plain": card.entry?.texto ?? ""
+                        } : {
                             "text/uri-list": card.fileUrl + "\r\n",
                             "text/plain": card.entry?.ruta ?? ""
                         }
@@ -467,6 +524,10 @@ Scope {
                         onExited: if (card.parked)
                             life.restart()
                         onClicked: ev => {
+                            if (card.isText) {
+                                copyProc.running = true;   // wl-copy lee el texto por stdin (nunca en la línea de órdenes)
+                                return;
+                            }
                             const path = card.entry.ruta;
                             if (ev.button === Qt.RightButton) {
                                 Quickshell.execDetached(["sh", "-c", "dbus-send --session --print-reply --dest=org.freedesktop.FileManager1 /org/freedesktop/FileManager1 org.freedesktop.FileManager1.ShowItems array:string:\"file://$1\" string:\"\" >/dev/null 2>&1 || xdg-open \"$(dirname \"$1\")\"", "sh", path]);

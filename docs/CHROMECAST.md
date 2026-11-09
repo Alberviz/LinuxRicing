@@ -87,6 +87,9 @@ VLC 3 con Chromecast se congela con MKV de alto bitrate y audio Dolby (`httpd bu
 
 ## Portales de arrastre (agujeros negros en los bordes)
 
+> El portal de arriba y las llegadas del móvil forman parte de **Warp**: ver `docs/WARP.md` (texto, atajo `Super+Shift+K`,
+> Laura, Instinct y el agujero blanco).
+
 Al arrastrar un archivo desde el gestor de archivos o el navegador aparecen dos mini agujeros negros
 (estilo Gargantua del escritorio) en los bordes de la pantalla; crecen al acercar el cursor y se abren
 al entrar en la banda del borde:
@@ -197,11 +200,11 @@ arrancar, cae solo a HLS. `--backend hls|cast-streaming|auto` (o `CAST_MIRROR_BA
   (`n` de subtítulos = índice de stream, o `1000+i` para externos; `n` de audio = índice de stream). `tracks` es `null` en `url` y `mirror`.
 - La tarjeta del panel rápido tiene un chip de subtítulos y otro de audio que abren un menú con las pistas + «Desactivados».
 
-## Llegadas desde el móvil (agujero negro del borde)
+## Llegadas desde el móvil (agujero blanco del borde — Warp, ver `docs/WARP.md`)
 
 El puente de Olimpo añade una línea JSON por archivo recibido a `$XDG_RUNTIME_DIR/olimpo-puente/llegadas.jsonl`
 (`{"ruta","nombre","tamano","mime","ts"}`). `modules/whitehole/WhiteHole.qml` (nombre histórico) lo vigila con `tail -n 0 -F` (cero coste
-en reposo). Se abre el MISMO agujero negro de los portales (shader `portals/shaders/portal.frag`, clavado en el borde superior, centrado: es el «agujero del móvil», el mismo del portal de arriba, y no se duplica durante un arrastre), el archivo emerge del horizonte (pequeño y estirado, con destello del anillo) y queda
+en reposo). Se abre un agujero BLANCO (shader `whitehole/shaders/whitehole.frag`, clavado en el borde superior, centrado, donde está el portal negro del móvil; durante un arrastre las llegadas esperan), el archivo emerge del horizonte (pequeño y estirado, con destello del anillo) y queda
 aparcado en una tarjeta debajo (a la izquierda del eje, para no tapar el HUD del portal); varias se apilan (máx. 5). Clic: abrir (y cae de vuelta al agujero); botón derecho: mostrar en carpeta;
 X: descartar; arrastrar la tarjeta: soltar en otra app (`Drag.Automatic`, `text/uri-list`); ~60 s sin interacción: se va sola. Cuando no queda
 ninguna, el agujero se retrae con la animación de salida. Prueba: `qs -c caelestia ipc call whitehole demo <ruta>`.
