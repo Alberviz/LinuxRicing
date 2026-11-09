@@ -1120,7 +1120,7 @@ class Session:
         try:
             if self.mode == "url":
                 self._connect()
-                self._load_url()
+                self._load_url(start)
             else:
                 self._prepare_subs(sub_spec)
                 self._extract_art()
@@ -1258,10 +1258,10 @@ class Session:
         finally:
             self.reloading = False
 
-    def _load_url(self):
+    def _load_url(self, start=0):
         from catt.api import CattDevice  # type: ignore
         dev = CattDevice(ip_addr=self.dev["host"])
-        dev.play_url(self.source, resolve=True)
+        dev.play_url(self.source, resolve=True, current_time=float(start) if start else None)
         self.cast.media_controller.update_status()
 
     # -- controles --
@@ -2305,7 +2305,7 @@ class Daemon:
             s = Session(self, dev, src, "url", req.get("title") or src)
             self.error = None
             self.set_active(s)
-            threading.Thread(target=s.run_load, args=(0, None), daemon=True).start()
+            threading.Thread(target=s.run_load, args=(start, None), daemon=True).start()
             return {"ok": True, "mode": "url", "preparing": True}
         path = os.path.abspath(os.path.expanduser(src))
         info = probe_file(path)

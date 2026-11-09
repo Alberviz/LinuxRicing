@@ -730,3 +730,18 @@ args = [{accion = "volumen", valor = 40}]
 texto = "salta treinta segundos en la tele"
 espera = ["tele"]
 args = [{accion = "saltar", valor = 30}]
+
+[[frase]]
+texto = "manda este vídeo a la tele"
+espera = ["mandar_a_tele"]
+args = [{que = "video"}]
+
+[[frase]]
+texto = "proyecta la pantalla en la tele"
+espera = ["mandar_a_tele"]
+args = [{que = "pantalla"}]
+
+[[frase]]
+texto = "pon el escritorio tres en la tele"
+espera = ["mandar_a_tele"]
+args = [{que = "escritorio", destino = "3"}]

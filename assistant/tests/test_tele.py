@@ -56,3 +56,72 @@ def test_validaciones(entorno):
     assert entorno.llamadas() == []
     entorno.estado(None)
     assert "nada reproduciendo" in t.tele("pausar")["error"] and entorno.llamadas() == []
+
+
+# ───────────── mandar_a_tele ─────────────
+@pytest.fixture
+def mandar(entorno, monkeypatch, tmp_path):
+    """playerctl/wl-paste/hyprctl falsos: `sh` responde según un dict {comando: salida}."""
+    respuestas: dict[str, str] = {}
+    ordenes: list[str] = []
+
+    def sh(*cmd):
+        clave = " ".join(cmd)
+        ordenes.append(clave)
+        return respuestas.get(clave, "")
+    monkeypatch.setattr(t, "_sh", sh)
+    entorno_devs = {"devices": [{"name": "Comedor", "uuid": "u1"}], "active": None, "error": None}
+    (Path(os.environ["XDG_RUNTIME_DIR"]) / "cast-helper" / "state.json").write_text(json.dumps(entorno_devs))
+    return types.SimpleNamespace(r=respuestas, ordenes=ordenes, llamadas=entorno.llamadas, tmp=tmp_path)
+
+
+def _player(m, p, status, url, pos="0", title=""):
+    m.r["playerctl -l"] = (m.r.get("playerctl -l", "") + "\n" + p).strip()
+    m.r[f"playerctl -p {p} status"] = status
+    m.r[f"playerctl -p {p} metadata xesam:url"] = url
+    m.r[f"playerctl -p {p} position"] = pos
+    m.r[f"playerctl -p {p} metadata xesam:title"] = title
+
+
+def test_manda_el_video_del_navegador(mandar):
+    _player(mandar, "chromium.instance1", "Playing", "https://www.youtube.com/watch?v=abc", "754.2", "Un vídeo")
+    r = t.mandar_a_tele("video")
+    assert r["ok"]
+    assert mandar.llamadas() == ["cast Comedor https://www.youtube.com/watch?v=abc --start 754 --title Un vídeo"]
+    assert "playerctl -p chromium.instance1 pause" in mandar.ordenes
+
+
+def test_prefiere_el_que_suena_y_archivo_local(mandar):
+    _player(mandar, "chromium.instance1", "Paused", "https://www.youtube.com/watch?v=x")
+    _player(mandar, "mpv", "Playing", "file:///home/a/Pel%C3%ADcula.mkv", "2")
+    assert t.mandar_a_tele("video")["ok"]
+    assert mandar.llamadas() == ["cast Comedor /home/a/Película.mkv"]
+
+
+def test_spotify_no_es_video(mandar):
+    _player(mandar, "spotify", "Playing", "https://open.spotify.com/track/1")
+    r = t.mandar_a_tele("video")
+    assert not r["ok"] and "Spotify" in r["error"] and mandar.llamadas() == []
+
+
+def test_portapapeles_y_nada(mandar):
+    assert not t.mandar_a_tele("video")["ok"]
+    mandar.r["wl-paste -n"] = "https://vimeo.com/123"
+    assert t.mandar_a_tele("video")["ok"] and mandar.llamadas() == ["cast Comedor https://vimeo.com/123"]
+
+
+def test_destino_explicito(mandar):
+    f = mandar.tmp / "peli.mp4"
+    f.write_text("x")
+    assert t.mandar_a_tele("video", str(f))["ok"]
+    assert not t.mandar_a_tele("video", "/no/existe.mkv")["ok"]
+    assert mandar.llamadas() == [f"cast Comedor {f}"]
+
+
+def test_pantalla_y_escritorio(mandar):
+    assert t.mandar_a_tele("pantalla")["ok"]
+    assert t.mandar_a_tele("escritorio", "3")["ok"]
+    mandar.r["hyprctl activeworkspace -j"] = '{"id": 2}'
+    assert t.mandar_a_tele("escritorio")["ok"]
+    assert mandar.llamadas() == ["mirror start --source monitor", "mirror start --source workspace:3",
+                                 "mirror start --source workspace:2"]
