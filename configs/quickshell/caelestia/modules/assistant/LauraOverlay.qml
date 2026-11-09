@@ -114,11 +114,13 @@ StyledWindow {
     readonly property bool thinking: phase === "thinking"
     readonly property bool speaking: phase === "speaking"
 
-    // Agente al que se delega (Gemini / Claude): trabajo activo recién lanzado por Alberto
+    // Agente al que se delega (Gemini / Claude): trabajo activo recién lanzado por Alberto A TRAVÉS DE LAURA.
+    // Las sesiones de Claude Code/Gemini abiertas aparte llegan como origen «externo»: no son una delegación
+    // (antes contaban y el overlay decía «Delegando en Claude» mientras Laura proyectaba la pantalla).
     readonly property string delegAgent: {
         const lim = Date.now() / 1000 - 25;
         for (const j of Laura.jobs)
-            if ((j.destino === "gemini" || j.destino === "claude") && j.origen !== "laura" && Laura.isActive(j) && j.inicio > lim)
+            if ((j.destino === "gemini" || j.destino === "claude") && (j.origen ?? "alberto") === "alberto" && Laura.isActive(j) && j.inicio > lim)
                 return j.destino;
         return "";
     }

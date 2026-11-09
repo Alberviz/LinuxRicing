@@ -53,7 +53,6 @@ Singleton {
     property bool autoSwitchedProfile: false
     // Estado de `active` en la comprobación anterior (para detectar batería -> AC)
     property bool wasActive: false
-    property bool lauraAutoStopped: false
     readonly property string tweaksScript: Quickshell.env("HOME") + "/.local/bin/caelestia-power-tweaks"
 
     function applyHyprlandConfs(): void {
@@ -74,24 +73,34 @@ Singleton {
         }
     }
 
+    // Último modo aplicado (on/off), en $XDG_RUNTIME_DIR: sobrevive a reinicios del shell. Al arrancar solo se
+    // reaplica si no coincide (así un reinicio con AC no vuelve a encender el Bluetooth ni toca la tasa de refresco).
+    readonly property string appliedMark: `${Quickshell.env("XDG_RUNTIME_DIR")}/caelestia-power-applied`
+
+    function runTweaks(mode: string, onlyIfChanged: bool): void {
+        const guard = onlyIfChanged ? `[ "$(cat '${appliedMark}' 2>/dev/null)" = ${mode} ] && exit 0; ` : "";
+        Quickshell.execDetached(["sh", "-c", `${guard}echo ${mode} > '${appliedMark}'; exec '${tweaksScript}' ${mode}`]);
+    }
+
     function applyPowerTweaks(): void {
-        Quickshell.execDetached([tweaksScript, "on"]);
+        runTweaks("on", false);
     }
 
     function restorePowerTweaks(): void {
-        Quickshell.execDetached([tweaksScript, "off"]);
+        runTweaks("off", false);
     }
 
+    // La marca de «Laura parada por el ahorro» vive en un fichero de $XDG_RUNTIME_DIR, no en memoria:
+    // si el shell se reinicia (o se cuelga) estando en batería, al enchufar se sigue sabiendo que hay
+    // que volver a arrancarla. Antes era una propiedad y tras un reinicio Laura se quedaba parada.
+    readonly property string lauraMark: `${Quickshell.env("XDG_RUNTIME_DIR")}/caelestia-laura-autostopped`
+
     function applyLauraPowerSaving(): void {
-        Quickshell.execDetached(["systemctl", "--user", "stop", "laura"]);
-        lauraAutoStopped = true;
+        Quickshell.execDetached(["sh", "-c", `systemctl --user is-active --quiet laura && touch '${lauraMark}'; systemctl --user stop laura`]);
     }
 
     function restoreLauraPowerSaving(): void {
-        if (lauraAutoStopped) {
-            Quickshell.execDetached(["systemctl", "--user", "start", "laura"]);
-            lauraAutoStopped = false;
-        }
+        Quickshell.execDetached(["sh", "-c", `[ -e '${lauraMark}' ] && rm -f '${lauraMark}' && systemctl --user start laura`]);
     }
 
     // Aplica la matriz completa de forma idempotente según `active`.
@@ -135,6 +144,23 @@ Singleton {
         onTriggered: root.checkState()
     }
 
+    Timer {
+        id: reconcileTimer
+
+        interval: 1500
+        onTriggered: {
+            root.wasActive = root.active;
+            if (root.active) {
+                root.applyHyprlandConfs();
+                root.runTweaks("on", true);
+                root.applyLauraPowerSaving();
+            } else {
+                root.runTweaks("off", true);
+                root.restoreLauraPowerSaving();
+            }
+        }
+    }
+
     onOnBatteryChanged: handleAcChange()
     onIsLowBatteryChanged: stateTimer.restart()
     onActiveChanged: stateTimer.restart()
@@ -145,9 +171,9 @@ Singleton {
             autoSwitchedProfile = true;
             PowerProfiles.profile = PowerProfile.PowerSaver;
         }
-        if (active) {
-            checkState();
-        }
+        // Reconciliar al arrancar: si el enchufe/desenchufe ocurrió con el shell caído o reiniciándose, el
+        // evento se perdió y Ollama/Laura se quedaban parados aunque ya hubiera corriente.
+        reconcileTimer.start();
     }
 
     // Cambio de perfil (también estando enchufado): reaplicar la matriz.
