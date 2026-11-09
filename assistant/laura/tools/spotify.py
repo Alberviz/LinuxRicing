@@ -128,17 +128,24 @@ def _buscar_ultimo(artista: str, clase: str | None, donde: str | None) -> dict:
     c = "album" if clase and _norm(clase) in ("album", "disco", "trabajo") else "cualquiera"
     r = _cmd("ultimo", artista, "--clase", c)
     if not r.get("ok"):
+        # ¿No era un artista sino una playlist tuya? Entonces «lo último» = lo último que añadiste.
+        e = _cmd("encontrar", artista, "--tipo", "playlist")
+        if e.get("ok") and (e.get("encontrado") or {}).get("tipo") == "playlist":
+            it = e["encontrado"]
+            return _poner(it["uri"], "playlist", donde, recientes=True, nombre=it.get("nombre"))
         return r
     return _proponer(r["encontrado"], donde)
 
 
 def _poner(que: str, tipo: str | None, donde: str | None, desde_inicio: bool | None = None,
-           recientes: bool = False, nombre: str | None = None) -> dict:
+           recientes: bool = False, nombre: str | None = None, aleatorio: bool | None = None) -> dict:
     args = ["poner", que, "--tipo", tipo if tipo in _TIPOS else "auto", "--donde", donde or "actual"]
     if recientes:
         args += ["--orden", "recientes", "--desde-inicio"]
     elif desde_inicio:
         args.append("--desde-inicio")
+    if aleatorio is not None and not (recientes or desde_inicio):
+        args.append("--aleatorio" if aleatorio else "--en-orden")
     r = _cmd(*args)
     if not r.get("ok"):
         if r.get("candidatos"):
@@ -199,11 +206,13 @@ def _suena(a: dict | None) -> str:
 @tool("spotify",
       "Spotify. poner: que=SOLO el nombre (el tipo va en tipo), donde=tele|pc («manda la playlist X a la tele»). "
       "Si dice «en la tele» o «manda Spotify a la tele», donde=tele. Si devuelve candidatos, pregunta cuál. "
-      "«Lo más nuevo / las últimas de X» = poner con recientes=true. "
+      "Pasa SIEMPRE donde=tele si Alberto dice «en la tele», también en buscar. "
+      "«Sin aleatorio / en orden» = aleatorio=false; «en aleatorio» = aleatorio=true. "
+      "«Lo más nuevo de X», «por orden de añadido», «lo último que añadí» = poner con recientes=true. "
       "«El último álbum de ARTISTA» o «busca X» = buscar (ultimo=true para lo último de un artista): di el «decir» "
       "y, si Alberto dice que sí, poner_lo_encontrado. "
       "«Quita la música de la tele / que suene en mis altavoces» = pasar_al_pc. "
-      "poner_a_continuacion («pon después X») y anadir_a_la_cola usan que. volumen: valor 0-100; temporizador: minutos. "
+      "poner_a_continuacion («pon después X») y anadir_a_la_cola usan que. volumen: valor 0-100 (solo si dice un número); «sube/baja un poco» = subir/bajar sin valor; temporizador: minutos. "
       "Pausa/siguiente/anterior: control_musica.",
       {"accion": {"type": "string", "enum": _ACCIONES},
        "que": {"type": "string"},
@@ -211,12 +220,13 @@ def _suena(a: dict | None) -> str:
        "donde": {"type": "string", "enum": ["tele", "pc", "actual"]},
        "desde_inicio": {"type": "boolean", "description": "primera canción, sin aleatorio"},
        "recientes": {"type": "boolean", "description": "playlist empezando por las últimas añadidas"},
+       "aleatorio": {"type": "boolean", "description": "poner: false = en orden, true = aleatorio"},
        "ultimo": {"type": "boolean", "description": "buscar: el último lanzamiento del artista que=…"},
        "valor": {"type": "string"}},
       required=["accion"], icon="music_note")
 def spotify(accion: str, que: str | None = None, tipo: str | None = None, donde: str | None = None,
             desde_inicio: bool | None = None, recientes: bool | None = None, ultimo: bool | None = None,
-            valor: str | int | float | None = None) -> dict:
+            aleatorio: bool | None = None, valor: str | int | float | None = None) -> dict:
     if accion not in _ACCIONES:
         return {"ok": False, "error": f"acción desconocida: {accion}"}
     valor = None if valor is None else str(valor)
@@ -234,6 +244,9 @@ def spotify(accion: str, que: str | None = None, tipo: str | None = None, donde:
         if m:
             return _buscar_ultimo(m.group("art").strip(), m.group("clase"), donde)
         que, tipo, recientes, es_alias = _entender(que, tipo, recientes)
+        if es_alias and (ultimo or recientes):
+            # «Lo último / lo más nuevo de lo de siempre»: un alias es una playlist tuya, no un artista.
+            return _poner(que, "playlist", donde, recientes=True)
         if accion == "buscar":
             if ultimo:
                 return _buscar_ultimo(que, "album" if tipo == "album" else None, donde)
@@ -253,7 +266,7 @@ def spotify(accion: str, que: str | None = None, tipo: str | None = None, donde:
             if it.get("tipo") != "playlist":
                 return _proponer(it, donde)
             return _poner(it["uri"], "playlist", donde, recientes=True, nombre=it.get("nombre"))
-        return _poner(que, tipo, donde, desde_inicio, recientes=recientes)
+        return _poner(que, tipo, donde, desde_inicio, recientes=recientes, aleatorio=aleatorio)
     if accion in ("pasar_a_tele", "pasar_al_pc"):
         r = _cmd("pasar", "tele" if accion == "pasar_a_tele" else "pc")
         if not r.get("ok"):
