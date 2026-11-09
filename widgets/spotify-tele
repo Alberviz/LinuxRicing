@@ -11,6 +11,9 @@ Si Spotify no está abierto, lo arranca (minimizado no se puede; aparece su vent
   spotify-tele buscar "realg4life" [--tipo playlist|cancion|album|artista]
   spotify-tele poner "realg4life" [--tipo …] [--donde tele|pc|actual] [--aleatorio]
   spotify-tele poner "realg4life" --donde tele --desde-inicio      (primera canción, sin aleatorio)
+  spotify-tele poner "RealG4lifebaby" --orden recientes --desde-inicio  (empieza por las últimas añadidas)
+  spotify-tele encontrar "nuestra historia" [--tipo …]               (resuelve sin reproducir)
+  spotify-tele ultimo "la pantera" [--clase album|cualquiera]       (último lanzamiento, sin reproducir)
   spotify-tele control pausar|reanudar|siguiente|anterior|reiniciar|aleatorio si/no|repetir no/lista/cancion|
                        volumen N|subir|bajar|ir_a SEG|adelantar|atrasar|me_gusta|no_me_gusta|cola TEXTO|despues TEXTO|
                        temporizador MIN
@@ -306,6 +309,40 @@ return {ok: true, puesto: item, ahora: now()};
                          "inicio": a.desde_inicio, "orden": a.orden})
 
 
+def cmd_encontrar(a) -> dict:
+    """Resuelve el texto como lo haría `poner`, pero sin reproducir (para confirmar antes)."""
+    r = run_js("const it = await resolve(ARGS.q, ARGS.tipo); return it;", {"q": a.texto, "tipo": a.tipo})
+    if not r:
+        return {"ok": False, "error": f"no encuentro «{a.texto}» en Spotify"}
+    if r.get("dudas"):
+        return {"ok": False, "error": f"no tengo ninguna playlist que se llame «{a.texto}»", "candidatos": r["dudas"]}
+    return {"ok": True, "encontrado": r}
+
+
+def cmd_ultimo(a) -> dict:
+    """Último lanzamiento de un artista (álbum, o cualquier cosa con --clase cualquiera), sin reproducirlo."""
+    body = r"""
+const arts = await search(ARGS.q, "artista");
+if (!arts.length) return {ok: false, error: `no encuentro al artista «${ARGS.q}»`};
+const art = arts.find(x => norm(x.nombre) === norm(ARGS.q)) || arts[0];
+const r = await G.Request(G.Definitions.queryArtistOverview, {uri: art.uri, locale: "", includePrerelease: false});
+const d = r.data && r.data.artistUnion && r.data.artistUnion.discography;
+if (!d) return {ok: false, error: `Spotify no me da la discografía de ${art.nombre}`};
+const rel = g => ((g && g.items) || []).map(i => i.releases && i.releases.items && i.releases.items[0]).filter(Boolean);
+const fecha = x => { const t = x.date || {}; return (t.year || 0) * 10000 + (t.month || 0) * 100 + (t.day || 0); };
+let pool = ARGS.clase === "album" ? rel(d.albums) : [d.latest, ...rel(d.albums), ...rel(d.singles)].filter(Boolean);
+if (!pool.length && ARGS.clase === "album") pool = [d.latest, ...rel(d.singles)].filter(Boolean);
+if (!pool.length) return {ok: false, error: `${art.nombre} no tiene lanzamientos en Spotify`};
+pool.sort((x, y) => fecha(y) - fecha(x));
+const x = pool[0], t = x.date || {};
+return {ok: true, encontrado: {nombre: x.name, uri: x.uri, tipo: "album", de: art.nombre,
+        clase: ({ALBUM: "álbum", SINGLE: "single", EP: "EP", COMPILATION: "recopilatorio"})[x.type] || "álbum",
+        anio: t.year || null, mes: t.month || null, dia: (t.precision === "DAY" && t.day) || null,
+        canciones: (x.tracks && x.tracks.totalCount) || null}};
+"""
+    return run_js(body, {"q": a.texto, "clase": a.clase})
+
+
 def cmd_pasar(a) -> dict:
     body = r"""
 const dev = ARGS.donde === "pc" ? localDev() : findTele(ARGS.tele);
@@ -396,6 +433,12 @@ def main() -> int:
     p.add_argument("--desde-inicio", action="store_true", help="primera canción y sin aleatorio")
     p.add_argument("--orden", choices=["guardado", "recientes", "original"], default="guardado",
                    help="playlists: el orden que tienes en Spotify (por defecto), añadidas recientemente u original")
+    p = sub.add_parser("encontrar", help="resuelve como poner, sin reproducir")
+    p.add_argument("texto")
+    p.add_argument("--tipo", choices=tipos, default="auto")
+    p = sub.add_parser("ultimo", help="último lanzamiento de un artista, sin reproducir")
+    p.add_argument("texto", help="artista")
+    p.add_argument("--clase", choices=["album", "cualquiera"], default="album")
     p = sub.add_parser("control")
     p.add_argument("accion", choices=ACCIONES)
     p.add_argument("valor", nargs="?")
@@ -406,7 +449,7 @@ def main() -> int:
     sub.add_parser("dispositivos")
     a = ap.parse_args()
     try:
-        r = {"buscar": cmd_buscar, "poner": cmd_poner, "control": cmd_control, "pasar": cmd_pasar, "estado": cmd_estado,
+        r = {"buscar": cmd_buscar, "poner": cmd_poner, "encontrar": cmd_encontrar, "ultimo": cmd_ultimo, "control": cmd_control, "pasar": cmd_pasar, "estado": cmd_estado,
              "dispositivos": cmd_dispositivos}[a.cmd](a)
     except Exception as e:  # noqa: BLE001
         r = {"ok": False, "error": str(e)[:300]}
