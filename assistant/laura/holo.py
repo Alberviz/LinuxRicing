@@ -364,61 +364,60 @@ class Escena:
 
         Sin lock propio: cada método ya bloquea lo suyo, y `holo-send` puede tardar
         minutos (subida por warp) sin dejar la escena congelada mientras tanto."""
-        if True:
-            if cmd == "holo-open":
-                try:
-                    n = int(arg.strip())
-                    return self.abrir([n])
-                except ValueError:
-                    return {"ok": False, "error": f"Número inválido: {arg}"}
+        if cmd == "holo-open":
+            try:
+                n = int(arg.strip())
+                return self.abrir([n])
+            except ValueError:
+                return {"ok": False, "error": f"Número inválido: {arg}"}
 
-            if cmd == "holo-select":
-                try:
-                    n = int(arg.strip())
-                    it = self.seleccionar(n)
-                    if it is not None:
-                        return {"ok": True, "seleccionado": n}
-                    return {"ok": False, "error": f"Número fuera de rango: {n}"}
-                except ValueError:
-                    return {"ok": False, "error": f"Número inválido: {arg}"}
+        if cmd == "holo-select":
+            try:
+                n = int(arg.strip())
+                it = self.seleccionar(n)
+                if it is not None:
+                    return {"ok": True, "seleccionado": n}
+                return {"ok": False, "error": f"Número fuera de rango: {n}"}
+            except ValueError:
+                return {"ok": False, "error": f"Número inválido: {arg}"}
 
-            if cmd == "holo-close":
-                arg_limpio = arg.strip()
-                if arg_limpio == "all":
-                    self.cerrar(todo=True)
-                    return {"ok": True}
-                cuantos = self.cerrar_panel(arg_limpio)
-                return {"ok": cuantos > 0}
+        if cmd == "holo-close":
+            arg_limpio = arg.strip()
+            if arg_limpio == "all":
+                self.cerrar(todo=True)
+                return {"ok": True}
+            cuantos = self.cerrar_panel(arg_limpio)
+            return {"ok": cuantos > 0}
 
-            if cmd == "holo-send":
-                try:
-                    n = int(arg.strip())
-                    return self.enviar_por_warp(n)
-                except ValueError:
-                    return {"ok": False, "error": f"Número inválido: {arg}"}
+        if cmd == "holo-send":
+            try:
+                n = int(arg.strip())
+                return self.enviar_por_warp(n)
+            except ValueError:
+                return {"ok": False, "error": f"Número inválido: {arg}"}
 
-            if cmd == "holo-page":
-                partes = arg.strip().split()
-                if len(partes) >= 2 and partes[1].isdigit():
-                    pid = partes[0]
-                    p = int(partes[1])
-                    return self.pagina(pid, p)
-                return {"ok": False, "error": "Uso: holo-page <pid> <p>"}
+        if cmd == "holo-page":
+            partes = arg.strip().split()
+            if len(partes) >= 2 and partes[1].isdigit():
+                pid = partes[0]
+                p = int(partes[1])
+                return self.pagina(pid, p)
+            return {"ok": False, "error": "Uso: holo-page <pid> <p>"}
 
-            if cmd == "holo-ext":
-                arg_limpio = arg.strip()
-                if arg_limpio.startswith("v") and arg_limpio[1:].isdigit():
-                    n = int(arg_limpio[1:])
-                elif arg_limpio.isdigit():
-                    n = int(arg_limpio)
-                else:
-                    return {"ok": False, "error": f"Número inválido: {arg}"}
-                item = self.resolver(n)
-                if item is None:
-                    return {"ok": False, "error": f"Archivo {n} no encontrado"}
-                return self.abrir_externo(item.ruta)
+        if cmd == "holo-ext":
+            arg_limpio = arg.strip()
+            if arg_limpio.startswith("v") and arg_limpio[1:].isdigit():
+                n = int(arg_limpio[1:])
+            elif arg_limpio.isdigit():
+                n = int(arg_limpio)
+            else:
+                return {"ok": False, "error": f"Número inválido: {arg}"}
+            item = self.resolver(n)
+            if item is None:
+                return {"ok": False, "error": f"Archivo {n} no encontrado"}
+            return self.abrir_externo(item.ruta)
 
-            return {"ok": False, "error": f"Comando desconocido: {cmd}"}
+        return {"ok": False, "error": f"Comando desconocido: {cmd}"}
 
     def _enviar_por_warp_default(self, n: int) -> dict:
         """Envío predeterminado delegando en la herramienta warp."""
