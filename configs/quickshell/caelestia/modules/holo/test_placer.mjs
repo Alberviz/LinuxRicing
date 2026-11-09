@@ -136,6 +136,11 @@ for (const s of SEMILLAS) {
     if (e) console.error(`  semilla ${s}: ${e} errores`);
     total += e;
 }
+const sc = size({ kind: "confirmar", payload: { items: [1, 2, 3], mas: 0 } }, W, H);
+if (sc.w !== 400 || sc.h !== 46 + 74 + 78 + 64) {
+    console.error("ERROR: tamaño del panel de confirmación", sc);
+    total++;
+}
 if (total === 0) {
     console.log("OK: sin solapes ni colisión con la píldora en ninguna semilla.");
     process.exit(0);

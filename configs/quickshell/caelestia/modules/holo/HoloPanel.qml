@@ -32,6 +32,7 @@ Item {
         })
     readonly property bool esVisor: panel?.kind === "visor"
     readonly property bool esLista: panel?.kind === "lista"
+    readonly property bool esConfirmar: panel?.kind === "confirmar"
     readonly property var payload: panel?.payload ?? ({})
     readonly property var item: esVisor ? HoloState.item(panel.item_n) : null
     readonly property bool seleccionado: esVisor && panel.item_n === HoloState.seleccionado
@@ -41,13 +42,21 @@ Item {
     property real vuelo: 0
     // 0 = en su sitio, 1 = tragado por el agujero negro
     property real sube: 0
+    // 0 = en su sitio, 1 = tragado por la papelera (esquina inferior derecha)
+    property real cae: 0
     property real escala: 0.12
     property bool llegado: false
     property bool saliendo: false
     property bool enviando: false
     property real barrido: -1
     readonly property bool cercaArriba: arrastre.active && esVisor && y < 90
-    readonly property color prim: cercaArriba ? Colours.palette.m3tertiary : Colours.palette.m3primary
+    readonly property color prim: cercaArriba ? Colours.palette.m3tertiary : (esConfirmar && payload.accion === "borrar") ? Colours.palette.m3error : Colours.palette.m3primary
+    readonly property string iconoConfirmar: ({
+            borrar: "delete",
+            mover: "drive_file_move",
+            renombrar: "edit",
+            crear_carpeta: "create_new_folder"
+        })[payload.accion] ?? "help"
 
     function baseX(): real {
         const o = capa.origen.x - width / 2;
@@ -70,6 +79,21 @@ Item {
         nacer.stop();
         salida.retraso = retraso;
         salida.start();
+    }
+    function desintegrar(): void {
+        if (saliendo)
+            return;
+        saliendo = true;
+        llegado = false;
+        nacer.stop();
+        desint.start();
+    }
+    // Cerrar con la ✕ o clic derecho: en una confirmación equivale a cancelar el plan
+    function cerrarPanel(): void {
+        if (esConfirmar)
+            HoloState.cancelar(payload.plan);
+        else
+            HoloState.cerrar(pid);
     }
     function enviar(): void {
         if (enviando || saliendo)
@@ -96,12 +120,18 @@ Item {
     scale: escala
     rotation: caja.rot * vuelo
     transformOrigin: Item.Center
-    transform: Scale {
-        origin.x: root.width / 2
-        origin.y: 0
-        xScale: 1 - 0.72 * root.sube
-        yScale: 1 + 0.4 * root.sube
-    }
+    transform: [
+        Scale {
+            origin.x: root.width / 2
+            origin.y: 0
+            xScale: 1 - 0.72 * root.sube
+            yScale: 1 + 0.4 * root.sube
+        },
+        Translate {
+            x: (root.capa.width - 68 - (root.x + root.width / 2)) * root.cae
+            y: (root.capa.height - 68 - (root.y + root.height / 2)) * root.cae
+        }
+    ]
 
     Component.onCompleted: {
         capa.registrar(pid, root);
@@ -243,6 +273,41 @@ Item {
                     property: "opacity"
                     to: 0
                     duration: 190
+                }
+            }
+        }
+        ScriptAction {
+            script: root.capa.quitar(root.pid)
+        }
+    }
+
+    SequentialAnimation {
+        id: desint
+
+        ParallelAnimation {
+            NumberAnimation {
+                target: root
+                property: "cae"
+                to: 1
+                duration: 460
+                easing.type: Easing.InCubic
+            }
+            NumberAnimation {
+                target: root
+                property: "escala"
+                to: 0.05
+                duration: 460
+                easing.type: Easing.InCubic
+            }
+            SequentialAnimation {
+                PauseAnimation {
+                    duration: 200
+                }
+                NumberAnimation {
+                    target: root
+                    property: "opacity"
+                    to: 0
+                    duration: 260
                 }
             }
         }
@@ -483,7 +548,7 @@ Item {
                 MaterialIcon {
                     anchors.verticalCenter: parent.verticalCenter
                     visible: !root.esVisor
-                    text: (root.panel?.titulo ?? "").startsWith("«") ? "search" : "folder_open"
+                    text: root.esConfirmar ? root.iconoConfirmar : ((root.panel?.titulo ?? "").startsWith("«") ? "search" : "folder_open")
                     color: root.prim
                     fill: 1
                 }
@@ -512,6 +577,8 @@ Item {
                 font.pixelSize: 11
                 font.letterSpacing: 0.4
                 text: {
+                    if (root.esConfirmar)
+                        return "¿confirmas?";
                     if (root.enviado)
                         return "→ móvil ✓";
                     if (root.esLista) {
@@ -567,7 +634,7 @@ Item {
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: HoloState.cerrar(root.pid)
+                    onClicked: root.cerrarPanel()
                 }
             }
 
@@ -616,6 +683,8 @@ Item {
             id: contenido
 
             readonly property string fichero: {
+                if (root.esConfirmar)
+                    return "HoloConfirm.qml";
                 if (root.esLista)
                     return "HoloList.qml";
                 switch (root.payload.tipo) {
@@ -795,6 +864,6 @@ Item {
     }
     TapHandler {
         acceptedButtons: Qt.RightButton
-        onTapped: HoloState.cerrar(root.pid)
+        onTapped: root.cerrarPanel()
     }
 }
