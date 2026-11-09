@@ -45,6 +45,7 @@ import struct
 import subprocess
 import sys
 import time
+import unicodedata
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -442,6 +443,14 @@ def cmd_dispositivos(a) -> dict:
     return {"ok": True, "dispositivos": run_js("return devices();", {})}
 
 
+def norm_py(s: str) -> str:
+    if not s:
+        return ""
+    s = unicodedata.normalize("NFD", s.lower())
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    return "".join(c for c in s if c.isalnum())
+
+
 def limpiar_titulo_youtube(title: str, artist: str = "") -> str:
     """Limpia sufijos típicos de YouTube (Video Oficial, HD, Letra, etc.) para mejorar la búsqueda en Spotify."""
     t = re.sub(
@@ -508,14 +517,17 @@ return {ok: true, uri: pl.uri, nombre: pl.nombre, existentes: contents};
 
     pl_uri = prep["uri"]
     existentes = prep.get("existentes") or []
-    firmas_nombres = {norm(c["nombre"]) for c in existentes}
+    firmas_nombres = {norm_py(c["nombre"]) for c in existentes}
+    firmas_completas = {norm_py(f"{c['artista']} {c['nombre']}") for c in existentes}
     uris_existentes = {c["uri"] for c in existentes}
 
     a_buscar = []
     ya_estaban = 0
     for t in temas_yt:
         b = t["busqueda"]
-        if norm(t["titulo_yt"]) in firmas_nombres or norm(b) in firmas_nombres:
+        if (norm_py(t["titulo_yt"]) in firmas_nombres or
+            norm_py(b) in firmas_nombres or
+            norm_py(f"{t['artista_yt']} {t['titulo_yt']}") in firmas_completas):
             ya_estaban += 1
             continue
         a_buscar.append(b)
@@ -545,8 +557,10 @@ return res;
         for item in res_chunk:
             c = item.get("cancion")
             if c and c.get("uri"):
-                if c["uri"] not in uris_existentes:
+                c_nom = norm_py(c["nombre"])
+                if c["uri"] not in uris_existentes and c_nom not in firmas_nombres:
                     uris_existentes.add(c["uri"])
+                    firmas_nombres.add(c_nom)
                     uris_nuevas.append(c["uri"])
                     anadidas_info.append(c)
                 else:

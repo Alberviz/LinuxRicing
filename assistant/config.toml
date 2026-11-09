@@ -193,7 +193,7 @@ remitentes_importantes = ["edu", ".ac.", "universidad", "universit", "uj.edu.pl"
 # Playlists de YouTube que se sincronizan con Spotify (con `spotify-tele playlist sync-todo` o al arrancar el PC)
 # Formato: "Nombre de Playlist en Spotify" = "URL completa o ID de la playlist de YouTube"
 [spotify.sync_youtube]
-# "Mis Favoritas YT" = "https://www.youtube.com/playlist?list=..."
+"RealG4lifebaby" = "https://music.youtube.com/playlist?list=PLIOU3MuqBfRw"
 
 [ubicacion]
 ciudad = ""
