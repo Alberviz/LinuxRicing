@@ -42,7 +42,19 @@ StyledRect {
     color: Colours.tPalette.m3surfaceContainer
     clip: true
 
+    // Sin animar la altura al crearse (el panel se construye al abrirlo): si no, la tarjeta crece desde 0
+    // y empuja los quick toggles de debajo con un «pop». Solo anima los cambios posteriores (reposo ↔ reproducir).
+    property bool settled: false
+
+    Timer {
+        interval: 400
+        running: true
+        onTriggered: root.settled = true
+    }
+
     Behavior on implicitHeight {
+        enabled: root.settled
+
         Anim {}
     }
 

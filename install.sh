@@ -232,6 +232,15 @@ if [ "$SELECTED_WIDGETS" = true ]; then
         fi
     fi
 
+    # 3g. Drop-in de Ollama: optimizaciones de VRAM, FlashAttention y KV cache (Ada Lovelace RTX 4050).
+    if [ -f "$BASE_DIR/configs/system/ollama-optimizations.conf" ] && [ -d /etc/systemd/system ]; then
+        sudo mkdir -p /etc/systemd/system/ollama.service.d 2>/dev/null || true
+        if sudo install -m 0644 -o root -g root "$BASE_DIR/configs/system/ollama-optimizations.conf" /etc/systemd/system/ollama.service.d/optimizations.conf 2>/dev/null; then
+            sudo systemctl daemon-reload 2>/dev/null || true
+            echo -e "  ${SUCCESS}✔ /etc/systemd/system/ollama.service.d/optimizations.conf (FlashAttention + KV cache q8_0)${RESET}"
+        fi
+    fi
+
     # 3g. Wrapper de nvidia-smi: evita despertar la GPU en batería por el efecto observador.
     if [ -f "$BASE_DIR/widgets/nvidia-smi-wrapper" ]; then
         if sudo install -m 0755 -o root -g root "$BASE_DIR/widgets/nvidia-smi-wrapper" /usr/local/bin/nvidia-smi 2>/dev/null; then
@@ -304,6 +313,14 @@ if [ -f "$BASE_DIR/widgets/spotify-autoupdate" ]; then
     cp -u "$BASE_DIR/widgets/spotify-autoupdate" "$HOME/.local/bin/spotify-autoupdate"
     chmod +x "$HOME/.local/bin/spotify-autoupdate"
     echo -e "  ${SUCCESS}✔ spotify-autoupdate instalado en ~/.local/bin${RESET}"
+fi
+
+# 4d2. Enlazar caelestia-power-tweaks (lo lanza el servicio PowerSaving del shell al cambiar de batería/AC).
+#      Enlace y no copia: el script vive en el repo. Si el repo se mueve, este paso lo re-apunta.
+if [ -f "$BASE_DIR/widgets/caelestia-power-tweaks" ]; then
+    mkdir -p "$HOME/.local/bin"
+    ln -sfn "$BASE_DIR/widgets/caelestia-power-tweaks" "$HOME/.local/bin/caelestia-power-tweaks"
+    echo -e "  ${SUCCESS}✔ caelestia-power-tweaks enlazado en ~/.local/bin${RESET}"
 fi
 
 # 4e. Instalar cast-helper (daemon Chromecast + cliente; lo usa la tarjeta «Chromecast» del panel rápido)
