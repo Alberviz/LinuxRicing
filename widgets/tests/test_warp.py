@@ -96,6 +96,35 @@ class Buscar(Base):
         self.assertIn("Dime algo", d["error"])
 
 
+    def test_capturas_de_whatsapp_en_descargas(self):
+        # caso real (16:06): «envía una de las capturas de WhatsApp que están en descargas» → .jpeg dentro de Descargas
+        self.hacer("Descargas/WhatsApp Image 2026-11-07 at 20.39.01.jpeg", dias=2)
+        self.hacer("Descargas/WhatsApp Image 2026-11-09 at 00.47.40.jpeg")
+        self.hacer("Documentos/WhatsApp Image vieja.jpeg", dias=1)
+        self.hacer("Descargas/factura.pdf")
+        c, d = self.correr("buscar", "capturas de whatsapp", "--carpeta", "Descargas")
+        self.assertEqual(c, 0)
+        self.assertEqual([x["nombre"] for x in d["candidatos"]],
+                         ["WhatsApp Image 2026-11-09 at 00.47.40.jpeg", "WhatsApp Image 2026-11-07 at 20.39.01.jpeg"])
+        self.assertFalse(d["claro"])
+
+    def test_listar_una_carpeta(self):
+        for i in range(10):
+            self.hacer(f"Descargas/f{i}.pdf", dias=i)
+        self.hacer("Descargas/.oculto")
+        self.hacer("Descargas/a medias.pdf.part")
+        c, d = self.correr("listar", "descargas")
+        self.assertEqual(c, 0)
+        self.assertEqual(d["total"], 10)
+        self.assertEqual([x["nombre"] for x in d["candidatos"]], [f"f{i}.pdf" for i in range(8)])
+        self.assertFalse(self.log.exists())                       # listar nunca envía
+
+    def test_listar_remoto_no_entra_en_ocultas(self):
+        self.hacer(".ssh/id_ed25519")
+        c, d = self.correr("listar", str(self.raiz / ".ssh"), "--remoto")
+        self.assertEqual((c, d["error"]), (1, "Esa ruta no se puede enviar desde el móvil."))
+
+
 class BuscarConFd(Buscar):
     buscador = "fd"
 

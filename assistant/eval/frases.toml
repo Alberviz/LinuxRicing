@@ -776,3 +776,36 @@ args = [{accion = "poner_a_continuacion"}]
 texto = "dale me gusta a esta canción"
 espera = ["spotify"]
 args = [{accion = "me_gusta"}]
+
+# ---------- warp (PC → móvil) ----------
+# Casos reales del 2026-11-09: listar una carpeta (no había acción) y «una de las capturas de WhatsApp» (mandó la selección).
+[[frase]]
+texto = "ve a mi carpeta de descargas y dime qué ves, y te digo qué archivo enviar al móvil"
+espera = ["warp"]
+args = [{accion = "listar", carpeta = "descargas"}]
+grupo = "warp"
+
+[[frase]]
+texto = "envía una de las capturas de whatsapp que están en descargas"
+espera = ["warp"]
+args = [{accion = "buscar", carpeta = "descargas"}]
+grupo = "warp"
+
+[[frase]]
+texto = "manda al móvil el pdf de la práctica de redes"
+espera = ["warp"]
+# vale buscar o archivo+consulta: la tool convierte «archivo» sin ruta en una búsqueda
+args = [{consulta = "redes"}]
+grupo = "warp"
+
+[[frase]]
+texto = "pásale al móvil lo que tengo seleccionado"
+espera = ["warp"]
+args = [{accion = "seleccion"}]
+grupo = "warp"
+
+[[frase]]
+texto = "mándame por warp lo que acabo de copiar"
+espera = ["warp"]
+args = [{accion = "portapapeles"}]
+grupo = "warp"

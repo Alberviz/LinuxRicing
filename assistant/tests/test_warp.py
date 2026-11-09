@@ -68,3 +68,38 @@ def test_nota_md_se_sube_y_se_borra(monkeypatch):
     assert not vistos["ruta"].exists()
     assert w.warp("nota", texto="hola")["resumen"] == "nota-de-laura.md al móvil"
     assert not w.warp("nota", texto=" ")["ok"]
+
+
+def test_listar_no_envia_y_lee_nombres(falso):
+    responder, llamadas = falso
+    responder({"ok": True, "carpeta": "/h/Descargas", "total": 2, "claro": False,
+               "candidatos": [{"nombre": "WhatsApp Image 1.jpeg", "ruta": "/h/Descargas/WhatsApp Image 1.jpeg"},
+                              {"nombre": "factura.pdf", "ruta": "/h/Descargas/factura.pdf"}]})
+    r = w.warp("listar", carpeta="Descargas")
+    assert r["decir"] == "Lo más reciente: WhatsApp Image 1.jpeg; factura.pdf. ¿Cuál mando?"
+    assert "listar Descargas --json --origen laura" in llamadas()
+    responder({"ok": True, "carpeta": "/h/Vacía", "total": 0, "candidatos": []})
+    assert w.warp("listar", carpeta="Vacía")["decir"] == "Vacía está vacía."
+
+
+def test_buscar_acotado_a_una_carpeta(falso):
+    responder, llamadas = falso
+    responder({"ok": True, "claro": False, "candidatos": [{"nombre": "a.jpeg"}, {"nombre": "b.jpeg"}]})
+    w.warp("buscar", consulta="capturas de whatsapp", carpeta="Descargas")
+    assert "buscar capturas de whatsapp --carpeta Descargas --json" in llamadas()
+
+
+def test_archivo_sin_ruta_pero_con_descripcion_busca_primero(monkeypatch):
+    llamadas = []
+    respuestas = {"buscar": {"ok": True, "claro": True, "candidatos": [{"nombre": "Redes.pdf", "ruta": "/h/Redes.pdf"}]},
+                  "archivo": {"ok": True, "tipo": "archivo", "enviado": {"nombre": "Redes.pdf"}}}
+
+    def falso_warp(*args, entrada=None):
+        llamadas.append(args)
+        return respuestas[args[0]]
+    monkeypatch.setattr(w, "_warp", falso_warp)
+    r = w.warp("archivo", consulta="pdf práctica de redes", carpeta="Descargas")
+    assert r["resumen"] == "Redes.pdf al móvil"
+    assert llamadas == [("buscar", "pdf práctica de redes", "--carpeta", "Descargas"), ("archivo", "/h/Redes.pdf")]
+    respuestas["buscar"] = {"ok": True, "claro": False, "candidatos": [{"nombre": "a.pdf"}, {"nombre": "b.pdf"}]}
+    assert w.warp("archivo", consulta="pdf")["decir"] == "Hay varios: a.pdf; b.pdf. ¿Cuál?"

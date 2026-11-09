@@ -2,7 +2,7 @@
 """
 warp — pasar texto y archivos del PC al móvil (bandeja «Desde el PC» de Olimpo). Diseño: docs/WARP.md.
 
-Es la única puerta de Warp en el PC: la usan el atajo (Super+Shift+M), el arrastre de texto al portal de arriba, Laura
+Es la única puerta de Warp en el PC: la usan el atajo (Super+Shift+K), el arrastre de texto al portal de arriba, Laura
 y las órdenes que llegan del móvil por el puente de Olimpo (Instinct). Envía con `olimpo enviar` (sin red propia) y,
 por cada envío, escribe en $XDG_RUNTIME_DIR/warp/salidas.jsonl para que el shell abra el agujero negro.
 
@@ -12,11 +12,12 @@ por cada envío, escribe en $XDG_RUNTIME_DIR/warp/salidas.jsonl para que el shel
   warp rapido                          portapapeles; si está vacío, la selección (lo usa el atajo)
   warp captura                         captura del monitor enfocado
   warp ultimo [carpeta]                envía el archivo más reciente (por defecto Descargas)
-  warp buscar "<descripción>"          candidatos, sin enviar (p. ej. "pdf práctica redes")
+  warp listar [carpeta]                los 8 archivos más recientes de una carpeta, sin enviar (por defecto Descargas)
+  warp buscar "<descripción>"          candidatos, sin enviar (p. ej. "pdf práctica redes"); --carpeta X para acotar
   warp archivo <ruta>                  envía ese archivo
 
   --json      una línea JSON en la salida estándar (contrato con Laura y el puente)
-  --remoto    la orden viene del móvil: solo buscar/ultimo/archivo y nada oculto ni sensible
+  --remoto    la orden viene del móvil: solo listar/buscar/ultimo/archivo y nada oculto ni sensible
   --origen X  quién lo pide (atajo, laura, instinct, arrastre…), para el shell
 
 Variables (pruebas): WARP_OLIMPO (binario de olimpo), WARP_RAIZ (raíz de búsqueda, por defecto $HOME),
@@ -45,7 +46,7 @@ FRAGMENTO = 140
 TIPOS = {
     "pdf": {"pdf"},
     "foto": {"jpg", "jpeg", "png", "webp", "heic", "gif"}, "fotos": None, "imagen": None, "imagenes": None,
-    "captura": {"png", "jpg"}, "capturas": None,
+    "captura": {"png", "jpg", "jpeg", "webp"}, "capturas": None, "pantallazo": None, "pantallazos": None,
     "video": {"mp4", "mkv", "webm", "mov", "avi"}, "videos": None,
     "documento": {"pdf", "doc", "docx", "odt", "md", "txt", "rtf"}, "documentos": None,
     "word": {"doc", "docx", "odt"},
@@ -270,6 +271,18 @@ def ultimo(carpeta: str | None, origen: str, remoto: bool, enviar: bool = True) 
     return {**d, "candidatos": [d["enviado"]], "claro": True}
 
 
+def listar(carpeta: str | None, remoto: bool, n: int = 8) -> dict:
+    c = carpeta_de(carpeta)
+    if remoto:
+        permitido(c)
+    archivos = [p for p in c.iterdir() if p.is_file() and not p.name.startswith(".") and not p.name.endswith((".part", ".crdownload"))]
+    if remoto:
+        archivos = [p for p in archivos if _ok_remoto(p)]
+    archivos.sort(key=lambda x: -x.stat().st_mtime)
+    return {"ok": True, "carpeta": str(c), "total": len(archivos), "candidatos": [ficha(p) for p in archivos[:n]],
+            "claro": False}
+
+
 def _ok_remoto(p: Path) -> bool:
     try:
         permitido(p)
@@ -356,11 +369,13 @@ def puntuar(p: Path, raiz: Path, palabras: list[str], exts: set[str], ahora: flo
     return pts
 
 
-def buscar(consulta: str, remoto: bool) -> dict:
+def buscar(consulta: str, remoto: bool, carpeta: str | None = None) -> dict:
     palabras, exts = analizar(consulta)
     if not palabras and not exts:
         raise Fallo("Dime algo del archivo: un nombre, una palabra o el tipo (pdf, foto…).")
-    raiz = Path(os.environ.get("WARP_RAIZ") or HOME)
+    raiz = carpeta_de(carpeta) if carpeta else Path(os.environ.get("WARP_RAIZ") or HOME)
+    if carpeta and remoto:
+        permitido(raiz)
     ahora = time.time()
     vistos = []
     for p in candidatos_crudos(raiz, palabras, exts):
@@ -398,8 +413,10 @@ def ejecutar(a) -> dict:
         return captura(a.origen)
     if a.accion == "ultimo":
         return ultimo(a.args[0] if a.args else None, a.origen, a.remoto, enviar=not a.solo_mirar)
+    if a.accion == "listar":
+        return listar(a.args[0] if a.args else None, a.remoto)
     if a.accion == "buscar":
-        return buscar(" ".join(a.args), a.remoto)
+        return buscar(" ".join(a.args), a.remoto, a.carpeta)
     if a.accion == "archivo":
         if not a.args:
             raise Fallo("¿Qué archivo?")
@@ -422,11 +439,13 @@ def legible(d: dict) -> str:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="warp", description="Pasa texto y archivos del PC al móvil (Olimpo).")
-    ap.add_argument("accion", choices=("texto", "portapapeles", "seleccion", "rapido", "captura", "ultimo", "buscar", "archivo"))
+    ap.add_argument("accion", choices=("texto", "portapapeles", "seleccion", "rapido", "captura", "ultimo", "listar", "buscar",
+                                       "archivo"))
     ap.add_argument("args", nargs="*")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--remoto", action="store_true")
     ap.add_argument("--origen", default="terminal")
+    ap.add_argument("--carpeta", help="buscar: solo dentro de esta carpeta (Descargas, Documentos… o una ruta)")
     ap.add_argument("--solo-mirar", action="store_true", help="ultimo: dice cuál es, sin enviarlo")
     a = ap.parse_args(argv)
     try:

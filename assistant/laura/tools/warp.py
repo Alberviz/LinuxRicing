@@ -12,7 +12,7 @@ from pathlib import Path
 
 from . import tool
 
-_ACCIONES = ["texto", "nota", "portapapeles", "seleccion", "captura", "ultimo", "buscar", "archivo"]
+_ACCIONES = ["texto", "nota", "portapapeles", "seleccion", "captura", "ultimo", "listar", "buscar", "archivo"]
 
 
 def _bin() -> str | None:
@@ -40,18 +40,18 @@ def _warp(*args: str, entrada: str | None = None) -> dict:
 
 
 @tool("warp",
-      "Warp: manda algo del PC al móvil de Alberto (llega a Olimpo, «Llegó del PC»). Úsalo cuando diga «manda … por warp», "
-      "«pásalo al móvil» o similar. Acciones: texto (lo que dicte, en «texto»), portapapeles (lo copiado), seleccion (lo "
-      "subrayado), captura (de la pantalla), nota (algo que has escrito tú —un prompt, un resumen— como archivo .md: contenido en «texto», nombre corto en «nombre»; si pide «como texto», usa texto), ultimo (el archivo más reciente de «carpeta», por defecto Descargas), buscar "
-      "(archivos que encajan con «consulta», NO envía) y archivo (envía «ruta»). Para un archivo descrito («el pdf de la "
-      "práctica de redes»): primero buscar; si el resultado trae claro=true, envía el primero con archivo; si no, lee al "
-      "usuario los nombres de los candidatos (dos o tres) y pregunta cuál antes de enviar. Si no hay candidatos, dilo.",
+      "Warp: manda cosas del PC al móvil de Alberto («manda … por warp», «pásalo al móvil»). Acciones: texto (lo que "
+      "dicte, en «texto»), nota (algo que has escrito tú, como .md: «texto» + «nombre»), portapapeles (lo copiado), "
+      "seleccion (SOLO si dice «lo seleccionado/subrayado»), captura (de la pantalla), ultimo (envía el más reciente de "
+      "«carpeta»), listar (qué hay en «carpeta»: NO envía; léele los nombres) y buscar («consulta», opcional «carpeta»; NO "
+      "envía) + archivo (envía «ruta»). Para un archivo descrito («una captura de WhatsApp de descargas»): buscar; si "
+      "claro=true, archivo con el primero; si no, léele dos o tres nombres y pregunta cuál. Sin candidatos: dilo.",
       {"accion": {"type": "string", "enum": _ACCIONES},
-       "texto": {"type": "string", "description": "texto: lo que hay que mandar, tal cual"},
-       "nombre": {"type": "string", "description": "nota: nombre corto del .md (p. ej. prompt-landing-barberbot)"},
-       "consulta": {"type": "string", "description": "buscar: descripción del archivo (palabras del nombre, tipo: pdf, foto…)"},
-       "carpeta": {"type": "string", "description": "ultimo: Descargas, Documentos, Escritorio, Imágenes…"},
-       "ruta": {"type": "string", "description": "archivo: ruta absoluta (de un resultado de buscar)"}},
+       "texto": {"type": "string", "description": "texto/nota: el contenido, tal cual"},
+       "nombre": {"type": "string", "description": "nota: nombre corto del .md"},
+       "consulta": {"type": "string", "description": "buscar: palabras del nombre y/o tipo (pdf, foto, captura…)"},
+       "carpeta": {"type": "string", "description": "listar/ultimo/buscar: Descargas, Documentos, Escritorio, Imágenes…"},
+       "ruta": {"type": "string", "description": "archivo: ruta absoluta (de listar o buscar)"}},
       required=["accion"], icon="cell_tower")
 def warp(accion: str, texto: str | None = None, nombre: str | None = None, consulta: str | None = None, carpeta: str | None = None,
          ruta: str | None = None) -> dict:
@@ -73,7 +73,9 @@ def warp(accion: str, texto: str | None = None, nombre: str | None = None, consu
     if accion == "buscar":
         if not (consulta or "").strip():
             return {"ok": False, "error": "¿qué archivo busco?"}
-        d = _warp("buscar", consulta)
+        d = _warp("buscar", consulta, *(["--carpeta", carpeta] if carpeta else []))
+        if carpeta and d.get("ok") and not d.get("candidatos"):
+            d = _warp("buscar", consulta)          # la carpeta puede ser una suposición del modelo: buscar en todo
         if not d.get("ok"):
             return d
         c = d.get("candidatos") or []
@@ -82,6 +84,21 @@ def warp(accion: str, texto: str | None = None, nombre: str | None = None, consu
                       "Hay varios: " + "; ".join(x["nombre"] for x in c[:3]) + ". ¿Cuál?")
         d["resumen"] = "Buscando en el PC"
         return d
+    if accion == "listar":
+        d = _warp("listar", *([carpeta] if carpeta else []))
+        if not d.get("ok"):
+            return d
+        c = d.get("candidatos") or []
+        d["decir"] = (f"{Path(d.get('carpeta', '')).name or 'La carpeta'} está vacía." if not c else
+                      f"Lo más reciente: " + "; ".join(x["nombre"] for x in c[:5]) + ". ¿Cuál mando?")
+        d["resumen"] = "Mirando la carpeta"
+        return d
+    if accion == "archivo" and not (ruta or "").strip() and (consulta or "").strip():
+        # el modelo pequeño a veces salta directo a «archivo» con una descripción: buscar y, si está claro, enviar
+        b = warp("buscar", consulta=consulta, carpeta=carpeta)
+        if not b.get("ok") or not b.get("claro"):
+            return b
+        accion, ruta = "archivo", b["candidatos"][0]["ruta"]
     if accion == "archivo":
         if not (ruta or "").strip():
             return {"ok": False, "error": "falta la ruta (usa antes buscar)"}
