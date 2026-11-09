@@ -8,7 +8,7 @@ import threading
 import time
 from typing import Callable
 
-from . import holo_preview
+from . import archivos, holo_preview
 
 
 @dataclass
@@ -44,6 +44,8 @@ class Escena:
         self.enviar_por_warp: Callable[[int], dict] = self._enviar_por_warp_default
         self.abrir_externo: Callable[[str], dict] = self._abrir_externo_default
         self.listador: Callable[[str], dict] = self._listar_default
+        self.carpeta: str | None = None        # carpeta de la lista que se ve (para relistar tras operar)
+        self.retraso_relistado: float = 0.9    # deja que se vea la animación antes de relistar
 
     def _tocar(self) -> None:
         """Actualiza la marca de tiempo de última actividad."""
@@ -54,6 +56,7 @@ class Escena:
         op: str,
         panel: dict | None = None,
         ids: list[str] | None = None,
+        **extra,
     ) -> None:
         """Emite un evento de holograma con el estado completo de la escena."""
         evento = {
@@ -64,14 +67,17 @@ class Escena:
             "seleccionado": self.seleccionado,
             "panel": panel,
             "ids": ids,
+            **extra,
         }
         if self.emit is not None:
             self.emit(**evento)
 
-    def listar(self, titulo: str, entradas: list[dict]) -> list[Item]:
-        """Crea o sustituye la lista de archivos, cerrando los visores abiertos."""
+    def listar(self, titulo: str, entradas: list[dict], carpeta: str | None = None) -> list[Item]:
+        """Crea o sustituye la lista de archivos, cerrando los visores abiertos.
+        `carpeta` (si se conoce) permite relistar tras mover, borrar o renombrar."""
         with self._lock:
             self._tocar()
+            self.carpeta = carpeta
             self.paneles.clear()
             self.items.clear()
             self.seleccionado = None
@@ -199,7 +205,7 @@ class Escena:
         d = self.listador(item.ruta)
         if not d.get("ok"):
             return {"ok": False, "error": d.get("error") or f"No puedo abrir {item.nombre}."}
-        items = self.listar(item.nombre, d.get("candidatos") or [])
+        items = self.listar(item.nombre, d.get("candidatos") or [], carpeta=item.ruta)
         return {"ok": True, "abiertos": [], "carpeta": item.nombre, "n": len(items)}
 
     def cerrar(self, numeros: list[int] | None = None, todo: bool = False) -> int:
@@ -350,9 +356,72 @@ class Escena:
 
             return " ".join(partes)
 
+    # ------------------------------------------------------------ archivos (planes)
+
+    def _quitar_panel(self, pid: str) -> None:
+        """Quita un panel (con el lock tomado); si era el último, vacía la escena."""
+        if pid not in self.paneles:
+            return
+        del self.paneles[pid]
+        if not self.paneles:
+            self.items.clear()
+            self.seleccionado = None
+            self._emit("clear")
+        else:
+            self._emit("close", ids=[pid])
+
+    def mostrar_confirmacion(self, plan) -> dict:
+        """Panel holográfico de confirmación de un plan pendiente."""
+        with self._lock:
+            self._tocar()
+            panel = {"id": "confirmar", "kind": "confirmar", "titulo": plan.titulo(),
+                     "item_n": None, "payload": plan.a_payload()}
+            self.paneles["confirmar"] = panel
+            self._emit("confirm", panel=panel)
+            return panel
+
+    def resolver_plan(self, plan_id: str, si: bool) -> dict:
+        """Confirma o cancela un plan (voz o clic): ejecuta una sola vez y actualiza la pantalla."""
+        res = archivos.resolver(plan_id, si)
+        plan = res.get("plan")
+        if plan is not None:
+            self.tras_plan(plan)
+        return res
+
+    def tras_plan(self, plan) -> None:
+        """Quita el panel de confirmación y, si el plan se ejecutó, anima y relista."""
+        with self._lock:
+            self._tocar()
+            self._quitar_panel("confirmar")
+            if plan.estado != "ejecutado" or not self.paneles:
+                return
+            origenes = {o.origen for o in plan.ops}
+            filas = [it.n for it in self.items if it.ruta in origenes]
+            ids = [f"v{n}" for n in filas if f"v{n}" in self.paneles]
+            self._emit("fx", ids=ids, fx=plan.accion, filas=filas)
+            carpeta = plan.carpeta if plan.accion == "crear_carpeta" else str(Path(plan.ops[0].origen).parent)
+        if self.retraso_relistado > 0:
+            t = threading.Timer(self.retraso_relistado, self.refrescar, [carpeta])
+            t.daemon = True
+            t.start()
+        else:
+            self.refrescar(carpeta)
+
+    def refrescar(self, carpeta: str | None = None) -> None:
+        """Vuelve a listar la carpeta de la lista que se ve (los números cambian)."""
+        with self._lock:
+            destino = self.carpeta or carpeta
+            if "lista" not in self.paneles or not destino:
+                return
+            d = self.listador(destino)
+            if d.get("ok"):
+                self.listar(self.paneles["lista"]["titulo"], d.get("candidatos") or [], carpeta=destino)
+
     def caducar(self) -> bool:
         """Si ha vencido el tiempo de inactividad, vacía la escena y emite clear."""
         with self._lock:
+            if "confirmar" in self.paneles and archivos.pendiente() is None:
+                self._quitar_panel("confirmar")
             hay_escena = bool(self.items) or bool(self.paneles)
             if hay_escena and (self.reloj() - self.ultimo_uso > self.ttl):
                 self.items.clear()
@@ -390,6 +459,11 @@ class Escena:
                 return res
             except ValueError:
                 return {"ok": False, "error": f"Número inválido: {arg}"}
+
+        if cmd in ("holo-confirm", "holo-cancel"):
+            res = self.resolver_plan(arg.strip(), cmd == "holo-confirm")
+            return {"ok": bool(res.get("ok")), "estado": res.get("estado"),
+                    "error": res.get("error"), "decir": res.get("decir")}
 
         if cmd == "holo-select":
             try:
