@@ -159,7 +159,7 @@ class Op:
 
 @dataclass
 class Plan:
-    accion: str                       # borrar | mover | renombrar | crear_carpeta
+    accion: str                       # borrar | mover | renombrar | crear_carpeta | ordenar | renombrar_lote
     ops: list[Op]
     requiere_confirmacion: bool
     carpeta: str | None = None        # carpeta de contexto (destino o carpeta de la lista)
@@ -185,13 +185,21 @@ class Plan:
 
     def titulo(self) -> str:
         return {"borrar": f"Borrar {self._cuantos()}", "mover": f"Mover {self._cuantos()}",
-                "renombrar": "Renombrar", "crear_carpeta": "Crear carpeta"}[self.accion]
+                "renombrar": "Renombrar", "crear_carpeta": "Crear carpeta",
+                "ordenar": f"Ordenar {self._cuantos()}",
+                "renombrar_lote": f"Renombrar {self._cuantos()}"}[self.accion]
 
     def pregunta(self) -> str:
         if self.accion == "borrar":
             return f"Voy a mandar a la papelera {self._cuantos()}, {_tam_humano(self.total_bytes)}. ¿Confirmas?"
         if self.accion == "mover":
             return f"Voy a mover {self._cuantos()} a {Path(self.ops[0].destino).parent.name}. ¿Confirmas?"
+        if self.accion == "ordenar":
+            cats = sorted({Path(o.destino).parent.name for o in self.ops})
+            return (f"Voy a ordenar {self._cuantos()} en {len(cats)} carpetas: {', '.join(cats[:4])}"
+                    f"{' y más' if len(cats) > 4 else ''}. ¿Confirmas?")
+        if self.accion == "renombrar_lote":
+            return f"Voy a renombrar {self._cuantos()}, de {Path(self.ops[0].destino).name} en adelante. ¿Confirmas?"
         if self.accion == "renombrar":
             o = self.ops[0]
             return f"Voy a renombrar {Path(o.origen).name} a {Path(o.destino).name}. ¿Confirmas?"
@@ -202,7 +210,9 @@ class Plan:
         return {
             "plan": self.id, "accion": self.accion, "titulo": self.titulo(),
             "items": [{"nombre": Path(o.origen).name, "tamano": o.tamano, "es_dir": o.es_dir,
-                       "nuevo": Path(o.destino).name if self.accion == "renombrar" and o.destino else None}
+                       "nuevo": (Path(o.destino).name if self.accion in ("renombrar", "renombrar_lote") and o.destino
+                                 else Path(o.destino).parent.name + "/" if self.accion == "ordenar" and o.destino
+                                 else None)}
                       for o in self.ops[:6]],
             "mas": max(0, len(self.ops) - 6),
             "total_bytes": self.total_bytes,
@@ -270,6 +280,66 @@ def planificar_renombrar(ruta: str, nombre: str) -> Plan:
     ops[0].destino = str(o.with_name(nuevo))
     ruta_permitida(ops[0].destino)
     return Plan("renombrar", ops, False, str(o.parent))
+
+
+_CATEGORIAS = {
+    "Imágenes": {".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".svg", ".bmp", ".avif"},
+    "Vídeos": {".mp4", ".mkv", ".mov", ".webm", ".avi"},
+    "Música": {".mp3", ".flac", ".ogg", ".opus", ".wav", ".m4a"},
+    "PDFs": {".pdf"},
+    "Documentos": {".doc", ".docx", ".odt", ".txt", ".md", ".rtf", ".xls", ".xlsx", ".ods", ".csv", ".ppt", ".pptx", ".odp", ".epub"},
+    "Comprimidos": {".zip", ".rar", ".7z", ".tar", ".gz", ".xz", ".zst", ".bz2"},
+    "Instaladores": {".deb", ".rpm", ".appimage", ".exe", ".msi", ".pkg", ".iso", ".flatpakref"},
+    "Código": {".py", ".js", ".ts", ".json", ".sh", ".c", ".cpp", ".java", ".html", ".css", ".qml", ".lua", ".toml", ".yaml", ".yml"},
+}
+
+
+def categoria(p: Path) -> str:
+    ext = p.suffix.lower()
+    return next((c for c, exts in _CATEGORIAS.items() if ext in exts), "Otros")
+
+
+def planificar_ordenar(carpeta) -> Plan:
+    """Mete los archivos sueltos de la carpeta en subcarpetas por tipo (no toca subcarpetas)."""
+    base = ruta_permitida(carpeta, permitir_raiz=True)
+    if not base.is_dir():
+        raise Rechazo(f"{base.name} no es una carpeta.")
+    sueltos = sorted((p for p in base.iterdir() if p.is_file() and not p.name.startswith(".")
+                      and not p.name.endswith((".part", ".crdownload"))), key=lambda p: p.name.lower())
+    if not sueltos:
+        raise Rechazo(f"{base.name} ya está ordenada: no hay archivos sueltos.")
+    ops = _ops_existentes([str(p) for p in sueltos[:ENTORNO.max_ops]])
+    for op in ops:
+        o = Path(op.origen)
+        op.destino = str(base / categoria(o) / o.name)
+    return Plan("ordenar", ops, True, str(base))
+
+
+def planificar_renombrar_lote(rutas: list[str], base_nombre: str) -> Plan:
+    """«Viaje Berlín» -> «Viaje Berlín 01.jpg», «… 02.jpg»… en orden de fecha (conserva la extensión)."""
+    raiz = _nombre_valido(base_nombre).rsplit(".", 1)[0] if "." in base_nombre[-6:] else _nombre_valido(base_nombre)
+    ops = _ops_existentes(rutas)
+    _validar_n(len(ops))
+    ops.sort(key=lambda o: os.path.getmtime(o.origen))
+    ancho = max(2, len(str(len(ops))))
+    for i, op in enumerate(ops, 1):
+        o = Path(op.origen)
+        op.destino = str(o.with_name(f"{raiz} {i:0{ancho}d}{o.suffix.lower()}"))
+        ruta_permitida(op.destino)
+    return Plan("renombrar_lote", ops, True, str(Path(ops[0].origen).parent))
+
+
+def planificar_limpiar_viejos(carpeta, dias: int) -> Plan:
+    """Papelera para lo que lleva más de N días sin tocar en la carpeta (solo archivos sueltos)."""
+    base = ruta_permitida(carpeta, permitir_raiz=True)
+    if dias < 7:
+        raise Rechazo("Como mínimo una semana; menos es demasiado arriesgado.")
+    limite = ahora() - dias * 86400
+    viejos = [p for p in base.iterdir() if p.is_file() and not p.name.startswith(".") and p.stat().st_mtime < limite]
+    if not viejos:
+        raise Rechazo(f"No hay nada en {base.name} con más de {dias} días.")
+    viejos.sort(key=lambda p: p.stat().st_mtime)
+    return planificar_borrar([str(p) for p in viejos[:ENTORNO.max_ops]], str(base))
 
 
 def planificar_crear_carpeta(nombre: str, en) -> Plan:
@@ -376,7 +446,8 @@ def _hacer(accion: str, op: Op) -> None:
     if accion == "borrar":
         f, i = _a_papelera(o, op.es_dir)
         op.trash_files, op.trash_info = str(f), str(i)
-    else:  # mover | renombrar
+    else:  # mover | renombrar | ordenar | renombrar_lote
+        Path(op.destino).parent.mkdir(parents=True, exist_ok=True)
         d = _libre(Path(op.destino).parent, Path(op.destino).name, op.es_dir)
         shutil.move(str(o), str(d))
         op.real_destino = str(d)
@@ -405,6 +476,11 @@ def ejecutar(plan: Plan) -> dict:
         decir = f"Hecho: {Plan(plan.accion, hechas, True)._cuantos()} a la papelera."
     elif plan.accion == "mover":
         decir = f"Hecho: {Plan(plan.accion, hechas, True)._cuantos()} movidos a {Path(hechas[0].real_destino).parent.name}."
+    elif plan.accion == "ordenar":
+        cats = {Path(o.real_destino).parent.name for o in hechas}
+        decir = f"Hecho: {Plan(plan.accion, hechas, True)._cuantos()} ordenados en {len(cats)} carpetas."
+    elif plan.accion == "renombrar_lote":
+        decir = f"Hecho: {Plan(plan.accion, hechas, True)._cuantos()} renombrados."
     elif plan.accion == "renombrar":
         decir = f"Hecho: ahora se llama {Path(hechas[0].real_destino).name}."
     else:
@@ -485,7 +561,8 @@ def deshacer() -> dict:
     lineas[idx]["deshecha"] = True
     _escribir_diario(lineas)
     verbo = {"borrar": "Recuperado de la papelera", "mover": "Devuelto a su sitio",
-             "renombrar": "Devuelto a su nombre", "crear_carpeta": "Carpeta eliminada"}[acc["accion"]]
+             "renombrar": "Devuelto a su nombre", "crear_carpeta": "Carpeta eliminada",
+                 "ordenar": "Devuelto a su sitio", "renombrar_lote": "Devueltos a su nombre"}[acc["accion"]]
     decir = f"Hecho. {verbo}."
     if avisos:
         decir += f" {len(avisos)} no se han podido."

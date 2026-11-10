@@ -152,7 +152,7 @@ def _holo_evento(titulo: str, ini: datetime, fin: datetime, dia: list[dict]) -> 
       "Abre en pantalla un correo ENTERO de la lista de correos que se ve («ábreme el correo 2», «abre el de Marta», «léeme el de la universidad»).",
       {"numero": {"type": "integer", "description": "número del correo en la lista (1 = el primero)"},
        "remitente": {"type": "string", "description": "o parte del remitente/asunto si no dice número"}},
-      icon="mark_email_read")
+      icon="mark_email_read", cuando=lambda t: bool(re.search(r"correo|mail|\bel de\b|\bla de\b", t, re.I)))
 def abrir_correo(numero: int = 0, remitente: str = "") -> dict:
     if not _ULTIMOS_CORREOS:
         return {"ok": False, "error": "no hay correos en pantalla; pide antes «mírame los correos»"}

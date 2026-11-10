@@ -1,6 +1,7 @@
 """Herramientas de Laura para enseñar y abrir archivos en paneles holográficos."""
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from . import tool
@@ -158,6 +159,7 @@ def cerrar_holo(numeros: list[int] | None = None, todo: bool = False) -> dict:
      "texto": {"type": "string", "description": "contenido en markdown"}},
     required=["titulo", "texto"],
     icon="sticky_note_2",
+    cuando=lambda t: bool(re.search(r"pantalla|escrit|lista|res[uú]m|pasos|receta|nota|apunt|expl[ií]ca", t, re.I)),
 )
 def mostrar_nota(titulo: str, texto: str) -> dict:
     import hashlib
