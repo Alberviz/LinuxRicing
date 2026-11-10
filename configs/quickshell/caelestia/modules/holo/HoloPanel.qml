@@ -784,6 +784,10 @@ Item {
                         const n = (p.items ?? []).length;
                         return n === 1 ? "1 correo" : n + " correos";
                     }
+                    case "tareas": {
+                        const n = (p.items ?? []).length;
+                        return n === 1 ? "1 tarea" : n + " tareas";
+                    }
                     default:
                         return p.mime || "";
                     }
@@ -896,6 +900,7 @@ Item {
                 case "agenda":
                     return "HoloAgenda.qml";
                 case "correo":
+                case "tareas":
                     return "HoloCorreo.qml";
                 default:
                     return "HoloOther.qml";

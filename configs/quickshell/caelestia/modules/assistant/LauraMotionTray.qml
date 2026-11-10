@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Shapes
 import Caelestia.Config
 import qs.components
 import qs.services
@@ -311,6 +312,8 @@ Item {
             anchors.fill: parent
             visible: root.tipo === "delta_meter"
             readonly property bool vol: root.motion?.medidor === "volumen"
+            readonly property bool bat: root.motion?.medidor === "bateria"
+            readonly property bool carga: root.motion?.cargando ?? false
             readonly property bool muted: root.motion?.silenciado ?? false
             readonly property real from: root.motion?.from ?? 0
             readonly property real to: root.motion?.to ?? 0
@@ -343,7 +346,7 @@ Item {
                     color: root.acc
                     fill: 1
                     fontStyle: Tokens.font.icon.large
-                    text: meter.vol ? (meter.muted ? "volume_off" : meter.v < 34 ? "volume_mute" : meter.v < 67 ? "volume_down" : "volume_up") : (meter.v < 34 ? "brightness_low" : meter.v < 67 ? "brightness_medium" : "brightness_high")
+                    text: meter.bat ? (meter.carga ? "battery_charging_full" : meter.v < 20 ? "battery_alert" : meter.v < 50 ? "battery_3_bar" : meter.v < 85 ? "battery_5_bar" : "battery_full") : meter.vol ? (meter.muted ? "volume_off" : meter.v < 34 ? "volume_mute" : meter.v < 67 ? "volume_down" : "volume_up") : (meter.v < 34 ? "brightness_low" : meter.v < 67 ? "brightness_medium" : "brightness_high")
                     scale: meterAnim.running ? 1.08 : 1
                     Behavior on scale {
                         NumberAnimation {
@@ -361,8 +364,8 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 9
                 Overline {
-                    icon: meter.to >= meter.from ? "arrow_upward" : "arrow_downward"
-                    text: meter.vol ? (meter.muted ? "Silenciado" : "Volumen") : "Brillo"
+                    icon: meter.bat ? (meter.carga ? "bolt" : "schedule") : meter.to >= meter.from ? "arrow_upward" : "arrow_downward"
+                    text: meter.bat ? (root.motion?.detalle ?? "Batería") : meter.vol ? (meter.muted ? "Silenciado" : "Volumen") : "Brillo"
                 }
                 Item {
                     id: track
@@ -378,7 +381,7 @@ Item {
                         height: parent.height
                         radius: 4
                         width: Math.max(height, parent.width * Math.min(1, meter.v / track.scaleMax))
-                        color: root.acc
+                        color: meter.bat && meter.v < 20 && !meter.carga ? Colours.palette.m3error : root.acc
                     }
                     // marca de dónde estaba
                     Rectangle {
@@ -386,6 +389,7 @@ Item {
                         height: 14
                         radius: 1
                         anchors.verticalCenter: parent.verticalCenter
+                        visible: !meter.bat
                         x: Math.min(parent.width - 2, parent.width * meter.from / track.scaleMax)
                         color: Colours.palette.m3onSurface
                         opacity: Math.abs(meter.v - meter.from) > 1 ? 0.55 : 0
@@ -466,6 +470,272 @@ Item {
                 Overline {
                     icon: "check_circle"
                     text: "Hecho"
+                }
+                Title {
+                    text: root.motion?.titulo ?? ""
+                }
+            }
+        }
+        // ---------- 5. wifi / bluetooth: interruptor que conmuta ----------
+        Item {
+            id: tog
+            anchors.fill: parent
+            visible: root.tipo === "toggle"
+            readonly property bool on: root.motion?.on ?? false
+            readonly property bool bt: root.motion?.clave === "bluetooth"
+            property real k: 0 // 0 = apagado, 1 = encendido (animado)
+
+            Connections {
+                target: root
+                function onShotChanged(): void {
+                    if (root.tipo !== "toggle")
+                        return;
+                    togAnim.stop();
+                    tog.k = root.motion.on ? 0 : 1;
+                    togAnim.to = root.motion.on ? 1 : 0;
+                    togAnim.start();
+                }
+            }
+            NumberAnimation {
+                id: togAnim
+                target: tog
+                property: "k"
+                duration: 520
+                easing.type: Easing.OutBack
+                easing.overshoot: 1.6
+            }
+
+            Tile {
+                id: tt
+                anchors.verticalCenter: parent.verticalCenter
+                color: Qt.alpha(root.acc, 0.06 + 0.14 * tog.k)
+                // ondas de señal que se encienden al conectar
+                Repeater {
+                    model: 2
+                    Rectangle {
+                        required property int index
+                        anchors.centerIn: parent
+                        width: 30 + index * 14
+                        height: width
+                        radius: width / 2
+                        color: "transparent"
+                        border.width: 1.5
+                        border.color: root.acc
+                        opacity: tog.on ? Math.max(0, 1 - Math.abs(tog.k - 0.5 - index * 0.25) * 3) * 0.6 : 0
+                    }
+                }
+                MaterialIcon {
+                    anchors.centerIn: parent
+                    text: tog.bt ? (tog.on ? "bluetooth_connected" : "bluetooth_disabled") : (tog.on ? "wifi" : "wifi_off")
+                    color: Qt.tint(Colours.palette.m3onSurfaceVariant, Qt.alpha(root.acc, tog.k))
+                    fill: 1
+                    fontStyle: Tokens.font.icon.large
+                }
+            }
+            Column {
+                anchors.left: tt.right
+                anchors.leftMargin: 14
+                anchors.right: sw.left
+                anchors.rightMargin: 12
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 2
+                Overline {
+                    icon: tog.on ? "toggle_on" : "toggle_off"
+                    text: tog.on ? "Encendido" : "Apagado"
+                }
+                Title {
+                    text: root.motion?.titulo ?? ""
+                }
+                Sub {
+                    text: root.motion?.detalle ?? ""
+                }
+            }
+            // interruptor
+            Rectangle {
+                id: sw
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                width: 46
+                height: 26
+                radius: 13
+                color: Qt.tint(Qt.alpha(Colours.palette.m3onSurface, 0.12), Qt.alpha(root.acc, Math.min(1, Math.max(0, tog.k))))
+                Rectangle {
+                    width: 20
+                    height: 20
+                    radius: 10
+                    anchors.verticalCenter: parent.verticalCenter
+                    x: 3 + (parent.width - width - 6) * tog.k
+                    color: tog.k > 0.5 ? Colours.palette.m3onPrimary : Colours.palette.m3onSurfaceVariant
+                }
+            }
+        }
+
+        // ---------- 6. temporizador / recordatorio: anillo que se carga ----------
+        Item {
+            id: tim
+            anchors.fill: parent
+            visible: root.tipo === "timer"
+            property real k: 1
+            readonly property int seg: root.motion?.segundos ?? 0
+
+            Connections {
+                target: root
+                function onShotChanged(): void {
+                    if (root.tipo === "timer")
+                        timAnim.restart();
+                }
+            }
+            NumberAnimation {
+                id: timAnim
+                target: tim
+                property: "k"
+                from: 0
+                to: 1
+                duration: 900
+                easing.type: Easing.OutCubic
+            }
+
+            Item {
+                id: ring
+                width: 56
+                height: 56
+                anchors.verticalCenter: parent.verticalCenter
+                Shape {
+                    anchors.fill: parent
+                    preferredRendererType: Shape.CurveRenderer
+                    ShapePath {
+                        strokeColor: Qt.alpha(root.acc, 0.16)
+                        strokeWidth: 4
+                        fillColor: "transparent"
+                        PathAngleArc {
+                            centerX: 28
+                            centerY: 28
+                            radiusX: 25
+                            radiusY: 25
+                            startAngle: 0
+                            sweepAngle: 360
+                        }
+                    }
+                    ShapePath {
+                        strokeColor: root.acc
+                        strokeWidth: 4
+                        capStyle: ShapePath.RoundCap
+                        fillColor: "transparent"
+                        PathAngleArc {
+                            centerX: 28
+                            centerY: 28
+                            radiusX: 25
+                            radiusY: 25
+                            startAngle: -90
+                            sweepAngle: 360 * tim.k
+                        }
+                    }
+                }
+                MaterialIcon {
+                    anchors.centerIn: parent
+                    text: root.motion?.clase === "Recordatorio" ? "notifications_active" : "timer"
+                    color: root.acc
+                    fill: 1
+                    fontStyle: Tokens.font.icon.medium
+                    rotation: (1 - tim.k) * -30
+                }
+            }
+            Column {
+                anchors.left: ring.right
+                anchors.leftMargin: 14
+                anchors.right: timNum.left
+                anchors.rightMargin: 12
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 2
+                Overline {
+                    icon: "schedule"
+                    text: (root.motion?.clase ?? "Temporizador") + " · " + (root.motion?.hora ?? "")
+                }
+                Title {
+                    text: root.motion?.titulo ?? ""
+                }
+            }
+            StyledText {
+                id: timNum
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                // cuenta hacia arriba hasta la duración, como el anillo
+                text: {
+                    const s = Math.round(tim.seg * tim.k);
+                    const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), ss = s % 60;
+                    return h > 0 ? h + ":" + String(m).padStart(2, "0") + ":" + String(ss).padStart(2, "0") : m + ":" + String(ss).padStart(2, "0");
+                }
+                color: Colours.palette.m3onSurface
+                font.pointSize: 20
+                font.weight: Font.DemiBold
+                font.features: {
+                    "tnum": 1
+                }
+            }
+        }
+
+        // ---------- 7. próximo evento ----------
+        Item {
+            id: nxt
+            anchors.fill: parent
+            visible: root.tipo === "next_event"
+            property real t: 1
+
+            Connections {
+                target: root
+                function onShotChanged(): void {
+                    if (root.tipo === "next_event")
+                        nxtAnim.restart();
+                }
+            }
+            NumberAnimation {
+                id: nxtAnim
+                target: nxt
+                property: "t"
+                from: 0
+                to: 1
+                duration: 560
+                easing.type: Easing.OutCubic
+            }
+
+            Tile {
+                id: cal
+                anchors.verticalCenter: parent.verticalCenter
+                scale: 0.7 + 0.3 * nxt.t
+                Column {
+                    anchors.centerIn: parent
+                    MaterialIcon {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: "event"
+                        color: root.acc
+                        fill: 1
+                        fontStyle: Tokens.font.icon.small
+                    }
+                    StyledText {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: (root.motion?.hora ?? "") || "—"
+                        color: root.acc
+                        font.pointSize: 12
+                        font.weight: Font.DemiBold
+                        font.features: {
+                            "tnum": 1
+                        }
+                    }
+                }
+            }
+            Column {
+                anchors.left: cal.right
+                anchors.leftMargin: 14
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 2
+                opacity: nxt.t
+                transform: Translate {
+                    x: (1 - nxt.t) * 16
+                }
+                Overline {
+                    icon: "event_upcoming"
+                    text: "Próximo · " + (root.motion?.falta ?? "")
                 }
                 Title {
                     text: root.motion?.titulo ?? ""

@@ -70,6 +70,7 @@ function size(panel, W, H) {
         const n = dias.length ? (dias[0].eventos || []).length : 0;
         return { w: Math.round(Math.min(0.24 * W, 460)), h: Math.round(Math.min(0.62 * H, 46 + 32 + Math.max(2, n) * 58)) };
     }
+    case "tareas":
     case "correo": {
         const n = (panel.payload && panel.payload.items) ? panel.payload.items.length : 3;
         return { w: Math.round(Math.min(0.28 * W, 520)), h: Math.round(Math.min(0.66 * H, 46 + 20 + n * 70)) };

@@ -7,6 +7,7 @@ import subprocess
 import unicodedata
 from pathlib import Path
 
+from ..config import log
 from . import tool
 
 _TASKS_BIN = str(Path.home() / ".local/bin/tasks-index")
@@ -71,6 +72,19 @@ def _lista(titulos: list[str]) -> str:
     return titulos[0] if len(titulos) == 1 else ", ".join(titulos[:-1]) + " y " + titulos[-1]
 
 
+def _holo_tareas(titulo: str, pares: list) -> None:
+    """Panel con las tareas (en curso y urgentes destacadas). Nunca rompe la respuesta."""
+    try:
+        from .. import holo
+        holo.escena().mostrar_datos("tareas", titulo, {"tipo": "tareas", "items": [
+            {"n": k + 1, "de": t["titulo"], "asunto": r["nombre"] + (" · en curso" if t["estado"] == "en-curso" else ""),
+             "frase": "", "importante": t["estado"] == "en-curso" or t["prioridad"] <= 2,
+             "hora": f"P{t['prioridad']}", "inicial": r["nombre"][:1]}
+            for k, (r, t) in enumerate(pares[:10])]}, "task_alt")
+    except Exception as e:  # noqa: BLE001
+        log(f"tareas: holo no disponible ({e})")
+
+
 def _item(r: dict, t: dict) -> dict:
     return {"proyecto": r["nombre"], "titulo": t["titulo"], "estado": t["estado"],
             "prioridad": t["prioridad"]}
@@ -91,6 +105,8 @@ def listar_tareas(repo: str = "", estado: str = "") -> dict:
             return {"ok": False, "error": f"no conozco el proyecto «{repo}»",
                     "proyectos": [x["nombre"] for x in repos if x["tareas"]]}
         ts = [t for t in r["tareas"] if not estado or t["estado"] == estado]
+        if ts:
+            _holo_tareas(f"Tareas · {r['nombre']}", [(r, t) for t in ts])
         return {"ok": True, "proyecto": r["nombre"], "tareas": [_item(r, t) for t in ts[:8]],
                 "total": len(ts), "resumen": f"Tareas de {r['nombre']}",
                 "decir": (f"En {r['nombre']} tienes {len(ts)} por hacer. Las más urgentes: "
@@ -101,6 +117,8 @@ def listar_tareas(repo: str = "", estado: str = "") -> dict:
     gen = sorted((p for p in todas if p[1]["estado"] == "en-curso" or p[1]["prioridad"] <= 2),
                  key=lambda p: (p[1]["estado"] != "en-curso", p[1]["prioridad"], p[1]["titulo"]))
     en_marcha = [(r, t) for r, t in todas if t["estado"] == "en-curso"]
+    if gen:
+        _holo_tareas("Lo urgente", gen)
     por_proy = {r["nombre"]: len(r["tareas"]) for r in repos if r["tareas"]}
     cola = ", ".join(f"{n} {c}" for n, c in sorted(por_proy.items(), key=lambda kv: -kv[1]))
     if en_marcha:

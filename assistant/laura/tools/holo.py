@@ -147,3 +147,21 @@ def cerrar_holo(numeros: list[int] | None = None, todo: bool = False) -> dict:
         "resumen": "Hologramas cerrados",
         "n": n,
     }
+
+
+@tool(
+    "mostrar_nota",
+    "Pone en pantalla un texto que TÚ escribes (holograma): un resumen, una lista, una receta, pasos, una explicación larga… "
+    "Úsala cuando Alberto diga «ponlo en pantalla», «enséñamelo escrito», «hazme una lista de…» o cuando la respuesta sea "
+    "demasiado larga para decirla. Markdown corto (títulos ##, listas -, **negrita**).",
+    {"titulo": {"type": "string", "description": "título corto"},
+     "texto": {"type": "string", "description": "contenido en markdown"}},
+    required=["titulo", "texto"],
+    icon="sticky_note_2",
+)
+def mostrar_nota(titulo: str, texto: str) -> dict:
+    import hashlib
+    pid = "nota-" + hashlib.md5(titulo.encode()).hexdigest()[:6]
+    holo.escena().mostrar_datos(pid, titulo[:60], {"tipo": "texto", "formato": "markdown", "texto": texto[:16000],
+                                                   "truncado": len(texto) > 16000}, "sticky_note_2")
+    return {"ok": True, "resumen": "Nota en pantalla", "nota": "Ya está en pantalla: di solo una frase corta."}

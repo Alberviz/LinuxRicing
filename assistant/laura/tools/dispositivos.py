@@ -144,10 +144,16 @@ def bateria() -> dict:
     pct = re.search(r"percentage:\s*(\d+)%", t)
     est = re.search(r"state:\s*(\S+)", t)
     resto = re.search(r"time to (?:empty|full):\s*(.+)", t)
-    return {"ok": True, "porcentaje": int(pct.group(1)) if pct else None,
-            "estado": est.group(1) if est else None,
-            "tiempo_restante": resto.group(1).strip() if resto else None,
-            "resumen": f"Batería al {pct.group(1)} %" if pct else "Batería"}
+    n = int(pct.group(1)) if pct else None
+    estado = est.group(1) if est else None
+    t_rest = resto.group(1).strip() if resto else None
+    motion = None
+    if n is not None:
+        carga = estado in ("charging", "fully-charged")
+        motion = {"tipo": "delta_meter", "medidor": "bateria", "from": 0, "to": n, "cargando": carga,
+                  "detalle": ("Cargando" if carga else "Descargando") + (f" · {t_rest}" if t_rest else "")}
+    return {"ok": True, "porcentaje": n, "estado": estado, "tiempo_restante": t_rest,
+            "resumen": f"Batería al {n} %" if n is not None else "Batería", "motion": motion}
 
 
 @tool("wifi", "Consulta, enciende o apaga el wifi («tengo wifi», «apaga el wifi»).",
@@ -167,8 +173,10 @@ def wifi(accion: str) -> dict:
             if ln.startswith("yes:") or ln.startswith("sí:"):
                 red = ln.split(":", 1)[1]
                 break
+    motion = {"tipo": "toggle", "clave": "wifi", "on": on, "titulo": "Wifi",
+              "detalle": red if red else ("Sin conectar" if on else "Apagado")}
     return {"ok": True, "encendido": on, "red": red,
-            "resumen": "Wifi " + ("encendido" if on else "apagado")}
+            "resumen": "Wifi " + ("encendido" if on else "apagado"), "motion": motion}
 
 
 @tool("bluetooth", "Consulta, enciende o apaga el bluetooth («apaga el bluetooth»).",
@@ -182,4 +190,9 @@ def bluetooth(accion: str) -> dict:
     elif accion != "estado":
         return {"ok": False, "error": f"acción desconocida: {accion}"}
     on = "Powered: yes" in _run(["bluetoothctl", "show"]).stdout
-    return {"ok": True, "encendido": on, "resumen": "Bluetooth " + ("encendido" if on else "apagado")}
+    conectados = [ln.split(" ", 2)[2] for ln in _run(["bluetoothctl", "devices", "Connected"]).stdout.splitlines()
+                  if ln.startswith("Device ") and ln.count(" ") >= 2] if on else []
+    motion = {"tipo": "toggle", "clave": "bluetooth", "on": on, "titulo": "Bluetooth",
+              "detalle": ", ".join(conectados[:2]) if conectados else ("Sin dispositivos" if on else "Apagado")}
+    return {"ok": True, "encendido": on, "conectados": conectados,
+            "resumen": "Bluetooth " + ("encendido" if on else "apagado"), "motion": motion}

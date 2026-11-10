@@ -67,10 +67,12 @@ Item {
                     required property var modelData
                     required property int index
                     readonly property string f: root.fase(diaView.dia, modelData)
-                    readonly property bool destacado: index === diaView.sig
+                    readonly property bool nuevo: modelData.nuevo ?? false
+                    readonly property bool choca: modelData.choca ?? false
+                    readonly property bool destacado: root.payload.propuesta ? nuevo : index === diaView.sig
                     width: diaCol.width
                     height: 58
-                    opacity: f === "pasado" ? 0.45 : 1
+                    opacity: f === "pasado" && !root.payload.propuesta ? 0.45 : 1
 
                     // aparición escalonada
                     property real t: 0
@@ -136,9 +138,16 @@ Item {
                         height: 46
                         anchors.verticalCenter: parent.verticalCenter
                         radius: 12
-                        color: fila.destacado ? Qt.alpha(root.acc, 0.16) : Qt.alpha(Colours.palette.m3onSurface, 0.05)
-                        border.width: fila.destacado ? 1 : 0
-                        border.color: Qt.alpha(root.acc, 0.4)
+                        color: fila.destacado ? Qt.alpha(root.acc, 0.16) : fila.choca ? Qt.alpha(Colours.palette.m3error, 0.1) : Qt.alpha(Colours.palette.m3onSurface, 0.05)
+                        border.width: fila.destacado || fila.choca ? 1 : 0
+                        border.color: fila.choca && !fila.nuevo ? Qt.alpha(Colours.palette.m3error, 0.5) : Qt.alpha(root.acc, 0.4)
+                        // el evento propuesto respira (borde discontinuo no hay en Rectangle: pulso de opacidad de un disparo)
+                        SequentialAnimation on opacity {
+                            running: fila.nuevo
+                            loops: 2
+                            NumberAnimation { to: 0.55; duration: 450; easing.type: Easing.InOutSine }
+                            NumberAnimation { to: 1; duration: 450; easing.type: Easing.InOutSine }
+                        }
 
                         StyledText {
                             anchors.left: parent.left
@@ -161,12 +170,12 @@ Item {
                             width: visible ? chipTxt.implicitWidth + 14 : 0
                             height: 20
                             radius: 10
-                            color: root.acc
+                            color: fila.nuevo && fila.choca ? Colours.palette.m3error : root.acc
                             StyledText {
                                 id: chipTxt
                                 anchors.centerIn: parent
-                                text: fila.f === "ahora" ? "AHORA" : "SIGUIENTE"
-                                color: Colours.palette.m3onPrimary
+                                text: fila.nuevo ? (fila.choca ? "SE SOLAPA" : "NUEVO") : fila.f === "ahora" ? "AHORA" : "SIGUIENTE"
+                                color: fila.nuevo && fila.choca ? Colours.palette.m3onError : Colours.palette.m3onPrimary
                                 font.pointSize: 7.5
                                 font.weight: Font.Bold
                                 font.letterSpacing: 1
