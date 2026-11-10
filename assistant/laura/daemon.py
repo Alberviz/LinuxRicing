@@ -19,7 +19,7 @@ from . import avisos
 from .escalation import (_confirm_and_run_escalation, _handle_auto_escalation,
                          _match_auto_case, responder_pendiente_archivos, voice_yes_no)
 from . import jobs as jobs_mod
-from . import rapido
+from . import rapido, registro
 from . import vigia as vigia_mod
 from .jobs import JobManager, reap_orphans
 from .llm import Session, _mode_switch, converse, precalentar
@@ -138,7 +138,9 @@ def cycle(session: Session, jobs: JobManager, mode: str = "centro",
                 atajo = rapido.resolver(text)
                 if atajo is not None:
                     log(f"rápido: {atajo.tool}({atajo.args})")
+                    t_rapido0 = time.perf_counter()
                     resultado = tools_mod.run_tool(atajo.tool, atajo.args, CFG.get("apps", {}))
+                    dur_rapido = time.perf_counter() - t_rapido0
                     log(f"rápido -> {resultado}")
                     accion = tools_mod.accion_overlay(atajo.tool, resultado) if resultado.get("ok") else None
                     actions = [accion] if accion else []
@@ -151,6 +153,13 @@ def cycle(session: Session, jobs: JobManager, mode: str = "centro",
                         speak(frase, turn_cancel)
                     session.add("user", text)
                     session.add("assistant", frase or resultado.get("resumen") or "Hecho.")
+                    registro.apuntar(
+                        texto=text,
+                        via="rapido",
+                        tools=[{"tool": atajo.tool, "args": atajo.args}],
+                        respuesta=frase,
+                        segundos=round(dur_rapido, 3),
+                    )
                     turns += 1
                     if mode != "centro" or bye or turns >= max_turns:
                         break
@@ -173,15 +182,24 @@ def cycle(session: Session, jobs: JobManager, mode: str = "centro",
 
             speech = Speech(turn_cancel, mode) if CFG["llm"].get("stream", True) else None
             lanzados0 = jobs.launched
+            t_llm0 = time.perf_counter()
             try:
                 reply, actions, escalation = converse(
                     session, text, speech.feed if speech else None, turn_cancel)
+                dur_llm = time.perf_counter() - t_llm0
                 # El LLM ya ha terminado de generar; el audio puede seguir
                 # sonando. Publicar aquí lo demás, no tras la voz.
                 if escalation is None:
                     log(f"laura: {reply}  · acciones: {actions}")
                     notify("Laura", reply)
                     bus.emit(type="result", actions=actions)
+                    registro.apuntar(
+                        texto=text,
+                        via="llm",
+                        tools=[{"tool": a["tool"], "args": a.get("args", {})} for a in actions if "tool" in a],
+                        respuesta=reply,
+                        segundos=round(dur_llm, 3),
+                    )
                 else:
                     log(f"laura: pide escalar (Modo B) -> {escalation}")
             finally:

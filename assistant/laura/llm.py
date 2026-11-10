@@ -434,6 +434,9 @@ def converse(session: Session, user_text: str, on_sentence=None,
             if eff == "confirm:archivos" and result.get("confirmar"):
                 return "", actions, {"destino": "archivos", "peticion": result["plan"], "motivo": ""}
             if result.get("ok"):
-                actions.append(tools_mod.accion_overlay(fn["name"], result))
+                acc = tools_mod.accion_overlay(fn["name"], result)
+                acc["tool"] = fn["name"]
+                acc["args"] = args
+                actions.append(acc)
     _compactar_turno(messages, desde)
     return (messages[-1].get("content") or "Hecho.").strip(), actions, None
