@@ -745,10 +745,14 @@ return res;
                 no_encontradas.append(t_orig.get("busqueda"))
 
     if uris_nuevas:
-        for i in range(0, len(uris_nuevas), 50):
-            bloque = uris_nuevas[i:i + 50]
-            run_js(r"await P.PlaylistAPI.add(ARGS.uri, ARGS.tracks, {});", {"uri": pl_uri, "tracks": bloque})
-            time.sleep(0.3)
+        # Para que en Spotify la última añadida quede siempre arriba del todo (tanto si la playlist
+        # se ve ordenada por fecha descendente como en orden personalizado), las canciones nuevas
+        # se añaden de más antigua a más reciente, insertándolas en la posición superior ({before: "start"})
+        # y dejando una breve pausa para que Spotify registre timestamps estrictamente crecientes.
+        for u in reversed(uris_nuevas):
+            run_js(r'await P.PlaylistAPI.add(ARGS.uri, [ARGS.track], {before: "start"});',
+                   {"uri": pl_uri, "track": u})
+            time.sleep(1.05)
 
     return {
         "ok": True,
