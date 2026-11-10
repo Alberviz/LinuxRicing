@@ -169,30 +169,62 @@ def ollama_chat(session: Session) -> dict:
     return _post(_ollama_body(session, False), "chat")
 
 
+def chat_lateral(instrucciones: str, etiqueta: str, fmt: str | None = None,
+                 temperature: float | None = None, num_predict: int | None = None,
+                 timeout: float | None = None) -> str:
+    """Llamada auxiliar al LLM compartiendo el mismo prefijo (system base + tools base).
+
+    Si el modelo devuelve tool_calls o respuesta vacía, repite la petición sin tools como respaldo.
+    """
+    opts: dict = {"num_ctx": CFG["llm"].get("num_ctx", 4096)}
+    if temperature is not None:
+        opts["temperature"] = temperature
+    elif "temperature" in CFG["llm"]:
+        opts["temperature"] = CFG["llm"]["temperature"]
+    if num_predict is not None:
+        opts["num_predict"] = num_predict
+    elif "num_predict" in CFG["llm"]:
+        opts["num_predict"] = CFG["llm"]["num_predict"]
+
+    body: dict = {
+        "model": CFG["llm"]["model"],
+        "messages": [
+            {"role": "system", "content": CFG["llm"]["system_prompt"].strip()},
+            {"role": "user", "content": f"[Tarea interna: no uses herramientas]\n\n{instrucciones}"},
+        ],
+        "tools": tools_mod.activas(""),
+        "stream": False,
+        "options": opts,
+    }
+    if fmt:
+        body["format"] = fmt
+
+    resp = _post(body, etiqueta, timeout=timeout)
+    msg = resp.get("message") or {}
+    content = (msg.get("content") or "").strip()
+    if not content or msg.get("tool_calls"):
+        body_fb = dict(body)
+        body_fb.pop("tools", None)
+        resp_fb = _post(body_fb, etiqueta, timeout=timeout)
+        msg_fb = resp_fb.get("message") or {}
+        content = (msg_fb.get("content") or "").strip()
+    return content
+
+
 def summarize_for_voice(texto: str, quien: str = "Gemini") -> str:
     """Resume la respuesta completa de un agente (Gemini/Claude) en 1-2 frases
     orales con el LLM local, para que Laura la devuelva "como si fuera suya". Si
     el resumen falla (Ollama caído, etc.), cae a un recorte crudo del texto."""
     try:
-        msgs = [
-            {"role": "system", "content": CFG["llm"]["system_prompt"].strip()},
-            {"role": "user", "content": (
-                f"Le pedí ayuda a {quien} para algo que yo no podía resolver "
-                "sola y esto es lo que ha hecho, con todo detalle:\n\n"
-                + texto[:6000] +
-                "\n\nResúmelo para Alberto en una o dos frases orales, en "
-                "español, sin markdown ni listas, como si tú misma lo "
-                "hubieras hecho.")},
-        ]
-        req = urllib.request.Request(
-            CFG["llm"]["url"],
-            data=json.dumps({"model": CFG["llm"]["model"], "messages": msgs,
-                             "stream": False,
-                             "options": {"num_ctx": CFG["llm"].get("num_ctx", 4096)}}).encode(),
-            headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=CFG["llm"].get("timeout", 45)) as resp:
-            msg = json.loads(resp.read())["message"]
-        resumen = (msg.get("content") or "").strip()
+        instrucciones = (
+            f"Le pedí ayuda a {quien} para algo que yo no podía resolver "
+            "sola y esto es lo que ha hecho, con todo detalle:\n\n"
+            + texto[:6000] +
+            "\n\nResúmelo para Alberto en una o dos frases orales, en "
+            "español, sin markdown ni listas, como si tú misma lo "
+            "hubieras hecho."
+        )
+        resumen = chat_lateral(instrucciones, f"resumen_{quien.lower()}")
         if resumen:
             return resumen
     except Exception as e:  # noqa: BLE001
@@ -224,17 +256,13 @@ def answer_from_sources(tema: str, resultados: list[dict]) -> str:
     (modo `investigar = "laura"`). Si el modelo falla, devuelve los fragmentos tal cual."""
     ctx = "\n".join(f"- {r['titulo']}: {r['fragmento']}" for r in resultados)
     try:
-        msgs = [{"role": "system", "content": "Eres un investigador. Respondes en español, claro y sin inventar nada que no esté en los resultados."},
-                {"role": "user", "content": (f"Tema: {tema}\n\nResultados de búsqueda:\n{ctx}\n\n"
-                                             "Escribe un párrafo de 2-3 frases con la respuesta directa y "
-                                             "después, como mucho, 4 viñetas con los detalles más útiles.")}]
-        req = urllib.request.Request(
-            CFG["llm"]["url"],
-            data=json.dumps({"model": CFG["llm"]["model"], "messages": msgs, "stream": False,
-                             "options": {"num_ctx": CFG["llm"].get("num_ctx", 4096)}}).encode(),
-            headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=CFG["llm"].get("timeout", 45) * 2) as resp:
-            txt = (json.loads(resp.read())["message"].get("content") or "").strip()
+        instrucciones = (
+            f"Esta es una nota escrita para Alberto (aquí sí puedes usar viñetas y markdown).\n\n"
+            f"Tema: {tema}\n\nResultados de búsqueda:\n{ctx}\n\n"
+            "Escribe un párrafo de 2-3 frases con la respuesta directa y "
+            "después, como mucho, 4 viñetas con los detalles más útiles."
+        )
+        txt = chat_lateral(instrucciones, "investigar", timeout=CFG["llm"].get("timeout", 45) * 2)
         if txt:
             return txt
     except Exception as e:  # noqa: BLE001
