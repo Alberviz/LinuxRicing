@@ -73,9 +73,22 @@ Item {
             width: btnContent.implicitWidth + 24
             height: 32
             radius: 16
-            color: btnMouse.containsMouse ? Qt.alpha(Colours.palette.m3primary, 0.24) : Qt.alpha(Colours.palette.m3primary, 0.12)
+            color: Qt.alpha(Colours.palette.m3primary, btnMouse.pressed ? 0.32 : btnMouse.containsMouse ? 0.24 : 0.12)
             border.width: 1
             border.color: Qt.alpha(Colours.palette.m3primary, 0.5)
+            scale: btnMouse.pressed ? 0.96 : 1
+
+            Behavior on color {
+                ColorAnimation {
+                    duration: HoloGeo.tMicro
+                }
+            }
+            Behavior on scale {
+                NumberAnimation {
+                    duration: HoloGeo.tMicro
+                    easing.type: HoloGeo.curvaEntra
+                }
+            }
 
             Row {
                 id: btnContent

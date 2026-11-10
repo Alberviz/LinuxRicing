@@ -38,6 +38,12 @@ PanelWindow {
     property var pos: ({})
     property var reg: ({})
     property int zTop: 10
+    // Paneles vivos (también los que se están yendo): los hilos se cuelgan de aquí para
+    // poder retraerse mientras su visor se va.
+    readonly property ListModel modelo: vivos
+    // Cascada de nacimientos: cuándo y con qué retraso nació el último
+    property real ultimoNacer: 0
+    property int ultimoRetraso: 0
 
     // Centro de la píldora de Laura (LauraOverlay: abajo, centrada, margen extraLarge*2)
     readonly property point origen: Qt.point(width / 2, height - (screen ? contentItem.Tokens.padding.extraLarge * 2 : 48) - 26)
@@ -127,11 +133,17 @@ PanelWindow {
             return;
         }
 
-        // Salidas (en cascada si se van varios a la vez)
+        // Salidas (en cascada si se van varios a la vez); y al revés: si vuelven a pedir uno
+        // que se estaba yendo, da media vuelta en vez de desaparecer
         let k = 0;
         for (const pid of idsVivos()) {
-            if (ids.indexOf(pid) < 0 && reg[pid] && !reg[pid].saliendo)
-                reg[pid].salir((k++) * 55);
+            const r = reg[pid];
+            if (!r)
+                continue;
+            if (ids.indexOf(pid) < 0 && !r.saliendo)
+                r.salir(Math.min(HoloGeo.maxEscalon, (k++) * HoloGeo.escalonSalida));
+            else if (ids.indexOf(pid) >= 0 && r.saliendo)
+                r.volver();
         }
 
         // Cajas: la lista se recalcula siempre (cambia con los items y con los visores);
@@ -159,8 +171,20 @@ PanelWindow {
                     pid: p.id
                 });
 
-        if (ps.length === 0 && vivos.count === 0)
+        // Sin escena: el velo se apaga a la vez que los paneles se van (no después)
+        if (ps.length === 0)
             apagar();
+    }
+
+    // Retraso de nacimiento: los paneles que llegan juntos (en el mismo instante o casi)
+    // salen en cascada en vez de a la vez; uno suelto nace sin esperar.
+    function turnoNacer(): int {
+        const ahora = Date.now();
+        const pendiente = ultimoNacer + ultimoRetraso - ahora;
+        const r = pendiente > -60 ? Math.min(HoloGeo.maxEscalon, Math.max(0, pendiente) + HoloGeo.escalonPanel) : 0;
+        ultimoNacer = ahora;
+        ultimoRetraso = r;
+        return r;
     }
 
     function quitar(pid: string): void {
@@ -184,7 +208,23 @@ PanelWindow {
         if (!shown || veilOut.running)
             return;
         veilIn.stop();
+        // Velo ya apagado y nada animándose: cerrar del todo sin esperar
+        if (veil <= 0.001 && vivos.count === 0) {
+            terminar();
+            return;
+        }
         veilOut.start();
+    }
+
+    function terminar(): void {
+        if (HoloState.activo && enfocada)
+            return;
+        // Aún hay paneles volviendo a la píldora: quitar() llamará otra vez al acabar
+        if (vivos.count > 0)
+            return;
+        shown = false;
+        datos = ({});
+        pos = ({});
     }
 
     // Un panel arrastrado y soltado se queda donde lo dejas
@@ -224,8 +264,10 @@ PanelWindow {
         function onPanelesChanged(): void {
             root.sync();
         }
+        // El daemon manda `items` antes que `paneles`: reconciliar al final del evento (si no,
+        // al cerrar, la lista se encogería a una fila mientras se va)
         function onItemsChanged(): void {
-            root.sync();
+            Qt.callLater(root.sync);
         }
         function onSeleccionadoChanged(): void {
             if (HoloState.seleccionado > 0)
@@ -272,32 +314,27 @@ PanelWindow {
         target: root
         property: "veil"
         to: 1
-        duration: 320
-        easing.type: Easing.OutCubic
+        duration: HoloGeo.tMedio + 40
+        easing.type: HoloGeo.curvaEntra
         onStarted: sweep.start()
     }
 
     SequentialAnimation {
         id: veilOut
 
+        // Breve espera para que los paneles empiecen a irse antes de que caiga el telón
         PauseAnimation {
-            duration: 120
+            duration: 100
         }
         NumberAnimation {
             target: root
             property: "veil"
             to: 0
-            duration: 340
+            duration: HoloGeo.tMedio + 60
             easing.type: Easing.InOutQuad
         }
         ScriptAction {
-            script: {
-                if (!HoloState.activo || !root.enfocada) {
-                    root.shown = false;
-                    root.datos = ({});
-                    root.pos = ({});
-                }
-            }
+            script: root.terminar()
         }
     }
 
@@ -502,6 +539,8 @@ PanelWindow {
             id: papelera
 
             property real p: 0
+            // Golpe al «tragarse» lo que cae (coincide con la llegada de la desintegración)
+            property real golpe: 0
 
             function pulsar(): void {
                 pulso.restart();
@@ -514,7 +553,7 @@ PanelWindow {
             z: 1
             opacity: p
             visible: p > 0.001
-            scale: 0.8 + 0.4 * p
+            scale: 0.8 + 0.2 * p + 0.18 * golpe
 
             Rectangle {
                 anchors.fill: parent
@@ -536,18 +575,37 @@ PanelWindow {
                     target: papelera
                     property: "p"
                     to: 1
-                    duration: 160
-                    easing.type: Easing.OutCubic
+                    duration: HoloGeo.tRapido
+                    easing.type: HoloGeo.curvaEntra
+                }
+                // Lo que se borra tarda ~0,5 s en caer: la papelera lo espera abierta…
+                PauseAnimation {
+                    duration: 300
+                }
+                // …y da un golpe seco al recibirlo
+                NumberAnimation {
+                    target: papelera
+                    property: "golpe"
+                    to: 1
+                    duration: 90
+                    easing.type: HoloGeo.curvaEntra
+                }
+                NumberAnimation {
+                    target: papelera
+                    property: "golpe"
+                    to: 0
+                    duration: HoloGeo.tMedio
+                    easing.type: Easing.OutBack
                 }
                 PauseAnimation {
-                    duration: 520
+                    duration: 160
                 }
                 NumberAnimation {
                     target: papelera
                     property: "p"
                     to: 0
-                    duration: 260
-                    easing.type: Easing.InQuad
+                    duration: HoloGeo.tMedio
+                    easing.type: HoloGeo.curvaSale
                 }
             }
         }

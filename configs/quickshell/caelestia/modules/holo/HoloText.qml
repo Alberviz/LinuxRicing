@@ -36,10 +36,27 @@ Item {
             onWheel: (event) => {
                 if (flickable.contentHeight <= flickable.height)
                     return;
-                const dy = event.angleDelta.y ? -(event.angleDelta.y / 120) * 60 : -(event.pixelDelta.y || 0);
                 const maxY = flickable.contentHeight - flickable.height;
-                flickable.contentY = Math.max(0, Math.min(maxY, flickable.contentY + dy));
+                // Rueda con muescas: desplazamiento suave y acumulable; touchpad: directo
+                if (event.angleDelta.y) {
+                    const desde = desliza.running ? desliza.to : flickable.contentY;
+                    desliza.stop();
+                    desliza.to = Math.max(0, Math.min(maxY, desde - (event.angleDelta.y / 120) * 60));
+                    desliza.start();
+                } else {
+                    desliza.stop();
+                    flickable.contentY = Math.max(0, Math.min(maxY, flickable.contentY - (event.pixelDelta.y || 0)));
+                }
             }
+        }
+
+        NumberAnimation {
+            id: desliza
+
+            target: flickable
+            property: "contentY"
+            duration: HoloGeo.tRapido
+            easing.type: HoloGeo.curvaEntra
         }
 
         Column {

@@ -45,11 +45,46 @@ Item {
     // 0 = en su sitio, 1 = tragado por la papelera (esquina inferior derecha)
     property real cae: 0
     property real escala: 0.12
+    // Ya está en su sitio (fin del vuelo): desde aquí se puede tocar, arrastrar y recolocar
     property bool llegado: false
     property bool saliendo: false
     property bool enviando: false
     property real barrido: -1
+    // Retraso del nacimiento cuando nacen varios a la vez (lo reparte la capa)
+    property int retrasoNacer: 0
+    // 0..1: levantado al arrastrar (un pelín más grande y con más halo)
+    property real alzado: arrastre.active ? 1 : 0
+    // 0..1..0: destello del halo al pasar a ser «esa»
+    property real destello: 0
+    readonly property bool resaltado: esVisor && item !== null && HoloState.resaltado === item.n
     readonly property bool cercaArriba: arrastre.active && esVisor && y < 90
+    // Recuento de la lista congelado mientras se va (el daemon vacía `items` al cerrar)
+    property int nArchivos: 0
+
+    // El daemon manda `items` antes que `paneles`: se mira al final del evento, cuando ya
+    // se sabe si este panel se está yendo
+    function contar(): void {
+        if (!saliendo)
+            nArchivos = (HoloState.items || []).length;
+    }
+
+    Connections {
+        function onItemsChanged(): void {
+            Qt.callLater(root.contar);
+        }
+
+        target: HoloState
+    }
+    // 0 = reposo, 0,5 = señalado (hover propio o de su fila), 1 = «esa» o a punto de enviarse.
+    // Un único número animado para halo y borde: estados que se cruzan sin saltos.
+    property real realce: (seleccionado || cercaArriba) ? 1 : (resaltado || hover.hovered) ? 0.5 : 0
+
+    Behavior on realce {
+        NumberAnimation {
+            duration: HoloGeo.tRapido
+            easing.type: HoloGeo.curvaFundido
+        }
+    }
     readonly property color prim: cercaArriba ? Colours.palette.m3tertiary : (esConfirmar && payload.accion === "borrar") ? Colours.palette.m3error : Colours.palette.m3primary
     readonly property string iconoConfirmar: ({
             borrar: "delete",
@@ -71,22 +106,39 @@ Item {
         y = Qt.binding(() => root.baseY() + (-root.height * 1.1 - root.baseY()) * root.sube);
     }
 
+    // Corta lo que estuviera en marcha sin dejar restos (la línea del barrido congelada,
+    // el parpadeo a medias…): la siguiente animación parte de los valores actuales.
+    function cortar(): void {
+        nacer.stop();
+        rayoItem.cortar();
+        barrido = -1;
+    }
     function salir(retraso: int): void {
-        if (saliendo)
+        if (saliendo || enviando)
             return;
         saliendo = true;
         llegado = false;
-        nacer.stop();
+        cortar();
         salida.retraso = retraso;
         salida.start();
     }
     function desintegrar(): void {
-        if (saliendo)
+        if ((saliendo && !salida.running) || enviando)
             return;
         saliendo = true;
         llegado = false;
-        nacer.stop();
+        cortar();
+        salida.stop();
         desint.start();
+    }
+    // Lo vuelven a pedir mientras se iba: da media vuelta desde donde esté, sin recrearse
+    function volver(): void {
+        if (!saliendo || enviando)
+            return;
+        salida.stop();
+        desint.stop();
+        saliendo = false;
+        regreso.start();
     }
     // Cerrar con la ✕ o clic derecho: en una confirmación equivale a cancelar el plan
     function cerrarPanel(): void {
@@ -100,6 +152,7 @@ Item {
             return;
         enviando = true;
         llegado = false;
+        cortar();
         envio.start();
     }
     function soltado(): void {
@@ -117,7 +170,7 @@ Item {
     height: caja.h
     z: 1
     opacity: 0
-    scale: escala
+    scale: escala * (1 + 0.018 * alzado + 0.01 * destello)
     rotation: caja.rot * vuelo
     transformOrigin: Item.Center
     transform: [
@@ -137,7 +190,26 @@ Item {
         capa.registrar(pid, root);
         capa.alFrente(pid);
         fijarPosicion();
+        retrasoNacer = capa.turnoNacer();
+        nArchivos = (HoloState.items || []).length;
         nacer.start();
+    }
+
+    Component.onDestruction: {
+        if (esVisor && HoloState.resaltado === panel?.item_n)
+            HoloState.resaltado = -1;
+    }
+
+    onSeleccionadoChanged: {
+        if (seleccionado && llegado && !saliendo)
+            ping.restart();
+    }
+
+    Behavior on alzado {
+        NumberAnimation {
+            duration: HoloGeo.tRapido
+            easing.type: HoloGeo.curvaEntra
+        }
     }
 
     // La lista se aparta cuando se abren visores: deslizarse, no saltar
@@ -164,57 +236,69 @@ Item {
     }
 
     // ------------------------------------------------------------------ animaciones
+    // Todas de una sola vez. Las que pueden pisarse se cortan con cortar() antes de
+    // arrancar la siguiente, que parte siempre de los valores actuales (sin «from»).
 
     SequentialAnimation {
         id: nacer
 
+        // Si nacen varios a la vez, salen en cascada (el rayo de cada uno, uno tras otro)
+        PauseAnimation {
+            duration: root.retrasoNacer
+        }
         ScriptAction {
             script: rayoItem.start()
         }
         PauseAnimation {
-            duration: 70
+            duration: 60
         }
+        // Vuelo: posición y escala comparten duración para que el panel llegue entero a la
+        // vez; el rebote es mínimo (un asentarse, no un muelle).
         ParallelAnimation {
             NumberAnimation {
                 target: root
                 property: "vuelo"
                 to: 1
-                duration: 520
-                easing.type: Easing.OutCubic
+                duration: HoloGeo.tVuelo
+                easing.type: HoloGeo.curvaEntra
             }
             NumberAnimation {
                 target: root
                 property: "escala"
                 to: 1
-                duration: 560
+                duration: HoloGeo.tVuelo
                 easing.type: Easing.OutBack
-                easing.overshoot: 1.15
+                easing.overshoot: 0.9
             }
             NumberAnimation {
                 target: root
                 property: "opacity"
-                to: 0.92
-                duration: 220
-                easing.type: Easing.OutQuad
+                to: 0.9
+                duration: HoloGeo.tRapido
+                easing.type: HoloGeo.curvaFundido
             }
         }
-        // Parpadeo de holograma al «enfocar»
+        // En su sitio: ya responde (arrastrar, clic) y se recoloca deslizándose
+        ScriptAction {
+            script: root.llegado = true
+        }
+        // Parpadeo de holograma al «enfocar» (la firma visual, corta: ~125 ms)
         NumberAnimation {
             target: root
             property: "opacity"
-            to: 0.5
-            duration: 45
+            to: 0.55
+            duration: 40
         }
         NumberAnimation {
             target: root
             property: "opacity"
             to: 1
-            duration: 55
+            duration: 50
         }
         NumberAnimation {
             target: root
             property: "opacity"
-            to: 0.78
+            to: 0.8
             duration: 35
         }
         ParallelAnimation {
@@ -222,25 +306,23 @@ Item {
                 target: root
                 property: "opacity"
                 to: 1
-                duration: 90
+                duration: 80
             }
             NumberAnimation {
                 target: root
                 property: "barrido"
                 from: 0
                 to: 1
-                duration: 620
+                duration: HoloGeo.tBarrido
                 easing.type: Easing.InOutSine
             }
         }
         ScriptAction {
-            script: {
-                root.barrido = -1;
-                root.llegado = true;
-            }
+            script: root.barrido = -1
         }
     }
 
+    // Vuelve a la píldora: más rápido que la entrada y acelerando (se va, no llega)
     SequentialAnimation {
         id: salida
 
@@ -254,25 +336,25 @@ Item {
                 target: root
                 property: "vuelo"
                 to: 0
-                duration: 330
-                easing.type: Easing.InCubic
+                duration: HoloGeo.tSalida
+                easing.type: HoloGeo.curvaSale
             }
             NumberAnimation {
                 target: root
                 property: "escala"
                 to: 0.1
-                duration: 330
-                easing.type: Easing.InCubic
+                duration: HoloGeo.tSalida
+                easing.type: HoloGeo.curvaSale
             }
             SequentialAnimation {
                 PauseAnimation {
-                    duration: 140
+                    duration: HoloGeo.tSalida * 0.4
                 }
                 NumberAnimation {
                     target: root
                     property: "opacity"
                     to: 0
-                    duration: 190
+                    duration: HoloGeo.tSalida * 0.6
                 }
             }
         }
@@ -281,33 +363,46 @@ Item {
         }
     }
 
+    // A la papelera: un chisporroteo breve (se «desintegra») y cae encogiéndose
     SequentialAnimation {
         id: desint
 
+        NumberAnimation {
+            target: root
+            property: "opacity"
+            to: 0.45
+            duration: 45
+        }
+        NumberAnimation {
+            target: root
+            property: "opacity"
+            to: 0.95
+            duration: 45
+        }
         ParallelAnimation {
             NumberAnimation {
                 target: root
                 property: "cae"
                 to: 1
-                duration: 460
-                easing.type: Easing.InCubic
+                duration: HoloGeo.tLento
+                easing.type: HoloGeo.curvaSale
             }
             NumberAnimation {
                 target: root
                 property: "escala"
                 to: 0.05
-                duration: 460
-                easing.type: Easing.InCubic
+                duration: HoloGeo.tLento
+                easing.type: HoloGeo.curvaSale
             }
             SequentialAnimation {
                 PauseAnimation {
-                    duration: 200
+                    duration: HoloGeo.tLento * 0.45
                 }
                 NumberAnimation {
                     target: root
                     property: "opacity"
                     to: 0
-                    duration: 260
+                    duration: HoloGeo.tLento * 0.55
                 }
             }
         }
@@ -325,7 +420,7 @@ Item {
                 property: "sube"
                 to: 1
                 duration: 460
-                easing.type: Easing.InCubic
+                easing.type: HoloGeo.curvaSale
             }
             SequentialAnimation {
                 PauseAnimation {
@@ -350,8 +445,69 @@ Item {
         }
     }
 
+    // Media vuelta: lo vuelven a pedir mientras se iba
+    SequentialAnimation {
+        id: regreso
+
+        ParallelAnimation {
+            NumberAnimation {
+                target: root
+                property: "vuelo"
+                to: 1
+                duration: HoloGeo.tMedio
+                easing.type: HoloGeo.curvaEntra
+            }
+            NumberAnimation {
+                target: root
+                property: "escala"
+                to: 1
+                duration: HoloGeo.tMedio
+                easing.type: HoloGeo.curvaEntra
+            }
+            NumberAnimation {
+                target: root
+                property: "cae"
+                to: 0
+                duration: HoloGeo.tMedio
+                easing.type: HoloGeo.curvaEntra
+            }
+            NumberAnimation {
+                target: root
+                property: "opacity"
+                to: 1
+                duration: HoloGeo.tRapido
+                easing.type: HoloGeo.curvaFundido
+            }
+        }
+        ScriptAction {
+            script: root.llegado = true
+        }
+    }
+
+    // «Esa»: un destello corto del halo y un respiro de escala confirman la selección
+    SequentialAnimation {
+        id: ping
+
+        NumberAnimation {
+            target: root
+            property: "destello"
+            to: 1
+            duration: HoloGeo.tMicro
+            easing.type: HoloGeo.curvaFundido
+        }
+        NumberAnimation {
+            target: root
+            property: "destello"
+            to: 0
+            duration: HoloGeo.tLento
+            easing.type: Easing.InOutSine
+        }
+    }
+
     // ------------------------------------------------------------------ rayo de nacimiento
 
+    // Un pulso de luz viaja de la píldora al destino: la punta avanza y la cola la sigue,
+    // así el rayo «entra» en el panel en vez de quedarse pintado y fundirse entero.
     Item {
         id: rayoItem
 
@@ -359,9 +515,14 @@ Item {
         readonly property real dy: root.caja.y + root.caja.h / 2 - root.capa.origen.y
         readonly property real largo: Math.hypot(dx, dy)
         property real crece: 0
+        property real cola: 0
 
         function start(): void {
-            rayoAnim.start();
+            rayoAnim.restart();
+        }
+        function cortar(): void {
+            rayoAnim.stop();
+            opacity = 0;
         }
 
         parent: root.parent
@@ -370,6 +531,7 @@ Item {
         z: 0
         width: 0
         height: 0
+        visible: opacity > 0
         rotation: Math.atan2(-dx, dy) * 180 / Math.PI
         transformOrigin: Item.TopLeft
         opacity: 0
@@ -377,8 +539,9 @@ Item {
         // Halo ancho y núcleo fino
         Rectangle {
             x: -3
+            y: rayoItem.largo * rayoItem.cola
             width: 6
-            height: rayoItem.largo * rayoItem.crece
+            height: Math.max(0, rayoItem.largo * (rayoItem.crece - rayoItem.cola))
             radius: 3
             opacity: 0.35
             gradient: Gradient {
@@ -394,8 +557,9 @@ Item {
         }
         Rectangle {
             x: -0.75
+            y: rayoItem.largo * rayoItem.cola
             width: 1.5
-            height: rayoItem.largo * rayoItem.crece
+            height: Math.max(0, rayoItem.largo * (rayoItem.crece - rayoItem.cola))
             gradient: Gradient {
                 GradientStop {
                     position: 0
@@ -422,23 +586,46 @@ Item {
 
             PropertyAction {
                 target: rayoItem
+                property: "cola"
+                value: 0
+            }
+            PropertyAction {
+                target: rayoItem
                 property: "opacity"
                 value: 1
             }
-            NumberAnimation {
-                target: rayoItem
-                property: "crece"
-                from: 0
-                to: 1
-                duration: 240
-                easing.type: Easing.OutQuad
-            }
-            NumberAnimation {
-                target: rayoItem
-                property: "opacity"
-                to: 0
-                duration: 380
-                easing.type: Easing.InQuad
+            ParallelAnimation {
+                NumberAnimation {
+                    target: rayoItem
+                    property: "crece"
+                    from: 0
+                    to: 1
+                    duration: 230
+                    easing.type: HoloGeo.curvaEntra
+                }
+                SequentialAnimation {
+                    PauseAnimation {
+                        duration: 110
+                    }
+                    NumberAnimation {
+                        target: rayoItem
+                        property: "cola"
+                        to: 1
+                        duration: 330
+                        easing.type: HoloGeo.curvaCambia
+                    }
+                }
+                SequentialAnimation {
+                    PauseAnimation {
+                        duration: 300
+                    }
+                    NumberAnimation {
+                        target: rayoItem
+                        property: "opacity"
+                        to: 0
+                        duration: 140
+                    }
+                }
             }
         }
     }
@@ -451,11 +638,7 @@ Item {
         radius: cuerpo.radius + 12
         color: "transparent"
         border.width: 7
-        border.color: Qt.alpha(root.prim, root.seleccionado || root.cercaArriba ? 0.10 : 0.045)
-
-        Behavior on border.color {
-            CAnim {}
-        }
+        border.color: Qt.alpha(root.prim, 0.045 + 0.055 * root.realce + 0.07 * root.destello + 0.03 * root.alzado)
     }
     Rectangle {
         anchors.fill: cuerpo
@@ -463,11 +646,7 @@ Item {
         radius: cuerpo.radius + 5
         color: "transparent"
         border.width: 5
-        border.color: Qt.alpha(root.prim, root.seleccionado || root.cercaArriba ? 0.24 : 0.12)
-
-        Behavior on border.color {
-            CAnim {}
-        }
+        border.color: Qt.alpha(root.prim, 0.12 + 0.12 * root.realce + 0.16 * root.destello + 0.05 * root.alzado)
     }
 
     // ------------------------------------------------------------------ cuerpo
@@ -582,7 +761,7 @@ Item {
                     if (root.enviado)
                         return "→ móvil ✓";
                     if (root.esLista) {
-                        const n = (HoloState.items || []).length;
+                        const n = root.nArchivos;
                         return n === 1 ? "1 archivo" : n + " archivos";
                     }
                     const p = root.payload;
@@ -616,10 +795,19 @@ Item {
                 Rectangle {
                     anchors.fill: parent
                     radius: 14
-                    color: Qt.alpha(Colours.palette.m3onSurface, cerrarMa.containsMouse ? 0.12 : 0)
+                    color: Qt.alpha(Colours.palette.m3onSurface, cerrarMa.pressed ? 0.2 : cerrarMa.containsMouse ? 0.12 : 0)
+                    scale: cerrarMa.pressed ? 0.9 : 1
 
                     Behavior on color {
-                        CAnim {}
+                        ColorAnimation {
+                            duration: HoloGeo.tMicro
+                        }
+                    }
+                    Behavior on scale {
+                        NumberAnimation {
+                            duration: HoloGeo.tMicro
+                            easing.type: HoloGeo.curvaEntra
+                        }
                     }
                 }
                 MaterialIcon {
@@ -798,11 +986,7 @@ Item {
         radius: cuerpo.radius
         color: "transparent"
         border.width: 1
-        border.color: Qt.alpha(root.prim, root.seleccionado || root.cercaArriba ? 0.95 : hover.hovered ? 0.75 : 0.5)
-
-        Behavior on border.color {
-            CAnim {}
-        }
+        border.color: Qt.alpha(root.prim, Math.min(1, 0.5 + 0.45 * root.realce + 0.3 * root.destello))
     }
 
     // Marcas de esquina: un guiño HUD discreto en dos esquinas opuestas
@@ -818,18 +1002,26 @@ Item {
             }
         ]
 
+        // «Fijan» el panel al llegar: entran desde fuera hacia la esquina, como un visor
+        // que engancha el objetivo; al irse se sueltan hacia fuera.
         Item {
-            required property var modelData
+            id: marca
 
-            x: modelData.ax ? root.width - width + 6 : -6
-            y: modelData.ay ? root.height - height + 6 : -6
+            required property var modelData
+            property real fija: root.llegado ? 1 : 0
+            readonly property real fuera: (1 - fija) * 10
+
+            x: modelData.ax ? root.width - width + 6 + fuera : -6 - fuera
+            y: modelData.ay ? root.height - height + 6 + fuera : -6 - fuera
             width: 18
             height: 18
-            opacity: root.llegado ? 0.9 : 0
+            opacity: 0.9 * fija
+            visible: fija > 0
 
-            Behavior on opacity {
-                Anim {
-                    type: Anim.DefaultEffects
+            Behavior on fija {
+                NumberAnimation {
+                    duration: HoloGeo.tMedio
+                    easing.type: HoloGeo.curvaEntra
                 }
             }
 
@@ -850,6 +1042,16 @@ Item {
 
     HoverHandler {
         id: hover
+
+        // Señala su fila (y su hilo) en la lista mientras el ratón está encima
+        onHoveredChanged: {
+            if (!root.item)
+                return;
+            if (hovered)
+                HoloState.resaltado = root.item.n;
+            else if (HoloState.resaltado === root.item.n)
+                HoloState.resaltado = -1;
+        }
     }
 
     // Clic en un visor = pasa a ser «esa»; clic derecho en cualquier panel = cerrarlo
