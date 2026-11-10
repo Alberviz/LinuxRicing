@@ -279,6 +279,7 @@ StyledWindow {
         // reflejo superior suave
         Rectangle {
             anchors.fill: parent
+            radius: pill.radius
             gradient: Gradient {
                 GradientStop {
                     position: 0
@@ -436,6 +437,8 @@ StyledWindow {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
+            anchors.leftMargin: pill.radius
+            anchors.rightMargin: pill.radius
             height: 2.5
             visible: win.deleg
 
