@@ -20,6 +20,7 @@ from .escalation import (_confirm_and_run_escalation, _handle_auto_escalation,
                          _match_auto_case, responder_pendiente_archivos, voice_yes_no)
 from . import jobs as jobs_mod
 from . import rapido, registro
+from . import tools as tools_mod
 from . import vigia as vigia_mod
 from .jobs import JobManager, reap_orphans
 from .llm import Session, _mode_switch, converse, precalentar
