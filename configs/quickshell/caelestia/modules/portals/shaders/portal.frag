@@ -41,6 +41,18 @@ vec3 tempColor(float rn, float dop){
     float k = tint.a > 0.5 ? 0.85 : tint.a;   // aviso (rojo): tiñe de lleno; normal: toque suave del tema
     return mix(c, tint.rgb * (0.25 + 1.1 * dot(c, vec3(0.34))) * 1.4, k * (tint.a > 0.5 ? 1.0 : 0.6));
 }
+// v2.16 (fuente de verdad: Olimpo, app/src/warp/shaders.ts) — lente con estrellas curvadas por el agujero,
+// bordes del quad que se apagan sin cortes y tramado contra las bandas.
+vec3 lente(vec2 p, float b, float t){
+    float rp = length(p); if (rp < R * 1.02 || rp > R * 7.0) return vec3(0.0);
+    vec2 L = p - p / rp * b * b / rp; vec2 g = L / (8.0 * U); vec2 i = floor(g), f = fract(g) - 0.5;
+    float h = h21(i); if (h < 0.88) return vec3(0.0);
+    vec2 o = (vec2(h21(i + 3.1), h21(i + 7.7)) - 0.5) * 0.55; float d = length(f - o);
+    float tw = 0.65 + 0.35 * sin(t * 1.7 + h * 60.0); float mag = 1.0 + 1.2 * sm(2.6, 1.15, rp / R);
+    return mix(vec3(0.72, 0.8, 1.0), vec3(1.0, 0.88, 0.74), h21(i + 1.3)) * smoothstep(0.16 * mag, 0.0, d) * tw * (h - 0.88) * 9.0 * mag * sm(7.0, 3.5, rp / R);
+}
+float bordes(vec2 p){ vec2 m = size * 0.5 - abs(p); return sm(0.0, 36.0 * U, min(m.x, m.y)); }
+float trama(){ return (h21(gl_FragCoord.xy) - 0.5) / 160.0; }
 // estriado giratorio del disco (sustituye a ~900 partículas)
 float streaks(float th, float rho, float rn){
     float w = pow(rho / 1.55, -1.5);
@@ -54,6 +66,7 @@ void main(){
     vec2 p = (qt_TexCoord0 - 0.5) * size;
     vec2 s = p / R;
     float r = length(s);
+    if (r > 8.0) { fragColor = vec4(0.0); return; }
     float c = cos(TILT), sn = sin(TILT);
     vec2 q = vec2(s.x * c + s.y * sn, -s.x * sn + s.y * c);   // marco del disco
     float bright = vis * (0.45 + 0.75 * en + 0.25 * armed);
@@ -170,6 +183,7 @@ void main(){
         }
     }
 
-    vec3 rgb = back * (1.0 - sa) + front;
-    fragColor = vec4(rgb, sa) * qt_Opacity;
+    back += lente(p, 1.9 * R, spin) * vis;
+    vec3 rgb = (back * (1.0 - sa) + front) * bordes(p) + trama();
+    fragColor = vec4(max(rgb, 0.0), sa) * qt_Opacity;
 }

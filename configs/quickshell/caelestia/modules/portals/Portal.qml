@@ -88,7 +88,7 @@ Item {
         property vector2d size: Qt.vector2d(width, height)
         property vector2d outward: root.edge === "right" ? Qt.vector2d(1, 0) : Qt.vector2d(0, -1)
         property color tint: root.bad !== "" && root.over ? Qt.rgba(1, 0.3, 0.2, 0.8) : (root.tIcon === "music_note" ? Qt.rgba(0.11, 0.73, 0.33, 0.28) : Qt.rgba(Colours.palette.m3primary.r, Colours.palette.m3primary.g, Colours.palette.m3primary.b, 0.18))
-        property real rad: root.r
+        property real rad: root.r * (0.15 + 0.85 * Math.min(1, root.vis))  // v2.16: crece desde un punto
         property real upx: root.u
         property real en: root.e
         property real vis: root.vis
