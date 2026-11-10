@@ -63,6 +63,18 @@ Item {
                 color: root.acc
             }
 
+            StyledText {
+                visible: fila.modelData.n !== undefined && root.panel?.payload?.tipo === "correo"
+                anchors.right: avatar.right
+                anchors.bottom: avatar.bottom
+                anchors.margins: -3
+                z: 2
+                text: fila.modelData.n ?? ""
+                color: Colours.palette.m3onSurfaceVariant
+                font.pointSize: 7.5
+                font.weight: Font.Bold
+            }
+
             Rectangle {
                 id: avatar
                 x: 12
@@ -73,7 +85,7 @@ Item {
                 color: fila.imp ? root.acc : Qt.alpha(root.acc, 0.18)
                 StyledText {
                     anchors.centerIn: parent
-                    text: (fila.modelData.de || "?").charAt(0).toUpperCase()
+                    text: (fila.modelData.inicial || fila.modelData.de || "?").charAt(0).toUpperCase()
                     color: fila.imp ? Colours.palette.m3onPrimary : root.acc
                     font.pointSize: 13
                     font.weight: Font.DemiBold
@@ -123,6 +135,7 @@ Item {
                 }
                 StyledText {
                     width: parent.width
+                    visible: text.length > 0
                     text: fila.modelData.frase
                     elide: Text.ElideRight
                     color: Colours.palette.m3onSurfaceVariant

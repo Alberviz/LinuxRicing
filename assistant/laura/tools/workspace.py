@@ -92,18 +92,90 @@ def _cuando_correo(fecha: str) -> str:
     return f"{_DIAS[d.weekday()]} {d.day}"
 
 
+def _falta(inicio: str) -> str:
+    """«en 25 min», «en 3 h», «mañana», «el jue 12» o «ahora»."""
+    d = _parse_dt(inicio)
+    if d is None:
+        return ""
+    if d.tzinfo is None:
+        d = d.astimezone()
+    seg = (d - datetime.now().astimezone()).total_seconds()
+    if seg <= 0:
+        return "ahora"
+    if seg < 3600:
+        return f"en {max(1, round(seg / 60))} min"
+    if d.date() == datetime.now().date():
+        return f"en {seg / 3600:.0f} h" if seg >= 5400 else "en 1 h"
+    if (d.date() - datetime.now().date()).days == 1:
+        return "mañana"
+    return f"el {_DIAS[d.weekday()]} {d.day}"
+
+
+_ULTIMOS_CORREOS: list[dict] = []
+
+
 def _holo_correo(items: list[dict], consulta: str) -> None:
+    _ULTIMOS_CORREOS[:] = items[:10]
     try:
         holo.escena().mostrar_datos("correo", f"«{consulta}»" if consulta.strip() else "Sin leer", {
             "tipo": "correo",
-            "items": [{"de": i["de"], "asunto": i["asunto"], "frase": i["frase"],
+            "items": [{"n": k + 1, "de": i["de"], "asunto": i["asunto"], "frase": i["frase"],
                        "importante": i["importante"], "hora": _cuando_correo(i["fecha"])}
-                      for i in items[:10]]}, "mail")
+                      for k, i in enumerate(items[:10])]}, "mail")
     except Exception as e:  # noqa: BLE001
         log(f"correo: holo no disponible ({e})")
 
 
+def _holo_evento(titulo: str, ini: datetime, fin: datetime, dia: list[dict]) -> None:
+    """Vista previa: el día con el evento nuevo ya colocado y los que se solapan marcados."""
+    try:
+        evs = []
+        for e in dia:
+            a, b = _parse_dt(e["inicio"]), _parse_dt(e["fin"])
+            choca = bool(a and b and a.tzinfo and a < fin.astimezone() and ini.astimezone() < b)
+            evs.append({"titulo": e["titulo"], "ini": _hhmm(e["inicio"]), "fin": _hhmm(e["fin"]), "choca": choca})
+        evs.append({"titulo": titulo, "ini": ini.strftime("%H:%M"), "fin": fin.strftime("%H:%M"), "nuevo": True,
+                    "choca": any(e["choca"] for e in evs)})
+        evs.sort(key=lambda e: e["ini"] or "00:00")
+        d0 = ini.replace(hour=0, minute=0, second=0, microsecond=0)
+        hoy = d0.date() == datetime.now().date()
+        holo.escena().mostrar_datos("agenda", f"¿Crear? · {_DIAS[d0.weekday()]} {d0.day} de {_MESES[d0.month - 1]}", {
+            "tipo": "agenda", "vista": "dia", "propuesta": True,
+            "dias": [{"fecha": d0.strftime("%Y-%m-%d"), "dia": _DIAS[d0.weekday()], "num": d0.day, "hoy": hoy,
+                      "eventos": evs}]}, "event_available")
+    except Exception as e:  # noqa: BLE001
+        log(f"crear_evento: holo no disponible ({e})")
+
+
 # -------------------------------------------------------------------- tools
+@tool("abrir_correo",
+      "Abre en pantalla un correo ENTERO de la lista de correos que se ve («ábreme el correo 2», «abre el de Marta», «léeme el de la universidad»).",
+      {"numero": {"type": "integer", "description": "número del correo en la lista (1 = el primero)"},
+       "remitente": {"type": "string", "description": "o parte del remitente/asunto si no dice número"}},
+      icon="mark_email_read")
+def abrir_correo(numero: int = 0, remitente: str = "") -> dict:
+    if not _ULTIMOS_CORREOS:
+        return {"ok": False, "error": "no hay correos en pantalla; pide antes «mírame los correos»"}
+    m = None
+    if numero and 1 <= int(numero) <= len(_ULTIMOS_CORREOS):
+        m = _ULTIMOS_CORREOS[int(numero) - 1]
+    elif remitente:
+        q = remitente.lower()
+        m = next((c for c in _ULTIMOS_CORREOS if q in c["de"].lower() or q in c["asunto"].lower()), None)
+    if m is None:
+        return {"ok": False, "error": "no encuentro ese correo en la lista"}
+    try:
+        cuerpo = workspace.leer_correo(m["id"], 6000)
+    except workspace.WorkspaceUnavailable as e:
+        return {"ok": False, "error": f"no puedo leer el correo ({e})"}
+    texto = f"**{m['de']}** · {_cuando_correo(m['fecha'])}\n\n## {m['asunto']}\n\n{cuerpo.strip()}"
+    holo.escena().mostrar_datos(f"correo-{m['id'][:8]}", m["asunto"][:60] or "Correo",
+                                {"tipo": "texto", "formato": "markdown", "texto": texto, "truncado": len(cuerpo) >= 6000},
+                                "mail")
+    return {"ok": True, "resumen": f"Correo de {m['de']}", "frase": m.get("frase", ""),
+            "nota": "Ya está en pantalla; di en una frase de qué va, no lo leas entero."}
+
+
 @tool("correo",
       "Mira el correo de Alberto: «mírame los correos», «¿tengo algo de X?». Di «decir» tal cual.",
       {"consulta": {"type": "string", "description": "qué buscar (opcional)"}},
@@ -149,6 +221,7 @@ def agenda(cuando: str = "hoy") -> dict:
     except workspace.WorkspaceUnavailable as e:
         log(f"agenda: Workspace no disponible ({e}); respaldo a Aurora")
         return _agenda_aurora(cuando)
+    motion = None
     if cuando in ("próximo", "proximo"):
         evs = evs[:1]
     else:
@@ -160,11 +233,12 @@ def agenda(cuando: str = "hoy") -> dict:
         e = evs[0]
         h = _hora(e["inicio"])
         decir = f"Tu próximo evento es {e['titulo']}, " + ("todo el día." if h == "todo el día" else f"a las {h}.")
+        motion = {"tipo": "next_event", "titulo": e["titulo"], "hora": _hhmm(e["inicio"]), "falta": _falta(e["inicio"])}
     else:
         partes = [(f"todo el día {e['titulo']}" if _hora(e["inicio"]) == "todo el día"
                    else f"a las {_hora(e['inicio'])} {e['titulo']}") for e in evs[:4]]
         decir = f"{etiqueta.capitalize()} tienes {len(evs)} evento{'s' if len(evs) != 1 else ''}: " + ", ".join(partes) + "."
-    return {"ok": True, "eventos": evs[:6], "decir": decir, "resumen": "Agenda revisada",
+    return {"ok": True, "eventos": evs[:6], "decir": decir, "resumen": "Agenda revisada", "motion": motion,
             "nota": "Di el campo «decir» tal cual, sin añadir nada."}
 
 
@@ -209,6 +283,7 @@ def crear_evento(titulo: str, inicio: str, duracion_min: int = 60, fin: str = ""
     pregunta = f"Voy a crear el evento «{titulo}» el {cuando}, {mins} minutos. ¿Lo creo?"
     data = {"titulo": titulo, "inicio": ini.isoformat(timespec="minutes"), "fin": end.isoformat(timespec="minutes"),
             "descripcion": descripcion, "dia": _eventos_del_dia(ini)}
+    _holo_evento(titulo, ini, end, data["dia"])
     jid = _manager().start("laura", f"Crear evento: {titulo}", kind="evento", pregunta=pregunta,
                            titulo=f"Evento: {titulo} ({cuando})", data=data)
     return {"ok": True, "id": jid, "resumen": "Pido confirmación del evento"}
