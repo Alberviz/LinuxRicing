@@ -98,11 +98,51 @@ def _ollama_body(session: Session, stream: bool) -> bytes:
     }).encode()
 
 
-def ollama_chat(session: Session) -> dict:
-    req = urllib.request.Request(CFG["llm"]["url"], data=_ollama_body(session, False),
+def texto_prefill(etiqueta: str, r: dict | None) -> str | None:
+    """Construye la línea de log para la métrica de prefill de Ollama.
+
+    Devuelve 'ollama[<etiqueta>]: prefill N tok en X s' o None si faltan datos.
+    """
+    if not isinstance(r, dict):
+        return None
+    count = r.get("prompt_eval_count")
+    dur = r.get("prompt_eval_duration")
+    if count is None or dur is None:
+        return None
+    try:
+        count_int = int(count)
+        segundos = float(dur) / 1e9
+    except (TypeError, ValueError):
+        return None
+    return f"ollama[{etiqueta}]: prefill {count_int} tok en {segundos:.2f} s"
+
+
+def log_prefill(etiqueta: str, r: dict | None) -> None:
+    """Registra en el log el prefill de Ollama si la respuesta contiene las métricas."""
+    linea = texto_prefill(etiqueta, r)
+    if linea:
+        log(linea)
+
+
+def _post(body: bytes | dict | str, etiqueta: str, timeout: float | None = None) -> dict:
+    """POST a Ollama registrando métricas de prefill."""
+    if isinstance(body, dict):
+        data = json.dumps(body).encode()
+    elif isinstance(body, str):
+        data = body.encode()
+    else:
+        data = body
+    to = timeout if timeout is not None else CFG["llm"].get("timeout", 45)
+    req = urllib.request.Request(CFG["llm"]["url"], data=data,
                                  headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=CFG["llm"].get("timeout", 45)) as resp:
-        return json.loads(resp.read())
+    with urllib.request.urlopen(req, timeout=to) as resp:
+        res = json.loads(resp.read())
+    log_prefill(etiqueta, res)
+    return res
+
+
+def ollama_chat(session: Session) -> dict:
+    return _post(_ollama_body(session, False), "chat")
 
 
 def summarize_for_voice(texto: str, quien: str = "Gemini") -> str:
@@ -211,6 +251,7 @@ def _stream_round(session: Session, on_sentence, cancel: threading.Event | None)
                 for s in sents:
                     on_sentence(s)
         if chunk.get("done"):
+            log_prefill("chat", chunk)
             break
     if on_sentence is not None and not calls and buf.strip():
         on_sentence(buf.strip())
