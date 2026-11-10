@@ -8,60 +8,126 @@ import qs.modules.assistant
 
 // Hilos de puntos que unen cada fila abierta de la lista con su visor.
 // Salen del borde derecho de la fila con un nodo, describen una curva suave y
-// entran en el lado más cercano del visor con otro nodo. Aparecen con un fundido
-// cuando el visor ya ha llegado (nada se anima en bucle).
+// entran en el lado más cercano del visor con otro nodo.
+//
+// Coreografía (todo de una sola vez, nada en bucle):
+//   dibujarse — cuando el visor termina su vuelo, el hilo crece desde la fila hasta él
+//               (la punta lleva el nodo), así se lee «este archivo → este visor».
+//   seguir    — los extremos van pegados a la posición VIVA de la lista y del visor:
+//               si la lista se aparta o arrastras el visor, el hilo va con ellos.
+//   resaltar  — se ilumina con la fila o el visor bajo el ratón, y con «esa».
+//   retraerse — si el visor se va (píldora, papelera o móvil), el hilo se recoge hacia
+//               la fila antes de que el visor desaparezca.
 Item {
     id: root
 
     required property var capa
 
-    readonly property var visores: (HoloState.paneles || []).filter(p => p && p.kind === "visor" && p.item_n)
+    component Nodo: Item {
+        id: nodo
+
+        property real cx
+        property real cy
+        property real s
+        property real luz
+
+        x: cx - 5
+        y: cy - 5
+        width: 10
+        height: 10
+        scale: s * (1 + 0.25 * luz)
+
+        Rectangle {
+            anchors.fill: parent
+            radius: 5
+            color: Qt.alpha(Colours.palette.m3primary, 0.25 + 0.15 * nodo.luz)
+        }
+        Rectangle {
+            anchors.centerIn: parent
+            width: 5
+            height: 5
+            radius: 2.5
+            color: Colours.palette.m3primary
+        }
+    }
 
     Repeater {
-        model: root.visores
+        // Los paneles vivos de la capa (ListModel: cada hilo conserva su delegado aunque
+        // cambie la escena, y existe mientras su visor se está yendo)
+        model: root.capa.modelo
 
         Item {
             id: hilo
 
-            required property var modelData
+            required property string pid
 
-            readonly property var lista: root.capa.pos["lista"] ?? null
-            readonly property var caja: root.capa.pos[modelData.id] ?? null
-            readonly property bool ok: !!lista && !!caja
+            readonly property var datos: root.capa.datos[pid] ?? null
+            readonly property int n: datos && datos.kind === "visor" && datos.item_n ? datos.item_n : 0
+            readonly property var visor: n > 0 ? (root.capa.reg[pid] ?? null) : null
+            readonly property var lista: root.capa.reg["lista"] ?? null
+            readonly property bool ok: !!visor && !!lista
+            // Visor en su sitio y la lista también: el hilo puede estar tendido
+            readonly property bool tendido: ok && visor.llegado && !visor.saliendo && !visor.enviando && !lista.saliendo
+            readonly property bool brilla: n === HoloState.resaltado || n === HoloState.seleccionado
+
             // Desde el borde de la lista que mira al visor
-            readonly property bool derecha: ok && caja.x + caja.w / 2 >= lista.x + lista.w / 2
-            property real x0: ok ? (derecha ? lista.x + lista.w : lista.x) : 0
-            property real y0: ok ? root.capa.filaY(modelData.item_n) : 0
-            readonly property real x1: ok ? (derecha ? caja.x : caja.x + caja.w) : 0
-            readonly property real y1: ok ? Math.max(caja.y + 28, Math.min(caja.y + caja.h - 28, y0 + (caja.y + caja.h / 2 - y0) * 0.35)) : 0
-            readonly property real tir: Math.max(60, Math.abs(x1 - x0) * 0.5) * (derecha ? 1 : -1)
+            readonly property bool derecha: ok && visor.x + visor.width / 2 >= lista.x + lista.width / 2
+            readonly property real x0: ok ? (derecha ? lista.x + lista.width : lista.x) : 0
+            readonly property real y0: ok ? lista.y + HoloGeo.cabecera + HoloGeo.listaArriba + HoloGeo.fila * (n - 1) + HoloGeo.fila / 2 : 0
+            readonly property real xv: ok ? (derecha ? visor.x : visor.x + visor.width) : 0
+            readonly property real yv: ok ? Math.max(visor.y + 28, Math.min(visor.y + visor.height - 28, y0 + (visor.y + visor.height / 2 - y0) * 0.35)) : 0
+            readonly property real tirV: Math.max(60, Math.abs(xv - x0) * 0.5) * (derecha ? 1 : -1)
+
+            // 0 = recogido en la fila, 1 = llega al visor. La curva se acorta escalando su
+            // extremo y sus controles hacia el origen: crece siguiendo su propia forma.
+            property real d: 0
+            readonly property real x1: x0 + (xv - x0) * d
+            readonly property real y1: y0 + (yv - y0) * d
+            readonly property real tir: tirV * d
+            // Brillo animado (0 reposo, 1 resaltado)
+            property real luz: brilla ? 1 : 0
 
             anchors.fill: parent
-            visible: ok
-            opacity: 0
+            visible: ok && d > 0.001
 
-            Component.onCompleted: aparece.start()
-
-            Behavior on x0 {
-                Anim {}
+            Component.onCompleted: {
+                if (tendido)
+                    dibuja.start();
             }
-            Behavior on y0 {
-                Anim {}
-            }
-
-            SequentialAnimation {
-                id: aparece
-
-                PauseAnimation {
-                    duration: 640
+            onTendidoChanged: {
+                if (tendido) {
+                    recoge.stop();
+                    dibuja.start();
+                } else if (d > 0) {
+                    dibuja.stop();
+                    recoge.start();
                 }
+            }
+
+            Behavior on luz {
                 NumberAnimation {
-                    target: hilo
-                    property: "opacity"
-                    to: 1
-                    duration: 360
-                    easing.type: Easing.OutCubic
+                    duration: HoloGeo.tRapido
+                    easing.type: HoloGeo.curvaFundido
                 }
+            }
+
+            NumberAnimation {
+                id: dibuja
+
+                target: hilo
+                property: "d"
+                to: 1
+                duration: HoloGeo.tLento
+                easing.type: HoloGeo.curvaEntra
+            }
+            NumberAnimation {
+                id: recoge
+
+                target: hilo
+                property: "d"
+                to: 0
+                duration: HoloGeo.tRapido
+                easing.type: HoloGeo.curvaSale
             }
 
             Shape {
@@ -70,8 +136,8 @@ Item {
 
                 // Halo del hilo
                 ShapePath {
-                    strokeColor: Qt.alpha(Colours.palette.m3primary, 0.10)
-                    strokeWidth: 5
+                    strokeColor: Qt.alpha(Colours.palette.m3primary, 0.10 + 0.10 * hilo.luz)
+                    strokeWidth: 5 + 2 * hilo.luz
                     fillColor: "transparent"
                     capStyle: ShapePath.RoundCap
                     startX: hilo.x0
@@ -88,7 +154,7 @@ Item {
                 }
                 // Hilo de puntos
                 ShapePath {
-                    strokeColor: Qt.alpha(Colours.palette.m3primary, 0.75)
+                    strokeColor: Qt.alpha(Colours.palette.m3primary, 0.7 + 0.3 * hilo.luz)
                     strokeWidth: 1.4
                     strokeStyle: ShapePath.DashLine
                     dashPattern: [2, 3.5]
@@ -108,40 +174,19 @@ Item {
                 }
             }
 
-            // Nodos en los extremos
-            Repeater {
-                model: [
-                    {
-                        x: hilo.x0,
-                        y: hilo.y0
-                    },
-                    {
-                        x: hilo.x1,
-                        y: hilo.y1
-                    }
-                ]
-
-                Item {
-                    required property var modelData
-
-                    x: modelData.x - 5
-                    y: modelData.y - 5
-                    width: 10
-                    height: 10
-
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: 5
-                        color: Qt.alpha(Colours.palette.m3primary, 0.25)
-                    }
-                    Rectangle {
-                        anchors.centerIn: parent
-                        width: 5
-                        height: 5
-                        radius: 2.5
-                        color: Colours.palette.m3primary
-                    }
-                }
+            // Nodos en los extremos: el de la fila aparece al empezar; el del visor viaja
+            // en la punta y «se engancha» (crece) al llegar.
+            Nodo {
+                cx: hilo.x0
+                cy: hilo.y0
+                s: Math.min(1, hilo.d * 4)
+                luz: hilo.luz
+            }
+            Nodo {
+                cx: hilo.x1
+                cy: hilo.y1
+                s: 0.6 + 0.4 * Math.max(0, (hilo.d - 0.85) / 0.15)
+                luz: hilo.luz
             }
         }
     }
