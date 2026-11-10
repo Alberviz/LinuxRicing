@@ -85,7 +85,7 @@ def accion_overlay(name: str, result: dict) -> dict:
 
 
 # Importar los módulos registra sus tools (el orden fija el de TOOLS).
-from . import sistema, tareas, memoria, avisos, web, dispositivos, escalada, segundo_plano, workspace, tele, warp, spotify, dj, holo, archivos  # noqa: E402,F401
+from . import sistema, tareas, memoria, avisos, web, dispositivos, escalada, segundo_plano, workspace, tele, warp, spotify, dj, holo, archivos, archivos_extra  # noqa: E402,F401
 
 TOOLS = [t.schema for t in REGISTRY.values()]
 DISPATCH = {n: t.fn for n, t in REGISTRY.items()}

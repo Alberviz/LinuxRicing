@@ -887,3 +887,45 @@ grupo = "holo"
 texto = "cierra todo eso"
 espera = ["cerrar_holo"]
 grupo = "holo"
+
+# ---------- holo: datos y archivos extra ----------
+[[frase]]
+texto = "ábreme el correo dos"
+espera = ["abrir_correo"]
+grupo = "holo"
+
+[[frase]]
+texto = "hazme una lista de la compra para una paella y ponla en pantalla"
+espera = ["mostrar_nota"]
+grupo = "holo"
+
+[[frase]]
+texto = "búscame el archivo que habla de la hipoteca"
+espera = ["buscar_contenido"]
+grupo = "archivos"
+
+[[frase]]
+texto = "hay archivos duplicados en descargas"
+espera = ["duplicados"]
+grupo = "archivos"
+
+[[frase]]
+texto = "qué es lo que más ocupa en descargas"
+espera = ["grandes_viejos"]
+args = [{criterio = "grandes"}]
+grupo = "archivos"
+
+[[frase]]
+texto = "comprime la uno y la dos"
+espera = ["comprimir"]
+grupo = "archivos"
+
+[[frase]]
+texto = "resúmeme la tres"
+espera = ["leer_archivo"]
+grupo = "archivos"
+
+[[frase]]
+texto = "apaga el wifi"
+espera = ["wifi"]
+grupo = "sistema"
