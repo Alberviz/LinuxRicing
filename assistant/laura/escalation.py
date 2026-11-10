@@ -109,6 +109,8 @@ def _confirm_and_run_escalation(session: Session, jobs: JobManager, escalation: 
     la tarjeta) y pregunta por voz a quién se manda y qué. Voz o tarjeta, lo que llegue
     antes. Tras el sí, el trabajo corre en segundo plano y el ciclo sigue libre."""
     destino = escalation.get("destino", "gemini")
+    if destino == "archivos":
+        return _confirm_archivos(session, escalation["peticion"], mode, cancel)
     if destino == "comando":
         return _confirm_command(session, jobs, escalation["peticion"], mode, cancel)
     nombre = NOMBRES.get(destino, destino)
@@ -176,3 +178,46 @@ def _confirm_command(session: Session, jobs: JobManager, cmd: str, mode: str,
     session.add("assistant", msg)
     _say(msg, mode, cancel)
     return bool(r)
+
+
+def _confirm_archivos(session: Session, plan_id: str, mode: str, cancel: threading.Event) -> bool:
+    """Un plan de archivos (borrar, mover en lote…) espera confirmación: Laura la pide por voz y
+    escucha un sí/no a la vez que espera el clic del panel holográfico. Devuelve False: el ciclo
+    sigue escuchando (no hay trabajo en segundo plano que lo releve)."""
+    from . import archivos, confirmar_archivos
+    from .holo import escena
+    plan = archivos.plan_por_id(plan_id)
+    if plan is None or plan.estado != "pendiente":
+        return False
+
+    def decir(texto: str) -> None:
+        session.add("assistant", texto)
+        _say(texto, mode, cancel)
+
+    def escuchar(evento: threading.Event) -> str | None:
+        bus.emit(type="state", value="listening", mode=mode)
+        audio = listen(max_seconds=CFG["audio"]["max_seconds"], cancel=AnyEvent(cancel, evento),
+                       start_grace=max(10, CFG["audio"].get("followup_seconds", 4) * 2))
+        if cancel.is_set() or evento.is_set():
+            return None
+        bus.emit(type="state", value="thinking", mode=mode)
+        frase = transcribe(audio)
+        bus.emit(type="transcript", value=frase or "(sin respuesta)")
+        return frase or None
+
+    estado = confirmar_archivos.confirmar(plan, escena(), decir, escuchar, cancelado=cancel.is_set)
+    log(f"archivos: plan {plan.id} ({plan.accion}) -> {estado}")
+    return False
+
+
+def responder_pendiente_archivos(texto: str, mode: str, cancel: threading.Event) -> bool:
+    """Alberto contesta «sí»/«no» tarde, tras «lo dejo pendiente en el panel»: se resuelve el plan
+    sin pasar por el LLM. True si lo ha gestionado."""
+    from . import confirmar_archivos
+    from .holo import escena
+    from . import archivos
+    p = archivos.pendiente()
+    gestionado = confirmar_archivos.responder_pendiente(texto, escena(), lambda t: _say(t, mode, cancel))
+    if p is not None:
+        log(f"archivos: respuesta tardía {texto!r} con el plan {p.id} pendiente -> gestionada={gestionado}")
+    return gestionado

@@ -58,17 +58,14 @@ Correos:
 
 
 def _llm(correos: list[dict]) -> dict[str, dict]:
+    from .llm import chat_lateral
     lista = "\n".join(
         f"- id={m['id']} | de: {nombre(m['de'])} | asunto: {limpiar(m['asunto'])[:90]} | texto: {limpiar(m.get('cuerpo', ''))[:350]}"
         for m in correos)
-    body = {"model": CFG["llm"]["model"], "stream": False, "format": "json",
-            "messages": [{"role": "user", "content": _PROMPT.format(lista=lista)}],
-            "options": {"temperature": 0.2, "num_predict": 45 * len(correos) + 40,
-                        "num_ctx": CFG["llm"].get("num_ctx", 4096)}}
-    req = urllib.request.Request(CFG["llm"]["url"], data=json.dumps(body).encode(),
-                                 headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
-        txt = json.loads(r.read())["message"]["content"]
+    instrucciones = _PROMPT.format(lista=lista)
+    num_pred = 45 * len(correos) + 40
+    txt = chat_lateral(instrucciones, "resumen_correo", fmt="json", temperature=0.2,
+                       num_predict=num_pred, timeout=TIMEOUT)
     data = json.loads(txt)
     items = data.get("correos") if isinstance(data, dict) else data
     out = {}

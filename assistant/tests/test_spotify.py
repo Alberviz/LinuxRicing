@@ -175,3 +175,59 @@ def test_buscar_generico(falso):
     llamadas, resp = falso
     resp["encontrar"] = {"ok": True, "encontrado": {"nombre": "Mbappe", "uri": "spotify:track:Z", "tipo": "cancion", "de": "Eladio"}}
     assert t.spotify("buscar", que="mbappe")["decir"] == "He encontrado «Mbappe» de Eladio. ¿La pongo?"
+
+
+def test_cola_nueva_y_limpiar(falso):
+    llamadas, resp = falso
+    resp["cola"] = {"ok": True, "total": 3, "reproduciendo": {"nombre": "Dakiti"}}
+    r = t.spotify("cola_nueva", que="Dakiti, Memorias, Sparks", donde="tele")
+    assert llamadas[0] == ["cola", "nueva", "Dakiti", "Memorias", "Sparks", "--donde", "tele"]
+    assert "Puesta la cola con 3 canciones" in r["decir"]
+
+    r_clean = t.spotify("cola_limpiar")
+    assert llamadas[1] == ["cola", "limpiar"]
+    assert "vaciada" in r_clean["decir"]
+
+
+def test_crear_y_anadir_playlist(falso):
+    llamadas, resp = falso
+    resp["playlist"] = {"ok": True, "uri": "spotify:playlist:NEW"}
+    r = t.spotify("crear_playlist", que="Cyberpunk Focus")
+    assert llamadas[0] == ["playlist", "crear", "Cyberpunk Focus"]
+    assert "He creado la playlist «Cyberpunk Focus»" in r["decir"]
+
+    r_add = t.spotify("anadir_a_playlist", que="Turbo Killer", valor="Cyberpunk Focus")
+    assert llamadas[1] == ["playlist", "anadir", "Cyberpunk Focus", "Turbo Killer"]
+    assert "Añadida «Turbo Killer» a la playlist «Cyberpunk Focus»" in r_add["decir"]
+
+
+def test_sincronizar_youtube(falso):
+    llamadas, resp = falso
+    resp["playlist"] = {"ok": True, "anadidas": 5}
+    r = t.spotify("sincronizar_youtube")
+    assert llamadas[0] == ["playlist", "sync-todo"]
+    assert "5 canciones añadidas" in r["decir"]
+
+
+
+def test_lo_mas_nuevo_de_un_alias_aunque_lo_mande_como_buscar_ultimo(falso):
+    """Sesión real: «pon en la tele lo más nuevo de lo de siempre» llegó como buscar(que='lo de siempre', ultimo=True)."""
+    llamadas, _ = falso
+    t.spotify("buscar", que="lo de siempre", ultimo=True, donde="tele")
+    assert llamadas == [["poner", "RealG4lifebaby", "--tipo", "playlist", "--donde", "tele", "--orden", "recientes", "--desde-inicio"]]
+
+
+def test_sin_aleatorio(falso):
+    llamadas, _ = falso
+    t.spotify("poner", que="drill elite", tipo="playlist", aleatorio=False)
+    assert llamadas[-1][-1] == "--en-orden"
+    t.spotify("poner", que="drill elite", aleatorio=True)
+    assert llamadas[-1][-1] == "--aleatorio"
+
+
+def test_lo_ultimo_de_una_playlist_que_no_es_artista(falso):
+    llamadas, resp = falso
+    resp["ultimo"] = {"ok": False, "error": "no encuentro al artista"}
+    resp["encontrar"] = {"ok": True, "encontrado": {"nombre": "Drill Elite", "uri": "spotify:playlist:D", "tipo": "playlist"}}
+    t.spotify("buscar", que="Drill Elite", ultimo=True)
+    assert [l[0] for l in llamadas] == ["ultimo", "encontrar", "poner"] and "recientes" in llamadas[-1]

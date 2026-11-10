@@ -83,6 +83,26 @@ Singleton {
             root.openDrawer("");
         }
     }
+    // Feedback cinético activo en la píldora (track_slide, playback_impact, delta_meter, system_action)
+    property var activeMotion: null
+    Timer {
+        id: motionTimer
+        interval: 2800
+        onTriggered: root.activeMotion = null
+    }
+
+    IpcHandler {
+        target: "lauramotion"
+        function trigger(jsonStr: string): void {
+            try {
+                root.activeMotion = JSON.parse(jsonStr);
+                motionTimer.restart();
+            } catch (e) {
+                console.warn("Laura motion error:", e);
+            }
+        }
+    }
+
     // Pasar a escribir (atajo opcional / pruebas): `qs -c caelestia ipc call laurainput toggleTyping`
     signal typeToggled
     IpcHandler {
@@ -168,6 +188,9 @@ Singleton {
         const t = text.replace(/[\r\n]+/g, " ").trim();
         if (t.length > 0)
             _ctrl("ask " + t, null);
+    }
+    function ctrl(cmd: string): void {
+        _ctrl(cmd, null);
     }
     function dismiss(id: string): void {
         root.jobs = root.jobs.filter(j => j.id !== id);
@@ -426,6 +449,14 @@ Singleton {
             break;
         case "job":
             root._upsert(ev, true);
+            break;
+        case "action_motion":
+            root.activeMotion = ev.motion ?? null;
+            if (root.activeMotion)
+                motionTimer.restart();
+            break;
+        case "holo":
+            HoloState.handle(ev);
             break;
         }
     }

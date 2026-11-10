@@ -13,13 +13,17 @@ import time
 from .audio import listen, load_vad
 from .bargein import BargeIn
 from .config import CFG, bus, log, notify
+from .confirmar_archivos import grace_escucha
+from .holo import escena
 from . import avisos
 from .escalation import (_confirm_and_run_escalation, _handle_auto_escalation,
-                         _match_auto_case, voice_yes_no)
+                         _match_auto_case, responder_pendiente_archivos, voice_yes_no)
 from . import jobs as jobs_mod
+from . import rapido, registro
+from . import tools as tools_mod
 from . import vigia as vigia_mod
 from .jobs import JobManager, reap_orphans
-from .llm import Session, _mode_switch, converse
+from .llm import Session, _mode_switch, converse, precalentar
 from .stt import transcribe
 from .output import OUT, AnyEvent
 from .tts import Speech, speak, warmup as tts_warmup
@@ -90,7 +94,7 @@ def cycle(session: Session, jobs: JobManager, mode: str = "centro",
                 else:
                     audio = listen(max_seconds=CFG["audio"]["max_seconds"],
                                    cancel=cancel,
-                                   start_grace=None if first else (grace * 2 if espera_larga else grace),
+                                   start_grace=None if first else grace_escucha(grace, espera_larga, bool(escena().paneles)),
                                    preroll=pre)
                 if cancel.is_set():
                     break
@@ -112,6 +116,13 @@ def cycle(session: Session, jobs: JobManager, mode: str = "centro",
             bus.emit(type="transcript", value=text)
             bye = _is_farewell(text)
 
+            # Un plan de archivos pendiente (borrar…) y Alberto contesta «sí»/«no» sin pasar por el LLM.
+            if responder_pendiente_archivos(text, mode, turn_cancel):
+                turns += 1
+                if mode != "centro" or bye or turns >= max_turns:
+                    break
+                continue
+
             # Modo A: casos rutinarios pre-programados (config.toml
             # [escalation].auto_cases) van directos a un Gemini ligero, sin
             # pasar por el LLM local ni pedir confirmación.
@@ -122,6 +133,46 @@ def cycle(session: Session, jobs: JobManager, mode: str = "centro",
                 if mode != "centro" or bye or turns >= max_turns:
                     break
                 continue
+
+            # Modo rápido: atajos directos sin LLM (música, volumen, brillo, hora, bloqueo, captura).
+            if CFG.get("rapido", {}).get("enabled", True):
+                atajo = rapido.resolver(text)
+                if atajo is not None:
+                    log(f"rápido: {atajo.tool}({atajo.args})")
+                    t_rapido0 = time.perf_counter()
+                    resultado = tools_mod.run_tool(atajo.tool, atajo.args, CFG.get("apps", {}))
+                    dur_rapido = time.perf_counter() - t_rapido0
+                    log(f"rápido -> {resultado}")
+                    accion = tools_mod.accion_overlay(atajo.tool, resultado) if resultado.get("ok") else None
+                    actions = [accion] if accion else []
+                    bus.emit(type="result", actions=actions)
+                    if resultado.get("ok") and "motion" in resultado and resultado["motion"]:
+                        bus.emit(type="action_motion", motion=resultado["motion"], resumen=resultado.get("resumen", ""))
+                    frase = rapido.decir(atajo, resultado)
+                    if frase:
+                        bus.emit(type="reply", value=frase)
+                        notify("Laura", frase)
+                        bus.emit(type="state", value="speaking", mode=mode)
+                        speak(frase, turn_cancel)
+                    else:
+                        # Zero-chatter silencioso: respuesta instantánea sin TTS lento
+                        resumen = resultado.get("resumen") or "Hecho."
+                        bus.emit(type="reply", value=resumen)
+                        notify("Laura", resumen)
+                        bus.emit(type="state", value="idle", mode=mode)
+                    session.add("user", text)
+                    session.add("assistant", frase or resultado.get("resumen") or "Hecho.")
+                    registro.apuntar(
+                        texto=text,
+                        via="rapido",
+                        tools=[{"tool": atajo.tool, "args": atajo.args}],
+                        respuesta=frase,
+                        segundos=round(dur_rapido, 3),
+                    )
+                    turns += 1
+                    if mode != "centro" or bye or turns >= max_turns:
+                        break
+                    continue
 
             sw = _mode_switch(text)
             if sw is not None:
@@ -140,15 +191,24 @@ def cycle(session: Session, jobs: JobManager, mode: str = "centro",
 
             speech = Speech(turn_cancel, mode) if CFG["llm"].get("stream", True) else None
             lanzados0 = jobs.launched
+            t_llm0 = time.perf_counter()
             try:
                 reply, actions, escalation = converse(
                     session, text, speech.feed if speech else None, turn_cancel)
+                dur_llm = time.perf_counter() - t_llm0
                 # El LLM ya ha terminado de generar; el audio puede seguir
                 # sonando. Publicar aquí lo demás, no tras la voz.
                 if escalation is None:
                     log(f"laura: {reply}  · acciones: {actions}")
                     notify("Laura", reply)
                     bus.emit(type="result", actions=actions)
+                    registro.apuntar(
+                        texto=text,
+                        via="llm",
+                        tools=[{"tool": a["tool"], "args": a.get("args", {})} for a in actions if "tool" in a],
+                        respuesta=reply,
+                        segundos=round(dur_llm, 3),
+                    )
                 else:
                     log(f"laura: pide escalar (Modo B) -> {escalation}")
             finally:
@@ -254,6 +314,7 @@ class Announcer:
 def main() -> None:
     load_vad()
     tts_warmup()
+    threading.Thread(target=precalentar, daemon=True).start()
     BargeIn().install()
     n = reap_orphans()
     if n:
@@ -265,6 +326,15 @@ def main() -> None:
     srv.bind(sock_path)
     srv.listen(4)
     bus.start()
+    from .holo import escena
+    from .holo_preview import limpiar_cache
+    limpiar_cache()
+    escena()
+    bus.on_connect.append(
+        lambda: escena().snapshot()
+        if escena().snapshot()["paneles"]
+        else {"type": "holo", "op": "clear", "items": [], "paneles": [], "seleccionado": None, "panel": None, "ids": None}
+    )
     bus.emit(type="state", value="idle", mode="centro")
     log(f"listo. control: {sock_path}  ·  eventos: {bus.path}")
 
@@ -323,6 +393,10 @@ def main() -> None:
                 jobs_mod.expire_externos()
             except Exception as e:  # noqa: BLE001
                 log(f"caducidad de sesiones externas: {e}")
+            try:
+                escena().caducar()
+            except Exception as e:  # noqa: BLE001
+                log(f"caducidad de holograma: {e}")
             time.sleep(30)
 
     threading.Thread(target=janitor, daemon=True).start()
@@ -368,6 +442,7 @@ def main() -> None:
         if OUT.speaking():  # aviso hablando: callarlo y pasar a escuchar
             OUT.interrupt()
         cancel.clear()
+        threading.Thread(target=precalentar, daemon=True).start()
         worker = threading.Thread(target=run, args=(mode, first_text), daemon=True)
         worker.start()
 
@@ -414,6 +489,8 @@ def main() -> None:
                 return jobs.external(json.loads(arg))
             except (ValueError, TypeError) as e:
                 return {"ok": False, "error": f"ext: json no válido ({e})"}
+        if cmd.startswith("holo-"):
+            return escena().control(cmd, arg)
         if cmd == "job-dismiss":
             return jobs.dismiss(arg)
         if cmd == "jobs":

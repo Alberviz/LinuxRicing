@@ -19,7 +19,7 @@ from . import tool
 _ACCIONES = ["poner", "buscar", "poner_lo_encontrado", "poner_a_continuacion", "anadir_a_la_cola", "pasar_a_tele", "pasar_al_pc", "que_suena",
              "reiniciar_cancion", "aleatorio_si",
              "aleatorio_no", "repetir_lista", "repetir_cancion", "repetir_no", "volumen", "subir", "bajar",
-             "me_gusta", "no_me_gusta", "temporizador"]
+             "me_gusta", "no_me_gusta", "temporizador", "cola_nueva", "cola_limpiar", "crear_playlist", "anadir_a_playlist", "sincronizar_youtube"]
 # acción de Laura -> (acción del CLI, valor fijo). Acciones explícitas: el modelo pequeño confundía
 # «aleatorio no» con «repetir lista» y «pon después X» con «poner X».
 # pausar/siguiente/anterior NO están aquí: los lleva control_musica (playerctl), que también manda en Spotify
@@ -72,6 +72,17 @@ def _alias() -> dict[str, str]:
     except Exception:  # noqa: BLE001 — sin config, sin alias
         tabla = {}
     return {_clave(k): v for k, v in tabla.items() if _clave(k)}
+
+
+def _cfg_tele() -> str:
+    try:
+        from ..config import CFG
+        t = (CFG.get("spotify") or {}).get("tele")
+        if t:
+            return str(t)
+    except Exception:
+        pass
+    return "Comedor"
 
 
 # «lo más nuevo de X», «las últimas (añadidas) de X» → la playlist X empezando por lo último que añadiste.
@@ -128,17 +139,24 @@ def _buscar_ultimo(artista: str, clase: str | None, donde: str | None) -> dict:
     c = "album" if clase and _norm(clase) in ("album", "disco", "trabajo") else "cualquiera"
     r = _cmd("ultimo", artista, "--clase", c)
     if not r.get("ok"):
+        # ¿No era un artista sino una playlist tuya? Entonces «lo último» = lo último que añadiste.
+        e = _cmd("encontrar", artista, "--tipo", "playlist")
+        if e.get("ok") and (e.get("encontrado") or {}).get("tipo") == "playlist":
+            it = e["encontrado"]
+            return _poner(it["uri"], "playlist", donde, recientes=True, nombre=it.get("nombre"))
         return r
     return _proponer(r["encontrado"], donde)
 
 
 def _poner(que: str, tipo: str | None, donde: str | None, desde_inicio: bool | None = None,
-           recientes: bool = False, nombre: str | None = None) -> dict:
+           recientes: bool = False, nombre: str | None = None, aleatorio: bool | None = None) -> dict:
     args = ["poner", que, "--tipo", tipo if tipo in _TIPOS else "auto", "--donde", donde or "actual"]
     if recientes:
         args += ["--orden", "recientes", "--desde-inicio"]
     elif desde_inicio:
         args.append("--desde-inicio")
+    if aleatorio is not None and not (recientes or desde_inicio):
+        args.append("--aleatorio" if aleatorio else "--en-orden")
     r = _cmd(*args)
     if not r.get("ok"):
         if r.get("candidatos"):
@@ -199,24 +217,28 @@ def _suena(a: dict | None) -> str:
 @tool("spotify",
       "Spotify. poner: que=SOLO el nombre (el tipo va en tipo), donde=tele|pc («manda la playlist X a la tele»). "
       "Si dice «en la tele» o «manda Spotify a la tele», donde=tele. Si devuelve candidatos, pregunta cuál. "
-      "«Lo más nuevo / las últimas de X» = poner con recientes=true. "
+      "Pasa SIEMPRE donde=tele si Alberto dice «en la tele», también en buscar. "
+      "«Sin aleatorio / en orden» = aleatorio=false; «en aleatorio» = aleatorio=true. "
+      "«Lo más nuevo de X», «por orden de añadido», «lo último que añadí» = poner con recientes=true. "
       "«El último álbum de ARTISTA» o «busca X» = buscar (ultimo=true para lo último de un artista): di el «decir» "
       "y, si Alberto dice que sí, poner_lo_encontrado. "
       "«Quita la música de la tele / que suene en mis altavoces» = pasar_al_pc. "
-      "poner_a_continuacion («pon después X») y anadir_a_la_cola usan que. volumen: valor 0-100; temporizador: minutos. "
-      "Pausa/siguiente/anterior: control_musica.",
+      "poner_a_continuacion («pon después X») y anadir_a_la_cola usan que. volumen: valor 0-100 (solo si dice un número); «sube/baja un poco» = subir/bajar sin valor; temporizador: minutos. "
+      "cola_nueva: que=canciones CONCRETAS separadas por comas. Si pide un TIPO de música o N canciones sin "
+      "nombrarlas, usa cola_dj. Pausa/siguiente/anterior: control_musica.",
       {"accion": {"type": "string", "enum": _ACCIONES},
        "que": {"type": "string"},
        "tipo": {"type": "string", "enum": _TIPOS},
        "donde": {"type": "string", "enum": ["tele", "pc", "actual"]},
        "desde_inicio": {"type": "boolean", "description": "primera canción, sin aleatorio"},
        "recientes": {"type": "boolean", "description": "playlist empezando por las últimas añadidas"},
+       "aleatorio": {"type": "boolean", "description": "poner: false = en orden, true = aleatorio"},
        "ultimo": {"type": "boolean", "description": "buscar: el último lanzamiento del artista que=…"},
        "valor": {"type": "string"}},
       required=["accion"], icon="music_note")
 def spotify(accion: str, que: str | None = None, tipo: str | None = None, donde: str | None = None,
             desde_inicio: bool | None = None, recientes: bool | None = None, ultimo: bool | None = None,
-            valor: str | int | float | None = None) -> dict:
+            aleatorio: bool | None = None, valor: str | int | float | None = None) -> dict:
     if accion not in _ACCIONES:
         return {"ok": False, "error": f"acción desconocida: {accion}"}
     valor = None if valor is None else str(valor)
@@ -234,6 +256,9 @@ def spotify(accion: str, que: str | None = None, tipo: str | None = None, donde:
         if m:
             return _buscar_ultimo(m.group("art").strip(), m.group("clase"), donde)
         que, tipo, recientes, es_alias = _entender(que, tipo, recientes)
+        if es_alias and (ultimo or recientes):
+            # «Lo último / lo más nuevo de lo de siempre»: un alias es una playlist tuya, no un artista.
+            return _poner(que, "playlist", donde, recientes=True)
         if accion == "buscar":
             if ultimo:
                 return _buscar_ultimo(que, "album" if tipo == "album" else None, donde)
@@ -253,9 +278,12 @@ def spotify(accion: str, que: str | None = None, tipo: str | None = None, donde:
             if it.get("tipo") != "playlist":
                 return _proponer(it, donde)
             return _poner(it["uri"], "playlist", donde, recientes=True, nombre=it.get("nombre"))
-        return _poner(que, tipo, donde, desde_inicio, recientes=recientes)
+        return _poner(que, tipo, donde, desde_inicio, recientes=recientes, aleatorio=aleatorio)
     if accion in ("pasar_a_tele", "pasar_al_pc"):
-        r = _cmd("pasar", "tele" if accion == "pasar_a_tele" else "pc")
+        args = ["pasar", "tele" if accion == "pasar_a_tele" else "pc"]
+        if accion == "pasar_a_tele" and (valor or que):
+            args.extend(["--tele", valor or que])
+        r = _cmd(*args)
         if not r.get("ok"):
             return r
         return {"ok": True, "resumen": "Spotify a la tele" if accion == "pasar_a_tele" else "Spotify al PC",
@@ -267,6 +295,48 @@ def spotify(accion: str, que: str | None = None, tipo: str | None = None, donde:
         if not r.get("abierto"):
             return {"ok": True, "decir": "Spotify está cerrado.", "resumen": "Spotify cerrado"}
         return {"ok": True, "decir": _suena(r), "resumen": "Qué suena", "ahora": r}
+    if accion == "crear_playlist":
+        if not que:
+            return {"ok": False, "error": "¿cómo llamo a la playlist?"}
+        r = _cmd("playlist", "crear", que)
+        if not r.get("ok"):
+            return r
+        return {"ok": True, "resumen": f"Playlist {que} creada", "decir": f"He creado la playlist «{que}» en tu Spotify."}
+    if accion == "anadir_a_playlist":
+        if not que:
+            return {"ok": False, "error": "¿qué canción añado?"}
+        pl = valor or "Favoritos"
+        r = _cmd("playlist", "anadir", pl, que)
+        if not r.get("ok"):
+            return r
+        return {"ok": True, "resumen": f"Añadido a {pl}", "decir": f"Añadida «{que}» a la playlist «{pl}»."}
+    if accion == "cola_nueva":
+        if not que:
+            return {"ok": False, "error": "¿qué canciones pongo en la cola?"}
+        temas = [t.strip() for t in que.split(",") if t.strip()] or [que.strip()]
+        args = ["cola", "nueva", *temas]
+        if donde:
+            args.extend(["--donde", donde])
+        r = _cmd(*args)
+        if not r.get("ok"):
+            return r
+        tot = r.get("total", len(temas))
+        rep = (r.get("reproduciendo") or {}).get("nombre") or "la primera canción"
+        return {"ok": True, "resumen": f"Cola con {tot} canciones", "decir": f"Puesta la cola con {tot} canciones. Empieza con {rep}."}
+    if accion == "cola_limpiar":
+        r = _cmd("cola", "limpiar")
+        if not r.get("ok"):
+            return r
+        return {"ok": True, "resumen": "Cola vaciada", "decir": "Cola de reproducción vaciada."}
+    if accion == "sincronizar_youtube":
+        if que and valor:
+            r = _cmd("playlist", "sync-youtube", que, valor)
+        else:
+            r = _cmd("playlist", "sync-todo")
+        if not r.get("ok"):
+            return r
+        anad = r.get("anadidas", 0)
+        return {"ok": True, "resumen": "Playlists sincronizadas", "decir": f"Sincronización completada: {anad} canciones añadidas a Spotify."}
     cli, fijo = _CONTROL[accion]
     if fijo is not None:
         valor = fijo

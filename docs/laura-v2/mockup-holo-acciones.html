@@ -1,0 +1,1152 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Laura — Píldora Expandible & Animaciones de Estado</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+/* ============================================================ */
+/* PALETAS DE COLOR MATERIAL YOU DINÁMICAS                      */
+/* ============================================================ */
+:root {
+  --bg: #090710;
+  --panel-bg: #13101d;
+  --panel-border: #231c33;
+  --text-main: #f2eefa;
+  --text-muted: #9e94b8;
+
+  /* Lavanda Espacial (por defecto) */
+  --p-primary: #cfbdfe;
+  --p-primary-rgb: 207, 189, 254;
+  --p-on-primary: #382963;
+  --p-secondary: #d0c2ea;
+  --p-tertiary: #f5b7d0;
+  --p-surface: #120e1e;
+  --p-surface-container: #1b162b;
+  --p-surface-high: #261f3d;
+  --p-border: rgba(207, 189, 254, 0.25);
+  --p-glow: rgba(207, 189, 254, 0.28);
+  --p-accent: #bf8df8;
+
+  --f-display: 'Bricolage Grotesque', system-ui, sans-serif;
+  --f-body: 'Figtree', system-ui, sans-serif;
+  --f-mono: 'JetBrains Mono', monospace;
+}
+
+[data-palette="sunset"] {
+  --p-primary: #ffb59d;
+  --p-primary-rgb: 255, 181, 157;
+  --p-on-primary: #5c1b05;
+  --p-secondary: #f4c2b2;
+  --p-tertiary: #ffdcc1;
+  --p-surface: #18100e;
+  --p-surface-container: #261914;
+  --p-surface-high: #38241d;
+  --p-border: rgba(255, 181, 157, 0.3);
+  --p-glow: rgba(255, 181, 157, 0.35);
+  --p-accent: #ff8563;
+}
+
+[data-palette="emerald"] {
+  --p-primary: #8be0af;
+  --p-primary-rgb: 139, 224, 175;
+  --p-on-primary: #003822;
+  --p-secondary: #b7e3ca;
+  --p-tertiary: #a6d8f5;
+  --p-surface: #0a1610;
+  --p-surface-container: #12241b;
+  --p-surface-high: #1a3326;
+  --p-border: rgba(139, 224, 175, 0.3);
+  --p-glow: rgba(139, 224, 175, 0.35);
+  --p-accent: #5cd391;
+}
+
+[data-palette="cyan"] {
+  --p-primary: #85d8f8;
+  --p-primary-rgb: 133, 216, 248;
+  --p-on-primary: #003549;
+  --p-secondary: #b5e1f4;
+  --p-tertiary: #c6c6ea;
+  --p-surface: #0a141b;
+  --p-surface-container: #11202b;
+  --p-surface-high: #192d3c;
+  --p-border: rgba(133, 216, 248, 0.3);
+  --p-glow: rgba(133, 216, 248, 0.35);
+  --p-accent: #4fc2f0;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text-main);
+  font-family: var(--f-body);
+  font-size: 15px;
+  line-height: 1.5;
+  padding: 24px 20px 80px;
+}
+
+.wrap {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.header-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--f-mono);
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--p-primary);
+}
+.header-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--p-primary);
+  box-shadow: 0 0 10px var(--p-primary);
+}
+h1 {
+  font-family: var(--f-display);
+  font-size: clamp(28px, 3.8vw, 42px);
+  font-weight: 800;
+  margin: 0;
+  line-height: 1.15;
+}
+.subtitle {
+  color: var(--text-muted);
+  margin: 0;
+  font-size: 16px;
+  max-width: 88ch;
+}
+
+/* ============================================================ */
+/* PANEL DE ACCIONES CINÉTICAS                                  */
+/* ============================================================ */
+.control-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  padding: 16px 20px;
+  border-radius: 20px;
+}
+.control-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.control-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  min-width: 120px;
+}
+
+.action-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  color: var(--text-main);
+  font-family: var(--f-body);
+  font-size: 13.5px;
+  font-weight: 600;
+  padding: 7px 15px;
+  border-radius: 10px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  transition: all 0.2s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+.action-btn svg { width: 16px; height: 16px; fill: currentColor; }
+.action-btn:hover {
+  background: rgba(var(--p-primary-rgb), 0.2);
+  border-color: var(--p-primary);
+  transform: translateY(-1px);
+}
+.action-btn.active-action {
+  background: rgba(var(--p-primary-rgb), 0.25);
+  border-color: var(--p-primary);
+  color: var(--p-primary);
+  box-shadow: 0 0 16px var(--p-glow);
+}
+
+.speed-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 4px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.toggle-switch {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.toggle-switch.on { background: var(--p-primary); }
+.toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+.toggle-switch.on .toggle-knob {
+  transform: translateX(16px);
+  background: var(--p-on-primary);
+}
+
+.theme-pill {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+.theme-pill:hover { transform: scale(1.15); }
+.theme-pill.active { border-color: #fff; transform: scale(1.18); }
+
+/* ============================================================ */
+/* ESCENARIO DEL ESCRITORIO (SIMULACIÓN REAL)                   */
+/* ============================================================ */
+.stage-wrap {
+  position: relative;
+  width: 100%;
+  height: 620px;
+  background: #08060e;
+  border: 1px solid var(--panel-border);
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.75);
+  display: flex;
+  flex-direction: column;
+}
+
+.mock-topbar {
+  height: 32px;
+  background: rgba(14, 11, 23, 0.85);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-family: var(--f-mono);
+  z-index: 5;
+}
+.mock-workspaces {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.mock-ws {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+}
+.mock-ws.active {
+  width: 20px;
+  border-radius: 4px;
+  background: var(--p-primary);
+}
+
+.stage-bg {
+  position: absolute;
+  inset: 32px 0 0 0;
+  background: 
+    radial-gradient(circle at 50% 120%, rgba(var(--p-primary-rgb), 0.16) 0%, transparent 65%),
+    radial-gradient(circle at 15% 25%, #151026 0%, transparent 50%),
+    radial-gradient(circle at 85% 75%, #120d20 0%, transparent 50%),
+    #08060e;
+}
+.stage-grid {
+  position: absolute;
+  inset: 32px 0 0 0;
+  background-image: radial-gradient(rgba(235, 231, 246, 0.1) 1.2px, transparent 1.2px);
+  background-size: 28px 28px;
+  opacity: 0.6;
+}
+
+.mock-kitty {
+  position: absolute;
+  top: 55px;
+  left: 60px;
+  width: 660px;
+  height: 300px;
+  background: rgba(18, 14, 27, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  backdrop-filter: blur(14px);
+  color: #a49abf;
+  font-family: var(--f-mono);
+  box-shadow: 0 16px 40px rgba(0,0,0,0.5);
+  overflow: hidden;
+  pointer-events: none;
+}
+.mock-kitty-title {
+  height: 32px;
+  background: rgba(25, 20, 38, 0.75);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.mock-kitty-body {
+  padding: 14px 18px;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+/* ============================================================ */
+/* LA PÍLDORA MORFABLE (UN SOLO CUERPO QUE CRECE HACIA ARRIBA)   */
+/* ============================================================ */
+.laura-dock-anchor {
+  position: absolute;
+  left: 50%;
+  bottom: 30px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 50;
+  user-select: none;
+}
+
+/* El chasis único que se expande hacia arriba */
+.morph-pill {
+  width: 500px;
+  min-height: 64px;
+  border-radius: 24px;
+  background: rgba(20, 16, 32, 0.94);
+  border: 1px solid rgba(var(--p-primary-rgb), 0.32);
+  backdrop-filter: blur(36px);
+  box-shadow: 
+    0 20px 50px rgba(0, 0, 0, 0.75),
+    0 0 28px rgba(var(--p-primary-rgb), 0.18),
+    inset 0 1px 1px rgba(255, 255, 255, 0.25);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  transition: all 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: center bottom;
+}
+
+/* Reflejo superior suave con la curvatura exacta */
+.morph-pill::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(235, 231, 246, 0.09) 0%, transparent 40%);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* SECCIÓN SUPERIOR: EL HUD DINÁMICO DE TRANSICIÓN */
+.hud-expansion-tray {
+  width: 100%;
+  height: 0;
+  opacity: 0;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: height 0.45s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.35s ease;
+  border-bottom: 1px solid transparent;
+}
+
+/* Estado Expandido */
+.morph-pill.expanded {
+  width: 520px;
+  box-shadow: 
+    0 24px 60px rgba(0, 0, 0, 0.85),
+    0 0 35px rgba(var(--p-primary-rgb), 0.3),
+    inset 0 1px 1px rgba(255, 255, 255, 0.3);
+}
+.morph-pill.expanded .hud-expansion-tray {
+  height: 96px;
+  opacity: 1;
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+/* SECCIÓN INFERIOR: SUBTÍTULOS / STATUS DE LAURA */
+.pill-base-content {
+  padding: 12px 22px 14px;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 3;
+}
+.pill-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+.pill-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--p-primary);
+  box-shadow: 0 0 8px var(--p-primary);
+}
+.pill-eq {
+  margin-left: auto;
+  display: flex;
+  gap: 2.5px;
+  align-items: center;
+}
+.pill-eq span {
+  width: 2.5px;
+  height: 8px;
+  background: var(--p-primary);
+  border-radius: 1px;
+  animation: eq-bounce 0.8s ease-in-out infinite alternate;
+}
+.pill-eq span:nth-child(2) { height: 13px; animation-delay: 0.2s; }
+.pill-eq span:nth-child(3) { height: 6px; animation-delay: 0.4s; }
+.pill-eq span:nth-child(4) { height: 11px; animation-delay: 0.15s; }
+
+@keyframes eq-bounce {
+  0% { transform: scaleY(0.4); opacity: 0.5; }
+  100% { transform: scaleY(1.3); opacity: 1; }
+}
+
+.pill-user-prompt {
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+  margin: 3px 0 2px;
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pill-speech {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-main);
+  text-align: center;
+  line-height: 1.3;
+}
+
+/* ============================================================ */
+/* ANIMACIONES CINÉTICAS DE TRANSICIÓN ESPECÍFICAS               */
+/* ============================================================ */
+
+/* 1. SLIDE DE CANCIÓN (SLIDE & HANDOFF) */
+.track-slide-container {
+  width: 100%;
+  height: 100%;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.track-item {
+  position: absolute;
+  inset: 0 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.45s ease;
+}
+
+.track-item.old-track {
+  transform: translateX(-120%);
+  opacity: 0;
+}
+.track-item.current-track {
+  transform: translateX(0);
+  opacity: 1;
+}
+.track-item.entering-track {
+  transform: translateX(120%);
+  opacity: 0;
+}
+
+.vinyl-thumb {
+  width: 64px;
+  height: 64px;
+  border-radius: 12px;
+  background: radial-gradient(circle at 35% 35%, #422a5c, #1a1226);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.5);
+  position: relative;
+}
+.vinyl-rings {
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+}
+.track-meta {
+  flex: 1;
+  min-width: 0;
+}
+.track-tag-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--f-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--p-primary);
+  text-transform: uppercase;
+}
+.track-name-bold {
+  font-family: var(--f-display);
+  font-size: 19px;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+.track-artist-sub {
+  font-size: 13px;
+  color: var(--p-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 2. PAUSA / PLAY CINÉTICO («PUM» CON ANILLO DE IMPACTO) */
+.playback-impact-wrap {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  position: relative;
+}
+.impact-badge-wrap {
+  position: relative;
+  width: 58px;
+  height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.impact-circle {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: var(--p-primary);
+  color: var(--p-on-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 2;
+  box-shadow: 0 0 24px var(--p-glow);
+  animation: pum-impact 0.4s cubic-bezier(0.18, 0.9, 0.25, 1.4) forwards;
+}
+@keyframes pum-impact {
+  0% { transform: scale(1.6); opacity: 0; filter: blur(4px); }
+  60% { transform: scale(0.92); opacity: 1; filter: blur(0); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.impact-ring-wave {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 2px solid var(--p-primary);
+  opacity: 0;
+  animation: wave-burst 0.7s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
+}
+@keyframes wave-burst {
+  0% { transform: scale(0.7); opacity: 0.9; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+.playback-state-text {
+  display: flex;
+  flex-direction: column;
+}
+.state-headline {
+  font-family: var(--f-display);
+  font-size: 20px;
+  font-weight: 800;
+  color: #fff;
+}
+.state-subline {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* 3. VOLUMEN FLUIDO CON INERCIA (SLIDER ANIMADO EN DELTA) */
+.volume-motion-wrap {
+  width: 100%;
+  height: 100%;
+  padding: 0 28px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+}
+.vol-motion-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.vol-motion-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.vol-motion-numbers {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.vol-prev-val {
+  font-family: var(--f-mono);
+  font-size: 14px;
+  color: var(--text-muted);
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+.vol-new-val {
+  font-family: var(--f-mono);
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--p-primary);
+  line-height: 1;
+}
+.vol-meter-track {
+  width: 100%;
+  height: 12px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  position: relative;
+  overflow: hidden;
+}
+.vol-meter-previous-ghost {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  background: rgba(255, 255, 255, 0.15);
+  border-right: 2px dashed rgba(255, 255, 255, 0.4);
+  transition: width 0.3s;
+}
+.vol-meter-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  background: linear-gradient(90deg, var(--p-primary), var(--p-tertiary));
+  border-radius: 6px;
+  transition: width 0.65s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 0 14px var(--p-glow);
+}
+
+/* Resumen técnico */
+.specs-panel {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 16px;
+  margin-top: 10px;
+}
+.spec-box {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 18px;
+  padding: 20px;
+}
+.spec-box h3 {
+  margin: 0 0 10px;
+  font-family: var(--f-display);
+  font-size: 19px;
+  color: var(--p-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.spec-box h3 svg { width: 22px; height: 22px; fill: currentColor; }
+.spec-box ul {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+.spec-box li { margin-bottom: 8px; }
+.spec-box li strong { color: var(--text-main); }
+</style>
+</head>
+<body data-palette="lavender">
+
+<div class="wrap">
+
+  <header>
+    <div class="header-badge">
+      <div class="header-dot"></div>
+      Laura v2 · Feedback Cinético sin Confirmaciones Lentas
+    </div>
+    <h1>Píldora Expandible & Animación de Estado</h1>
+    <p class="subtitle">
+      La píldora de Laura crece fluidamente hacia arriba para ilustrar visualmente qué ha ocurrido (deslizamiento de pistas, impacto de pausa, inercia de volumen). Respuestas en milisegundos sin chatter innecesario de voz.
+    </p>
+  </header>
+
+  <!-- Panel de control de animaciones cinematográficas -->
+  <div class="control-panel">
+    <div class="control-row">
+      <span class="control-label">Disparar Acción:</span>
+      <button class="action-btn active-action" onclick="triggerNextTrack()">
+        <svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+        Siguiente Canción (Slide Handoff)
+      </button>
+      <button class="action-btn" onclick="triggerPauseImpact()">
+        <svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+        Pausar Música (Pum / Impacto)
+      </button>
+      <button class="action-btn" onclick="triggerPlayImpact()">
+        <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        Reanudar Música
+      </button>
+      <button class="action-btn" onclick="triggerVolumeDelta(50, 75, 'up')">
+        <svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+        Subir Volumen (50% → 75%)
+      </button>
+      <button class="action-btn" onclick="triggerVolumeDelta(75, 35, 'down')">
+        <svg viewBox="0 0 24 24"><path d="M7 9v6h4l5 5V4L11 9H7z"/></svg>
+        Bajar Volumen (75% → 35%)
+      </button>
+      <button class="action-btn" onclick="triggerBrightnessDelta(40, 85)">
+        <svg viewBox="0 0 24 24"><path d="M20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12 20 8.69zM12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6zm0-10c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4z"/></svg>
+        Brillo (40% → 85%)
+      </button>
+    </div>
+
+    <div class="control-row">
+      <span class="control-label">Modo Velocidad:</span>
+      <div class="speed-toggle">
+        <span>Sin voz (Ultra-Rápido · Máxima velocidad)</span>
+        <div class="toggle-switch on" id="speedToggle" onclick="toggleSpeedMode()">
+          <div class="toggle-knob"></div>
+        </div>
+      </div>
+
+      <span class="control-label" style="min-width:auto;margin-left:14px;">Paleta:</span>
+      <div class="theme-pill active" style="background:#cfbdfe" onclick="setPalette('lavender', this)" title="Lavanda Espacial"></div>
+      <div class="theme-pill" style="background:#ffb59d" onclick="setPalette('sunset', this)" title="Sunset Cálido"></div>
+      <div class="theme-pill" style="background:#8be0af" onclick="setPalette('emerald', this)" title="Esmeralda"></div>
+      <div class="theme-pill" style="background:#85d8f8" onclick="setPalette('cyan', this)" title="Cian Puro"></div>
+    </div>
+  </div>
+
+  <!-- Escenario del escritorio -->
+  <div class="stage-wrap">
+    <div class="mock-topbar">
+      <div class="mock-workspaces">
+        <div class="mock-ws active"></div>
+        <div class="mock-ws"></div>
+        <div class="mock-ws"></div>
+        <div class="mock-ws"></div>
+        <span style="margin-left:8px;color:var(--p-primary)">ws 1 · dev</span>
+      </div>
+      <div>14:30 · LinuxBeast</div>
+      <div style="display:flex;gap:12px;align-items:center;">
+        <span id="topBat">BAT 82%</span>
+        <span id="topVol">VOL 75%</span>
+        <span>Spotify Activo</span>
+      </div>
+    </div>
+
+    <div class="stage-bg"></div>
+    <div class="stage-grid"></div>
+
+    <div class="mock-kitty">
+      <div class="mock-kitty-title">
+        <svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:var(--p-primary)"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8h16v10z"/></svg>
+        kitty — ~/proyectos/LinuxRicing
+      </div>
+      <div class="mock-kitty-body">
+        <span style="color:var(--p-primary)">alberviz@LinuxBeast</span>:<span style="color:var(--p-tertiary)">~/proyectos/LinuxRicing</span>$ laurad<br>
+        <span style="color:#9e94b8">[laura] tú: pasa de canción</span><br>
+        <span style="color:var(--p-primary)">[spotify] next() completado en 32ms</span><br>
+        <span style="color:#8be0af">✔ Sin voz innecesaria: Píldora expandida con animación cinemática</span><br>
+        <span style="color:#9e94b8">[laura] repliegue fluido tras 2.5s</span>
+      </div>
+    </div>
+
+    <!-- PÍLDORA UNIFICADA QUE SE EXPANDE HACIA ARRIBA -->
+    <div class="laura-dock-anchor">
+      <div class="morph-pill" id="morphPill">
+        
+        <!-- SECCIÓN SUPERIOR EXPANDIBLE (EL HUD DE LA ACCIÓN) -->
+        <div class="hud-expansion-tray" id="hudTray">
+          <!-- El contenido se inyecta y anima cinéticamente aquí -->
+        </div>
+
+        <!-- SECCIÓN BASE INFERIOR (PÍLDORA DE LAURA) -->
+        <div class="pill-base-content">
+          <div class="pill-header">
+            <div class="pill-dot"></div>
+            <span id="pillAgentTitle">Laura</span>
+            <div class="pill-eq">
+              <span></span><span></span><span></span><span></span>
+            </div>
+          </div>
+          <div class="pill-user-prompt" id="pillPromptText">“Pasa a la siguiente canción”</div>
+          <div class="pill-speech" id="pillSpeechReply">Spotify · Siguiente pista</div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Explicación de los principios de diseño -->
+  <div class="specs-panel">
+    <div class="spec-box">
+      <h3>
+        <svg viewBox="0 0 24 24"><path d="M13 2.05v3.03c3.39.49 6 3.39 6 6.92 0 .9-.18 1.75-.48 2.54l2.6 1.53c.56-1.24.88-2.62.88-4.07 0-5.18-3.95-9.45-9-9.95zM12 19c-3.87 0-7-3.13-7-7 0-3.53 2.61-6.43 6-6.92V2.05c-5.05.5-9 4.76-9 9.95 0 5.52 4.47 10 9.99 10 3.31 0 6.24-1.61 8.04-4.09l-2.45-1.45C15.42 18.08 13.79 19 12 19z"/></svg>
+        Píldora Viva Morfable (Un solo cuerpo)
+      </h3>
+      <ul>
+        <li><strong>No hay elementos flotando desconectados:</strong> La misma píldora de subtítulos es el chasis que crece verticalmente (`height: 64px → 160px`) usando una curva elástica continua (`cubic-bezier(0.16, 1, 0.3, 1)`).</li>
+        <li><strong>Jerarquía espacial clara:</strong> La parte superior muestra la animación del cambio ("¿Qué acaba de ocurrir?"), y la parte inferior conserva el contexto de Laura.</li>
+        <li><strong>Auto-repliegue apacible:</strong> Tras 2,5 segundos sin intervención, la bandeja superior se desvanece y la píldora se repliega a su formato compacto original.</li>
+      </ul>
+    </div>
+
+    <div class="spec-box">
+      <h3>
+        <svg viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>
+        Feedback Cinético en vez de Reproductor
+      </h3>
+      <ul>
+        <li><strong>Paso de pista con Slide & Handoff:</strong> La canción que sonaba antes sale deslizándose hacia la izquierda y la nueva entra desde la derecha con desenfoque suave.</li>
+        <li><strong>Pausa con impacto («Pum»):</strong> Icono de pausa expansivo que brota en el centro con un anillo de choque radial que se disuelve instantáneamente.</li>
+        <li><strong>Volumen con inercia elástica:</strong> La barra muestra la marca previa donde estaba el volumen y se anima fluidamente hasta el nuevo valor con el número contando en vivo.</li>
+      </ul>
+    </div>
+
+    <div class="spec-box">
+      <h3>
+        <svg viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
+        Zero-Chatter: Velocidad Extrema sin Voz Lenta
+      </h3>
+      <ul>
+        <li><strong>Adiós a las confirmaciones habladas obvias:</strong> Decir en voz alta *"He pasado a la siguiente canción"* o *"He subido el volumen"* añade 3 segundos de retraso y corta la música.</li>
+        <li><strong>Respuesta instantánea:</strong> La orden se ejecuta en ~30 ms, la píldora se expande y la animación confirma la acción al ojo humano al instante.</li>
+      </ul>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ============================================================
+// LÓGICA DE CONTROL Y ANIMACIONES EN VIVO
+// ============================================================
+const pill = document.getElementById('morphPill');
+const tray = document.getElementById('hudTray');
+const promptText = document.getElementById('pillPromptText');
+const speechText = document.getElementById('pillSpeechReply');
+const speedToggle = document.getElementById('speedToggle');
+
+let isSilentMode = true;
+let collapseTimeout = null;
+
+// Playlist simulada para el slide
+const TRACKS = [
+  { name: 'RUN AWAY', artist: 'La Pantera · RealG4lifebaby' },
+  { name: 'DIABLITA', artist: 'Myke Towers (feat. YOVNGCHIMI)' },
+  { name: 'LALA', artist: 'Myke Towers · LA VIDA ES UNA' },
+  { name: 'POLARIS (Remix)', artist: 'Saiko, Quevedo, Feid, Mora' }
+];
+let currentTrackIdx = 0;
+
+function toggleSpeedMode() {
+  isSilentMode = !isSilentMode;
+  speedToggle.classList.toggle('on', isSilentMode);
+}
+
+function expandPill() {
+  if (collapseTimeout) clearTimeout(collapseTimeout);
+  pill.classList.add('expanded');
+  
+  // Auto repliegue tras 2.8 segundos
+  collapseTimeout = setTimeout(() => {
+    pill.classList.remove('expanded');
+    setTimeout(() => {
+      tray.innerHTML = '';
+      promptText.textContent = '“Habla con Laura…”';
+      speechText.textContent = 'Listo en el escritorio.';
+    }, 450);
+  }, 2800);
+}
+
+function highlightBtn(btn) {
+  document.querySelectorAll('.action-btn').forEach(b => b.classList.remove('active-action'));
+  if (btn) btn.classList.add('active-action');
+}
+
+// 1. SIGUIENTE CANCIÓN (SLIDE & HANDOFF)
+function triggerNextTrack(btn) {
+  highlightBtn(btn);
+  const prevTrack = TRACKS[currentTrackIdx];
+  currentTrackIdx = (currentTrackIdx + 1) % TRACKS.length;
+  const nextTrack = TRACKS[currentTrackIdx];
+
+  promptText.textContent = '“Pasa a la siguiente canción”';
+  speechText.textContent = isSilentMode ? 'Spotify · Siguiente pista' : `Poniendo "${nextTrack.name}".`;
+
+  tray.innerHTML = `
+    <div class="track-slide-container">
+      <!-- Canción que se va -->
+      <div class="track-item current-track" id="oldTrack">
+        <div class="vinyl-thumb">
+          <div class="vinyl-rings"></div>
+          <svg viewBox="0 0 24 24" style="width:26px;height:26px;fill:#fff;z-index:2;"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+        </div>
+        <div class="track-meta">
+          <div class="track-tag-badge">Anterior</div>
+          <div class="track-name-bold">${prevTrack.name}</div>
+          <div class="track-artist-sub">${prevTrack.artist}</div>
+        </div>
+      </div>
+
+      <!-- Canción nueva que entra -->
+      <div class="track-item entering-track" id="newTrack">
+        <div class="vinyl-thumb" style="background:radial-gradient(circle at 35% 35%, #2a4c40, #0f1f1a);">
+          <div class="vinyl-rings"></div>
+          <svg viewBox="0 0 24 24" style="width:26px;height:26px;fill:var(--p-primary);z-index:2;"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+        </div>
+        <div class="track-meta">
+          <div class="track-tag-badge">
+            <svg viewBox="0 0 24 24" style="width:12px;height:12px;fill:currentColor;"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+            Ahora suena
+          </div>
+          <div class="track-name-bold">${nextTrack.name}</div>
+          <div class="track-artist-sub">${nextTrack.artist}</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  expandPill();
+
+  // Desencadenar animación de slide a los 50ms
+  setTimeout(() => {
+    const oldEl = document.getElementById('oldTrack');
+    const newEl = document.getElementById('newTrack');
+    if (oldEl && newEl) {
+      oldEl.classList.remove('current-track');
+      oldEl.classList.add('old-track');
+      newEl.classList.remove('entering-track');
+      newEl.classList.add('current-track');
+    }
+  }, 60);
+}
+
+// 2. PAUSAR MÚSICA (PUM / IMPACTO CINÉTICO)
+function triggerPauseImpact(btn) {
+  highlightBtn(btn);
+  promptText.textContent = '“Para la música”';
+  speechText.textContent = isSilentMode ? 'Spotify · En pausa' : 'Música en pausa.';
+
+  tray.innerHTML = `
+    <div class="playback-impact-wrap">
+      <div class="impact-badge-wrap">
+        <div class="impact-ring-wave"></div>
+        <div class="impact-circle">
+          <svg viewBox="0 0 24 24" style="width:28px;height:28px;fill:currentColor;"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+        </div>
+      </div>
+      <div class="playback-state-text">
+        <div class="state-headline">Música en Pausa</div>
+        <div class="state-subline">Spotify · ${TRACKS[currentTrackIdx].name}</div>
+      </div>
+    </div>
+  `;
+  expandPill();
+}
+
+// 3. REANUDAR MÚSICA
+function triggerPlayImpact(btn) {
+  highlightBtn(btn);
+  promptText.textContent = '“Sigue con la música”';
+  speechText.textContent = isSilentMode ? 'Spotify · Reproduciendo' : 'Reanudando la reproducción.';
+
+  tray.innerHTML = `
+    <div class="playback-impact-wrap">
+      <div class="impact-badge-wrap">
+        <div class="impact-ring-wave"></div>
+        <div class="impact-circle">
+          <svg viewBox="0 0 24 24" style="width:30px;height:30px;fill:currentColor;"><path d="M8 5v14l11-7z"/></svg>
+        </div>
+      </div>
+      <div class="playback-state-text">
+        <div class="state-headline">Reproduciendo</div>
+        <div class="state-subline">${TRACKS[currentTrackIdx].name} · ${TRACKS[currentTrackIdx].artist}</div>
+      </div>
+    </div>
+  `;
+  expandPill();
+}
+
+// 4. VOLUMEN FLUIDO CON INERCIA (SUBIR / BAJAR)
+function triggerVolumeDelta(fromVal, toVal, direction, btn) {
+  highlightBtn(btn);
+  const isUp = direction === 'up';
+  promptText.textContent = isUp ? '“Sube el volumen”' : '“Baja el volumen”';
+  speechText.textContent = isSilentMode ? `Volumen · ${toVal}%` : `Volumen fijado en ${toVal}%.`;
+
+  document.getElementById('topVol').textContent = `VOL ${toVal}%`;
+
+  tray.innerHTML = `
+    <div class="volume-motion-wrap">
+      <div class="vol-motion-top">
+        <div class="vol-motion-title">
+          <svg viewBox="0 0 24 24" style="width:18px;height:18px;fill:var(--p-primary);"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>
+          <span>Volumen del Sistema</span>
+        </div>
+        <div class="vol-motion-numbers">
+          <span class="vol-prev-val">${fromVal}%</span>
+          <span class="vol-new-val" id="animatedVolNum">${fromVal}%</span>
+        </div>
+      </div>
+      <div class="vol-meter-track">
+        <div class="vol-meter-previous-ghost" style="width:${fromVal}%;"></div>
+        <div class="vol-meter-fill" id="volBarFill" style="width:${fromVal}%;"></div>
+      </div>
+    </div>
+  `;
+
+  expandPill();
+
+  // Animar la barra y el conteo del número
+  setTimeout(() => {
+    const bar = document.getElementById('volBarFill');
+    const numEl = document.getElementById('animatedVolNum');
+    if (bar) bar.style.width = toVal + '%';
+
+    // Conteo progresivo del número
+    let current = fromVal;
+    const step = isUp ? 1 : -1;
+    const interval = setInterval(() => {
+      if (current === toVal) {
+        clearInterval(interval);
+        return;
+      }
+      current += step;
+      if (numEl) numEl.textContent = current + '%';
+    }, 18);
+  }, 70);
+}
+
+// 5. BRILLO DINÁMICO
+function triggerBrightnessDelta(fromVal, toVal, btn) {
+  highlightBtn(btn);
+  promptText.textContent = '“Pon el brillo al 85%”';
+  speechText.textContent = isSilentMode ? `Brillo · ${toVal}%` : `Brillo ajustado al ${toVal}%.`;
+
+  tray.innerHTML = `
+    <div class="volume-motion-wrap">
+      <div class="vol-motion-top">
+        <div class="vol-motion-title">
+          <svg viewBox="0 0 24 24" style="width:18px;height:18px;fill:var(--p-primary);"><path d="M20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12 20 8.69zM12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6z"/></svg>
+          <span>Brillo de Pantalla (eDP-2)</span>
+        </div>
+        <div class="vol-motion-numbers">
+          <span class="vol-prev-val">${fromVal}%</span>
+          <span class="vol-new-val" id="animatedBriNum">${fromVal}%</span>
+        </div>
+      </div>
+      <div class="vol-meter-track">
+        <div class="vol-meter-previous-ghost" style="width:${fromVal}%;"></div>
+        <div class="vol-meter-fill" id="briBarFill" style="width:${fromVal}%;"></div>
+      </div>
+    </div>
+  `;
+
+  expandPill();
+
+  setTimeout(() => {
+    const bar = document.getElementById('briBarFill');
+    const numEl = document.getElementById('animatedBriNum');
+    if (bar) bar.style.width = toVal + '%';
+
+    let current = fromVal;
+    const interval = setInterval(() => {
+      if (current === toVal) {
+        clearInterval(interval);
+        return;
+      }
+      current += 1;
+      if (numEl) numEl.textContent = current + '%';
+    }, 15);
+  }, 70);
+}
+
+function setPalette(palette, pillElem) {
+  document.body.setAttribute('data-palette', palette);
+  document.querySelectorAll('.theme-pill').forEach(p => p.classList.remove('active'));
+  pillElem.classList.add('active');
+}
+
+// Iniciar con la primera animación para mostrarlo vivo
+setTimeout(() => {
+  triggerNextTrack();
+}, 400);
+</script>
+</body>
+</html>

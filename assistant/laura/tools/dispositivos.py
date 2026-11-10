@@ -111,17 +111,25 @@ def brillo(cambio: int = 0) -> dict:
     if not shutil.which("brightnessctl"):
         return {"ok": False, "error": "falta brightnessctl"}
     cambio = int(cambio)
+    cur0 = _run(["brightnessctl", "-m"]).stdout.split(",")
+    b0 = int(cur0[3].rstrip("%")) if len(cur0) > 3 and cur0[3].rstrip("%").isdigit() else 50
     if cambio:
         # nunca por debajo del 5 %: evita dejar la pantalla negra
         if cambio < 0:
-            cur = _run(["brightnessctl", "-m"]).stdout.split(",")
-            actual = int(cur[3].rstrip("%")) if len(cur) > 3 else 100
-            cambio = max(cambio, 5 - actual)
+            cambio = max(cambio, 5 - b0)
         if cambio:
             _run(["brightnessctl", "set", f"{abs(cambio)}%{'+' if cambio > 0 else '-'}"])
     m = _run(["brightnessctl", "-m"]).stdout.split(",")
-    pct = int(m[3].rstrip("%")) if len(m) > 3 else None
-    return {"ok": True, "brillo_pct": pct, "resumen": f"Brillo al {pct} %" if pct is not None else "Brillo"}
+    pct = int(m[3].rstrip("%")) if len(m) > 3 and m[3].rstrip("%").isdigit() else b0
+    resumen = f"Brillo al {pct} %" if pct is not None else "Brillo"
+    motion = {
+        "tipo": "delta_meter",
+        "medidor": "brillo",
+        "from": b0,
+        "to": pct,
+        "direccion": "up" if pct >= b0 else "down"
+    }
+    return {"ok": True, "brillo_pct": pct, "resumen": resumen, "motion": motion}
 
 
 @tool("bateria", "Nivel y estado de la batería («cuánta batería queda»).", icon="battery_full")

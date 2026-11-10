@@ -4,11 +4,12 @@ from __future__ import annotations
 import json
 import re
 import threading
+import time
 import urllib.request
 
 from . import memory
 from . import tools as tools_mod
-from .config import CFG, log
+from .config import CFG, bus, log
 
 _MODE_ON = ("modo calidad", "modo potente", "modo experto", "mas potente", "más potente")
 _MODE_OFF = ("modo rapido", "modo rápido", "modo normal", "modo ligero")
@@ -36,6 +37,7 @@ class Session:
     def __init__(self) -> None:
         self.base_prompt = CFG["llm"]["system_prompt"].strip()
         self.messages: list[dict] = [{"role": "system", "content": self.base_prompt}]
+        self.turn_ctx: str = ""
         self.quality = False
 
     def model_now(self) -> str:
@@ -44,18 +46,8 @@ class Session:
         return CFG["llm"]["model"]
 
     def refresh_system(self, user_text: str = "") -> None:
-        """Reconstruye el system prompt con el bloque de memoria (hechos que
-        Laura sabe de Alberto)."""
-        try:
-            bloque = memory.prompt_block(user_text)
-        except Exception as e:  # noqa: BLE001
-            log(f"memoria: {e}")
-            bloque = ""
-        from .tools.sistema import fecha_hora_texto
-        extra = f"Ahora mismo es {fecha_hora_texto()}."
-        if bloque:
-            extra += "\n\n" + bloque
-        self.messages[0] = {"role": "system", "content": self.base_prompt + "\n\n" + extra}
+        """Calcula y guarda el contexto dinámico del turno (hora, memoria, escena)."""
+        self.turn_ctx = contexto_turno(user_text)
 
     def trim(self) -> None:
         """Acota el historial: aunque el contexto de Ollama sea holgado
@@ -76,22 +68,183 @@ class Session:
         self.messages.append({"role": role, "content": content})
 
 
+def contexto_turno(user_text: str = "") -> str:
+    """Construye el contexto dinámico del turno: hora, memoria de hechos y escena holográfica."""
+    try:
+        bloque = memory.prompt_block(user_text)
+    except Exception as e:  # noqa: BLE001
+        log(f"memoria: {e}")
+        bloque = ""
+    from .tools.sistema import fecha_hora_texto
+    extra = f"Ahora mismo es {fecha_hora_texto()}."
+    if bloque:
+        extra += "\n\n" + bloque
+    try:
+        from .holo import escena
+        ctx = escena().contexto()
+    except Exception:
+        ctx = ""
+    if ctx:
+        extra += "\n\n" + ctx
+    return extra
+
+
+def envolver(texto: str, contexto: str | None) -> str:
+    """Devuelve '<contexto>\\n…\\n</contexto>\\n\\n' + texto, o el texto tal cual si no hay contexto."""
+    ctx = (contexto or "").strip()
+    if not ctx:
+        return texto
+    return f"<contexto>\n{ctx}\n</contexto>\n\n{texto}"
+
+
+def _mensajes(session: Session) -> list[dict]:
+    """Copia los mensajes de la sesión envolviendo únicamente el último mensaje 'user'."""
+    msgs = [dict(m) for m in session.messages]
+    ctx = getattr(session, "turn_ctx", "")
+    for i in range(len(msgs) - 1, -1, -1):
+        if msgs[i].get("role") == "user":
+            msgs[i]["content"] = envolver(msgs[i].get("content") or "", ctx)
+            break
+    return msgs
+
+
+def _ultimo_usuario(session: Session) -> str:
+    return next((m.get("content") or "" for m in reversed(session.messages) if m.get("role") == "user"), "")
+
+
+_ultimo_calentado: float = 0.0
+
+
+def _keep_alive(body: dict) -> None:
+    """Añade keep_alive al cuerpo si está configurado en config.toml."""
+    ka = CFG["llm"].get("keep_alive")
+    if ka:
+        body["keep_alive"] = ka
+
+
 def _ollama_body(session: Session, stream: bool) -> bytes:
-    return json.dumps({
+    body = {
         "model": session.model_now(),
-        "messages": session.messages,
-        "tools": tools_mod.TOOLS,
+        "messages": _mensajes(session),
+        "tools": tools_mod.activas(_ultimo_usuario(session)),
         "stream": stream,
         "options": {"num_ctx": CFG["llm"].get("num_ctx", 4096),
                     **{k: CFG["llm"][k] for k in ("temperature", "num_predict") if k in CFG["llm"]}},
-    }).encode()
+    }
+    _keep_alive(body)
+    return json.dumps(body).encode()
+
+
+def precalentar(ahora: float | None = None) -> bool:
+    """Precalienta el modelo y la caché KV de Ollama con num_predict=1.
+
+    No repite si ya se precalentó en los últimos 30 segundos. Nunca lanza excepciones.
+    Devuelve True si se lanzó el precalentamiento, False si se omitió o falló.
+    """
+    global _ultimo_calentado
+    t = time.time() if ahora is None else ahora
+    if t - _ultimo_calentado < 30.0:
+        return False
+    try:
+        s = Session()
+        body = json.loads(_ollama_body(s, False).decode())
+        body.setdefault("options", {})["num_predict"] = 1
+        _ultimo_calentado = t
+        _post(body, "precalentar", timeout=CFG["llm"].get("timeout", 45))
+        return True
+    except Exception as e:  # noqa: BLE001
+        log(f"precalentar: {e}")
+        return False
+
+
+def texto_prefill(etiqueta: str, r: dict | None) -> str | None:
+    """Construye la línea de log para la métrica de prefill de Ollama.
+
+    Devuelve 'ollama[<etiqueta>]: prefill N tok en X s' o None si faltan datos.
+    """
+    if not isinstance(r, dict):
+        return None
+    count = r.get("prompt_eval_count")
+    dur = r.get("prompt_eval_duration")
+    if count is None or dur is None:
+        return None
+    try:
+        count_int = int(count)
+        segundos = float(dur) / 1e9
+    except (TypeError, ValueError):
+        return None
+    return f"ollama[{etiqueta}]: prefill {count_int} tok en {segundos:.2f} s"
+
+
+def log_prefill(etiqueta: str, r: dict | None) -> None:
+    """Registra en el log el prefill de Ollama si la respuesta contiene las métricas."""
+    linea = texto_prefill(etiqueta, r)
+    if linea:
+        log(linea)
+
+
+def _post(body: bytes | dict | str, etiqueta: str, timeout: float | None = None) -> dict:
+    """POST a Ollama registrando métricas de prefill."""
+    if isinstance(body, dict):
+        data = json.dumps(body).encode()
+    elif isinstance(body, str):
+        data = body.encode()
+    else:
+        data = body
+    to = timeout if timeout is not None else CFG["llm"].get("timeout", 45)
+    req = urllib.request.Request(CFG["llm"]["url"], data=data,
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=to) as resp:
+        res = json.loads(resp.read())
+    log_prefill(etiqueta, res)
+    return res
 
 
 def ollama_chat(session: Session) -> dict:
-    req = urllib.request.Request(CFG["llm"]["url"], data=_ollama_body(session, False),
-                                 headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=CFG["llm"].get("timeout", 45)) as resp:
-        return json.loads(resp.read())
+    return _post(_ollama_body(session, False), "chat")
+
+
+def chat_lateral(instrucciones: str, etiqueta: str, fmt: str | None = None,
+                 temperature: float | None = None, num_predict: int | None = None,
+                 timeout: float | None = None) -> str:
+    """Llamada auxiliar al LLM compartiendo el mismo prefijo (system base + tools base).
+
+    Si el modelo devuelve tool_calls o respuesta vacía, repite la petición sin tools como respaldo.
+    """
+    opts: dict = {"num_ctx": CFG["llm"].get("num_ctx", 4096)}
+    if temperature is not None:
+        opts["temperature"] = temperature
+    elif "temperature" in CFG["llm"]:
+        opts["temperature"] = CFG["llm"]["temperature"]
+    if num_predict is not None:
+        opts["num_predict"] = num_predict
+    elif "num_predict" in CFG["llm"]:
+        opts["num_predict"] = CFG["llm"]["num_predict"]
+
+    body: dict = {
+        "model": CFG["llm"]["model"],
+        "messages": [
+            {"role": "system", "content": CFG["llm"]["system_prompt"].strip()},
+            {"role": "user", "content": f"[Tarea interna: no uses herramientas]\n\n{instrucciones}"},
+        ],
+        "tools": tools_mod.activas(""),
+        "stream": False,
+        "options": opts,
+    }
+    if fmt:
+        body["format"] = fmt
+    _keep_alive(body)
+
+    resp = _post(body, etiqueta, timeout=timeout)
+    msg = resp.get("message") or {}
+    content = (msg.get("content") or "").strip()
+    if not content or msg.get("tool_calls"):
+        body_fb = dict(body)
+        body_fb.pop("tools", None)
+        resp_fb = _post(body_fb, etiqueta, timeout=timeout)
+        msg_fb = resp_fb.get("message") or {}
+        content = (msg_fb.get("content") or "").strip()
+    return content
 
 
 def summarize_for_voice(texto: str, quien: str = "Gemini") -> str:
@@ -99,25 +252,15 @@ def summarize_for_voice(texto: str, quien: str = "Gemini") -> str:
     orales con el LLM local, para que Laura la devuelva "como si fuera suya". Si
     el resumen falla (Ollama caído, etc.), cae a un recorte crudo del texto."""
     try:
-        msgs = [
-            {"role": "system", "content": CFG["llm"]["system_prompt"].strip()},
-            {"role": "user", "content": (
-                f"Le pedí ayuda a {quien} para algo que yo no podía resolver "
-                "sola y esto es lo que ha hecho, con todo detalle:\n\n"
-                + texto[:6000] +
-                "\n\nResúmelo para Alberto en una o dos frases orales, en "
-                "español, sin markdown ni listas, como si tú misma lo "
-                "hubieras hecho.")},
-        ]
-        req = urllib.request.Request(
-            CFG["llm"]["url"],
-            data=json.dumps({"model": CFG["llm"]["model"], "messages": msgs,
-                             "stream": False,
-                             "options": {"num_ctx": CFG["llm"].get("num_ctx", 4096)}}).encode(),
-            headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=CFG["llm"].get("timeout", 45)) as resp:
-            msg = json.loads(resp.read())["message"]
-        resumen = (msg.get("content") or "").strip()
+        instrucciones = (
+            f"Le pedí ayuda a {quien} para algo que yo no podía resolver "
+            "sola y esto es lo que ha hecho, con todo detalle:\n\n"
+            + texto[:6000] +
+            "\n\nResúmelo para Alberto en una o dos frases orales, en "
+            "español, sin markdown ni listas, como si tú misma lo "
+            "hubieras hecho."
+        )
+        resumen = chat_lateral(instrucciones, f"resumen_{quien.lower()}")
         if resumen:
             return resumen
     except Exception as e:  # noqa: BLE001
@@ -149,17 +292,13 @@ def answer_from_sources(tema: str, resultados: list[dict]) -> str:
     (modo `investigar = "laura"`). Si el modelo falla, devuelve los fragmentos tal cual."""
     ctx = "\n".join(f"- {r['titulo']}: {r['fragmento']}" for r in resultados)
     try:
-        msgs = [{"role": "system", "content": "Eres un investigador. Respondes en español, claro y sin inventar nada que no esté en los resultados."},
-                {"role": "user", "content": (f"Tema: {tema}\n\nResultados de búsqueda:\n{ctx}\n\n"
-                                             "Escribe un párrafo de 2-3 frases con la respuesta directa y "
-                                             "después, como mucho, 4 viñetas con los detalles más útiles.")}]
-        req = urllib.request.Request(
-            CFG["llm"]["url"],
-            data=json.dumps({"model": CFG["llm"]["model"], "messages": msgs, "stream": False,
-                             "options": {"num_ctx": CFG["llm"].get("num_ctx", 4096)}}).encode(),
-            headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=CFG["llm"].get("timeout", 45) * 2) as resp:
-            txt = (json.loads(resp.read())["message"].get("content") or "").strip()
+        instrucciones = (
+            f"Esta es una nota escrita para Alberto (aquí sí puedes usar viñetas y markdown).\n\n"
+            f"Tema: {tema}\n\nResultados de búsqueda:\n{ctx}\n\n"
+            "Escribe un párrafo de 2-3 frases con la respuesta directa y "
+            "después, como mucho, 4 viñetas con los detalles más útiles."
+        )
+        txt = chat_lateral(instrucciones, "investigar", timeout=CFG["llm"].get("timeout", 45) * 2)
         if txt:
             return txt
     except Exception as e:  # noqa: BLE001
@@ -200,6 +339,7 @@ def _stream_round(session: Session, on_sentence, cancel: threading.Event | None)
                 for s in sents:
                     on_sentence(s)
         if chunk.get("done"):
+            log_prefill("chat", chunk)
             break
     if on_sentence is not None and not calls and buf.strip():
         on_sentence(buf.strip())
@@ -222,6 +362,25 @@ def _dedupe(calls: list) -> list:
     return out
 
 
+_CLAVES_TOOL_HISTORIAL = {"ok", "resumen", "decir", "error", "candidatos", "pregunta"}
+
+
+def _compactar_turno(messages: list[dict], desde: int) -> None:
+    """Al terminar un turno, reduce los mensajes 'tool' de ese turno a las claves esenciales para el historial."""
+    for m in messages[desde:]:
+        if m.get("role") == "tool":
+            raw = m.get("content")
+            if not raw:
+                continue
+            try:
+                data = json.loads(raw)
+            except (ValueError, TypeError):
+                continue
+            if isinstance(data, dict):
+                compacto = {k: v for k, v in data.items() if k in _CLAVES_TOOL_HISTORIAL}
+                m["content"] = json.dumps(compacto, ensure_ascii=False)
+
+
 def converse(session: Session, user_text: str, on_sentence=None,
              cancel: threading.Event | None = None
              ) -> tuple[str, list[dict], dict | None]:
@@ -238,6 +397,7 @@ def converse(session: Session, user_text: str, on_sentence=None,
     session.trim()
     session.refresh_system(user_text)
     session.add("user", user_text)
+    desde = len(messages) - 1
     actions: list[dict] = []
     for _ in range(CFG["llm"]["max_tool_rounds"]):
         if on_sentence is not None:
@@ -249,6 +409,7 @@ def converse(session: Session, user_text: str, on_sentence=None,
             messages.append(msg)
             content, calls = msg.get("content") or "", msg.get("tool_calls") or []
         if not calls:
+            _compactar_turno(messages, desde)
             return content.strip(), actions, None
         calls = _dedupe(calls)
         messages[-1]["tool_calls"] = calls
@@ -259,6 +420,8 @@ def converse(session: Session, user_text: str, on_sentence=None,
                 args = json.loads(args or "{}")
             result = tools_mod.run_tool(fn["name"], args, CFG.get("apps", {}))
             log(f"tool {fn['name']}({args}) -> {result}")
+            if result.get("ok") and "motion" in result and result["motion"]:
+                bus.emit(type="action_motion", motion=result["motion"], resumen=result.get("resumen", ""))
             messages.append({"role": "tool", "name": fn["name"],
                              "content": json.dumps(result, ensure_ascii=False)})
             eff = tools_mod.effect_of(fn["name"])
@@ -270,6 +433,12 @@ def converse(session: Session, user_text: str, on_sentence=None,
                 }
             if eff == "confirm:comando" and result.get("confirmar"):
                 return "", actions, {"destino": "comando", "peticion": result["comando"], "motivo": ""}
+            if eff == "confirm:archivos" and result.get("confirmar"):
+                return "", actions, {"destino": "archivos", "peticion": result["plan"], "motivo": ""}
             if result.get("ok"):
-                actions.append(tools_mod.accion_overlay(fn["name"], result))
+                acc = tools_mod.accion_overlay(fn["name"], result)
+                acc["tool"] = fn["name"]
+                acc["args"] = args
+                actions.append(acc)
+    _compactar_turno(messages, desde)
     return (messages[-1].get("content") or "Hecho.").strip(), actions, None

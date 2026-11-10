@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import time
 import urllib.parse
 from datetime import datetime
 
@@ -28,16 +29,54 @@ def control_musica(accion: str) -> dict:
     sub = mapa.get(accion)
     if not sub:
         return {"ok": False, "error": f"acción desconocida: {accion}"}
+
+    fmt = "{{title}}|||{{artist}}|||{{album}}|||{{mpris:artUrl}}"
+
+    def meta() -> tuple[str, str, str]:
+        r = _run(["playerctl", "metadata", "--format", fmt])
+        p = (r.stdout.strip().split("|||") + ["", "", "", ""])[:4] if r.returncode == 0 else ["", "", "", ""]
+        return p[0], p[1], p[3]
+
+    prev_title, prev_artist, prev_art = meta()
+    prev_st = _run(["playerctl", "status"]).stdout.strip().lower()
+
     r = _run(["playerctl", sub])
     if r.returncode != 0:
         return {"ok": False, "error": "no hay ningún reproductor activo"}
-    resumen = {
-        "reproducir_pausar": "Reproducir / pausar",
-        "siguiente": "Siguiente canción",
-        "anterior": "Canción anterior",
-        "parar": "Parar música",
-    }[accion]
-    return {"ok": True, "accion": accion, "resumen": resumen}
+
+    motion = None
+    if accion in ("siguiente", "anterior"):
+        # Spotify tarda ~100-300 ms en publicar la pista nueva por MPRIS
+        new_title, new_artist, new_art = prev_title, prev_artist, prev_art
+        for _ in range(12):
+            time.sleep(0.05)
+            new_title, new_artist, new_art = meta()
+            if new_title and new_title != prev_title:
+                break
+        motion = {
+            "tipo": "track_slide",
+            "direccion": "next" if accion == "siguiente" else "prev",
+            "prev_title": prev_title or "Pista anterior",
+            "prev_artist": prev_artist,
+            "next_title": new_title or ("Siguiente pista" if accion == "siguiente" else "Pista anterior"),
+            "next_artist": new_artist,
+            "art": new_art or prev_art,
+            "prev_art": prev_art,
+        }
+        resumen = f"Pista: {new_title}" if new_title else ("Siguiente canción" if accion == "siguiente" else "Canción anterior")
+    else:
+        # el estado tras el toggle llega con retraso: se deduce del de antes
+        estado = "pause" if (accion == "parar" or prev_st == "playing") else "play"
+        motion = {
+            "tipo": "playback_impact",
+            "estado": estado,
+            "titulo": prev_title or "Música",
+            "artista": prev_artist,
+            "art": prev_art,
+        }
+        resumen = "Música pausada" if estado == "pause" else "Reproduciendo música"
+
+    return {"ok": True, "accion": accion, "resumen": resumen, "motion": motion}
 
 
 @tool("volumen", "Sube o baja el volumen del sistema en un porcentaje.",
@@ -45,19 +84,59 @@ def control_musica(accion: str) -> dict:
       required=["porcentaje"], icon="volume_up")
 def volumen(porcentaje: int) -> dict:
     """Cambia el volumen. porcentaje: entero, positivo sube y negativo baja."""
+    import re
+    r_v0 = _run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"])
+    v0 = 50
+    m0 = re.search(r"Volume:\s*([\d\.]+)", r_v0.stdout)
+    if m0:
+        v0 = round(float(m0.group(1)) * 100)
+
     signo = "+" if porcentaje >= 0 else "-"
     _run(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "0"])
     r = _run(["wpctl", "set-volume", "-l", "1.4", "@DEFAULT_AUDIO_SINK@",
               f"{abs(int(porcentaje))}%{signo}"])
-    resumen = "Subir volumen" if porcentaje >= 0 else "Bajar volumen"
-    return {"ok": r.returncode == 0, "resumen": resumen}
+
+    r_v1 = _run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"])
+    v1 = v0 + porcentaje
+    m1 = re.search(r"Volume:\s*([\d\.]+)", r_v1.stdout)
+    if m1:
+        v1 = round(float(m1.group(1)) * 100)
+
+    resumen = f"Volumen al {v1}%"
+    motion = {
+        "tipo": "delta_meter",
+        "medidor": "volumen",
+        "from": v0,
+        "to": v1,
+        "direccion": "up" if v1 >= v0 else "down"
+    }
+    return {"ok": r.returncode == 0, "resumen": resumen, "motion": motion}
 
 
 @tool("silenciar", "Silencia o quita el silencio del audio («mutea», «calla el sonido»).", icon="volume_off")
 def silenciar() -> dict:
     """Silencia o quita el silencio del audio."""
+    import re
+    r_prev = _run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"])
+    v0 = 50
+    m0 = re.search(r"Volume:\s*([\d\.]+)", r_prev.stdout)
+    if m0:
+        v0 = round(float(m0.group(1)) * 100)
+
     r = _run(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"])
-    return {"ok": r.returncode == 0, "resumen": "Silenciar / activar audio"}
+    r_now = _run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"])
+    now_muted = "[MUTED]" in r_now.stdout
+    v1 = 0 if now_muted else v0
+    resumen = "Audio silenciado" if now_muted else f"Audio activado ({v1}%)"
+    motion = {
+        "tipo": "delta_meter",
+        "medidor": "volumen",
+        "from": v0 if now_muted else 0,
+        "to": 0 if now_muted else v1,
+        "direccion": "down" if now_muted else "up",
+        "silenciado": now_muted
+    }
+    return {"ok": r.returncode == 0, "resumen": resumen, "motion": motion}
 
 
 @tool("abrir_web", "Abre un sitio web (youtube, github.com) en el navegador, o busca en Google si es texto. Para sitios web usa ESTA, no abrir_app.",
@@ -98,7 +177,13 @@ def captura_pantalla() -> dict:
     """Hace una captura de pantalla."""
     subprocess.Popen(["caelestia", "screenshot"],
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return {"ok": True, "resumen": "Captura de pantalla"}
+    motion = {
+        "tipo": "system_action",
+        "accion": "captura",
+        "titulo": "Captura de Pantalla",
+        "icono": "screenshot_monitor"
+    }
+    return {"ok": True, "resumen": "Captura de pantalla", "motion": motion}
 
 
 @tool("bloquear_pantalla", "Bloquea la sesión (pantalla de bloqueo).", icon="lock")
@@ -106,7 +191,13 @@ def bloquear_pantalla() -> dict:
     """Bloquea la sesión."""
     subprocess.Popen(["loginctl", "lock-session"],
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return {"ok": True, "resumen": "Bloquear pantalla"}
+    motion = {
+        "tipo": "system_action",
+        "accion": "bloqueo",
+        "titulo": "Pantalla Bloqueada",
+        "icono": "lock"
+    }
+    return {"ok": True, "resumen": "Bloquear pantalla", "motion": motion}
 
 
 @tool("copiar_al_portapapeles",

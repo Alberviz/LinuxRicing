@@ -19,6 +19,17 @@ Si Spotify no está abierto, lo arranca (minimizado no se puede; aparece su vent
                        temporizador MIN
   spotify-tele pasar tele|pc
   spotify-tele estado | dispositivos
+  spotify-tele playlist crear "Cyber Mix"
+  spotify-tele playlist anadir "Cyber Mix" "Perturbator Future Club" "Carpenter Brut Turbo Killer"
+  spotify-tele playlist ver "Cyber Mix"
+  spotify-tele playlist listar
+  spotify-tele playlist sync-youtube "Mis Favoritas YT" "https://www.youtube.com/playlist?list=..."
+  spotify-tele playlist sync-todo
+  spotify-tele cola nueva "Bad Bunny Dakiti" "Mora Memorias" "Coldplay Sparks" [--donde tele]
+  spotify-tele cola anadir "Queen Bohemian Rhapsody"
+  spotify-tele cola despues "Daft Punk One More Time"
+  spotify-tele cola ver
+  spotify-tele cola limpiar
 Salida: una línea JSON ({"ok": true, …} | {"ok": false, "error": …}).
 """
 from __future__ import annotations
@@ -27,16 +38,48 @@ import argparse
 import base64
 import json
 import os
+import re
+import shutil
 import socket
 import struct
 import subprocess
 import sys
 import time
+import unicodedata
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
 CDP = "http://127.0.0.1:9222"
-TELE_DEFAULT = os.environ.get("SPOTIFY_TELE_DEVICE", "")  # vacío = el primer cast_video
+
+
+def get_default_tele() -> str:
+    env = os.environ.get("SPOTIFY_TELE_DEVICE")
+    if env:
+        return env
+    cfg_path = Path.home() / "proyectos/LinuxRicing/assistant/config.toml"
+    if cfg_path.exists():
+        try:
+            import tomllib
+            cfg = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
+            t = (cfg.get("spotify") or {}).get("tele")
+            if t:
+                return str(t)
+        except Exception:
+            pass
+    st_path = Path(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}") / "cast-helper" / "state.json"
+    if st_path.exists():
+        try:
+            st = json.loads(st_path.read_text(encoding="utf-8"))
+            devs = st.get("devices") or []
+            if devs and devs[0].get("name"):
+                return str(devs[0]["name"])
+        except Exception:
+            pass
+    return "Comedor"
+
+
+TELE_DEFAULT = get_default_tele()
 
 
 # ───────────── websocket mínimo (solo stdlib) ─────────────
@@ -142,6 +185,19 @@ def spotify_page(launch: bool = True) -> dict:
     raise RuntimeError("Spotify no responde (¿está abierto con el puerto de depuración 9222 y Spicetify?)")
 
 
+def emit_tele_salida(fase: str, tipo: str = "spotify", nombre: str = "", extra: dict | None = None) -> None:
+    """Emite una línea a $XDG_RUNTIME_DIR/cast/salidas.jsonl para que Portals.qml anime el agujero negro de la tele."""
+    try:
+        runtime = Path(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}")
+        p = Path(os.environ.get("CAST_SALIDAS") or (runtime / "cast" / "salidas.jsonl"))
+        p.parent.mkdir(parents=True, exist_ok=True)
+        d = {"fase": fase, "tipo": tipo, "nombre": nombre, "ts": time.time(), **(extra or {})}
+        with p.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(d, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
 # Funciones JS comunes. `ARGS` se inyecta como JSON.
 JS_LIB = r"""
 const P = Spicetify.Platform, G = Spicetify.GraphQL;
@@ -149,10 +205,30 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const norm = s => (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "");
 const KIND = {Playlist: "playlist", Album: "album", Track: "cancion", Artist: "artista"};
 function devices() { return P.ConnectAPI.getState().devices.map(d => ({id: d.id, nombre: d.name, tipo: d.type, activo: d.isActive, local: d.isLocal})); }
-function findTele(name) {
-  const ds = P.ConnectAPI.getState().devices;
-  if (name) { const n = norm(name); return ds.find(d => norm(d.name) === n) || ds.find(d => norm(d.name).includes(n)); }
-  return ds.find(d => d.type === "cast_video" || d.type === "cast_audio" || d.type === "tv");
+async function findTele(name) {
+  const isGeneric = !name || /^(tele|la tele|television|televisión)$/i.test(String(name).trim());
+  const target = isGeneric ? norm(ARGS.tele_default || "comedor") : norm(name);
+  const match = ds => {
+    if (target) {
+      const h = ds.find(d => norm(d.name) === target) || ds.find(d => norm(d.name).includes(target));
+      if (h) return h;
+    }
+    return ds.find(d => !d.isLocal && (d.type === "cast_video" || d.type === "cast_audio" || d.type === "tv" || /comedor/i.test(d.name)));
+  };
+
+  let ds = P.ConnectAPI.getState().devices;
+  let dev = match(ds);
+  if (dev) return dev;
+
+  try { await P.ConnectAPI.initiateLocalDiscovery(); } catch (e) {}
+  try { await P.ConnectAPI.updateListOfDevices(); } catch (e) {}
+  for (let i = 0; i < 6; i++) {
+    await sleep(400);
+    ds = P.ConnectAPI.getState().devices;
+    dev = match(ds);
+    if (dev) return dev;
+  }
+  return null;
 }
 function playlistSort(uri) {
   if (ARGS.orden === "original") return null;
@@ -164,6 +240,16 @@ function playlistSort(uri) {
     }
   } catch (e) {}
   return null;
+}
+function volAct() {
+  const a = P.ConnectAPI.getState().activeDevice;
+  return (a && !a.isLocal && typeof a.volume === "number") ? a.volume : Spicetify.Player.getVolume();
+}
+async function setVol(x) {
+  const a = P.ConnectAPI.getState().activeDevice;
+  if (a && !a.isLocal && P.PlaybackAPI && P.PlaybackAPI.setVolume) await P.PlaybackAPI.setVolume(x);
+  else Spicetify.Player.setVolume(x);
+  await sleep(700);
 }
 function localDev() { return P.ConnectAPI.getState().devices.find(d => d.isLocal || d.id === "local_device"); }
 async function myPlaylists() {
@@ -213,7 +299,12 @@ async function resolve(q, tipo) {
     if (tipo === "playlist") {
       // Pidió «mi playlist X» y no hay coincidencia clara (p. ej. el STT oyó «Reality for Life» por
       // «RealG4life»): mejor preguntar por las parecidas que poner una cualquiera de la búsqueda.
-      const parecidas = mine.map(p => ({...p, sim: dice(n, norm(p.nombre))})).filter(p => p.sim >= 0.3)
+      const snd = s => norm(s).replace(/4/g, "for").replace(/2/g, "two");
+      const ws = q.split(/\s+/).filter(Boolean);
+      const trozos = ws.map((_, i) => snd(ws.slice(i).join(" "))).filter(t => t.length >= 4);
+      // Nombres muy cortos («Zzz», «MS») casan con cualquier cosa por un bigrama: fuera.
+      const parecido = nombre => snd(nombre).length < 5 ? 0 : Math.max(0, ...trozos.map(t => dice(t, snd(nombre))));
+      const parecidas = mine.map(p => ({...p, sim: parecido(p.nombre)})).filter(p => p.sim >= 0.3)
                             .sort((a, b) => b.sim - a.sim).slice(0, 3);
       if (parecidas.length && parecidas[0].sim >= 0.75) return parecidas[0];
       if (parecidas.length) return {dudas: parecidas.filter(p => p.sim >= parecidas[0].sim - 0.1).map(p => p.nombre)};
@@ -221,6 +312,16 @@ async function resolve(q, tipo) {
   }
   const found = (await search(q, tipo)).filter(x => norm(x.nombre));
   if (!found.length) return null;
+  if (tipo === "cancion") {
+    // «Título Artista» (colas del DJ, «añade X a la cola»): el primer resultado a veces es otra canción
+    // (pedir «Noche de Entierro Luny Tunes» daba «MUVI» de Kendo Kaponi). Mejor el que más se parezca, y si
+    // ninguno se parece, nada: una canción de menos es mejor que una cualquiera.
+    // Sin artista en la petición («mbappe») cuenta solo el título y, a igualdad, manda el orden de Spotify.
+    const sc = found.map(x => ({x, s: Math.round(100 * Math.max(dice(n, norm(x.nombre)),
+                                                         dice(n, norm(x.nombre + " " + (x.de || ""))))) / 100}))
+                    .sort((a, b) => b.s - a.s);
+    return sc[0].s >= 0.3 ? sc[0].x : null;
+  }
   const me = norm((P.UserAPI && (await P.UserAPI.getUser()).displayName) || "");
   return (me && found.find(x => x.tipo === "playlist" && norm(x.de) === me)) || found[0];
 }
@@ -256,6 +357,20 @@ function now() {
           duracion_s: Math.round((Spicetify.Player.getDuration() || 0) / 1000),
           me_gusta: (() => { try { return !!Spicetify.Player.getHeart(); } catch (e) { return null; } })()};
 }
+async function getPlaylistContents(uri, limit = 1000) {
+  try {
+    const c = await P.PlaylistAPI.getContents(uri, {limit});
+    return (c?.items || []).map(it => ({
+      uri: it.uri,
+      uid: it.uid || "",
+      nombre: it.name,
+      artista: (it.artists || []).map(a => a.name).join(", "),
+      duracion_s: Math.round((it.duration?.milliseconds || 0) / 1000)
+    }));
+  } catch (e) {
+    return [];
+  }
+}
 """
 
 
@@ -277,7 +392,7 @@ if (!item) return {ok: false, error: `no encuentro «${ARGS.q}» en Spotify`};
 if (item.dudas) return {ok: false, error: `no tengo ninguna playlist que se llame «${ARGS.q}»`, candidatos: item.dudas};
 let dev = null;
 if (ARGS.donde === "tele") {
-  dev = findTele(ARGS.tele);
+  dev = await findTele(ARGS.tele);
   if (!dev) return {ok: false, error: "Spotify no ve la tele (¿encendida y en la misma red?)", dispositivos: devices()};
 } else if (ARGS.donde === "pc") dev = localDev();
 // Primero mover la sesión (si no, play() la vuelve a coger el PC mientras la tele aún conecta) y luego reproducir.
@@ -304,9 +419,29 @@ for (let i = 0; i < 16; i++) { await sleep(500); const st = P.PlayerAPI.getState
 if (alea !== null) { try { await P.PlayerAPI.setShuffle(alea); } catch (e) {} await sleep(600); }
 return {ok: true, puesto: item, ahora: now()};
 """
-    alea = None if a.aleatorio is None else a.aleatorio
-    return run_js(body, {"q": a.texto, "tipo": a.tipo, "donde": a.donde, "tele": a.tele, "aleatorio": alea,
-                         "inicio": a.desde_inicio, "orden": a.orden})
+    tele_dest = a.tele or TELE_DEFAULT
+    if a.donde == "tele":
+        emit_tele_salida("enviando", "spotify", a.texto, {"tele": tele_dest, "tipo_item": a.tipo or "auto"})
+    try:
+        alea = None if a.aleatorio is None else a.aleatorio
+        res = run_js(body, {"q": a.texto, "tipo": a.tipo, "donde": a.donde, "tele": tele_dest,
+                            "tele_default": TELE_DEFAULT, "aleatorio": alea,
+                            "inicio": a.desde_inicio, "orden": a.orden})
+        if a.donde == "tele":
+            if res.get("ok"):
+                p = res.get("puesto") or {}
+                ahora = res.get("ahora") or {}
+                cancion = p.get("nombre") or ahora.get("cancion") or a.texto
+                artista = p.get("de") or ahora.get("artista") or ""
+                tele_act = ahora.get("dispositivo") or tele_dest
+                emit_tele_salida("ok", "spotify", cancion, {"artista": artista, "tele": tele_act})
+            else:
+                emit_tele_salida("error", "spotify", a.texto, {"mensaje": res.get("error") or "Error en Spotify", "tele": tele_dest})
+        return res
+    except Exception as e:
+        if a.donde == "tele":
+            emit_tele_salida("error", "spotify", a.texto, {"mensaje": str(e), "tele": tele_dest})
+        raise
 
 
 def cmd_encontrar(a) -> dict:
@@ -345,12 +480,30 @@ return {ok: true, encontrado: {nombre: x.name, uri: x.uri, tipo: "album", de: ar
 
 def cmd_pasar(a) -> dict:
     body = r"""
-const dev = ARGS.donde === "pc" ? localDev() : findTele(ARGS.tele);
+const dev = ARGS.donde === "pc" ? localDev() : await findTele(ARGS.tele);
 if (!dev) return {ok: false, error: ARGS.donde === "pc" ? "no encuentro este PC en Spotify" : "Spotify no ve la tele", dispositivos: devices()};
 if (!(await transferTo(dev))) return {ok: false, error: `no he podido pasar Spotify a ${dev.name}`};
 return {ok: true, ahora: now()};
 """
-    return run_js(body, {"donde": a.donde, "tele": a.tele})
+    tele_dest = a.tele or TELE_DEFAULT
+    if a.donde == "tele":
+        emit_tele_salida("enviando", "spotify", "Spotify", {"tele": tele_dest})
+    try:
+        res = run_js(body, {"donde": a.donde, "tele": tele_dest, "tele_default": TELE_DEFAULT})
+        if a.donde == "tele":
+            if res.get("ok"):
+                ahora = res.get("ahora") or {}
+                cancion = ahora.get("cancion") or "Spotify"
+                artista = ahora.get("artista") or ""
+                tele_act = ahora.get("dispositivo") or tele_dest
+                emit_tele_salida("ok", "spotify", cancion, {"artista": artista, "tele": tele_act})
+            else:
+                emit_tele_salida("error", "spotify", "Spotify", {"mensaje": res.get("error") or "No se pudo pasar", "tele": tele_dest})
+        return res
+    except Exception as e:
+        if a.donde == "tele":
+            emit_tele_salida("error", "spotify", "Spotify", {"mensaje": str(e), "tele": tele_dest})
+        raise
 
 
 ACCIONES = ["pausar", "reanudar", "alternar", "siguiente", "anterior", "reiniciar", "aleatorio", "repetir",
@@ -375,9 +528,11 @@ switch (ARGS.accion) {
     const m = String(v ?? "lista").toLowerCase();
     await P.PlayerAPI.setRepeat(/^(no|off|quita|desactiva|0)/.test(m) ? 0 : /(cancion|canción|tema|track|una|2)/.test(m) ? 2 : 1); break;
   }
-  case "volumen": S.setVolume(Math.max(0, Math.min(100, num())) / 100); break;
-  case "subir": S.setVolume(Math.min(1, S.getVolume() + (v ? num() : 10) / 100)); break;
-  case "bajar": S.setVolume(Math.max(0, S.getVolume() - (v ? num() : 10) / 100)); break;
+  // Volumen del dispositivo ACTIVO (PC o tele). Spicetify.Player.setVolume solo tocaba el del cliente local,
+  // así que con la música en el Chromecast «súbele» no hacía nada.
+  case "volumen": await setVol(Math.max(0, Math.min(100, num())) / 100); break;
+  case "subir": await setVol(Math.min(1, volAct() + (v ? num() : 10) / 100)); break;
+  case "bajar": await setVol(Math.max(0, volAct() - (v ? num() : 10) / 100)); break;
   case "ir_a": await P.PlayerAPI.seekTo(Math.max(0, num()) * 1000); break;
   case "adelantar": await P.PlayerAPI.seekTo(S.getProgress() + (v ? num() : 15) * 1000); break;
   case "atrasar": await P.PlayerAPI.seekTo(Math.max(0, S.getProgress() - (v ? num() : 15) * 1000)); break;
@@ -415,6 +570,421 @@ def cmd_dispositivos(a) -> dict:
     return {"ok": True, "dispositivos": run_js("return devices();", {})}
 
 
+def norm_py(s: str) -> str:
+    if not s:
+        return ""
+    s = unicodedata.normalize("NFD", s.lower())
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    return "".join(c for c in s if c.isalnum())
+
+
+def limpiar_titulo_youtube(title: str, artist: str = "") -> str:
+    """Limpia sufijos típicos de YouTube (Video Oficial, HD, Letra, etc.) para mejorar la búsqueda en Spotify."""
+    t = re.sub(r"(?i)\s*[\(\[]\s*(?:ft\.?|feat\.?)\s+[^\)\]]+[\)\]]", "", title)
+    t = re.sub(r"(?i)\s*(?:ft\.?|feat\.?)\s+[^\-\(\]]+", "", t)
+    t = re.sub(
+        r"(?i)\s*[\(\[](?:official\s*(?:music\s*)?video|video\s*oficial|audio\s*oficial|official\s*audio|visualizer|letra|lyrics|videoclip|hd|4k|remastered|lyric\s*video|en\s*vivo|live(?:[^\)\]]*)?)[\)\]]",
+        "",
+        t,
+    )
+    t = re.sub(r"\s*[\(\[]\s*[\)\]]", "", t)
+    t = re.sub(r"\s*[\(\[]\s*$", "", t)
+    t = t.strip()
+
+    if artist:
+        artist = re.sub(r"(?i)\s*-\s*topic", "", artist).strip()
+
+    if " - " in t:
+        parts = t.split(" - ", 1)
+        if not artist or artist.lower() in parts[0].lower():
+            artist = parts[0].strip()
+            t = parts[1].strip()
+    return f"{artist} {t}".strip() if artist else t.strip()
+
+
+def extraer_playlist_youtube(url_o_id: str) -> dict:
+    """Extrae las canciones de una playlist de YouTube con yt-dlp."""
+    ytdlp = shutil.which("yt-dlp") or str(Path.home() / ".local/bin/yt-dlp")
+    if not shutil.which(ytdlp) and not Path(ytdlp).exists():
+        return {"ok": False, "error": "yt-dlp no está instalado en el sistema"}
+    try:
+        r = subprocess.run([ytdlp, "--flat-playlist", "-J", "--no-warnings", url_o_id],
+                           capture_output=True, text=True, timeout=60)
+        if r.returncode != 0:
+            return {"ok": False, "error": f"yt-dlp falló: {r.stderr[:200]}"}
+        data = json.loads(r.stdout)
+        entries = data.get("entries") or []
+        temas = []
+        for e in entries:
+            tit = e.get("title") or ""
+            art = e.get("uploader") or e.get("channel") or ""
+            if tit:
+                busqueda = limpiar_titulo_youtube(tit, art)
+                temas.append({"titulo_yt": tit, "artista_yt": art, "busqueda": busqueda, "duracion": e.get("duration")})
+        return {"ok": True, "titulo": data.get("title") or "Playlist YouTube", "temas": temas}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def _sync_youtube_a_spotify(playlist_spotify: str, url_youtube: str, crear: bool = True) -> dict:
+    yt = extraer_playlist_youtube(url_youtube)
+    if not yt.get("ok"):
+        return yt
+
+    temas_yt = yt.get("temas") or []
+    if not temas_yt:
+        return {"ok": True, "playlist": playlist_spotify, "anadidas": 0, "mensaje": "la playlist de YouTube está vacía"}
+
+    cfg_exclusiones = []
+    cfg_path = Path.home() / "proyectos/LinuxRicing/assistant/config.toml"
+    if cfg_path.exists():
+        try:
+            import tomllib
+            c_toml = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
+            cfg_exclusiones = (c_toml.get("spotify") or {}).get("sync_youtube_excluir", {}).get(playlist_spotify) or []
+        except Exception:
+            pass
+    excluir_norm = [norm_py(x) for x in cfg_exclusiones if x]
+
+    def es_excluido(texto: str) -> bool:
+        if not excluir_norm or not texto:
+            return False
+        t_n = norm_py(texto)
+        return any(ex in t_n for ex in excluir_norm)
+
+    def es_coincidencia_valida(c_nom: str, c_art: str, t_orig: dict) -> bool:
+        nom_n = norm_py(c_nom)
+        art_n = norm_py(c_art)
+        yt_tit_n = norm_py(t_orig.get("titulo_yt", ""))
+        yt_art_n = norm_py(t_orig.get("artista_yt", ""))
+        yt_bus_n = norm_py(t_orig.get("busqueda", ""))
+        if nom_n and (nom_n in yt_tit_n or nom_n in yt_bus_n or yt_tit_n in nom_n):
+            return True
+        if art_n and yt_art_n and (art_n in yt_art_n or yt_art_n in art_n):
+            palabras_yt = [p for p in re.split(r"\W+", t_orig.get("titulo_yt", "").lower()) if len(p) >= 3]
+            if any(norm_py(p) in nom_n for p in palabras_yt):
+                return True
+        return False
+
+    body_prep = r"""
+let pl = await resolve(ARGS.playlist, "playlist");
+if (!pl && ARGS.crear) {
+    const uri = await P.RootlistAPI.createPlaylist(ARGS.playlist, {});
+    if (uri) pl = {nombre: ARGS.playlist, uri};
+}
+if (!pl) return {ok: false, error: `la playlist «${ARGS.playlist}» no existe y no se pasó --crear`};
+const contents = await getPlaylistContents(pl.uri, 5000);
+return {ok: true, uri: pl.uri, nombre: pl.nombre, existentes: contents};
+"""
+    prep = run_js(body_prep, {"playlist": playlist_spotify, "crear": crear})
+    if not prep.get("ok"):
+        return prep
+
+    pl_uri = prep["uri"]
+    existentes = prep.get("existentes") or []
+    firmas_nombres = {norm_py(c["nombre"]) for c in existentes}
+    firmas_completas = {norm_py(f"{c['artista']} {c['nombre']}") for c in existentes}
+    uris_existentes = {c["uri"] for c in existentes}
+
+    a_buscar = []
+    ya_estaban = 0
+    omitidas_exclusion = 0
+    for t in temas_yt:
+        b = t["busqueda"]
+        if es_excluido(t["titulo_yt"]) or es_excluido(t["artista_yt"]) or es_excluido(b):
+            omitidas_exclusion += 1
+            continue
+        if (norm_py(t["titulo_yt"]) in firmas_nombres or
+            norm_py(b) in firmas_nombres or
+            norm_py(f"{t['artista_yt']} {t['titulo_yt']}") in firmas_completas):
+            ya_estaban += 1
+            continue
+        a_buscar.append(t)
+
+    if not a_buscar:
+        return {"ok": True, "playlist": playlist_spotify, "uri": pl_uri, "anadidas": 0,
+                "ya_estaban": ya_estaban, "omitidas_exclusion": omitidas_exclusion, "total_yt": len(temas_yt),
+                "mensaje": "todas las canciones ya estaban en la playlist o fueron excluidas"}
+
+    body_res = r"""
+const res = [];
+for (const q of ARGS.queries) {
+    const hits = await search(q, "cancion");
+    if (hits.length) res.push({query: q, cancion: hits[0]});
+    else res.push({query: q, cancion: null});
+    await sleep(60);
+}
+return res;
+"""
+    uris_nuevas = []
+    anadidas_info = []
+    no_encontradas = []
+
+    for i in range(0, len(a_buscar), 25):
+        chunk = a_buscar[i:i + 25]
+        res_chunk = run_js(body_res, {"queries": [t["busqueda"] for t in chunk]}) or []
+        for item, t_orig in zip(res_chunk, chunk):
+            c = item.get("cancion")
+            if c and c.get("uri"):
+                c_nom = norm_py(c["nombre"])
+                c_art = norm_py(c.get("de") or c.get("artista") or "")
+                if es_excluido(c["nombre"]) or es_excluido(c.get("de") or ""):
+                    omitidas_exclusion += 1
+                    continue
+                if not es_coincidencia_valida(c["nombre"], c.get("de") or "", t_orig):
+                    no_encontradas.append(f"{t_orig['busqueda']} (rechazado por baja coincidencia)")
+                    continue
+                if c["uri"] not in uris_existentes and c_nom not in firmas_nombres:
+                    uris_existentes.add(c["uri"])
+                    firmas_nombres.add(c_nom)
+                    uris_nuevas.append(c["uri"])
+                    anadidas_info.append(c)
+                else:
+                    ya_estaban += 1
+            else:
+                no_encontradas.append(t_orig.get("busqueda"))
+
+    if uris_nuevas:
+        # Para que en Spotify la última añadida quede siempre arriba del todo (tanto si la playlist
+        # se ve ordenada por fecha descendente como en orden personalizado), las canciones nuevas
+        # se añaden de más antigua a más reciente, insertándolas en la posición superior ({before: "start"})
+        # y dejando una breve pausa para que Spotify registre timestamps estrictamente crecientes.
+        for u in reversed(uris_nuevas):
+            run_js(r'await P.PlaylistAPI.add(ARGS.uri, [ARGS.track], {before: "start"});',
+                   {"uri": pl_uri, "track": u})
+            time.sleep(1.05)
+
+    return {
+        "ok": True,
+        "playlist": playlist_spotify,
+        "uri": pl_uri,
+        "anadidas": len(uris_nuevas),
+        "ya_estaban": ya_estaban,
+        "omitidas_exclusion": omitidas_exclusion,
+        "no_encontradas": no_encontradas[:10],
+        "total_no_encontradas": len(no_encontradas),
+        "canciones_anadidas": anadidas_info[:15],
+    }
+
+
+def _sync_todo_config(si_abierto: bool = False) -> dict:
+    if si_abierto and not _page():
+        return {"ok": True, "omitido": True, "motivo": "Spotify no está abierto"}
+    cfg_sync = {}
+    cfg_path = Path.home() / "proyectos/LinuxRicing/assistant/config.toml"
+    if cfg_path.exists():
+        try:
+            import tomllib
+            c = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
+            cfg_sync = (c.get("spotify") or {}).get("sync_youtube") or {}
+        except Exception:
+            pass
+    if not cfg_sync:
+        return {"ok": True, "sincronizadas": 0, "mensaje": "no hay playlists configuradas en [spotify.sync_youtube]"}
+
+    resumen = []
+    for pl_spotify, yt_url in cfg_sync.items():
+        r = _sync_youtube_a_spotify(pl_spotify, yt_url, crear=True)
+        resumen.append({"playlist": pl_spotify, "resultado": r})
+
+    return {"ok": True, "total": len(resumen), "playlists": resumen}
+
+
+def cmd_playlist(a) -> dict:
+    sub = a.subcmd
+    if sub == "crear":
+        body = r"""
+const uri = await P.RootlistAPI.createPlaylist(ARGS.nombre, {});
+if (!uri) return {ok: false, error: `no se pudo crear la playlist «${ARGS.nombre}»`};
+return {ok: true, uri: uri, nombre: ARGS.nombre};
+"""
+        return run_js(body, {"nombre": a.nombre})
+
+    if sub == "listar":
+        body = r"""
+const pls = await myPlaylists();
+return {ok: true, total: pls.length, playlists: pls};
+"""
+        return run_js(body, {})
+
+    if sub == "ver":
+        body = r"""
+const pl = await resolve(ARGS.playlist, "playlist");
+if (!pl) return {ok: false, error: `no encuentro la playlist «${ARGS.playlist}»`};
+const tracks = await getPlaylistContents(pl.uri, ARGS.limite || 500);
+return {ok: true, playlist: pl.nombre, uri: pl.uri, total: tracks.length, canciones: tracks};
+"""
+        return run_js(body, {"playlist": a.playlist, "limite": a.limite})
+
+    if sub == "anadir":
+        if not a.canciones:
+            return {"ok": False, "error": "debes indicar al menos una canción a añadir"}
+        body = r"""
+const pl = await resolve(ARGS.playlist, "playlist");
+if (!pl) return {ok: false, error: `no encuentro la playlist «${ARGS.playlist}»`};
+const resolved = [];
+for (const q of ARGS.canciones) {
+    const it = await resolve(q, "cancion");
+    if (it && it.uri) resolved.push(it);
+}
+if (!resolved.length) return {ok: false, error: "no se encontró ninguna de las canciones en Spotify"};
+await P.PlaylistAPI.add(pl.uri, resolved.map(x => x.uri), {});
+await sleep(300);
+return {ok: true, playlist: pl.nombre, uri: pl.uri, anadidas: resolved.length, canciones: resolved};
+"""
+        return run_js(body, {"playlist": a.playlist, "canciones": a.canciones})
+
+    if sub == "quitar":
+        if not a.canciones:
+            return {"ok": False, "error": "debes indicar al menos una canción a quitar"}
+        body = r"""
+const pl = await resolve(ARGS.playlist, "playlist");
+if (!pl) return {ok: false, error: `no encuentro la playlist «${ARGS.playlist}»`};
+const contents = await getPlaylistContents(pl.uri, 1000);
+const toRemove = [];
+for (const q of ARGS.canciones) {
+    const n = norm(q);
+    const hit = contents.find(c => c.uri === q || c.uid === q || norm(c.nombre) === n || norm(`${c.artista} ${c.nombre}`).includes(n));
+    if (hit) toRemove.push(hit);
+}
+if (!toRemove.length) return {ok: false, error: "no se encontraron las canciones especificadas dentro de la playlist"};
+await P.PlaylistAPI.remove(pl.uri, toRemove.map(x => ({uri: x.uri, uid: x.uid || ""})));
+await sleep(300);
+return {ok: true, playlist: pl.nombre, uri: pl.uri, quitadas: toRemove.length, canciones: toRemove};
+"""
+        return run_js(body, {"playlist": a.playlist, "canciones": a.canciones})
+
+    if sub == "eliminar":
+        body = r"""
+const pl = await resolve(ARGS.playlist, "playlist");
+if (!pl) return {ok: false, error: `no encuentro la playlist «${ARGS.playlist}»`};
+await P.RootlistAPI.remove([{uri: pl.uri}]);
+await sleep(300);
+return {ok: true, playlist: pl.nombre, uri: pl.uri, eliminada: true};
+"""
+        return run_js(body, {"playlist": a.playlist})
+
+    if sub == "sync-youtube":
+        return _sync_youtube_a_spotify(a.playlist, a.url, crear=a.crear)
+
+    if sub == "sync-todo":
+        return _sync_todo_config(si_abierto=getattr(a, "si_abierto", False))
+
+    return {"ok": False, "error": f"subcomando de playlist desconocido: {sub}"}
+
+
+def cmd_cola(a) -> dict:
+    sub = a.subcmd
+    if sub == "nueva":
+        if not a.canciones:
+            return {"ok": False, "error": "debes indicar al menos una canción para la cola"}
+        body = r"""
+let dev = null;
+if (ARGS.donde === "tele") {
+  dev = await findTele(ARGS.tele);
+  if (!dev) return {ok: false, error: "Spotify no ve la tele", dispositivos: devices()};
+  if (!(await transferTo(dev))) return {ok: false, error: `no he podido pasar Spotify a ${dev.name}`};
+} else if (ARGS.donde === "pc") {
+  dev = localDev();
+  if (dev && !(await transferTo(dev))) return {ok: false, error: "no he podido pasar Spotify al PC"};
+}
+const items = [];
+for (const q of ARGS.canciones) {
+  const it = await resolve(q, "cancion");
+  if (it && it.uri) items.push(it);
+}
+if (!items.length) return {ok: false, error: "no he encontrado ninguna de las canciones en Spotify"};
+
+try { await P.PlayerAPI.clearQueue(); } catch (e) {}
+await P.PlayerAPI.play({uri: items[0].uri}, {});
+if (items.length > 1) {
+  await P.PlayerAPI.addToQueue(items.slice(1).map(x => ({uri: x.uri})));
+}
+await sleep(600);
+return {ok: true, reproduciendo: items[0], encoladas: items.slice(1), total: items.length, ahora: now()};
+"""
+        donde = getattr(a, "donde", None)
+        tele_dest = getattr(a, "tele", None) or TELE_DEFAULT
+        if donde == "tele":
+            emit_tele_salida("enviando", "spotify", a.canciones[0], {"tele": tele_dest, "total": len(a.canciones)})
+        try:
+            res = run_js(body, {"canciones": a.canciones, "donde": a.donde, "tele": tele_dest, "tele_default": TELE_DEFAULT})
+            if donde == "tele":
+                if res.get("ok"):
+                    rep = res.get("reproduciendo") or {}
+                    cancion = rep.get("nombre") or a.canciones[0]
+                    artista = rep.get("de") or ""
+                    tele_act = res.get("ahora", {}).get("dispositivo") or tele_dest
+                    total = res.get("total", len(a.canciones))
+                    emit_tele_salida("ok", "spotify", f"{cancion} (+{total - 1} en cola)" if total > 1 else cancion,
+                                     {"artista": artista, "tele": tele_act})
+                else:
+                    emit_tele_salida("error", "spotify", a.canciones[0], {"mensaje": res.get("error") or "Error en cola", "tele": tele_dest})
+            return res
+        except Exception as e:
+            if donde == "tele":
+                emit_tele_salida("error", "spotify", a.canciones[0], {"mensaje": str(e), "tele": tele_dest})
+            raise
+
+    if sub == "anadir":
+        if not a.canciones:
+            return {"ok": False, "error": "debes indicar al menos una canción a encolar"}
+        body = r"""
+const items = [];
+for (const q of ARGS.canciones) {
+  const it = await resolve(q, "cancion");
+  if (it && it.uri) items.push(it);
+}
+if (!items.length) return {ok: false, error: "no he encontrado las canciones en Spotify"};
+await P.PlayerAPI.addToQueue(items.map(x => ({uri: x.uri})));
+await sleep(300);
+return {ok: true, encoladas: items, total: items.length};
+"""
+        return run_js(body, {"canciones": a.canciones})
+
+    if sub == "despues":
+        if not a.canciones:
+            return {"ok": False, "error": "debes indicar al menos una canción"}
+        body = r"""
+const items = [];
+for (const q of ARGS.canciones) {
+  const it = await resolve(q, "cancion");
+  if (it && it.uri) items.push(it);
+}
+if (!items.length) return {ok: false, error: "no he encontrado las canciones en Spotify"};
+for (const it of [...items].reverse()) {
+  if (P.PlayerAPI.playAsNextInQueue) await P.PlayerAPI.playAsNextInQueue([{uri: it.uri}]);
+  else await P.PlayerAPI.addToQueue([{uri: it.uri}]);
+}
+await sleep(300);
+return {ok: true, a_continuacion: items, total: items.length};
+"""
+        return run_js(body, {"canciones": a.canciones})
+
+    if sub == "limpiar":
+        body = r"""
+try { await P.PlayerAPI.clearQueue(); } catch (e) {}
+await sleep(200);
+return {ok: true, limpia: true};
+"""
+        return run_js(body, {})
+
+    if sub == "ver":
+        body = r"""
+const q = await P.PlayerAPI.getQueue();
+const mapTrack = t => t ? ({nombre: t.name, artista: (t.artists || []).map(a => a.name).join(", "), uri: t.uri}) : null;
+return {
+  ok: true,
+  actual: mapTrack(q?.current),
+  cola: (q?.queued || []).map(mapTrack).filter(Boolean),
+  siguientes: (q?.nextUp || []).slice(0, 10).map(mapTrack).filter(Boolean)
+};
+"""
+        return run_js(body, {})
+
+    return {"ok": False, "error": f"subcomando de cola desconocido: {sub}"}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(prog="spotify-tele", description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -447,10 +1017,67 @@ def main() -> int:
     p.add_argument("--tele", default=TELE_DEFAULT)
     sub.add_parser("estado")
     sub.add_parser("dispositivos")
+
+    # Subcomando playlist
+    p_pl = sub.add_parser("playlist", help="gestión de playlists permanentes y sincronización con YouTube")
+    sub_pl = p_pl.add_subparsers(dest="subcmd", required=True)
+
+    p_pl_crear = sub_pl.add_parser("crear", help="crear una nueva playlist")
+    p_pl_crear.add_argument("nombre", help="nombre de la playlist")
+
+    p_pl_anadir = sub_pl.add_parser("anadir", help="añadir canciones a una playlist")
+    p_pl_anadir.add_argument("playlist", help="nombre o URI de la playlist")
+    p_pl_anadir.add_argument("canciones", nargs="+", help="canciones a buscar y añadir")
+
+    p_pl_quitar = sub_pl.add_parser("quitar", help="quitar canciones de una playlist")
+    p_pl_quitar.add_argument("playlist", help="nombre o URI de la playlist")
+    p_pl_quitar.add_argument("canciones", nargs="+", help="canciones a quitar")
+
+    p_pl_del = sub_pl.add_parser("eliminar", help="eliminar una playlist de tu biblioteca")
+    p_pl_del.add_argument("playlist", help="nombre o URI de la playlist a eliminar")
+
+    p_pl_ver = sub_pl.add_parser("ver", help="ver el contenido de una playlist")
+    p_pl_ver.add_argument("playlist", help="nombre o URI de la playlist")
+    p_pl_ver.add_argument("--limite", type=int, default=500, help="máximo de canciones a listar")
+
+    sub_pl.add_parser("listar", help="listar las playlists de tu biblioteca")
+
+    p_pl_sync = sub_pl.add_parser("sync-youtube", help="sincronizar canciones de una lista de YouTube")
+    p_pl_sync.add_argument("playlist", help="nombre de la playlist en Spotify")
+    p_pl_sync.add_argument("url", help="URL o ID de la playlist de YouTube")
+    p_pl_sync.add_argument("--no-crear", dest="crear", action="store_false", default=True,
+                           help="no crear la playlist si no existe")
+
+    p_pl_all = sub_pl.add_parser("sync-todo", help="sincronizar todas las listas de [spotify.sync_youtube]")
+    p_pl_all.add_argument("--si-abierto", action="store_true", help="no arrancar Spotify si está cerrado")
+
+    # Subcomando cola
+    p_cola = sub.add_parser("cola", help="colas de reproducción temporales (sin guardar en biblioteca)")
+    sub_cola = p_cola.add_subparsers(dest="subcmd", required=True)
+
+    p_cola_nueva = sub_cola.add_parser("nueva", help="limpiar cola, poner primera canción y encolar el resto")
+    p_cola_nueva.add_argument("canciones", nargs="+", help="canciones a reproducir y encolar en orden")
+    p_cola_nueva.add_argument("--donde", choices=["tele", "pc", "actual"], default="actual")
+    p_cola_nueva.add_argument("--tele", default=TELE_DEFAULT)
+
+    p_cola_anadir = sub_cola.add_parser("anadir", help="añadir canciones al final de la cola actual")
+    p_cola_anadir.add_argument("canciones", nargs="+", help="canciones a encolar")
+
+    p_cola_desp = sub_cola.add_parser("despues", help="poner canciones a continuación de la que suena")
+    p_cola_desp.add_argument("canciones", nargs="+", help="canciones a poner a continuación")
+
+    sub_cola.add_parser("limpiar", help="vaciar la cola temporal de reproducción")
+    sub_cola.add_parser("ver", help="ver la cola actual")
+
     a = ap.parse_args()
     try:
-        r = {"buscar": cmd_buscar, "poner": cmd_poner, "encontrar": cmd_encontrar, "ultimo": cmd_ultimo, "control": cmd_control, "pasar": cmd_pasar, "estado": cmd_estado,
-             "dispositivos": cmd_dispositivos}[a.cmd](a)
+        dispatch = {
+            "buscar": cmd_buscar, "poner": cmd_poner, "encontrar": cmd_encontrar,
+            "ultimo": cmd_ultimo, "control": cmd_control, "pasar": cmd_pasar,
+            "estado": cmd_estado, "dispositivos": cmd_dispositivos,
+            "playlist": cmd_playlist, "cola": cmd_cola
+        }
+        r = dispatch[a.cmd](a)
     except Exception as e:  # noqa: BLE001
         r = {"ok": False, "error": str(e)[:300]}
     print(json.dumps(r, ensure_ascii=False))

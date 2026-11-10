@@ -617,6 +617,11 @@ class JobManager:
                     "resumen": f"Evento creado: {d['titulo']}", "fuentes": fu}
         if kind == "redactar":
             return self._redactar(meta, live)
+        if kind == "dj":
+            from . import dj
+            self._set(meta, "waiting")
+            d = meta.get("data") or {}
+            return dj.ejecutar(peticion, d.get("cantidad"), d.get("modo"), d.get("donde"), live.cancel)
         if kind == "comando":
             from . import shellguard
             self._set(meta, "waiting")
