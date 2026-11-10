@@ -264,6 +264,32 @@ Singleton {
         });
     }
 
+    // Demo de paneles de datos (sin daemon): `ipc call holo demoDatos semana|dia|correo`
+    function demoDatos(cual: string): void {
+        const d = new Date(), f = o => { const x = new Date(d); x.setDate(d.getDate() + o); return x; };
+        const ds = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
+        const ev = [[{ titulo: "Clase de Redes", ini: "09:00", fin: "11:00" }, { titulo: "Gym", ini: "18:30", fin: "20:00" }],
+            [{ titulo: "Tutoría TFG con Marta", ini: "12:00", fin: "12:30" }], [], [{ titulo: "Entrega práctica 3", ini: "", fin: "" }, { titulo: "Cena con Laura y Pablo", ini: "21:00", fin: "23:00" }],
+            [{ titulo: "Examen parcial SO", ini: "10:00", fin: "12:00" }], [], [{ titulo: "Partido", ini: "17:00", fin: "19:00" }]];
+        const dia = i => ({ fecha: Qt.formatDate(f(i), "yyyy-MM-dd"), dia: ds[f(i).getDay()], num: f(i).getDate(), hoy: i === 0, eventos: ev[i] });
+        let panel;
+        if (cual === "correo")
+            panel = { id: "correo", kind: "visor", titulo: "Sin leer", icono: "mail", item_n: null, payload: { tipo: "correo", items: [
+                { de: "Universidad de Sevilla", asunto: "Notas provisionales Redes", frase: "Ya están publicadas las notas del parcial.", importante: true, hora: "14:03" },
+                { de: "Marta Ruiz", asunto: "Re: TFG — borrador capítulo 2", frase: "Le ha echado un ojo y te deja comentarios.", importante: true, hora: "11:47" },
+                { de: "GitHub", asunto: "[LinuxRicing] Dependabot alert", frase: "Una dependencia con vulnerabilidad moderada.", importante: false, hora: "lun 9" },
+                { de: "Spotify", asunto: "Tu Discover Weekly está listo", frase: "Lista nueva de la semana.", importante: false, hora: "lun 9" }] } };
+        else if (cual === "dia")
+            panel = { id: "agenda", kind: "visor", titulo: "Hoy · " + d.getDate() + " de noviembre", icono: "calendar_month", item_n: null, payload: { tipo: "agenda", vista: "dia", dias: [{ fecha: Qt.formatDate(d, "yyyy-MM-dd"), dia: "", num: d.getDate(), hoy: true, eventos: [
+                { titulo: "Clase de Redes", ini: "09:00", fin: "11:00" }, { titulo: "Comer con Pablo", ini: "14:00", fin: "15:00" },
+                { titulo: "Repaso SO", ini: Qt.formatTime(new Date(Date.now() - 1800000), "HH:mm"), fin: Qt.formatTime(new Date(Date.now() + 1800000), "HH:mm") },
+                { titulo: "Gym", ini: "23:30", fin: "23:59" }] }] } };
+        else
+            panel = { id: "agenda", kind: "visor", titulo: "Esta semana", icono: "calendar_month", item_n: null, payload: { tipo: "agenda", vista: "semana", dias: [0, 1, 2, 3, 4, 5, 6].map(dia) } };
+        const resto = root.paneles.filter(p => p.id !== panel.id);
+        root.handle({ type: "holo", op: "open", items: root.items, paneles: resto.concat([panel]), seleccionado: null, panel: panel, ids: null });
+    }
+
     // Demo del panel de confirmación (sin daemon): `ipc call holo demoConfirm borrar|mover`
     function demoConfirm(accion: string): void {
         root.demo();
@@ -318,6 +344,10 @@ Singleton {
 
     IpcHandler {
         target: "holo"
+
+        function demoDatos(cual: string): void {
+            root.demoDatos(cual);
+        }
 
         function demoConfirm(accion: string): void {
             root.demoConfirm(accion);

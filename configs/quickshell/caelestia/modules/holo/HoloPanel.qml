@@ -709,7 +709,7 @@ Item {
                 // Número del archivo (visor) o icono (lista)
                 Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
-                    visible: root.esVisor
+                    visible: root.esVisor && root.panel?.item_n
                     width: 22
                     height: 22
                     radius: 11
@@ -726,8 +726,8 @@ Item {
                 }
                 MaterialIcon {
                     anchors.verticalCenter: parent.verticalCenter
-                    visible: !root.esVisor
-                    text: root.esConfirmar ? root.iconoConfirmar : ((root.panel?.titulo ?? "").startsWith("«") ? "search" : "folder_open")
+                    visible: !root.esVisor || !root.panel?.item_n
+                    text: root.panel?.icono ? root.panel.icono : root.esConfirmar ? root.iconoConfirmar : ((root.panel?.titulo ?? "").startsWith("«") ? "search" : "folder_open")
                     color: root.prim
                     fill: 1
                 }
@@ -776,6 +776,14 @@ Item {
                         return "vídeo";
                     case "audio":
                         return "audio";
+                    case "agenda": {
+                        const n = (p.dias ?? []).reduce((a, d) => a + (d.eventos ?? []).length, 0);
+                        return n === 1 ? "1 evento" : n + " eventos";
+                    }
+                    case "correo": {
+                        const n = (p.items ?? []).length;
+                        return n === 1 ? "1 correo" : n + " correos";
+                    }
                     default:
                         return p.mime || "";
                     }
@@ -885,6 +893,10 @@ Item {
                     return "HoloMedia.qml";
                 case "texto":
                     return "HoloText.qml";
+                case "agenda":
+                    return "HoloAgenda.qml";
+                case "correo":
+                    return "HoloCorreo.qml";
                 default:
                     return "HoloOther.qml";
                 }

@@ -285,6 +285,19 @@ class Escena:
                 return 1
             return 0
 
+    def mostrar_datos(self, pid: str, titulo: str, payload: dict, icono: str = "dashboard") -> dict:
+        """Abre (o reemplaza) un panel de datos que no es un archivo: agenda, correo…"""
+        with self._lock:
+            self._tocar()
+            if pid in self.paneles:
+                del self.paneles[pid]
+                self._emit("close", ids=[pid])
+            panel = {"id": pid, "kind": "visor", "titulo": titulo, "icono": icono,
+                     "item_n": None, "payload": payload}
+            self.paneles[pid] = panel
+            self._emit("open", panel=panel)
+            return panel
+
     def seleccionar(self, n: int) -> Item | None:
         """Marca un elemento como seleccionado y emite el evento select."""
         with self._lock:

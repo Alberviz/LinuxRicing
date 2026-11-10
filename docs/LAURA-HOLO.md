@@ -163,6 +163,14 @@ en la esquina y la carpeta se vuelve a listar (los números cambian).
 - Spec y plan: `docs/superpowers/specs/2026-11-09-laura-archivos-design.md`,
   `docs/superpowers/plans/2026-11-09-laura-archivos-fase1.md`.
 
+## 📅 Agenda y correo en holograma
+
+- **«qué tengo hoy / mañana»** → panel con el día entero en un raíl de horas: lo pasado atenuado, lo siguiente (o lo que está en curso) resaltado con «SIGUIENTE» / «AHORA».
+- **«qué tengo esta semana»** → panel de 7 columnas (hoy marcado) con chips de evento.
+- **«mírame los correos»** → panel con remitente, asunto y la frase-resumen de Laura; los importantes van destacados.
+- Son paneles de datos (`Escena.mostrar_datos`, `kind: visor`, sin `item_n`): se cierran con «cierra todo» o la ✕, y se reemplazan si se vuelven a pedir. Si el panel falla, Laura contesta igual por voz.
+- Demo sin daemon: `qs -c caelestia ipc call holo demoDatos semana|dia|correo`.
+
 ## 🧪 Pruebas y Diagnóstico
 
 ### Modo Demostración Rápido (sin dependencias del daemon)

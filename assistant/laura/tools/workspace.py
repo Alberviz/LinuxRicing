@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta
 
-from .. import resumen_correo, workspace
+from .. import holo, resumen_correo, workspace
 from ..config import log
 from . import tool
 from .segundo_plano import _FORMATO, _manager
@@ -48,6 +48,61 @@ def _agenda_aurora(cuando: str) -> dict:
     return {"ok": True, "id": jid, "resumen": "Mirando la agenda", "via": "aurora"}
 
 
+# -------------------------------------------------------------------- hologramas
+_DIAS = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
+
+
+def _hhmm(s: str) -> str:
+    m = re.search(r"[T ](\d{2}):(\d{2})", s or "")
+    return f"{m.group(1)}:{m.group(2)}" if m else ""
+
+
+def _holo_agenda(cuando: str) -> None:
+    """Panel con la agenda: «semana» = 7 columnas; hoy/mañana = el día entero (también lo ya pasado)."""
+    try:
+        hoy = datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+        d0 = hoy + timedelta(days=1) if cuando in ("mañana", "manana") else hoy
+        n = 7 if cuando == "semana" else 1
+        evs = workspace.eventos(d0, d0 + timedelta(days=n), 40)
+        dias = []
+        for i in range(n):
+            d = d0 + timedelta(days=i)
+            clave = d.strftime("%Y-%m-%d")
+            dias.append({"fecha": clave, "dia": _DIAS[d.weekday()], "num": d.day,
+                         "hoy": d == hoy,
+                         "eventos": [{"titulo": e["titulo"], "ini": _hhmm(e["inicio"]), "fin": _hhmm(e["fin"])}
+                                     for e in evs if e["inicio"][:10] == clave]})
+        titulo = {"semana": "Esta semana", "mañana": "Mañana"}.get(cuando, "Hoy")
+        titulo += f" · {d0.day} de {_MESES[d0.month - 1]}" if n == 1 else ""
+        holo.escena().mostrar_datos("agenda", titulo, {"tipo": "agenda", "vista": "semana" if n > 1 else "dia",
+                                                      "dias": dias}, "calendar_month")
+    except Exception as e:  # noqa: BLE001 — el panel es un extra: nunca rompe la respuesta hablada
+        log(f"agenda: holo no disponible ({e})")
+
+
+def _cuando_correo(fecha: str) -> str:
+    """Cabecera Date -> «14:03» si es de hoy, «lun 9» si no."""
+    from email.utils import parsedate_to_datetime
+    try:
+        d = parsedate_to_datetime(fecha).astimezone()
+    except (TypeError, ValueError):
+        return ""
+    if d.date() == datetime.now().date():
+        return d.strftime("%H:%M")
+    return f"{_DIAS[d.weekday()]} {d.day}"
+
+
+def _holo_correo(items: list[dict], consulta: str) -> None:
+    try:
+        holo.escena().mostrar_datos("correo", f"«{consulta}»" if consulta.strip() else "Sin leer", {
+            "tipo": "correo",
+            "items": [{"de": i["de"], "asunto": i["asunto"], "frase": i["frase"],
+                       "importante": i["importante"], "hora": _cuando_correo(i["fecha"])}
+                      for i in items[:10]]}, "mail")
+    except Exception as e:  # noqa: BLE001
+        log(f"correo: holo no disponible ({e})")
+
+
 # -------------------------------------------------------------------- tools
 @tool("correo",
       "Mira el correo de Alberto: «mírame los correos», «¿tengo algo de X?». Di «decir» tal cual.",
@@ -75,6 +130,8 @@ def correo(consulta: str = "") -> dict:
     decir = resumen_correo.decir(items) if consulta.strip() == "" or items else "No encuentro nada con eso."
     if not items and consulta.strip():
         decir = "No encuentro nada con eso."
+    if items:
+        _holo_correo(items, consulta)
     return {"ok": True, "total": len(items), "decir": decir, "resumen": "Correo revisado",
             "nota": "Di el campo «decir» tal cual, sin añadir nada."}
 
@@ -94,6 +151,8 @@ def agenda(cuando: str = "hoy") -> dict:
         return _agenda_aurora(cuando)
     if cuando in ("próximo", "proximo"):
         evs = evs[:1]
+    else:
+        _holo_agenda(cuando)
     etiqueta = {"hoy": "hoy", "mañana": "mañana", "semana": "esta semana", "próximo": "lo siguiente"}.get(cuando, cuando)
     if not evs:
         decir = f"No tienes nada {etiqueta}." if cuando != "próximo" else "No tienes eventos próximos."

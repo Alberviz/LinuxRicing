@@ -63,6 +63,17 @@ function size(panel, W, H) {
         return { w: Math.round(0.40 * W), h: Math.round(0.45 * H) };
     case "audio":
         return { w: Math.round(0.30 * W), h: Math.round(0.16 * H) };
+    case "agenda": {
+        const dias = (panel.payload && panel.payload.dias) || [];
+        if (panel.payload && panel.payload.vista === "semana")
+            return { w: Math.round(Math.min(0.5 * W, 980)), h: Math.round(0.42 * H) };
+        const n = dias.length ? (dias[0].eventos || []).length : 0;
+        return { w: Math.round(Math.min(0.24 * W, 460)), h: Math.round(Math.min(0.62 * H, 46 + 32 + Math.max(2, n) * 58)) };
+    }
+    case "correo": {
+        const n = (panel.payload && panel.payload.items) ? panel.payload.items.length : 3;
+        return { w: Math.round(Math.min(0.28 * W, 520)), h: Math.round(Math.min(0.66 * H, 46 + 20 + n * 70)) };
+    }
     case "otro":
     default:
         return { w: Math.round(0.22 * W), h: Math.round(0.20 * H) };

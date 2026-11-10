@@ -212,3 +212,14 @@ def test_abrir_mezcla_ignora_carpetas(tmp_path):
     e.listar("X", [{"ruta": str(sub), "nombre": "Carpeta"}, {"ruta": str(f), "nombre": "nota.txt"}])
     res = e.abrir([1, 2])
     assert res["ok"] and [it.nombre for it in res["abiertos"]] == ["nota.txt"]
+
+
+def test_mostrar_datos_reemplaza_panel():
+    from laura.holo import Escena
+    evs = []
+    e = Escena(emit=lambda **ev: evs.append(ev))
+    e.mostrar_datos("agenda", "Hoy", {"tipo": "agenda", "vista": "dia", "dias": []})
+    e.mostrar_datos("agenda", "Esta semana", {"tipo": "agenda", "vista": "semana", "dias": []})
+    assert [ev["op"] for ev in evs] == ["open", "close", "open"]
+    assert list(e.paneles) == ["agenda"] and e.paneles["agenda"]["titulo"] == "Esta semana"
+    assert e.cerrar_panel("agenda") == 1 and evs[-1]["op"] == "clear"
