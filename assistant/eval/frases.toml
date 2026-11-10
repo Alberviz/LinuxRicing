@@ -842,3 +842,48 @@ grupo = "archivos"
 texto = "deshaz lo último"
 espera = ["deshacer_archivos"]
 grupo = "archivos"
+
+# ---------- hologramas ----------
+[[frase]]
+texto = "lístame las descargas"
+espera = ["mostrar_archivos"]
+args = [{carpeta = "descargas"}]
+grupo = "holo"
+
+[[frase]]
+texto = "enséñame qué hay en documentos"
+espera = ["mostrar_archivos"]
+args = [{carpeta = "documentos"}]
+grupo = "holo"
+
+[[frase]]
+texto = "búscame el pdf de la práctica de redes"
+espera = ["mostrar_archivos"]
+grupo = "holo"
+
+[[frase]]
+texto = "ábreme la uno y la dos"
+espera = ["abrir"]
+grupo = "holo"
+
+[[frase]]
+texto = "enséñame la tercera"
+espera = ["abrir"]
+grupo = "holo"
+
+[[frase]]
+texto = "envía esa al móvil"
+espera = ["warp"]
+args = [{accion = "archivo"}]
+grupo = "holo"
+
+[[frase]]
+texto = "manda la dos al móvil"
+espera = ["warp"]
+args = [{accion = "archivo", numero = 2}]
+grupo = "holo"
+
+[[frase]]
+texto = "cierra todo eso"
+espera = ["cerrar_holo"]
+grupo = "holo"
