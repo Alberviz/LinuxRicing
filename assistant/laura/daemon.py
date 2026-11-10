@@ -21,7 +21,7 @@ from .escalation import (_confirm_and_run_escalation, _handle_auto_escalation,
 from . import jobs as jobs_mod
 from . import vigia as vigia_mod
 from .jobs import JobManager, reap_orphans
-from .llm import Session, _mode_switch, converse
+from .llm import Session, _mode_switch, converse, precalentar
 from .stt import transcribe
 from .output import OUT, AnyEvent
 from .tts import Speech, speak, warmup as tts_warmup
@@ -263,6 +263,7 @@ class Announcer:
 def main() -> None:
     load_vad()
     tts_warmup()
+    threading.Thread(target=precalentar, daemon=True).start()
     BargeIn().install()
     n = reap_orphans()
     if n:
@@ -390,6 +391,7 @@ def main() -> None:
         if OUT.speaking():  # aviso hablando: callarlo y pasar a escuchar
             OUT.interrupt()
         cancel.clear()
+        threading.Thread(target=precalentar, daemon=True).start()
         worker = threading.Thread(target=run, args=(mode, first_text), daemon=True)
         worker.start()
 

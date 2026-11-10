@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import re
 import threading
+import time
 import urllib.request
 
 from . import memory
@@ -111,15 +112,49 @@ def _ultimo_usuario(session: Session) -> str:
     return next((m.get("content") or "" for m in reversed(session.messages) if m.get("role") == "user"), "")
 
 
+_ultimo_calentado: float = 0.0
+
+
+def _keep_alive(body: dict) -> None:
+    """Añade keep_alive al cuerpo si está configurado en config.toml."""
+    ka = CFG["llm"].get("keep_alive")
+    if ka:
+        body["keep_alive"] = ka
+
+
 def _ollama_body(session: Session, stream: bool) -> bytes:
-    return json.dumps({
+    body = {
         "model": session.model_now(),
         "messages": _mensajes(session),
         "tools": tools_mod.activas(_ultimo_usuario(session)),
         "stream": stream,
         "options": {"num_ctx": CFG["llm"].get("num_ctx", 4096),
                     **{k: CFG["llm"][k] for k in ("temperature", "num_predict") if k in CFG["llm"]}},
-    }).encode()
+    }
+    _keep_alive(body)
+    return json.dumps(body).encode()
+
+
+def precalentar(ahora: float | None = None) -> bool:
+    """Precalienta el modelo y la caché KV de Ollama con num_predict=1.
+
+    No repite si ya se precalentó en los últimos 30 segundos. Nunca lanza excepciones.
+    Devuelve True si se lanzó el precalentamiento, False si se omitió o falló.
+    """
+    global _ultimo_calentado
+    t = time.time() if ahora is None else ahora
+    if t - _ultimo_calentado < 30.0:
+        return False
+    try:
+        s = Session()
+        body = json.loads(_ollama_body(s, False).decode())
+        body.setdefault("options", {})["num_predict"] = 1
+        _ultimo_calentado = t
+        _post(body, "precalentar", timeout=CFG["llm"].get("timeout", 45))
+        return True
+    except Exception as e:  # noqa: BLE001
+        log(f"precalentar: {e}")
+        return False
 
 
 def texto_prefill(etiqueta: str, r: dict | None) -> str | None:
@@ -198,6 +233,7 @@ def chat_lateral(instrucciones: str, etiqueta: str, fmt: str | None = None,
     }
     if fmt:
         body["format"] = fmt
+    _keep_alive(body)
 
     resp = _post(body, etiqueta, timeout=timeout)
     msg = resp.get("message") or {}
