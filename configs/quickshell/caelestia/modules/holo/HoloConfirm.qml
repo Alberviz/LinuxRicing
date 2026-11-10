@@ -8,7 +8,11 @@ import qs.modules.assistant
 
 // Contenido del panel de confirmación de una acción sobre archivos (borrar, mover, renombrar…).
 // Lista lo que se va a tocar, el tamaño total y dos botones. Una barra se vacía en un solo
-// tramo hasta que el plan caduca (nada en bucle). También se puede decir «sí» / «no» por voz.
+// tramo hasta que el plan caduca. También se puede decir «sí» / «no» por voz.
+//
+// Movimiento: las filas entran en cascada mientras el panel se asienta; luego los botones.
+// La cuenta atrás avanza con un Timer a 10 Hz (no a 60 fps: la barra se mueve <1 px por
+// paso) y solo mientras el plan vive; en los últimos 10 s la barra se enciende.
 Item {
     id: root
 
@@ -19,6 +23,8 @@ Item {
     readonly property color acento: borrar ? Colours.palette.m3error : Colours.palette.m3primary
     // 1 = recién pedido, 0 = a punto de caducar
     property real restante: 1
+    readonly property real total: Math.max(1, payload.segundos ?? 60)
+    readonly property bool urge: restante * total <= 10
 
     function tam(b: real): string {
         if (b >= 1073741824)
@@ -30,20 +36,41 @@ Item {
         return b + " B";
     }
 
-    Component.onCompleted: {
-        const total = Math.max(1, root.payload.segundos ?? 60);
+    function actualizar(): void {
         const queda = Math.max(0, (root.payload.expira ?? 0) - Date.now() / 1000);
-        root.restante = Math.min(1, queda / total);
-        cuenta.duration = queda * 1000;
-        cuenta.start();
+        root.restante = Math.min(1, queda / root.total);
     }
 
-    NumberAnimation {
-        id: cuenta
+    Component.onCompleted: actualizar()
 
-        target: root
-        property: "restante"
-        to: 0
+    Timer {
+        interval: 100
+        repeat: true
+        running: root.restante > 0 && root.visible
+        onTriggered: root.actualizar()
+    }
+
+    component Entra: SequentialAnimation {
+        id: ent
+
+        required property Item objetivo
+        property int retraso: 0
+
+        PropertyAction {
+            target: ent.objetivo
+            property: "opacity"
+            value: 0
+        }
+        PauseAnimation {
+            duration: ent.retraso
+        }
+        NumberAnimation {
+            target: ent.objetivo
+            property: "opacity"
+            to: 1
+            duration: HoloGeo.tMedio
+            easing.type: HoloGeo.curvaFundido
+        }
     }
 
     // Lo que se va a tocar
@@ -65,8 +92,19 @@ Item {
 
                 required property var modelData
 
+                required property int index
+
                 width: filas.width
                 height: 26
+                transform: Translate {
+                    x: (1 - fila.opacity) * -10
+                }
+
+                Entra {
+                    objetivo: fila
+                    retraso: 200 + Math.min(HoloGeo.maxEscalon, fila.index * HoloGeo.escalonFila * 2)
+                    running: true
+                }
 
                 MaterialIcon {
                     id: ic
@@ -133,13 +171,33 @@ Item {
         anchors.bottomMargin: 16
         spacing: 8
 
+        // Tras las filas: primero se lee qué se va a tocar, luego se decide
+        Entra {
+            objetivo: botones
+            retraso: 260 + Math.min(HoloGeo.maxEscalon, (root.payload.items ?? []).length * HoloGeo.escalonFila * 2)
+            running: true
+        }
+
         Rectangle {
             width: lblNo.implicitWidth + 36
             height: 34
             radius: 17
-            color: Qt.alpha(Colours.palette.m3onSurface, maNo.containsMouse ? 0.14 : 0.06)
+            color: Qt.alpha(Colours.palette.m3onSurface, maNo.pressed ? 0.2 : maNo.containsMouse ? 0.14 : 0.06)
             border.width: 1
             border.color: Qt.alpha(Colours.palette.m3onSurface, 0.3)
+            scale: maNo.pressed ? 0.96 : 1
+
+            Behavior on color {
+                ColorAnimation {
+                    duration: HoloGeo.tMicro
+                }
+            }
+            Behavior on scale {
+                NumberAnimation {
+                    duration: HoloGeo.tMicro
+                    easing.type: HoloGeo.curvaEntra
+                }
+            }
 
             StyledText {
                 id: lblNo
@@ -164,6 +222,19 @@ Item {
             height: 34
             radius: 17
             color: Qt.alpha(root.acento, maSi.containsMouse ? 1 : 0.88)
+            scale: maSi.pressed ? 0.96 : 1
+
+            Behavior on color {
+                ColorAnimation {
+                    duration: HoloGeo.tMicro
+                }
+            }
+            Behavior on scale {
+                NumberAnimation {
+                    duration: HoloGeo.tMicro
+                    easing.type: HoloGeo.curvaEntra
+                }
+            }
 
             StyledText {
                 id: lblSi
@@ -185,12 +256,18 @@ Item {
         }
     }
 
-    // Cuenta atrás hasta que el plan caduca
+    // Cuenta atrás hasta que el plan caduca (en los últimos 10 s, más viva)
     Rectangle {
         anchors.left: parent.left
         anchors.bottom: parent.bottom
-        height: 3
+        height: root.urge ? 4 : 3
         width: parent.width * root.restante
-        color: Qt.alpha(root.acento, 0.7)
+        color: Qt.alpha(root.acento, root.urge ? 1 : 0.6)
+
+        Behavior on color {
+            ColorAnimation {
+                duration: HoloGeo.tMedio
+            }
+        }
     }
 }
