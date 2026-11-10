@@ -43,21 +43,21 @@ def _num(m: re.Match, defecto: int = 10) -> int:
 
 
 _REGLAS: list[tuple[str, Callable[[re.Match], Atajo]]] = [
-    (r"(?:pon(?:me)?\s+)?pausa(?:la)?(?:\s+(?:a\s+)?(?:la\s+)?(?:musica|cancion))?|pon (?:la )?musica en pausa"
-     r"|reanuda(?:\s+la\s+(?:musica|cancion))?|dale al play",
+    (r"(?:pon(?:me)?\s+)?pausa(?:la)?(?:\s+(?:a\s+)?(?:la\s+)?(?:musica|cancion))?|pon (?:la )?musica en pausa|pausa|stop"
+     r"|reanuda(?:\s+la\s+(?:musica|cancion))?|dale al play|play|despausa|continua(?: la musica)?|sigue con la musica",
      lambda m: Atajo("control_musica", {"accion": "reproducir_pausar"})),
-    (r"(?:pasa a la |pon la )?siguiente(?: cancion)?|salta(?:te)?(?: esta| la)? cancion",
+    (r"pasa (?:de |a la |la )?cancion|cambia (?:de |la )?cancion|otra cancion|(?:pasa a la |pon la )?siguiente(?: cancion)?|salta(?:te)?(?: esta| la)? cancion|siguiente|salta de pista|siguiente pista",
      lambda m: Atajo("control_musica", {"accion": "siguiente"})),
-    (r"(?:pon la |vuelve a la )?cancion anterior|(?:pon la |vuelve a la )anterior",
+    (r"(?:pon la |vuelve a la )?cancion anterior|(?:pon la |vuelve a la )anterior|anterior cancion|anterior|pista anterior",
      lambda m: Atajo("control_musica", {"accion": "anterior"})),
     (r"(?:para|quita|apaga) la musica",
      lambda m: Atajo("control_musica", {"accion": "parar"})),
-    (r"(?:sube(?:me)?(?:lo)?(?: el)? volumen|subelo)" + _N, lambda m: Atajo("volumen", {"porcentaje": _num(m)})),
-    (r"(?:baja(?:me)?(?:lo)?(?: el)? volumen|bajalo)" + _N, lambda m: Atajo("volumen", {"porcentaje": -_num(m)})),
+    (r"(?:sube(?:me)?(?:lo)?(?: el)? volumen|subelo|mas volumen|aumenta el volumen)" + _N, lambda m: Atajo("volumen", {"porcentaje": _num(m)})),
+    (r"(?:baja(?:me)?(?:lo)?(?: el)? volumen|bajalo|menos volumen|reduce el volumen)" + _N, lambda m: Atajo("volumen", {"porcentaje": -_num(m)})),
     (r"silencia(?:lo)?(?: el (?:audio|sonido))?|mutea(?:lo)?|quita el sonido",
      lambda m: Atajo("silenciar")),
-    (r"sube(?:me)?(?: el)? brillo" + _N, lambda m: Atajo("brillo", {"cambio": _num(m)})),
-    (r"baja(?:me)?(?: el)? brillo" + _N, lambda m: Atajo("brillo", {"cambio": -_num(m)})),
+    (r"(?:sube(?:me)?(?: el)? brillo|mas brillo|aumenta el brillo)" + _N, lambda m: Atajo("brillo", {"cambio": _num(m)})),
+    (r"(?:baja(?:me)?(?: el)? brillo|menos brillo|reduce el brillo)" + _N, lambda m: Atajo("brillo", {"cambio": -_num(m)})),
     (r"que hora es", lambda m: Atajo("hora_fecha")),
     (r"bloquea(?: la pantalla| el (?:ordenador|pc)| la sesion)?(?:\s+que me voy.*)?", lambda m: Atajo("bloquear_pantalla")),
     (r"(?:haz(?:me)?|saca(?:me)?) una captura(?: de pantalla)?|saca un pantallazo", lambda m: Atajo("captura_pantalla")),

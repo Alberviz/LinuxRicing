@@ -50,6 +50,12 @@ def test_positivos_y_negativos():
     p10 = rapido.resolver("saca un pantallazo")
     assert p10 == rapido.Atajo("captura_pantalla", {})
 
+    assert rapido.resolver("pasa de canción") == rapido.Atajo("control_musica", {"accion": "siguiente"})
+    assert rapido.resolver("cambia de canción") == rapido.Atajo("control_musica", {"accion": "siguiente"})
+    assert rapido.resolver("más volumen") == rapido.Atajo("volumen", {"porcentaje": 10})
+    assert rapido.resolver("menos volumen") == rapido.Atajo("volumen", {"porcentaje": -10})
+    assert rapido.resolver("pausa") == rapido.Atajo("control_musica", {"accion": "reproducir_pausar"})
+
     # Negativos: deben dar None para no interferir con el LLM
     assert rapido.resolver("pausa y abre google") is None
     assert rapido.resolver("baja el volumen al 20") is None

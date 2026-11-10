@@ -58,7 +58,7 @@ StyledWindow {
     // Escribir a Laura: pulsar la píldora de «Escuchando» corta la escucha y la convierte en un campo de texto
     property bool typing: false
     property string draft: ""
-    readonly property bool lit: Laura.borderActive || typing || holdT.running
+    readonly property bool lit: Laura.borderActive || typing || holdT.running || (Laura.activeMotion !== null)
     // Con hologramas en pantalla la píldora se queda (es de donde salen; ver HoloLayer),
     // pero SIN borde de luz ni reloj: solo una tarjeta estática.
     readonly property bool conHolo: HoloState.activo
@@ -230,15 +230,16 @@ StyledWindow {
         readonly property real pad: Tokens.padding.large
         readonly property string youText: Laura.transcript
         readonly property string herText: Laura.reply
+        readonly property bool hasMotion: Laura.activeMotion !== null
         readonly property color cc: win.deleg ? (win.delegAgent === "gemini" ? win.gb : win.co) : win.thinking ? win.tert : win.prim
-        readonly property string label: win.typing ? "Escribe a Laura" : win.deleg ? "Delegando en " + (win.delegAgent === "gemini" ? "Gemini" : "Claude") : win.listening ? "Escuchando" : win.thinking ? "Pensando" : "Laura"
-        readonly property bool showHer: (win.speaking || win.deleg) && herText.length > 0
+        readonly property string label: win.typing ? "Escribe a Laura" : win.deleg ? "Delegando en " + (win.delegAgent === "gemini" ? "Gemini" : "Claude") : win.listening ? "Escuchando" : win.thinking ? "Pensando" : (hasMotion ? (Laura.activeMotion?.tipo === "track_slide" ? "Spotify" : (Laura.activeMotion?.tipo === "delta_meter" ? "Sistema" : "Laura")) : "Laura")
+        readonly property bool showHer: (win.speaking || win.deleg || hasMotion) && herText.length > 0
 
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: Tokens.padding.extraLarge * 2
 
-        readonly property bool hasContent: (win.lit || win.conHolo) && (youText.length > 0 || showHer || win.listening || win.typing)
+        readonly property bool hasContent: (win.lit || win.conHolo) && (youText.length > 0 || showHer || win.listening || win.typing || hasMotion)
         visible: opacity > 0.001
         opacity: hasContent ? 1 : 0
         Behavior on opacity {
@@ -247,25 +248,25 @@ StyledWindow {
             }
         }
 
-        width: Math.min(Math.max(col.implicitWidth + pad * 2, 380), parent.width * 0.68)
-        height: col.implicitHeight + pad * 1.4 + 6
+        width: Math.min(Math.max(col.implicitWidth + pad * 2, hasMotion ? 520 : 380), parent.width * 0.68)
+        height: (hasMotion ? motionTray.implicitHeight : 0) + col.implicitHeight + pad * 1.4 + 6
         Behavior on width {
             NumberAnimation {
-                duration: 200
-                easing.type: Easing.OutQuad
+                duration: 350
+                easing.type: Easing.OutCubic
             }
         }
         Behavior on height {
             NumberAnimation {
-                duration: 200
-                easing.type: Easing.OutQuad
+                duration: 350
+                easing.type: Easing.OutCubic
             }
         }
 
         radius: 22
-        color: Qt.alpha(Colours.palette.m3surface, 0.82)
+        color: Qt.alpha(Colours.palette.m3surface, 0.88)
         border.width: 1
-        border.color: Qt.alpha(Colours.palette.m3onSurface, 0.11)
+        border.color: hasMotion ? Qt.alpha(Colours.palette.m3primary, 0.35) : Qt.alpha(Colours.palette.m3onSurface, 0.11)
         clip: true
 
         // Pulsar la píldora de «Escuchando» pasa a escribir
@@ -292,11 +293,19 @@ StyledWindow {
             }
         }
 
+        // Bandeja cinemática superior para herramientas y música
+        LauraMotionTray {
+            id: motionTray
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.right: parent.right
+        }
+
         Column {
             id: col
 
             anchors.horizontalCenter: parent.horizontalCenter
-            anchors.top: parent.top
+            anchors.top: motionTray.bottom
             anchors.topMargin: pill.pad * 0.7
             width: parent.width - pill.pad * 2
             spacing: 6

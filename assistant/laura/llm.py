@@ -420,6 +420,8 @@ def converse(session: Session, user_text: str, on_sentence=None,
                 args = json.loads(args or "{}")
             result = tools_mod.run_tool(fn["name"], args, CFG.get("apps", {}))
             log(f"tool {fn['name']}({args}) -> {result}")
+            if result.get("ok") and "motion" in result and result["motion"]:
+                bus.emit(type="action_motion", motion=result["motion"], resumen=result.get("resumen", ""))
             messages.append({"role": "tool", "name": fn["name"],
                              "content": json.dumps(result, ensure_ascii=False)})
             eff = tools_mod.effect_of(fn["name"])

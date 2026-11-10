@@ -146,12 +146,20 @@ def cycle(session: Session, jobs: JobManager, mode: str = "centro",
                     accion = tools_mod.accion_overlay(atajo.tool, resultado) if resultado.get("ok") else None
                     actions = [accion] if accion else []
                     bus.emit(type="result", actions=actions)
+                    if resultado.get("ok") and "motion" in resultado and resultado["motion"]:
+                        bus.emit(type="action_motion", motion=resultado["motion"], resumen=resultado.get("resumen", ""))
                     frase = rapido.decir(atajo, resultado)
                     if frase:
                         bus.emit(type="reply", value=frase)
                         notify("Laura", frase)
                         bus.emit(type="state", value="speaking", mode=mode)
                         speak(frase, turn_cancel)
+                    else:
+                        # Zero-chatter silencioso: respuesta instantánea sin TTS lento
+                        resumen = resultado.get("resumen") or "Hecho."
+                        bus.emit(type="reply", value=resumen)
+                        notify("Laura", resumen)
+                        bus.emit(type="state", value="idle", mode=mode)
                     session.add("user", text)
                     session.add("assistant", frase or resultado.get("resumen") or "Hecho.")
                     registro.apuntar(
