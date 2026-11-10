@@ -125,9 +125,18 @@ Item {
         border.color: Qt.alpha(Colours.palette.m3primary, 0.5)
         opacity: (player.playbackState === MediaPlayer.PlayingState && !clickArea.containsMouse) ? 0.0 : 1.0
 
+        scale: clickArea.pressed ? 0.92 : 1
+
         Behavior on opacity {
             NumberAnimation {
-                duration: 180
+                duration: HoloGeo.tRapido
+                easing.type: HoloGeo.curvaFundido
+            }
+        }
+        Behavior on scale {
+            NumberAnimation {
+                duration: HoloGeo.tMicro
+                easing.type: HoloGeo.curvaEntra
             }
         }
 
