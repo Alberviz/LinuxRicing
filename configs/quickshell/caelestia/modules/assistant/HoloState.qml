@@ -15,6 +15,9 @@ Singleton {
     property var items: []
     property var paneles: []
     property int seleccionado: -1
+    // Archivo señalado con el ratón (fila de la lista o su visor): solo UI, ilumina su
+    // pareja y el hilo que las une. No viaja al daemon.
+    property int resaltado: -1
     readonly property bool activo: paneles.length > 0
 
     signal opened(string pid)
