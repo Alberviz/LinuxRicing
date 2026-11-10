@@ -19,6 +19,7 @@ from . import avisos
 from .escalation import (_confirm_and_run_escalation, _handle_auto_escalation,
                          _match_auto_case, responder_pendiente_archivos, voice_yes_no)
 from . import jobs as jobs_mod
+from . import rapido
 from . import vigia as vigia_mod
 from .jobs import JobManager, reap_orphans
 from .llm import Session, _mode_switch, converse, precalentar
@@ -131,6 +132,29 @@ def cycle(session: Session, jobs: JobManager, mode: str = "centro",
                 if mode != "centro" or bye or turns >= max_turns:
                     break
                 continue
+
+            # Modo rápido: atajos directos sin LLM (música, volumen, brillo, hora, bloqueo, captura).
+            if CFG.get("rapido", {}).get("enabled", True):
+                atajo = rapido.resolver(text)
+                if atajo is not None:
+                    log(f"rápido: {atajo.tool}({atajo.args})")
+                    resultado = tools_mod.run_tool(atajo.tool, atajo.args, CFG.get("apps", {}))
+                    log(f"rápido -> {resultado}")
+                    accion = tools_mod.accion_overlay(atajo.tool, resultado) if resultado.get("ok") else None
+                    actions = [accion] if accion else []
+                    bus.emit(type="result", actions=actions)
+                    frase = rapido.decir(atajo, resultado)
+                    if frase:
+                        bus.emit(type="reply", value=frase)
+                        notify("Laura", frase)
+                        bus.emit(type="state", value="speaking", mode=mode)
+                        speak(frase, turn_cancel)
+                    session.add("user", text)
+                    session.add("assistant", frase or resultado.get("resumen") or "Hecho.")
+                    turns += 1
+                    if mode != "centro" or bye or turns >= max_turns:
+                        break
+                    continue
 
             sw = _mode_switch(text)
             if sw is not None:

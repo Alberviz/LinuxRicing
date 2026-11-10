@@ -5,6 +5,9 @@ socket = "$XDG_RUNTIME_DIR/laura.sock"
 events_socket = "$XDG_RUNTIME_DIR/laura-events.sock"  # bus de eventos para el overlay
 notify = true          # avisos con notify-send (escuchando / respuesta)
 
+[rapido]
+enabled = true         # atajos sin LLM (música, volumen, brillo, hora, bloqueo, captura)
+
 [stt]
 model = "small"        # tiny | base | small | medium
 device = "cuda"        # cuda (RTX 4050, ultra rápido) | cpu
