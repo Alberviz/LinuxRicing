@@ -14,6 +14,44 @@ Item {
 
     required property var panel
 
+    // Filas que se pintan. Al cerrar la escena el daemon vacía `items` antes de que el panel
+    // termine de irse: se conservan las últimas para que no se vacíe a medio vuelo.
+    // (se asigna a mano, sin binding: un binding se actualizaría solo y no se podría congelar)
+    property var filas: []
+
+    // El daemon manda `items` antes que `paneles`: decidir al final del evento, cuando ya se
+    // sabe si la escena sigue abierta
+    function tomarFilas(): void {
+        if (HoloState.activo || (HoloState.items || []).length > 0)
+            filas = HoloState.items;
+    }
+
+    Connections {
+        function onItemsChanged(): void {
+            Qt.callLater(root.tomarFilas);
+        }
+
+        target: HoloState
+    }
+
+    // Las filas entran en cascada solo cuando el contenido es nuevo (lista recién abierta u
+    // otra búsqueda). El daemon reenvía `items` en cada evento y la ListView recrea sus
+    // delegados: sin esta guarda la cascada se repetiría cada vez que se abre un visor.
+    readonly property string firma: (filas || []).map(i => i.n + ":" + i.nombre).join("|")
+    // Hasta cuándo una fila recién creada debe entrar animada, y desde cuándo cuenta
+    property real cascadaHasta: Date.now() + 900
+    property real cascadaDesde: Date.now() + 160   // al abrirse la lista: mientras aún vuela
+
+    Component.onCompleted: filas = HoloState.items
+
+    onFirmaChanged: {
+        // La carga inicial ya tiene su cascada (cascadaDesde/Hasta de arriba)
+        if (Date.now() < cascadaHasta - 300)
+            return;
+        cascadaDesde = Date.now();
+        cascadaHasta = Date.now() + 600;
+    }
+
     // Formateador de fecha relativa («hace 3 min», «ayer», «lun», etc.)
     function formatRelativeTime(mtime: real): string {
         if (!mtime || mtime <= 0)
@@ -45,7 +83,7 @@ Item {
         anchors.bottom: footer.top
         clip: true
         boundsBehavior: Flickable.StopAtBounds
-        model: HoloState.items
+        model: root.filas
 
         delegate: Item {
             id: fila
@@ -56,42 +94,117 @@ Item {
             readonly property bool abierto: (HoloState.paneles || []).some(p => p && p.id === "v" + fila.modelData.n)
             readonly property bool enviado: !!(fila.modelData && fila.modelData.enviado)
 
+            readonly property bool sel: !!fila.modelData && fila.modelData.n === HoloState.seleccionado
+            readonly property bool senalada: rowMouse.containsMouse || (!!fila.modelData && fila.modelData.n === HoloState.resaltado)
+
             // Acción ejecutada sobre esta fila (borrada, movida…): se va deslizando y se apaga
             property real fuera: 0
+            // 0 → 1 al entrar (cascada)
+            property real entra: 1
 
-            opacity: 1 - fuera
+            opacity: entra * (1 - fuera)
             transform: Translate {
-                x: fila.fuera * 70
+                x: fila.fuera * 70 - (1 - fila.entra) * 14
+            }
+
+            Component.onCompleted: {
+                const ahora = Date.now();
+                if (ahora > root.cascadaHasta)
+                    return;
+                entra = 0;
+                entrada.retraso = Math.max(0, root.cascadaDesde - ahora) + Math.min(HoloGeo.maxEscalon, index * HoloGeo.escalonFila);
+                entrada.start();
+            }
+
+            SequentialAnimation {
+                id: entrada
+
+                property int retraso: 0
+
+                PauseAnimation {
+                    duration: entrada.retraso
+                }
+                NumberAnimation {
+                    target: fila
+                    property: "entra"
+                    to: 1
+                    duration: HoloGeo.tMedio
+                    easing.type: HoloGeo.curvaEntra
+                }
             }
 
             Connections {
                 function onFx(ev: var): void {
-                    if ((ev.filas || []).indexOf(fila.modelData.n) >= 0)
-                        desaparece.start();
+                    const filas = ev.filas || [];
+                    const i = filas.indexOf(fila.modelData.n);
+                    if (i < 0)
+                        return;
+                    // Varias filas: se van una tras otra, de arriba abajo
+                    desaparece.retraso = Math.min(HoloGeo.maxEscalon, i * HoloGeo.escalonFila * 2);
+                    entrada.stop();
+                    desaparece.start();
                 }
 
                 target: HoloState
             }
-            NumberAnimation {
+            SequentialAnimation {
                 id: desaparece
 
-                target: fila
-                property: "fuera"
-                to: 1
-                duration: 420
-                easing.type: Easing.InCubic
+                property int retraso: 0
+
+                PauseAnimation {
+                    duration: desaparece.retraso
+                }
+                NumberAnimation {
+                    target: fila
+                    property: "fuera"
+                    to: 1
+                    duration: HoloGeo.tLento
+                    easing.type: HoloGeo.curvaSale
+                }
             }
 
             width: listView.width
             height: (typeof HoloGeo !== "undefined" && HoloGeo.fila !== undefined) ? HoloGeo.fila : 38
 
-            // Fondo con realce al pasar el ratón
+            // Fondo: realce al pasar el ratón (o su visor), tinte del tema si es «esa»
             Rectangle {
                 anchors.fill: parent
                 anchors.leftMargin: 4
                 anchors.rightMargin: 4
                 radius: Tokens.rounding.small
-                color: rowMouse.containsMouse ? Qt.alpha(Colours.palette.m3onSurface, 0.08) : "transparent"
+                color: fila.sel ? Qt.alpha(Colours.palette.m3primary, fila.senalada ? 0.16 : 0.10) : Qt.alpha(Colours.palette.m3onSurface, fila.senalada ? 0.08 : 0)
+                scale: rowMouse.pressed ? 0.985 : 1
+
+                Behavior on color {
+                    ColorAnimation {
+                        duration: HoloGeo.tMicro
+                    }
+                }
+                Behavior on scale {
+                    NumberAnimation {
+                        duration: HoloGeo.tMicro
+                        easing.type: HoloGeo.curvaEntra
+                    }
+                }
+
+                // Marca lateral de «esa»: crece desde el centro
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 2
+                    height: fila.sel ? parent.height - 14 : 0
+                    radius: 1
+                    color: Colours.palette.m3primary
+                    visible: height > 0.5
+
+                    Behavior on height {
+                        NumberAnimation {
+                            duration: HoloGeo.tMedio
+                            easing.type: HoloGeo.curvaEntra
+                        }
+                    }
+                }
             }
 
             // Número en píldora
@@ -105,10 +218,22 @@ Item {
                 radius: 11
                 color: fila.abierto ? Colours.palette.m3primary : Qt.alpha(Colours.palette.m3primary, 0.18)
 
+                Behavior on color {
+                    ColorAnimation {
+                        duration: HoloGeo.tMedio
+                    }
+                }
+
                 Text {
                     anchors.centerIn: parent
                     text: fila.modelData ? fila.modelData.n : ""
                     color: fila.abierto ? Colours.palette.m3onPrimary : Colours.palette.m3primary
+
+                    Behavior on color {
+                        ColorAnimation {
+                            duration: HoloGeo.tMedio
+                        }
+                    }
                     font.family: Tokens.font.label.small.family
                     font.pixelSize: 11
                     font.weight: Font.Bold
@@ -202,6 +327,15 @@ Item {
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
                 onClicked: HoloState.abrir(fila.modelData.n)
+                // Señala su visor (y el hilo) mientras el ratón está encima
+                onContainsMouseChanged: {
+                    if (!fila.modelData)
+                        return;
+                    if (containsMouse)
+                        HoloState.resaltado = fila.modelData.n;
+                    else if (HoloState.resaltado === fila.modelData.n)
+                        HoloState.resaltado = -1;
+                }
             }
         }
     }
@@ -213,6 +347,19 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         height: (typeof HoloGeo !== "undefined" && HoloGeo.listaPie !== undefined) ? HoloGeo.listaPie : 52
+        opacity: 0
+
+        // Las sugerencias llegan al final de la cascada de filas: primero el contenido
+        SequentialAnimation on opacity {
+            PauseAnimation {
+                duration: 160 + Math.min(HoloGeo.maxEscalon, (root.filas || []).length * HoloGeo.escalonFila)
+            }
+            NumberAnimation {
+                to: 1
+                duration: HoloGeo.tMedio
+                easing.type: HoloGeo.curvaFundido
+            }
+        }
 
         Row {
             anchors.centerIn: parent
