@@ -43,8 +43,8 @@ enabled = true         # activación por voz diciendo «Laura despierta», adem�
                        # (no «Laura» sola: es también el nombre de la novia de Alberto)
 model = "models/laura.onnx"  # modelo openWakeWord de «Laura despierta» (wake_train/).
                        # Si no existe, se ignora y queda solo el atajo.
-threshold = 0.8        # 0..1. Con patience 3: ~0,2 falsos/h en el examen.
-patience = 3           # ventanas de 80 ms seguidas sobre el umbral para disparar.
+threshold = 0.9        # 0..1. Subido de 0,8 (2026-11-10): saltaba sola con conversación de fondo.
+patience = 4           # ventanas de 80 ms seguidas sobre el umbral para disparar (~320 ms).
                        # Súbelo a 4 si salta solo; bájalo a 2 si no te oye.
 cooldown = 3.0         # segundos "sordo" tras un disparo (evita re-triggers).
 
