@@ -362,6 +362,25 @@ def _dedupe(calls: list) -> list:
     return out
 
 
+_CLAVES_TOOL_HISTORIAL = {"ok", "resumen", "decir", "error", "candidatos", "pregunta"}
+
+
+def _compactar_turno(messages: list[dict], desde: int) -> None:
+    """Al terminar un turno, reduce los mensajes 'tool' de ese turno a las claves esenciales para el historial."""
+    for m in messages[desde:]:
+        if m.get("role") == "tool":
+            raw = m.get("content")
+            if not raw:
+                continue
+            try:
+                data = json.loads(raw)
+            except (ValueError, TypeError):
+                continue
+            if isinstance(data, dict):
+                compacto = {k: v for k, v in data.items() if k in _CLAVES_TOOL_HISTORIAL}
+                m["content"] = json.dumps(compacto, ensure_ascii=False)
+
+
 def converse(session: Session, user_text: str, on_sentence=None,
              cancel: threading.Event | None = None
              ) -> tuple[str, list[dict], dict | None]:
@@ -378,6 +397,7 @@ def converse(session: Session, user_text: str, on_sentence=None,
     session.trim()
     session.refresh_system(user_text)
     session.add("user", user_text)
+    desde = len(messages) - 1
     actions: list[dict] = []
     for _ in range(CFG["llm"]["max_tool_rounds"]):
         if on_sentence is not None:
@@ -389,6 +409,7 @@ def converse(session: Session, user_text: str, on_sentence=None,
             messages.append(msg)
             content, calls = msg.get("content") or "", msg.get("tool_calls") or []
         if not calls:
+            _compactar_turno(messages, desde)
             return content.strip(), actions, None
         calls = _dedupe(calls)
         messages[-1]["tool_calls"] = calls
@@ -414,4 +435,5 @@ def converse(session: Session, user_text: str, on_sentence=None,
                 return "", actions, {"destino": "archivos", "peticion": result["plan"], "motivo": ""}
             if result.get("ok"):
                 actions.append(tools_mod.accion_overlay(fn["name"], result))
+    _compactar_turno(messages, desde)
     return (messages[-1].get("content") or "Hecho.").strip(), actions, None
