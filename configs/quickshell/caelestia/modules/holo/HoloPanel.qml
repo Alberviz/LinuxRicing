@@ -90,7 +90,9 @@ Item {
             borrar: "delete",
             mover: "drive_file_move",
             renombrar: "edit",
-            crear_carpeta: "create_new_folder"
+            crear_carpeta: "create_new_folder",
+            ordenar: "auto_awesome_mosaic",
+            renombrar_lote: "edit_note"
         })[payload.accion] ?? "help"
 
     function baseX(): real {

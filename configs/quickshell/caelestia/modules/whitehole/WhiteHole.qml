@@ -313,7 +313,7 @@ Scope {
                 visible: (win.show > 0.003 || win.closing > 0) && !DragWatch.dragging
 
                 property vector2d size: Qt.vector2d(width, height)
-                property real rad: win.holeR * (0.25 + 0.75 * Math.max(0, win.show))
+                property real rad: win.holeR * Math.max(0.04, win.show)  // v2.16: nace desde un punto
                 property real upx: win.u
                 property real en: win.en
                 property real vis: Math.min(1, Math.max(0, win.show))

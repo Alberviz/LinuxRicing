@@ -4,6 +4,8 @@ import pytest
 from laura import tools as tools_mod
 
 ARCH = {"borrar_archivos", "mover_archivos", "renombrar_archivo", "crear_carpeta", "deshacer_archivos"}
+EXTRA = {"abrir_correo", "mostrar_nota", "ordenar_carpeta", "renombrar_lote", "limpiar_viejos", "buscar_contenido", "duplicados",
+         "grandes_viejos", "comprimir", "leer_archivo"}
 
 
 def nombres(texto):
@@ -27,4 +29,15 @@ def test_no_gastan_contexto_si_no_se_piden(frase):
 def test_las_de_siempre_estan_siempre():
     base = nombres("hola")
     assert {"mostrar_archivos", "abrir", "warp", "spotify"} <= base
-    assert len(tools_mod.TOOLS) == len(base) + len(ARCH)
+    assert not (EXTRA & base)
+    assert len(tools_mod.TOOLS) == len(base) + len(ARCH | EXTRA)
+
+
+@pytest.mark.parametrize("frase,tool", [("ordena las descargas", "ordenar_carpeta"),
+                                        ("limpia lo viejo de descargas", "limpiar_viejos"),
+                                        ("hay duplicados en descargas", "duplicados"),
+                                        ("resúmeme la tres", "leer_archivo"),
+                                        ("búscame el archivo que habla de la hipoteca", "buscar_contenido"),
+                                        ("comprime la 1 y la 2", "comprimir")])
+def test_extra_se_ofrecen(frase, tool):
+    assert tool in nombres(frase)

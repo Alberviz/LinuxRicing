@@ -10,7 +10,7 @@ from . import tool
 
 # Las tools de archivos solo se ofrecen al LLM si la frase habla de ello (ahorra ~650 tokens).
 _PIDE = re.compile(r"\b(borra\w*|elimina\w*|mueve\w*|mover|renombra\w*|carpeta\w*|deshaz|deshacer|"
-                   r"recupera\w*|papelera|nombre|p[aá]sa(?:la|lo|las|los|r)\b)", re.I)
+                   r"recupera\w*|papelera|nombre|ordena\w*|organiza\w*|limpia\w*|viej\w*|antiguo\w*|p[aá]sa(?:la|lo|las|los|r)\b)", re.I)
 
 
 def _hace_falta(texto: str) -> bool:
@@ -100,6 +100,49 @@ def crear_carpeta(nombre: str, en: str | None = None) -> dict:
         else:
             raise archivos.Rechazo("¿Dónde la creo?")
         return _resultado(archivos.planificar_crear_carpeta(nombre, base))
+    except archivos.Rechazo as e:
+        return {"ok": False, "error": str(e)}
+
+
+@tool("ordenar_carpeta",
+      "Ordena una carpeta metiendo los archivos sueltos en subcarpetas por tipo (Imágenes, PDFs, Instaladores…): «ordena las descargas». Pide confirmación.",
+      {"carpeta": {"type": "string", "description": "carpeta (por defecto, la que se ve)"}},
+      icon="auto_awesome_mosaic", effect="confirm:archivos", cuando=_hace_falta)
+def ordenar_carpeta(carpeta: str | None = None) -> dict:
+    try:
+        esc = holo.escena()
+        base = archivos.resolver_destino(carpeta, esc.carpeta) if carpeta else (Path(esc.carpeta) if esc.carpeta else None)
+        if base is None:
+            raise archivos.Rechazo("¿Qué carpeta ordeno?")
+        return _resultado(archivos.planificar_ordenar(base))
+    except archivos.Rechazo as e:
+        return {"ok": False, "error": str(e)}
+
+
+@tool("renombrar_lote",
+      "Renombra varios archivos de la lista con un nombre común numerado por fecha: «renombra todas como Viaje Berlín» → «Viaje Berlín 01.jpg»…",
+      {"nombre": {"type": "string", "description": "nombre común, sin número ni extensión"}, "numeros": _NUMS},
+      required=["nombre"], icon="edit_note", effect="confirm:archivos", cuando=_hace_falta)
+def renombrar_lote(nombre: str, numeros: list[int] | None = None) -> dict:
+    try:
+        esc = holo.escena()
+        rutas = _rutas(numeros) if numeros else [it.ruta for it in esc.items if it.tipo != "carpeta"]
+        if len(rutas) < 2:
+            raise archivos.Rechazo("Para uno solo usa renombrar.")
+        return _resultado(archivos.planificar_renombrar_lote(rutas, nombre))
+    except archivos.Rechazo as e:
+        return {"ok": False, "error": str(e)}
+
+
+@tool("limpiar_viejos",
+      "Manda a la papelera lo que lleva más de N días sin tocar en una carpeta: «limpia lo de descargas con más de un mes». Pide confirmación.",
+      {"carpeta": {"type": "string", "description": "carpeta (por defecto Descargas)"},
+       "dias": {"type": "integer", "description": "antigüedad mínima en días (30 por defecto)"}},
+      icon="auto_delete", effect="confirm:archivos", cuando=_hace_falta)
+def limpiar_viejos(carpeta: str | None = None, dias: int = 30) -> dict:
+    try:
+        base = archivos.resolver_destino(carpeta, holo.escena().carpeta) if carpeta else archivos.ENTORNO.raices[0]
+        return _resultado(archivos.planificar_limpiar_viejos(base, int(dias or 30)))
     except archivos.Rechazo as e:
         return {"ok": False, "error": str(e)}
 

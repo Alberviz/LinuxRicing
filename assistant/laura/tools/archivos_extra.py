@@ -4,6 +4,7 @@ borrar_archivos (con confirmación)."""
 from __future__ import annotations
 
 import hashlib
+import re
 import subprocess
 import time
 import zipfile
@@ -11,6 +12,14 @@ from pathlib import Path
 
 from .. import archivos, holo
 from . import tool
+
+_PIDE = re.compile(r"(dentro|habla\w* de|pone|puse|duplicad\w*|repetid\w*|ocupa\w*|grande\w*|viej\w*|antigu\w*|"
+                   r"comprim\w*|\bzip\b|res[uú]m\w*|de qu[eé] va|l[eé]e(?:me)?\b|cu[eé]ntame)", re.I)
+
+
+def _hace_falta(texto: str) -> bool:
+    return bool(_PIDE.search(texto))
+
 
 _OCULTO = ("/.", "/node_modules/", "/__pycache__/", "/.venv/")
 
@@ -53,7 +62,7 @@ def _err(e: Exception) -> dict:
       "Busca archivos por lo que pone DENTRO de ellos («el archivo que HABLA DE X», «en qué documento puse lo de la hipoteca»). Si nombra el archivo o su tipo («el pdf de redes», «la foto de…») usa mostrar_archivos, no esta.",
       {"texto": {"type": "string", "description": "qué pone dentro"},
        "carpeta": {"type": "string", "description": "carpeta (opcional): descargas, documentos…"}},
-      required=["texto"], icon="manage_search")
+      required=["texto"], icon="manage_search", cuando=_hace_falta)
 def buscar_contenido(texto: str, carpeta: str = "") -> dict:
     try:
         base = _carpeta(carpeta) if carpeta else None
@@ -84,7 +93,7 @@ def buscar_contenido(texto: str, carpeta: str = "") -> dict:
 
 @tool("duplicados",
       "Busca archivos repetidos (mismo contenido) en una carpeta y enseña las copias sobrantes («hay duplicados en descargas»). Para borrarlas, luego borrar_archivos.",
-      {"carpeta": {"type": "string", "description": "carpeta (opcional)"}}, icon="content_copy")
+      {"carpeta": {"type": "string", "description": "carpeta (opcional)"}}, icon="content_copy", cuando=_hace_falta)
 def duplicados(carpeta: str = "") -> dict:
     try:
         base = _carpeta(carpeta)
@@ -116,7 +125,7 @@ def duplicados(carpeta: str = "") -> dict:
       "Enseña lo que más ocupa o lo más antiguo sin tocar de una carpeta («qué ocupa más en descargas», «qué hay viejo en descargas»).",
       {"criterio": {"type": "string", "enum": ["grandes", "viejos"]},
        "carpeta": {"type": "string", "description": "carpeta (opcional)"}},
-      required=["criterio"], icon="data_usage")
+      required=["criterio"], icon="data_usage", cuando=_hace_falta)
 def grandes_viejos(criterio: str, carpeta: str = "") -> dict:
     try:
         base = _carpeta(carpeta)
@@ -145,7 +154,7 @@ def grandes_viejos(criterio: str, carpeta: str = "") -> dict:
       "Comprime en un .zip los archivos de la lista en pantalla («comprime la 1 y la 2», «hazme un zip con esas»). No borra los originales.",
       {"numeros": {"type": "array", "items": {"type": "integer"}, "description": "números de la lista"},
        "nombre": {"type": "string", "description": "nombre del zip (opcional)"}},
-      icon="folder_zip")
+      icon="folder_zip", cuando=_hace_falta)
 def comprimir(numeros: list[int] | None = None, nombre: str = "") -> dict:
     esc = holo.escena()
     nums = numeros or ([esc.seleccionado] if esc.seleccionado else [it.n for it in esc.items])
@@ -172,7 +181,7 @@ def comprimir(numeros: list[int] | None = None, nombre: str = "") -> dict:
 @tool("leer_archivo",
       "Lee un ARCHIVO de la lista de archivos en pantalla para resumirlo («resúmeme la 2», «resume la tres», «de qué va ese pdf»). Si el resumen es largo, ponlo con mostrar_nota.",
       {"numero": {"type": "integer", "description": "número de la lista (vacío = el seleccionado)"}},
-      icon="article")
+      icon="article", cuando=_hace_falta)
 def leer_archivo(numero: int = 0) -> dict:
     it = holo.escena().resolver(numero or None)
     if it is None:

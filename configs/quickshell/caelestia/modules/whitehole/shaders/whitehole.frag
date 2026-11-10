@@ -29,6 +29,18 @@ float h21(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(
 float vn(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
  return mix(mix(h21(i),h21(i+vec2(1,0)),f.x),mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x),f.y);}
 float fbm(vec2 p){float a=.5,s=0.;for(int i=0;i<4;i++){s+=a*vn(p);p*=2.03;a*=.5;}return s;}
+// v2.16 (fuente de verdad: Olimpo, app/src/warp/shaders.ts) — lente con estrellas curvadas por el agujero,
+// bordes del quad que se apagan sin cortes y tramado contra las bandas.
+vec3 lente(vec2 p, float b, float t){
+    float rp = length(p); if (rp < R * 1.02 || rp > R * 7.0) return vec3(0.0);
+    vec2 L = p - p / rp * b * b / rp; vec2 g = L / (8.0 * U); vec2 i = floor(g), f = fract(g) - 0.5;
+    float h = h21(i); if (h < 0.88) return vec3(0.0);
+    vec2 o = (vec2(h21(i + 3.1), h21(i + 7.7)) - 0.5) * 0.55; float d = length(f - o);
+    float tw = 0.65 + 0.35 * sin(t * 1.7 + h * 60.0); float mag = 1.0 + 1.2 * sm(2.6, 1.15, rp / R);
+    return mix(vec3(0.72, 0.8, 1.0), vec3(1.0, 0.88, 0.74), h21(i + 1.3)) * smoothstep(0.16 * mag, 0.0, d) * tw * (h - 0.88) * 9.0 * mag * sm(7.0, 3.5, rp / R);
+}
+float bordes(vec2 p){ vec2 m = size * 0.5 - abs(p); return sm(0.0, 36.0 * U, min(m.x, m.y)); }
+float trama(){ return (h21(gl_FragCoord.xy) - 0.5) / 160.0; }
 // partículas procedurales que salen del núcleo (sin CPU): n sectores, 3 capas
 float sparks(vec2 s,float t,float n,float spread,float speed,float cone){
  float acc=0.;float r=length(s);float ang=atan(s.x,s.y);
@@ -49,7 +61,7 @@ const float TILT=-0.29670597;const float INC=0.17;
 vec3 coolColor(float rn,float dop){float t=clamp(rn-(dop-1.)*.35,0.,1.);return mix(vec3(1.,.985,.96),vec3(.42,.62,1.),pow(t,.8));}
 float streaks(float th,float rho){float w=pow(rho/1.55,-1.5);float a=th+spin*w;vec2 e=vec2(cos(a),sin(a));
  float g=vn(e*9.+vec2(rho*7.,0.))*.6+vn(e*26.+vec2(0.,rho*19.))*.4;return .15+1.6*smoothstep(.38,.8,g);}
-void main(){vec2 p=(qt_TexCoord0-0.5)*size;vec2 s=p/R;float r=length(s);float c=cos(TILT),sn=sin(TILT);
+void main(){vec2 p=(qt_TexCoord0-0.5)*size;vec2 s=p/R;float r=length(s);if(r>9.){fragColor=vec4(0.);return;}float c=cos(TILT),sn=sin(TILT);
  vec2 q=vec2(s.x*c+s.y*sn,-s.x*sn+s.y*c);float bright=vis*(.5+.8*en);vec3 back=vec3(0.),front=vec3(0.);
  // resplandor frío amplio
  back+=vec3(.55,.7,1.)*vis*(.16+.12*en)*exp(-max(r-.9,0.)*.9)+vec3(.8,.88,1.)*vis*.08*exp(-max(r-.9,0.)*.3);
@@ -71,7 +83,7 @@ void main(){vec2 p=(qt_TexCoord0-0.5)*size;vec2 s=p/R;float r=length(s);float c=
    back+=coolColor(rn,dop)*bright*pow(dop,2.)*(1.-rn*.5)*.35*streaks(atan(qy,q.x),1.55+rn*2.9)*edge;}}}
  // núcleo incandescente (donde el negro tiene la sombra): gradiente, granulado y limbo frío
  float body=vis*(1.-smoothstep(.88,1.06,r));
- float gran=fbm(s*3.2+vec2(tsec*.15,-tsec*.22));
+ float gran=r<1.1?fbm(s*3.2+vec2(tsec*.15,-tsec*.22)):0.;
  vec3 coreC=mix(vec3(1.,1.,1.),vec3(.72,.84,1.),sm(.3,1.,r))*(.82+.18*gran)*(1.+.25*en);
  // anillo de fotones y destellos
  {float lw=max(.7,(1.2+en)*U);float d=abs(r-1.05)*R;front+=vec3(.86,.93,1.)*vis*(.45+.6*en)*(1.-smoothstep(lw*.5,lw*.5+1.4,d));
@@ -83,4 +95,5 @@ void main(){vec2 p=(qt_TexCoord0-0.5)*size;vec2 s=p/R;float r=length(s);float c=
  if(closing>0.)front+=vec3(1.)*closing*exp(-r*r*(1.6-closing))*.9;
  {float Rr=R*(1.45+.25*en)*vis;if(p.y>=0.&&Rr>1.){float dd=abs(length(p)-Rr);float amp=vis*(.35+.65*en);
   front+=vec3(.8,.88,1.)*amp*(.06*(1.-smoothstep(2.5*U,2.5*U+2.,dd))+.45*(1.-smoothstep(.7*U,.7*U+1.2,dd)));}}
- vec3 rgb=back*(1.-body)+coreC*body+front;rgb=1.-exp(-rgb*1.15);fragColor=vec4(rgb,body*.9)*qt_Opacity;}
+ back*=sm(9.,7.,r);back+=lente(p,1.5*R,tsec)*vis*.8;
+ vec3 rgb=back*(1.-body)+coreC*body+front;rgb=(1.-exp(-rgb*1.15))*bordes(p)+trama();fragColor=vec4(max(rgb,0.),body*.9)*qt_Opacity;}
