@@ -9,7 +9,7 @@ import urllib.request
 
 from . import memory
 from . import tools as tools_mod
-from .config import CFG, log
+from .config import CFG, bus, log
 
 _MODE_ON = ("modo calidad", "modo potente", "modo experto", "mas potente", "más potente")
 _MODE_OFF = ("modo rapido", "modo rápido", "modo normal", "modo ligero")

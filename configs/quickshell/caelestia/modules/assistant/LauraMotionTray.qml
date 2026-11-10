@@ -6,614 +6,471 @@ import qs.components
 import qs.services
 import qs.modules.assistant
 
-// Bandeja cinemática superior que se expande dentro de la píldora de Laura
-// para mostrar feedback instantáneo de acciones de sistema (Zero-Latency).
+// Feedback de acciones rápidas dentro de la píldora de Laura (sin voz):
+// track_slide · playback_impact · delta_meter · system_action.
+// Sin bucles infinitos: todo son animaciones de un disparo, salvo el ecualizador,
+// que solo corre mientras la bandeja está abierta y la música suena.
 Item {
     id: root
 
-    readonly property var motion: Laura.activeMotion
-    readonly property bool active: motion !== null
+    // se queda con la última orden mientras se repliega (si no, el contenido se vacía a mitad)
+    property var motion: null
+    readonly property bool active: Laura.activeMotion !== null
+    readonly property string tipo: motion?.tipo ?? ""
+    readonly property color acc: Colours.palette.m3primary
+    property int shot: 0
 
-    implicitHeight: active ? 96 : 0
-    implicitWidth: 480
+    Connections {
+        target: Laura
+        function onActiveMotionChanged(): void {
+            if (!Laura.activeMotion)
+                return;
+            root.motion = Laura.activeMotion;
+            root.shot++;
+        }
+    }
+
+    implicitHeight: active ? 84 : 0
     clip: true
-
+    opacity: active ? 1 : 0
     Behavior on implicitHeight {
         NumberAnimation {
-            duration: 380
-            easing.type: Easing.OutCubic
+            duration: 420
+            easing.type: Easing.OutExpo
         }
     }
-
-    opacity: active ? 1 : 0
     Behavior on opacity {
         NumberAnimation {
-            duration: 250
-            easing.type: Easing.OutQuad
+            duration: 220
         }
     }
 
-    // Identificador para re-disparar animaciones cuando cambie la orden
-    property int motionCounter: 0
-    onMotionChanged: {
-        if (motion)
-            motionCounter++;
+    // ---------- piezas comunes ----------
+    component Tile: Rectangle {
+        width: 56
+        height: 56
+        radius: 16
+        color: Qt.alpha(root.acc, 0.14)
+        border.width: 1
+        border.color: Qt.alpha(root.acc, 0.22)
+        clip: true
     }
-
-    // -------------------------------------------------------------
-    // 1. SLIDE DE CANCIÓN (Next / Prev)
-    // -------------------------------------------------------------
-    Item {
-        id: trackSlideWrap
-        anchors.fill: parent
-        visible: root.motion?.tipo === "track_slide"
-
-        property real progress: 0
-        readonly property string dir: root.motion?.direccion ?? "next"
-        readonly property string prevTitle: root.motion?.prev_title ?? "Pista anterior"
-        readonly property string prevArtist: root.motion?.prev_artist ?? ""
-        readonly property string nextTitle: root.motion?.next_title ?? "Siguiente pista"
-        readonly property string nextArtist: root.motion?.next_artist ?? ""
-        readonly property string artUrl: root.motion?.art ?? ""
-
-        Connections {
-            target: root
-            function onMotionCounterChanged(): void {
-                if (root.motion?.tipo === "track_slide") {
-                    trackSlideWrap.progress = 0;
-                    slideAnim.restart();
-                }
-            }
-        }
-
-        NumberAnimation {
-            id: slideAnim
-            target: trackSlideWrap
-            property: "progress"
-            from: 0
-            to: 1
-            duration: 480
-            easing.type: Easing.OutCubic
-        }
-
-        // Pista saliente (Slide out)
-        Item {
-            anchors.verticalCenter: parent.verticalCenter
-            width: parent.width - 48
-            height: 64
-            x: 24 + (trackSlideWrap.dir === "next" ? -trackSlideWrap.progress * (width + 40) : trackSlideWrap.progress * (width + 40))
-            opacity: Math.max(0, 1 - trackSlideWrap.progress * 1.4)
-
-            Row {
-                anchors.fill: parent
-                spacing: 16
-                anchors.verticalCenter: parent.verticalCenter
-
-                // Carátula / Vinilo procedimental
-                Rectangle {
-                    width: 58
-                    height: 58
-                    radius: 12
-                    color: Qt.alpha(Colours.palette.m3surfaceContainerHigh, 0.9)
-                    border.width: 1
-                    border.color: Qt.alpha(Colours.palette.m3onSurface, 0.12)
-                    clip: true
-                    anchors.verticalCenter: parent.verticalCenter
-
-                    // Anillos de vinilo
-                    Rectangle {
-                        anchors.centerIn: parent
-                        width: 44
-                        height: 44
-                        radius: 22
-                        color: "transparent"
-                        border.width: 1
-                        border.color: Qt.alpha(Colours.palette.m3onSurface, 0.1)
-                    }
-                    Rectangle {
-                        anchors.centerIn: parent
-                        width: 28
-                        height: 28
-                        radius: 14
-                        color: "transparent"
-                        border.width: 1
-                        border.color: Qt.alpha(Colours.palette.m3onSurface, 0.15)
-                    }
-                    Rectangle {
-                        anchors.centerIn: parent
-                        width: 12
-                        height: 12
-                        radius: 6
-                        color: Colours.palette.m3primary
-                    }
-
-                    Image {
-                        anchors.fill: parent
-                        source: trackSlideWrap.artUrl
-                        fillMode: Image.PreserveAspectCrop
-                        visible: status === Image.Ready
-                    }
-                }
-
-                Column {
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: parent.width - 74
-                    spacing: 2
-
-                    Row {
-                        spacing: 6
-                        Rectangle {
-                            width: 6
-                            height: 6
-                            radius: 3
-                            color: Colours.palette.m3primary
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
-                        StyledText {
-                            text: "SPOTIFY"
-                            color: Colours.palette.m3primary
-                            font.family: "JetBrains Mono, monospace"
-                            font.pixelSize: 10
-                            font.weight: Font.Bold
-                            font.letterSpacing: 1.1
-                        }
-                    }
-
-                    StyledText {
-                        width: parent.width
-                        text: trackSlideWrap.prevTitle
-                        color: Colours.palette.m3onSurface
-                        font.pixelSize: 17
-                        font.weight: Font.Bold
-                        elide: Text.ElideRight
-                    }
-
-                    StyledText {
-                        width: parent.width
-                        text: trackSlideWrap.prevArtist
-                        color: Colours.palette.m3onSurfaceVariant
-                        font.pixelSize: 13
-                        elide: Text.ElideRight
-                        visible: text.length > 0
-                    }
-                }
-            }
-        }
-
-        // Pista entrante (Slide in)
-        Item {
-            anchors.verticalCenter: parent.verticalCenter
-            width: parent.width - 48
-            height: 64
-            x: 24 + (trackSlideWrap.dir === "next" ? (1 - trackSlideWrap.progress) * (width + 40) : -(1 - trackSlideWrap.progress) * (width + 40))
-            opacity: Math.min(1, trackSlideWrap.progress * 1.5)
-
-            Row {
-                anchors.fill: parent
-                spacing: 16
-                anchors.verticalCenter: parent.verticalCenter
-
-                // Carátula / Vinilo entrante
-                Rectangle {
-                    width: 58
-                    height: 58
-                    radius: 12
-                    color: Qt.alpha(Colours.palette.m3surfaceContainerHigh, 0.9)
-                    border.width: 1
-                    border.color: Qt.alpha(Colours.palette.m3primary, 0.35)
-                    clip: true
-                    anchors.verticalCenter: parent.verticalCenter
-
-                    // Anillos de vinilo
-                    Rectangle {
-                        anchors.centerIn: parent
-                        width: 44
-                        height: 44
-                        radius: 22
-                        color: "transparent"
-                        border.width: 1
-                        border.color: Qt.alpha(Colours.palette.m3primary, 0.2)
-                    }
-                    Rectangle {
-                        anchors.centerIn: parent
-                        width: 28
-                        height: 28
-                        radius: 14
-                        color: "transparent"
-                        border.width: 1
-                        border.color: Qt.alpha(Colours.palette.m3primary, 0.25)
-                    }
-                    Rectangle {
-                        anchors.centerIn: parent
-                        width: 12
-                        height: 12
-                        radius: 6
-                        color: Colours.palette.m3primary
-                    }
-
-                    Image {
-                        anchors.fill: parent
-                        source: trackSlideWrap.artUrl
-                        fillMode: Image.PreserveAspectCrop
-                        visible: status === Image.Ready
-                    }
-                }
-
-                Column {
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: parent.width - 74
-                    spacing: 2
-
-                    Row {
-                        spacing: 6
-                        MaterialIcon {
-                            text: trackSlideWrap.dir === "next" ? "skip_next" : "skip_previous"
-                            color: Colours.palette.m3primary
-                            fontStyle: Tokens.font.icon.small
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
-                        StyledText {
-                            text: trackSlideWrap.dir === "next" ? "SIGUIENTE PISTA" : "PISTA ANTERIOR"
-                            color: Colours.palette.m3primary
-                            font.family: "JetBrains Mono, monospace"
-                            font.pixelSize: 10
-                            font.weight: Font.Bold
-                            font.letterSpacing: 1.1
-                        }
-                    }
-
-                    StyledText {
-                        width: parent.width
-                        text: trackSlideWrap.nextTitle
-                        color: Colours.palette.m3onSurface
-                        font.pixelSize: 17
-                        font.weight: Font.Bold
-                        elide: Text.ElideRight
-                    }
-
-                    StyledText {
-                        width: parent.width
-                        text: trackSlideWrap.nextArtist
-                        color: Colours.palette.m3tertiary
-                        font.pixelSize: 13
-                        elide: Text.ElideRight
-                        visible: text.length > 0
-                    }
-                }
-            }
-        }
-    }
-
-    // -------------------------------------------------------------
-    // 2. PAUSA / PLAY CINÉTICO («PUM» CON ANILLO DE IMPACTO)
-    // -------------------------------------------------------------
-    Item {
-        id: playbackWrap
-        anchors.fill: parent
-        visible: root.motion?.tipo === "playback_impact"
-
-        property real impactAnim: 0
-        readonly property bool isPause: root.motion?.estado === "pause"
-        readonly property string songTitle: root.motion?.titulo ?? "Música"
-        readonly property string songArtist: root.motion?.artista ?? ""
-
-        Connections {
-            target: root
-            function onMotionCounterChanged(): void {
-                if (root.motion?.tipo === "playback_impact") {
-                    playbackWrap.impactAnim = 0;
-                    impactTimer.restart();
-                }
-            }
-        }
-
-        NumberAnimation {
-            id: impactTimer
-            target: playbackWrap
-            property: "impactAnim"
-            from: 0
-            to: 1
-            duration: 450
-            easing.type: Easing.OutBack
-        }
-
-        Row {
+    component Cover: Tile {
+        id: cv
+        property string src: ""
+        property bool fallback: true
+        MaterialIcon {
             anchors.centerIn: parent
-            spacing: 20
+            visible: cv.fallback && img.status !== Image.Ready
+            text: "music_note"
+            color: root.acc
+            fontStyle: Tokens.font.icon.large
+        }
+        Image {
+            id: img
+            anchors.fill: parent
+            source: cv.src
+            asynchronous: true
+            sourceSize: Qt.size(112, 112)
+            fillMode: Image.PreserveAspectCrop
+            visible: status === Image.Ready
+        }
+    }
+    component Overline: Row {
+        property string icon
+        property string text
+        spacing: 6
+        MaterialIcon {
+            anchors.verticalCenter: parent.verticalCenter
+            text: parent.icon
+            color: root.acc
+            fill: 1
+            fontStyle: Tokens.font.icon.small
+        }
+        StyledText {
+            anchors.verticalCenter: parent.verticalCenter
+            text: parent.text.toUpperCase()
+            color: root.acc
+            font.pointSize: 8.5
+            font.weight: Font.DemiBold
+            font.letterSpacing: 1.4
+        }
+    }
+    component Title: StyledText {
+        width: parent.width
+        elide: Text.ElideRight
+        color: Colours.palette.m3onSurface
+        font.pointSize: 13
+        font.weight: Font.DemiBold
+    }
+    component Sub: StyledText {
+        width: parent.width
+        elide: Text.ElideRight
+        visible: text.length > 0
+        color: Colours.palette.m3onSurfaceVariant
+        font.pointSize: 10
+    }
 
-            // Icono central con choque expansivo
+    Item {
+        id: stage
+        anchors.fill: parent
+        anchors.leftMargin: 14
+        anchors.rightMargin: 18
+        anchors.topMargin: 14
+        anchors.bottomMargin: 14
+
+        // ---------- 1. siguiente / anterior: la pista vieja se va, la nueva entra ----------
+        Item {
+            id: slide
+            anchors.fill: parent
+            visible: root.tipo === "track_slide"
+            readonly property real sgn: root.motion?.direccion === "prev" ? -1 : 1
+            property real t: 1
+
+            Connections {
+                target: root
+                function onShotChanged(): void {
+                    if (root.tipo === "track_slide")
+                        slideAnim.restart();
+                }
+            }
+            NumberAnimation {
+                id: slideAnim
+                target: slide
+                property: "t"
+                from: 0
+                to: 1
+                duration: 620
+                easing.type: Easing.OutQuint
+            }
+
+            Repeater {
+                model: 2 // 0 = saliente, 1 = entrante
+                Item {
+                    id: card
+                    required property int index
+                    readonly property bool inn: index === 1
+                    readonly property real k: inn ? 1 - slide.t : -slide.t
+                    width: slide.width
+                    height: slide.height
+                    x: k * 70 * slide.sgn
+                    opacity: inn ? Math.min(1, slide.t * 1.6) : Math.max(0, 1 - slide.t * 2.2)
+                    scale: inn ? 0.94 + 0.06 * slide.t : 1 - 0.06 * slide.t
+
+                    Cover {
+                        id: cov
+                        anchors.verticalCenter: parent.verticalCenter
+                        src: card.inn ? (root.motion?.art ?? "") : (root.motion?.prev_art ?? root.motion?.art ?? "")
+                    }
+                    Column {
+                        anchors.left: cov.right
+                        anchors.leftMargin: 14
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 2
+                        Overline {
+                            icon: slide.sgn > 0 ? "skip_next" : "skip_previous"
+                            text: slide.sgn > 0 ? "Siguiente" : "Anterior"
+                        }
+                        Title {
+                            text: card.inn ? (root.motion?.next_title ?? "") : (root.motion?.prev_title ?? "")
+                        }
+                        Sub {
+                            text: card.inn ? (root.motion?.next_artist ?? "") : (root.motion?.prev_artist ?? "")
+                        }
+                    }
+                }
+            }
+        }
+
+        // ---------- 2. pausa / play: golpe en la carátula + onda ----------
+        Item {
+            id: play
+            anchors.fill: parent
+            visible: root.tipo === "playback_impact"
+            readonly property bool paused: root.motion?.estado === "pause"
+            property real t: 1
+
+            Connections {
+                target: root
+                function onShotChanged(): void {
+                    if (root.tipo === "playback_impact")
+                        playAnim.restart();
+                }
+            }
+            NumberAnimation {
+                id: playAnim
+                target: play
+                property: "t"
+                from: 0
+                to: 1
+                duration: 700
+                easing.type: Easing.OutCubic
+            }
+
             Item {
+                id: coverBox
                 width: 56
                 height: 56
                 anchors.verticalCenter: parent.verticalCenter
 
-                // Onda expansiva de impacto
+                // onda expansiva
                 Rectangle {
                     anchors.centerIn: parent
-                    width: 54 * (0.8 + playbackWrap.impactAnim * 1.5)
-                    height: width
-                    radius: width / 2
+                    width: 56
+                    height: 56
+                    radius: 18
                     color: "transparent"
                     border.width: 2
-                    border.color: Colours.palette.m3primary
-                    opacity: Math.max(0, (1 - playbackWrap.impactAnim) * 0.85)
+                    border.color: root.acc
+                    scale: 1 + play.t * 0.55
+                    opacity: (1 - play.t) * 0.8
                 }
-
-                // Círculo del botón que brota con "pum"
-                Rectangle {
-                    anchors.centerIn: parent
-                    width: 52
-                    height: 52
-                    radius: 26
-                    scale: 0.6 + playbackWrap.impactAnim * 0.4
-                    color: playbackWrap.isPause ? Colours.palette.m3surfaceContainerHigh : Colours.palette.m3primary
-                    border.width: 1
-                    border.color: Qt.alpha(Colours.palette.m3primary, 0.4)
-
+                Cover {
+                    id: pc
+                    src: root.motion?.art ?? ""
+                    fallback: false
+                    scale: play.t < 0.18 ? 1 - play.t * 0.4 : 0.93 + 0.07 * Math.min(1, (play.t - 0.18) / 0.5)
+                    Rectangle {
+                        anchors.fill: parent
+                        color: Qt.alpha(Colours.palette.m3surface, play.paused ? 0.55 : 0.25)
+                        Behavior on color {
+                            ColorAnimation {
+                                duration: 300
+                            }
+                        }
+                    }
                     MaterialIcon {
                         anchors.centerIn: parent
-                        text: playbackWrap.isPause ? "pause" : "play_arrow"
-                        color: playbackWrap.isPause ? Colours.palette.m3onSurface : Colours.palette.m3onPrimary
-                        fontStyle: Tokens.font.icon.medium
+                        text: play.paused ? "pause" : "play_arrow"
+                        color: Colours.palette.m3onSurface
+                        fill: 1
+                        fontStyle: Tokens.font.icon.large
+                        scale: 1.7 - 0.7 * Math.min(1, play.t * 1.8)
+                        opacity: Math.min(1, play.t * 4)
                     }
                 }
             }
-
-            // Metadatos
             Column {
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: 3
-
-                StyledText {
-                    text: playbackWrap.isPause ? "PAUSADO" : "REANUDANDO"
-                    color: Colours.palette.m3onSurface
-                    font.pixelSize: 18
-                    font.weight: Font.Bold
-                    font.letterSpacing: 1.1
-                }
-
-                StyledText {
-                    text: playbackWrap.songTitle + (playbackWrap.songArtist.length > 0 ? " · " + playbackWrap.songArtist : "")
-                    color: Colours.palette.m3onSurfaceVariant
-                    font.pixelSize: 13
-                    elide: Text.ElideRight
-                    maximumLineCount: 1
-                }
-            }
-        }
-    }
-
-    // -------------------------------------------------------------
-    // 3. MEDIDOR EN DELTA CON INERCIA (Volumen / Brillo)
-    // -------------------------------------------------------------
-    Item {
-        id: deltaWrap
-        anchors.fill: parent
-        visible: root.motion?.tipo === "delta_meter"
-
-        property real animatedVal: root.motion ? (root.motion.from ?? 0) : 0
-        readonly property bool isVol: root.motion?.medidor === "volumen"
-        readonly property real fromPct: root.motion ? (root.motion.from ?? 0) : 0
-        readonly property real toPct: root.motion ? (root.motion.to ?? 0) : 0
-        readonly property bool isMuted: root.motion?.silenciado ?? false
-
-        Connections {
-            target: root
-            function onMotionCounterChanged(): void {
-                if (root.motion?.tipo === "delta_meter") {
-                    deltaAnim.stop();
-                    deltaWrap.animatedVal = deltaWrap.fromPct;
-                    deltaAnim.from = deltaWrap.fromPct;
-                    deltaAnim.to = deltaWrap.toPct;
-                    deltaAnim.restart();
-                }
-            }
-        }
-
-        NumberAnimation {
-            id: deltaAnim
-            target: deltaWrap
-            property: "animatedVal"
-            duration: 600
-            easing.type: Easing.OutCubic
-        }
-
-        Column {
-            anchors.centerIn: parent
-            width: parent.width - 56
-            spacing: 10
-
-            // Fila superior: icono, título y números en vivo
-            Item {
-                width: parent.width
-                height: 26
-
-                Row {
-                    anchors.left: parent.left
-                    anchors.verticalCenter: parent.verticalCenter
-                    spacing: 8
-
-                    MaterialIcon {
-                        text: deltaWrap.isVol ? (deltaWrap.isMuted ? "volume_off" : (deltaWrap.toPct < deltaWrap.fromPct ? "volume_down" : "volume_up")) : "brightness_6"
-                        color: Colours.palette.m3primary
-                        fontStyle: Tokens.font.icon.small
-                        anchors.verticalCenter: parent.verticalCenter
-                    }
-
-                    StyledText {
-                        text: deltaWrap.isVol ? "VOLUMEN" : "BRILLO"
-                        color: Colours.palette.m3onSurfaceVariant
-                        font.pixelSize: 12
-                        font.weight: Font.Bold
-                        font.letterSpacing: 1.1
-                        anchors.verticalCenter: parent.verticalCenter
-                    }
-                }
-
-                Row {
-                    anchors.right: parent.right
-                    anchors.bottom: parent.bottom
-                    spacing: 8
-
-                    StyledText {
-                        text: Math.round(deltaWrap.fromPct) + "%"
-                        color: Colours.palette.m3onSurfaceVariant
-                        font.family: "JetBrains Mono, monospace"
-                        font.pixelSize: 13
-                        font.strikeout: true
-                        opacity: 0.55
-                        anchors.bottom: parent.bottom
-                        anchors.bottomMargin: 2
-                    }
-
-                    StyledText {
-                        text: "→"
-                        color: Colours.palette.m3onSurfaceVariant
-                        font.pixelSize: 13
-                        opacity: 0.5
-                        anchors.bottom: parent.bottom
-                        anchors.bottomMargin: 2
-                    }
-
-                    StyledText {
-                        text: Math.round(deltaWrap.animatedVal) + "%"
-                        color: Colours.palette.m3primary
-                        font.family: "JetBrains Mono, monospace"
-                        font.pixelSize: 22
-                        font.weight: Font.Bold
-                        anchors.bottom: parent.bottom
-                    }
-                }
-            }
-
-            // Pista de la barra con marca fantasma del valor previo
-            Item {
-                width: parent.width
-                height: 10
-
-                // Fondo de la barra
-                Rectangle {
-                    anchors.fill: parent
-                    radius: 5
-                    color: Qt.alpha(Colours.palette.m3onSurface, 0.12)
-                }
-
-                // Marca fantasma del valor previo
-                Rectangle {
-                    anchors.left: parent.left
-                    anchors.top: parent.top
-                    anchors.bottom: parent.bottom
-                    width: (parent.width * Math.min(100, Math.max(0, deltaWrap.fromPct))) / 100
-                    radius: 5
-                    color: Qt.alpha(Colours.palette.m3onSurface, 0.14)
-                }
-
-                // Barra de llenado fluido con inercia
-                Rectangle {
-                    anchors.left: parent.left
-                    anchors.top: parent.top
-                    anchors.bottom: parent.bottom
-                    width: Math.max(8, (parent.width * Math.min(100, Math.max(0, deltaWrap.animatedVal))) / 100)
-                    radius: 5
-
-                    gradient: Gradient {
-                        orientation: Gradient.Horizontal
-                        GradientStop {
-                            position: 0
-                            color: Colours.palette.m3primary
-                        }
-                        GradientStop {
-                            position: 1
-                            color: Colours.palette.m3tertiary
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // -------------------------------------------------------------
-    // 4. ACCIÓN DE SISTEMA (Captura, Bloqueo, etc.)
-    // -------------------------------------------------------------
-    Item {
-        id: sysActionWrap
-        anchors.fill: parent
-        visible: root.motion?.tipo === "system_action"
-
-        property real pulseScale: 0
-        readonly property string iconName: root.motion?.icono ?? "bolt"
-        readonly property string actionTitle: root.motion?.titulo ?? "Acción ejecutada"
-
-        Connections {
-            target: root
-            function onMotionCounterChanged(): void {
-                if (root.motion?.tipo === "system_action") {
-                    sysActionWrap.pulseScale = 0;
-                    pulseTimer.restart();
-                }
-            }
-        }
-
-        NumberAnimation {
-            id: pulseTimer
-            target: sysActionWrap
-            property: "pulseScale"
-            from: 0
-            to: 1
-            duration: 400
-            easing.type: Easing.OutBack
-        }
-
-        Row {
-            anchors.centerIn: parent
-            spacing: 16
-
-            Rectangle {
-                width: 48
-                height: 48
-                radius: 24
-                scale: 0.7 + sysActionWrap.pulseScale * 0.3
-                color: Qt.alpha(Colours.palette.m3primary, 0.2)
-                border.width: 1
-                border.color: Colours.palette.m3primary
-
-                MaterialIcon {
-                    anchors.centerIn: parent
-                    text: sysActionWrap.iconName
-                    color: Colours.palette.m3primary
-                    fontStyle: Tokens.font.icon.medium
-                }
-            }
-
-            Column {
+                anchors.left: coverBox.right
+                anchors.leftMargin: 14
+                anchors.right: eq.left
+                anchors.rightMargin: 12
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 2
-
-                StyledText {
-                    text: sysActionWrap.actionTitle
-                    color: Colours.palette.m3onSurface
-                    font.pixelSize: 17
-                    font.weight: Font.Bold
+                Overline {
+                    icon: play.paused ? "pause_circle" : "play_circle"
+                    text: play.paused ? "En pausa" : "Reproduciendo"
                 }
-
-                StyledText {
-                    text: "Ejecutado al instante"
-                    color: Colours.palette.m3onSurfaceVariant
-                    font.pixelSize: 13
+                Title {
+                    text: root.motion?.titulo ?? ""
+                }
+                Sub {
+                    text: root.motion?.artista ?? ""
+                }
+            }
+            // ecualizador: baila sonando, se aplana en pausa
+            Row {
+                id: eq
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                height: 22
+                spacing: 3
+                Repeater {
+                    model: 4
+                    Rectangle {
+                        id: bar
+                        required property int index
+                        property real lv: 0.3
+                        width: 3
+                        radius: 1.5
+                        height: Math.max(3, 22 * (play.paused ? 0.14 : lv))
+                        anchors.bottom: parent.bottom
+                        color: root.acc
+                        opacity: play.paused ? 0.45 : 1
+                        Behavior on height {
+                            NumberAnimation {
+                                duration: 260
+                                easing.type: Easing.OutCubic
+                            }
+                        }
+                        Timer {
+                            interval: 170 + bar.index * 37
+                            repeat: true
+                            running: play.visible && root.active && !play.paused
+                            onTriggered: bar.lv = 0.25 + Math.random() * 0.75
+                        }
+                    }
                 }
             }
         }
-    }
 
-    // Línea divisoria inferior suave hacia el contenido base de la píldora
-    Rectangle {
-        anchors.bottom: parent.bottom
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.leftMargin: Tokens.padding.large
-        anchors.rightMargin: Tokens.padding.large
-        height: 1
-        color: Qt.alpha(Colours.palette.m3onSurface, 0.08)
-        visible: root.implicitHeight > 10
+        // ---------- 3. volumen / brillo: barra que se llena desde la marca anterior ----------
+        Item {
+            id: meter
+            anchors.fill: parent
+            visible: root.tipo === "delta_meter"
+            readonly property bool vol: root.motion?.medidor === "volumen"
+            readonly property bool muted: root.motion?.silenciado ?? false
+            readonly property real from: root.motion?.from ?? 0
+            readonly property real to: root.motion?.to ?? 0
+            property real v: 0
+
+            Connections {
+                target: root
+                function onShotChanged(): void {
+                    if (root.tipo !== "delta_meter")
+                        return;
+                    meterAnim.stop();
+                    meterAnim.from = root.motion.from ?? 0;
+                    meterAnim.to = root.motion.to ?? 0;
+                    meterAnim.restart();
+                }
+            }
+            NumberAnimation {
+                id: meterAnim
+                target: meter
+                property: "v"
+                duration: 650
+                easing.type: Easing.OutExpo
+            }
+
+            Tile {
+                id: mt
+                anchors.verticalCenter: parent.verticalCenter
+                MaterialIcon {
+                    anchors.centerIn: parent
+                    color: root.acc
+                    fill: 1
+                    fontStyle: Tokens.font.icon.large
+                    text: meter.vol ? (meter.muted ? "volume_off" : meter.v < 34 ? "volume_mute" : meter.v < 67 ? "volume_down" : "volume_up") : (meter.v < 34 ? "brightness_low" : meter.v < 67 ? "brightness_medium" : "brightness_high")
+                    scale: meterAnim.running ? 1.08 : 1
+                    Behavior on scale {
+                        NumberAnimation {
+                            duration: 300
+                            easing.type: Easing.OutBack
+                        }
+                    }
+                }
+            }
+            Column {
+                anchors.left: mt.right
+                anchors.leftMargin: 14
+                anchors.right: num.left
+                anchors.rightMargin: 16
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 9
+                Overline {
+                    icon: meter.to >= meter.from ? "arrow_upward" : "arrow_downward"
+                    text: meter.vol ? (meter.muted ? "Silenciado" : "Volumen") : "Brillo"
+                }
+                Item {
+                    id: track
+                    width: parent.width
+                    height: 8
+                    readonly property real scaleMax: meter.vol ? Math.max(100, meter.from, meter.to) : 100
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: 4
+                        color: Qt.alpha(Colours.palette.m3onSurface, 0.1)
+                    }
+                    Rectangle {
+                        height: parent.height
+                        radius: 4
+                        width: Math.max(height, parent.width * Math.min(1, meter.v / track.scaleMax))
+                        color: root.acc
+                    }
+                    // marca de dónde estaba
+                    Rectangle {
+                        width: 2
+                        height: 14
+                        radius: 1
+                        anchors.verticalCenter: parent.verticalCenter
+                        x: Math.min(parent.width - 2, parent.width * meter.from / track.scaleMax)
+                        color: Colours.palette.m3onSurface
+                        opacity: Math.abs(meter.v - meter.from) > 1 ? 0.55 : 0
+                        Behavior on opacity {
+                            NumberAnimation {
+                                duration: 200
+                            }
+                        }
+                    }
+                }
+            }
+            Row {
+                id: num
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                StyledText {
+                    text: Math.round(meter.v)
+                    color: Colours.palette.m3onSurface
+                    font.pointSize: 22
+                    font.weight: Font.DemiBold
+                    font.features: {
+                        "tnum": 1
+                    }
+                }
+                StyledText {
+                    anchors.baseline: parent.children[0].baseline
+                    text: "%"
+                    color: Colours.palette.m3onSurfaceVariant
+                    font.pointSize: 11
+                }
+            }
+        }
+
+        // ---------- 4. acciones del sistema: icono que aterriza ----------
+        Item {
+            id: sys
+            anchors.fill: parent
+            visible: root.tipo === "system_action"
+            property real t: 1
+
+            Connections {
+                target: root
+                function onShotChanged(): void {
+                    if (root.tipo === "system_action")
+                        sysAnim.restart();
+                }
+            }
+            NumberAnimation {
+                id: sysAnim
+                target: sys
+                property: "t"
+                from: 0
+                to: 1
+                duration: 600
+                easing.type: Easing.OutBack
+                easing.overshoot: 2.2
+            }
+
+            Tile {
+                id: st
+                anchors.verticalCenter: parent.verticalCenter
+                scale: 0.6 + 0.4 * sys.t
+                MaterialIcon {
+                    anchors.centerIn: parent
+                    text: root.motion?.icono ?? "bolt"
+                    color: root.acc
+                    fill: 1
+                    fontStyle: Tokens.font.icon.large
+                }
+            }
+            Column {
+                anchors.left: st.right
+                anchors.leftMargin: 14
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 2
+                opacity: Math.min(1, sys.t)
+                Overline {
+                    icon: "check_circle"
+                    text: "Hecho"
+                }
+                Title {
+                    text: root.motion?.titulo ?? ""
+                }
+            }
+        }
     }
 }

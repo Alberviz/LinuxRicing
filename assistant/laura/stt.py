@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import numpy as np
-import soundfile as sf
 
 from .audio import SR
 from .config import CFG, log, resolve_device
@@ -25,8 +24,13 @@ _STT_NOISE = {"música", "musica", "gracias", "subtítulos realizados por la com
 def transcribe(audio: np.ndarray) -> str:
     if audio.size < SR * 0.3:
         return ""
-    sf.write("/tmp/laura_in.wav", audio, SR)
-    segments, _ = _stt.transcribe("/tmp/laura_in.wav",
+    # Transcripción directa en RAM: faster-whisper acepta un ndarray 1D float32
+    if np.issubdtype(audio.dtype, np.integer):
+        audio_data = (audio.astype(np.float32) / 32768.0).ravel()
+    else:
+        audio_data = np.ascontiguousarray(audio.ravel(), dtype=np.float32)
+
+    segments, _ = _stt.transcribe(audio_data,
                                   language=CFG["stt"]["language"],
                                   vad_filter=True)
     text = " ".join(s.text for s in segments).strip()

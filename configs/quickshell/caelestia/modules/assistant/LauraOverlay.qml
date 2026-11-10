@@ -231,6 +231,8 @@ StyledWindow {
         readonly property string youText: Laura.transcript
         readonly property string herText: Laura.reply
         readonly property bool hasMotion: Laura.activeMotion !== null
+        // solo animación (sin voz ni escucha): la píldora es la tarjeta, sin fila de estado
+        readonly property bool motionOnly: hasMotion && !win.listening && !win.thinking && !win.typing && !win.speaking && !win.deleg
         readonly property color cc: win.deleg ? (win.delegAgent === "gemini" ? win.gb : win.co) : win.thinking ? win.tert : win.prim
         readonly property string label: win.typing ? "Escribe a Laura" : win.deleg ? "Delegando en " + (win.delegAgent === "gemini" ? "Gemini" : "Claude") : win.listening ? "Escuchando" : win.thinking ? "Pensando" : (hasMotion ? (Laura.activeMotion?.tipo === "track_slide" ? "Spotify" : (Laura.activeMotion?.tipo === "delta_meter" ? "Sistema" : "Laura")) : "Laura")
         readonly property bool showHer: (win.speaking || win.deleg || hasMotion) && herText.length > 0
@@ -248,8 +250,8 @@ StyledWindow {
             }
         }
 
-        width: Math.min(Math.max(col.implicitWidth + pad * 2, hasMotion ? 520 : 380), parent.width * 0.68)
-        height: (hasMotion ? motionTray.implicitHeight : 0) + col.implicitHeight + pad * 1.4 + 6
+        width: Math.min(Math.max(col.implicitWidth + pad * 2, hasMotion ? 440 : 380), parent.width * 0.68)
+        height: motionTray.implicitHeight + (motionOnly ? 0 : col.implicitHeight + pad * 1.4 + 6)
         Behavior on width {
             NumberAnimation {
                 duration: 350
@@ -309,6 +311,12 @@ StyledWindow {
             anchors.topMargin: pill.pad * 0.7
             width: parent.width - pill.pad * 2
             spacing: 6
+            opacity: pill.motionOnly ? 0 : 1
+            Behavior on opacity {
+                NumberAnimation {
+                    duration: 160
+                }
+            }
 
             // Fila de estado: punto + etiqueta + ecualizador
             Item {

@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import time
 import urllib.parse
 from datetime import datetime
 
@@ -19,7 +20,6 @@ def _run(cmd: list[str]) -> subprocess.CompletedProcess:
       required=["accion"], icon="music_note")
 def control_musica(accion: str) -> dict:
     """accion: reproducir_pausar | siguiente | anterior | parar"""
-    import time
     mapa = {
         "reproducir_pausar": "play-pause",
         "siguiente": "next",
@@ -30,14 +30,15 @@ def control_musica(accion: str) -> dict:
     if not sub:
         return {"ok": False, "error": f"acción desconocida: {accion}"}
 
-    # Metadatos de la pista actual antes de ejecutar la acción
-    prev_meta = _run(["playerctl", "metadata", "--format", "{{title}}|||{{artist}}|||{{album}}|||{{mpris:artUrl}}"])
-    prev_title, prev_artist, prev_art = "", "", ""
-    if prev_meta.returncode == 0 and prev_meta.stdout.strip():
-        parts = prev_meta.stdout.strip().split("|||")
-        prev_title = parts[0] if len(parts) > 0 else ""
-        prev_artist = parts[1] if len(parts) > 1 else ""
-        prev_art = parts[3] if len(parts) > 3 else ""
+    fmt = "{{title}}|||{{artist}}|||{{album}}|||{{mpris:artUrl}}"
+
+    def meta() -> tuple[str, str, str]:
+        r = _run(["playerctl", "metadata", "--format", fmt])
+        p = (r.stdout.strip().split("|||") + ["", "", "", ""])[:4] if r.returncode == 0 else ["", "", "", ""]
+        return p[0], p[1], p[3]
+
+    prev_title, prev_artist, prev_art = meta()
+    prev_st = _run(["playerctl", "status"]).stdout.strip().lower()
 
     r = _run(["playerctl", sub])
     if r.returncode != 0:
@@ -45,14 +46,13 @@ def control_musica(accion: str) -> dict:
 
     motion = None
     if accion in ("siguiente", "anterior"):
-        time.sleep(0.04)
-        new_meta = _run(["playerctl", "metadata", "--format", "{{title}}|||{{artist}}|||{{album}}|||{{mpris:artUrl}}"])
-        new_title, new_artist, new_art = "", "", ""
-        if new_meta.returncode == 0 and new_meta.stdout.strip():
-            parts2 = new_meta.stdout.strip().split("|||")
-            new_title = parts2[0] if len(parts2) > 0 else ""
-            new_artist = parts2[1] if len(parts2) > 1 else ""
-            new_art = parts2[3] if len(parts2) > 3 else ""
+        # Spotify tarda ~100-300 ms en publicar la pista nueva por MPRIS
+        new_title, new_artist, new_art = prev_title, prev_artist, prev_art
+        for _ in range(12):
+            time.sleep(0.05)
+            new_title, new_artist, new_art = meta()
+            if new_title and new_title != prev_title:
+                break
         motion = {
             "tipo": "track_slide",
             "direccion": "next" if accion == "siguiente" else "prev",
@@ -61,12 +61,12 @@ def control_musica(accion: str) -> dict:
             "next_title": new_title or ("Siguiente pista" if accion == "siguiente" else "Pista anterior"),
             "next_artist": new_artist,
             "art": new_art or prev_art,
+            "prev_art": prev_art,
         }
         resumen = f"Pista: {new_title}" if new_title else ("Siguiente canción" if accion == "siguiente" else "Canción anterior")
-    elif accion in ("reproducir_pausar", "parar"):
-        r_st = _run(["playerctl", "status"])
-        st = r_st.stdout.strip().lower()
-        estado = "pause" if (accion == "parar" or "pause" in st or "stop" in st) else "play"
+    else:
+        # el estado tras el toggle llega con retraso: se deduce del de antes
+        estado = "pause" if (accion == "parar" or prev_st == "playing") else "play"
         motion = {
             "tipo": "playback_impact",
             "estado": estado,
@@ -75,8 +75,6 @@ def control_musica(accion: str) -> dict:
             "art": prev_art,
         }
         resumen = "Música pausada" if estado == "pause" else "Reproduciendo música"
-    else:
-        resumen = "Control de música"
 
     return {"ok": True, "accion": accion, "resumen": resumen, "motion": motion}
 
