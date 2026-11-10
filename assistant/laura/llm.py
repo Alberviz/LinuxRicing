@@ -36,6 +36,7 @@ class Session:
     def __init__(self) -> None:
         self.base_prompt = CFG["llm"]["system_prompt"].strip()
         self.messages: list[dict] = [{"role": "system", "content": self.base_prompt}]
+        self.turn_ctx: str = ""
         self.quality = False
 
     def model_now(self) -> str:
@@ -44,25 +45,8 @@ class Session:
         return CFG["llm"]["model"]
 
     def refresh_system(self, user_text: str = "") -> None:
-        """Reconstruye el system prompt con el bloque de memoria (hechos que
-        Laura sabe de Alberto)."""
-        try:
-            bloque = memory.prompt_block(user_text)
-        except Exception as e:  # noqa: BLE001
-            log(f"memoria: {e}")
-            bloque = ""
-        from .tools.sistema import fecha_hora_texto
-        extra = f"Ahora mismo es {fecha_hora_texto()}."
-        if bloque:
-            extra += "\n\n" + bloque
-        try:
-            from .holo import escena
-            ctx = escena().contexto()
-        except Exception:
-            ctx = ""
-        if ctx:
-            extra += "\n\n" + ctx
-        self.messages[0] = {"role": "system", "content": self.base_prompt + "\n\n" + extra}
+        """Calcula y guarda el contexto dinámico del turno (hora, memoria, escena)."""
+        self.turn_ctx = contexto_turno(user_text)
 
     def trim(self) -> None:
         """Acota el historial: aunque el contexto de Ollama sea holgado
@@ -83,6 +67,46 @@ class Session:
         self.messages.append({"role": role, "content": content})
 
 
+def contexto_turno(user_text: str = "") -> str:
+    """Construye el contexto dinámico del turno: hora, memoria de hechos y escena holográfica."""
+    try:
+        bloque = memory.prompt_block(user_text)
+    except Exception as e:  # noqa: BLE001
+        log(f"memoria: {e}")
+        bloque = ""
+    from .tools.sistema import fecha_hora_texto
+    extra = f"Ahora mismo es {fecha_hora_texto()}."
+    if bloque:
+        extra += "\n\n" + bloque
+    try:
+        from .holo import escena
+        ctx = escena().contexto()
+    except Exception:
+        ctx = ""
+    if ctx:
+        extra += "\n\n" + ctx
+    return extra
+
+
+def envolver(texto: str, contexto: str | None) -> str:
+    """Devuelve '<contexto>\\n…\\n</contexto>\\n\\n' + texto, o el texto tal cual si no hay contexto."""
+    ctx = (contexto or "").strip()
+    if not ctx:
+        return texto
+    return f"<contexto>\n{ctx}\n</contexto>\n\n{texto}"
+
+
+def _mensajes(session: Session) -> list[dict]:
+    """Copia los mensajes de la sesión envolviendo únicamente el último mensaje 'user'."""
+    msgs = [dict(m) for m in session.messages]
+    ctx = getattr(session, "turn_ctx", "")
+    for i in range(len(msgs) - 1, -1, -1):
+        if msgs[i].get("role") == "user":
+            msgs[i]["content"] = envolver(msgs[i].get("content") or "", ctx)
+            break
+    return msgs
+
+
 def _ultimo_usuario(session: Session) -> str:
     return next((m.get("content") or "" for m in reversed(session.messages) if m.get("role") == "user"), "")
 
@@ -90,7 +114,7 @@ def _ultimo_usuario(session: Session) -> str:
 def _ollama_body(session: Session, stream: bool) -> bytes:
     return json.dumps({
         "model": session.model_now(),
-        "messages": session.messages,
+        "messages": _mensajes(session),
         "tools": tools_mod.activas(_ultimo_usuario(session)),
         "stream": stream,
         "options": {"num_ctx": CFG["llm"].get("num_ctx", 4096),

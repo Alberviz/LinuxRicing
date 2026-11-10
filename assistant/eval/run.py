@@ -19,6 +19,7 @@ import requests
 HERE = Path(__file__).resolve().parent
 ASSISTANT = HERE.parent
 sys.path.insert(0, str(ASSISTANT))
+from laura.llm import envolver  # noqa: E402
 from tools import TOOLS  # noqa: E402
 
 FRASE_TIMEOUT = 30   # s por frase; si se pasa, cuenta como fallo y se sigue
@@ -60,7 +61,7 @@ def chat(model, texto, think=False):
     body = {
         "model": model, "stream": True, "tools": TOOLS,
         "messages": [{"role": "system", "content": CFG["system_prompt"]},
-                     {"role": "user", "content": texto}],
+                     {"role": "user", "content": envolver(texto, "Ahora mismo es lunes 10 de noviembre de 2026, 18:30.")}],
         "options": {"num_ctx": CFG.get("num_ctx", 4096)},
         "keep_alive": "10m",
     }
