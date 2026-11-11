@@ -206,6 +206,48 @@ class Enviar(Base):
         self.assertEqual(self.salidas()[-1]["fase"], "error")
         self.assertEqual(self.salidas()[-1]["mensaje"], "La Pi no responde")
 
+    # ── v2.18: warp lanzar (Super+Espacio) ──
+    def test_uris_a_rutas(self):
+        t = "file:///home/a/Descargas/pr%C3%A1ctica%20redes.pdf\r\n# comentario\nfile:///tmp/b.png\nhttps://x.org/c\n"
+        self.assertEqual([str(p) for p in self.w.uris_a_rutas(t)], ["/home/a/Descargas/práctica redes.pdf", "/tmp/b.png"])
+
+    def test_solo_copia_en_gestores_de_archivos(self):
+        self.assertTrue(self.w.es_gestor("org.kde.dolphin"))
+        self.assertTrue(self.w.es_gestor("Thunar"))
+        self.assertFalse(self.w.es_gestor("kitty"))
+        self.assertFalse(self.w.es_gestor(""))
+
+    def test_lanzar_sin_seleccion_es_lo_copiado(self):
+        self.w.seleccionados = lambda: []
+        self.w.clase_activa = lambda: "kitty"
+        self.w.rapido = lambda origen: {"ok": True, "tipo": "texto", "caracteres": 4}
+        c, d = self.correr("lanzar")
+        self.assertEqual((c, d["tipo"]), (0, "texto"))
+
+    def test_en_dolphin_sin_seleccion_no_manda_lo_copiado(self):
+        self.w.seleccionados = lambda: []
+        self.w.clase_activa = lambda: "org.kde.dolphin"
+        self.w.rapido = lambda origen: self.fail("no debe mandar lo copiado")
+        c, d = self.correr("lanzar")
+        self.assertEqual((c, d["error"]), (1, "No veo archivos seleccionados."))
+
+    def test_lanzar_con_seleccion_y_sin_shell_los_manda(self):
+        a = self.hacer("Descargas/uno.pdf")
+        b = self.hacer("Descargas/dos.png")
+        self.w.seleccionados = lambda: [a, b]
+        self.w.avisar_shell = lambda archivos: False
+        c, d = self.correr("lanzar")
+        self.assertEqual(c, 0)
+        self.assertEqual([x["nombre"] for x in d["enviados"]], ["uno.pdf", "dos.png"])
+
+    def test_lanzar_con_shell_le_pasa_los_archivos(self):
+        a = self.hacer("Descargas/uno.pdf")
+        vistos = []
+        self.w.seleccionados = lambda: [a]
+        self.w.avisar_shell = lambda archivos: vistos.extend(archivos) or True
+        c, d = self.correr("lanzar")
+        self.assertEqual((c, d["tipo"], vistos), (0, "portales", [a]))
+
 
 if __name__ == "__main__":
     unittest.main()

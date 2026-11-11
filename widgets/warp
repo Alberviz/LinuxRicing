@@ -9,7 +9,8 @@ por cada envío, escribe en $XDG_RUNTIME_DIR/warp/salidas.jsonl para que el shel
   warp texto "…" | warp texto -        un texto (argumento o entrada estándar)
   warp portapapeles                    lo copiado (texto, o imagen → PNG)
   warp seleccion                       lo subrayado (selección primaria)
-  warp rapido                          portapapeles; si está vacío, la selección (lo usa el atajo)
+  warp rapido                          portapapeles; si está vacío, la selección
+  warp lanzar                          Super+Espacio: los archivos seleccionados en Dolphin/Thunar; si no hay, rapido
   warp captura                         captura del monitor enfocado
   warp ultimo [carpeta]                envía el archivo más reciente (por defecto Descargas)
   warp listar [carpeta]                los 8 archivos más recientes de una carpeta, sin enviar (por defecto Descargas)
@@ -34,6 +35,7 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.parse
 import unicodedata
 from pathlib import Path
 
@@ -220,6 +222,100 @@ def rapido(origen: str) -> dict:
         return portapapeles(origen, primaria=True)
 
 
+# ── v2.18: Super+Espacio (diseño en Olimpo: docs/diseno-v2.18-warp-teclado.md) ─────────────────────────────────────
+
+GESTORES = ("dolphin", "thunar", "nautilus", "nemo", "pcmanfm")
+
+
+def es_gestor(clase: str) -> bool:
+    c = (clase or "").lower()
+    return any(g in c for g in GESTORES)
+
+
+def uris_a_rutas(texto: str) -> list[Path]:
+    """`text/uri-list` → rutas locales (solo file://; los comentarios y las URL se ignoran)."""
+    rutas = []
+    for linea in texto.replace("\r", "").splitlines():
+        linea = linea.strip()
+        if linea.startswith("file://"):
+            rutas.append(Path(urllib.parse.unquote(urllib.parse.urlparse(linea).path)))
+    return rutas
+
+
+def clase_activa() -> str:
+    try:
+        return json.loads(leer(["hyprctl", "activewindow", "-j"]) or b"{}").get("class", "")
+    except ValueError:
+        return ""
+
+
+def seleccionados() -> list[Path]:
+    """Los archivos seleccionados en el gestor de archivos enfocado. Pulsa Ctrl+C por ti (ydotool) SOLO si la ventana es
+    un gestor de archivos, lee las rutas y deja el portapapeles como estaba."""
+    clase = clase_activa()
+    registro(f"clase={clase!r}")
+    if not es_gestor(clase):
+        return []
+    # El atajo llega con Super y Espacio aún pulsados: se espera a que se suelten para que el Ctrl+C llegue limpio.
+    time.sleep(0.35)
+    tipos = leer(["wl-paste", "--list-types"]).decode(errors="replace").split()
+    previo = (tipos[0], leer(["wl-paste", "--type", tipos[0]])) if tipos else None
+    # El atajo llega con Super pulsado: se suelta (en el teclado virtual) para que el gestor reciba un Ctrl+C limpio.
+    subprocess.run(["ydotool", "key", "125:0", "29:1", "46:1", "46:0", "29:0"], capture_output=True, timeout=3)
+    rutas: list[Path] = []
+    for _ in range(10):
+        time.sleep(0.05)
+        ahora = leer(["wl-paste", "--list-types"]).decode(errors="replace").split()
+        if "text/uri-list" in ahora:
+            rutas = [r for r in uris_a_rutas(leer(["wl-paste", "--type", "text/uri-list"]).decode(errors="replace")) if r.is_file()]
+            break
+    registro(f"tipos tras Ctrl+C={ahora!r} rutas={[str(r) for r in rutas]!r}")
+    try:
+        if previo and previo[1]:
+            subprocess.Popen(["wl-copy", "--type", previo[0]], stdin=subprocess.PIPE).communicate(previo[1], timeout=3)
+        else:
+            subprocess.run(["wl-copy", "--clear"], capture_output=True, timeout=3)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return rutas
+
+
+def registro(t: str) -> None:
+    try:
+        d = RUNTIME / "warp"
+        d.mkdir(parents=True, exist_ok=True)
+        with open(d / "lanzar.log", "a") as f:
+            f.write(f"{time.strftime('%H:%M:%S')} {t}\n")
+    except OSError:
+        pass
+
+
+def avisar_shell(archivos: list[Path]) -> bool:
+    """Pasa los archivos a los portales del shell (Quickshell). False si el shell aún no sabe hacerlo."""
+    try:
+        r = subprocess.run(["qs", "-c", "caelestia", "ipc", "call", "warp", "lanzar", json.dumps([str(a) for a in archivos])],
+                           capture_output=True, text=True, timeout=3)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0 and "No such" not in (r.stdout + r.stderr) and "not found" not in (r.stdout + r.stderr).lower()
+
+
+def lanzar(origen: str) -> dict:
+    """Super+Espacio: con archivos seleccionados, a los portales (o directos al último destino si el shell aún no tiene
+    portales con teclado); sin selección, lo copiado o lo subrayado."""
+    archivos = seleccionados()
+    if not archivos:
+        # En un gestor de archivos, Super+Espacio va de archivos: nunca manda lo copiado sin querer.
+        if es_gestor(clase_activa()):
+            subprocess.run(["notify-send", "-a", "Warp", "Warp", "No veo archivos seleccionados"], capture_output=True)
+            raise Fallo("No veo archivos seleccionados.")
+        return rapido(origen)
+    if avisar_shell(archivos):
+        return {"ok": True, "tipo": "portales", "archivos": [str(a) for a in archivos]}
+    enviados = [enviar_archivo(a, origen)["enviado"] for a in archivos]
+    return {"ok": True, "tipo": "archivos", "enviados": enviados}
+
+
 def captura(origen: str) -> dict:
     mon = None
     try:
@@ -401,7 +497,7 @@ def buscar(consulta: str, remoto: bool, carpeta: str | None = None) -> dict:
 
 # ── main ────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-LOCALES = ("texto", "portapapeles", "seleccion", "rapido", "captura")
+LOCALES = ("texto", "portapapeles", "seleccion", "rapido", "captura", "lanzar")
 
 
 def ejecutar(a) -> dict:
@@ -416,6 +512,8 @@ def ejecutar(a) -> dict:
         return portapapeles(a.origen, primaria=True)
     if a.accion == "rapido":
         return rapido(a.origen)
+    if a.accion == "lanzar":
+        return lanzar(a.origen)
     if a.accion == "captura":
         return captura(a.origen)
     if a.accion == "ultimo":
@@ -440,6 +538,10 @@ def legible(d: dict) -> str:
         return "\n".join(f"{'→' if i == 0 and d.get('claro') else ' '} {c['ruta']}{'/' if c.get('carpeta') else ''}"
                          f"{'' if c.get('carpeta') else '  (' + tam(c['tamano']) + ')'}"
                          for i, c in enumerate(d["candidatos"]))
+    if d.get("tipo") == "portales":
+        return f"→ {len(d['archivos'])} archivo(s) a los portales"
+    if d.get("tipo") == "archivos":
+        return f"✓ {len(d['enviados'])} archivo(s) enviados"
     if d.get("tipo") == "texto":
         return f"✓ Texto enviado al móvil ({d['caracteres']} caracteres)"
     return f"✓ {d['enviado']['nombre']} enviado al móvil"
@@ -447,7 +549,7 @@ def legible(d: dict) -> str:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="warp", description="Pasa texto y archivos del PC al móvil (Olimpo).")
-    ap.add_argument("accion", choices=("texto", "portapapeles", "seleccion", "rapido", "captura", "ultimo", "listar", "buscar",
+    ap.add_argument("accion", choices=("texto", "portapapeles", "seleccion", "rapido", "lanzar", "captura", "ultimo", "listar", "buscar",
                                        "archivo"))
     ap.add_argument("args", nargs="*")
     ap.add_argument("--json", action="store_true")
