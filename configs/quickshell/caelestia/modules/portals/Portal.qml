@@ -28,7 +28,10 @@ Item {
     property real pulse: 0
     property real spinPhase: 0
     property real pullPhase: 0
-    property real cx: edge === "right" ? winW + 2 * r : winW / 2
+    // v2.17 (Olimpo): varios portales en el borde superior, uno por dispositivo
+    property real posX: 0.5
+    property string destino: ""
+    property real cx: edge === "right" ? winW + 2 * r : winW * posX
     property real cy: edge === "right" ? winH / 2 : -2 * r
     property bool armed: false
     property string phase: "idle"      // idle | sending | ok | error | unavail

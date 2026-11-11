@@ -25,7 +25,14 @@ Variants {
 
         required property ShellScreen modelData
 
-        readonly property bool busy: pRight.phase !== "idle" || pTop.phase !== "idle"
+        readonly property bool busy: pRight.phase !== "idle" || pTop.phase !== "idle" || pTop2.phase !== "idle"
+        // v2.17 (Olimpo): a quién se puede mandar (móvil, tablet…). Con dos o más, un agujero por dispositivo.
+        property var destinos: []
+        readonly property bool dos: destinos.length >= 2
+        property var topActual: pTop
+        function topEn(x: real): var {
+            return dos && x > width / 2 ? pTop2 : pTop;
+        }
         readonly property bool active: DragWatch.dragging || grace.running || busy || show > 0.002
         readonly property real lx: DragWatch.cx - screen.x
         readonly property real ly: DragWatch.cy - screen.y
@@ -112,7 +119,7 @@ Variants {
             statProc.running = true;
         }
         function clearInfo(): void {
-            for (const p of [pRight, pTop]) {
+            for (const p of [pRight, pTop, pTop2]) {
                 if (p.phase === "idle" || p.phase === "ok") {
                     p.bad = "";
                     p.fileLine = "";
@@ -131,15 +138,15 @@ Variants {
                 show = Math.min(1, show + (1 - show) * (1 - Math.pow(0.0004, dt)) + 0.0005);
             else
                 show = Math.max(0, show - dt / 0.38 * (0.35 + 1.9 * (1 - show)));
-            const ps = [pRight, pTop];
+            const ps = dos ? [pRight, pTop, pTop2] : [pRight, pTop];
             let armedAny = null;
             for (const p of ps) {
                 let target = 0;
                 const d = p.edge === "right" ? width - lx : ly;
-                const al = p.edge === "right" ? Math.abs(ly - height / 2) / (height / 2) : Math.abs(lx - width / 2) / (width / 2);
+                const al = p.edge === "right" ? Math.abs(ly - height / 2) / (height / 2) : Math.abs(lx - width * p.posX) / (width / 2);
                 if (on) {
                     target = sm(width * 0.55, width * 0.11, d) * (1 - 0.45 * sm(0.55, 1, al));
-                    p.over = d < band && al < along;
+                    p.over = d < band && al < along && (p.edge === "right" || topEn(lx) === p);
                     p.armed = p.over && p.bad === "";
                     if (p.armed)
                         armedAny = p;
@@ -164,7 +171,7 @@ Variants {
                     p.cx = width - out;
                     p.cy = height / 2;
                 } else {
-                    p.cx = width / 2;
+                    p.cx = width * p.posX;
                     p.cy = out;
                 }
                 p.vis = show * (1 - 0.55 * p.dim);
@@ -316,24 +323,26 @@ Variants {
             });
         }
 
-        function sendMovil(t: string): void {
+        function sendMovil(t: string, portal): void {
+            const pt = portal ?? pTop;
+            topActual = pt;
             if (!olimpo) {
-                pTop.phase = "error";
-                pTop.tName = baseName(t);
-                finishTransfer(pTop, false, "Olimpo no está instalado");
+                pt.phase = "error";
+                pt.tName = baseName(t);
+                finishTransfer(pt, false, "Olimpo no está instalado");
                 return;
             }
-            pTop.phase = "sending";
-            pTop.tName = baseName(t);
-            pTop.tProgress = -1;
-            pTop.tText = "Enviando…";
-            pTop.tSub = "";
+            pt.phase = "sending";
+            pt.tName = baseName(t);
+            pt.tProgress = -1;
+            pt.tText = "Enviando…";
+            pt.tSub = "";
             sendPath = t;
             cancelled = false;
             triedProgreso = true;
             sawJson = false;
             finalMsg = null;
-            olimpoProc.command = [olimpo, "enviar", "--json", "--progreso", t];
+            olimpoProc.command = [olimpo, "enviar", "--json", "--progreso"].concat(pt.destino ? ["--a", pt.destino] : []).concat([t]);
             olimpoProc.running = true;
         }
 
@@ -351,19 +360,19 @@ Variants {
             }
             if (typeof d.progreso === "number") {
                 const pr = Math.max(0, Math.min(1, d.progreso > 1 ? d.progreso / 100 : d.progreso));
-                pTop.tProgress = pr;
-                pTop.tText = Math.round(pr * 100) + " %" + (d.velocidad > 0 ? " · " + fmtSize(d.velocidad) + "/s" : "");
-                pTop.tSub = d.total ? fmtSize(d.enviados ?? pr * d.total) + " / " + fmtSize(d.total) + (d.velocidad > 0 ? " · " + fmtEta((d.total - (d.enviados ?? pr * d.total)) / d.velocidad) : "") : "";
+                topActual.tProgress = pr;
+                topActual.tText = Math.round(pr * 100) + " %" + (d.velocidad > 0 ? " · " + fmtSize(d.velocidad) + "/s" : "");
+                topActual.tSub = d.total ? fmtSize(d.enviados ?? pr * d.total) + " / " + fmtSize(d.total) + (d.velocidad > 0 ? " · " + fmtEta((d.total - (d.enviados ?? pr * d.total)) / d.velocidad) : "") : "";
             }
         }
 
         function cancelTransfer(portal): void {
             if (portal.phase !== "sending")
                 return;
-            if (portal === pTop) {
+            if (portal === pTop || portal === pTop2) {
                 cancelled = true;
                 olimpoProc.signal(15);
-                finishTransfer(pTop, false, "Envío cancelado");
+                finishTransfer(portal, false, "Envío cancelado");
             } else {
                 teleTarget = "";
                 teleExternalSending = false;
@@ -517,6 +526,9 @@ Variants {
             Region {
                 item: pTop.maskItem
             }
+            Region {
+                item: pTop2.maskItem
+            }
         }
 
         onActiveChanged: {
@@ -526,10 +538,14 @@ Variants {
                 limitsProc.command = [olimpo, "enviar", "--limites"];
                 limitsProc.running = true;
             }
+            if (active && olimpo !== "" && !dispProc.running) {
+                dispProc.command = [olimpo, "enviar", "--dispositivos"];
+                dispProc.running = true;
+            }
             if (!active) {
                 show = 0;
                 frags = [];
-                for (const p of [pRight, pTop]) {
+                for (const p of [pRight, pTop, pTop2]) {
                     p.vis = 0;
                     p.e = 0;
                     p.dim = 0;
@@ -562,6 +578,7 @@ Variants {
             onTriggered: {
                 pRight.phase = "idle";
                 pTop.phase = "idle";
+                pTop2.phase = "idle";
                 clearInfo();
                 grace.restart();
             }
@@ -589,6 +606,20 @@ Variants {
         }
 
         Process {
+            id: dispProc
+
+            stdout: StdioCollector {
+                onStreamFinished: {
+                    try {
+                        const d = JSON.parse(text);
+                        if (d.ok)
+                            win.destinos = d.dispositivos.filter(x => x.id !== "pc");
+                    } catch (e) {}
+                }
+            }
+        }
+
+        Process {
             id: olimpoProc
 
             stdout: SplitParser {
@@ -599,7 +630,7 @@ Variants {
             }
             onRunningChanged: {
                 // Si el binario no arranca, Process no emite exited: no dejar el portal en «Enviando…».
-                if (!running && pTop.phase === "sending" && !win.cancelled)
+                if (!running && win.topActual.phase === "sending" && !win.cancelled)
                     olimpoWatchdog.restart();
             }
             onExited: code => {
@@ -609,15 +640,15 @@ Variants {
                 if (code === 2 && win.triedProgreso && !win.sawJson && !win.finalMsg) {
                     // Esta versión de la CLI aún no tiene --progreso: reintenta sin él (indeterminado)
                     win.triedProgreso = false;
-                    command = [win.olimpo, "enviar", "--json", win.sendPath];
+                    command = [win.olimpo, "enviar", "--json"].concat(win.topActual.destino ? ["--a", win.topActual.destino] : []).concat([win.sendPath]);
                     running = true;
                     return;
                 }
                 const r = win.finalMsg;
                 if (r && r.ok === true)
-                    win.finishTransfer(pTop, true, "Enviado a tu móvil");
+                    win.finishTransfer(win.topActual, true, "Enviado a " + (win.topActual.destino ? win.topActual.kicker.toLowerCase() : "tu móvil"));
                 else
-                    win.finishTransfer(pTop, false, r?.error ?? (olimpoErr.text.trim().split("\n").pop() || "Olimpo no responde"));
+                    win.finishTransfer(win.topActual, false, r?.error ?? (olimpoErr.text.trim().split("\n").pop() || "Olimpo no responde"));
             }
         }
 
@@ -666,8 +697,8 @@ Variants {
 
             interval: 1500
             onTriggered: {
-                if (pTop.phase === "sending" && !olimpoProc.running)
-                    win.finishTransfer(pTop, false, "No se pudo lanzar «olimpo enviar»");
+                if (win.topActual.phase === "sending" && !olimpoProc.running)
+                    win.finishTransfer(win.topActual, false, "No se pudo lanzar «olimpo enviar»");
             }
         }
 
@@ -818,12 +849,18 @@ Variants {
                 DropArea {
                     anchors.fill: parent
                     keys: ["text/uri-list", "text/plain"]
-                    onEntered: drag => win.inspect(pTop, drag)
+                    onEntered: drag => win.inspect(win.topEn(tBand.x + drag.x), drag)
+                    onPositionChanged: drag => {
+                        const p = win.topEn(tBand.x + drag.x);
+                        if (p.fileLine === "")
+                            win.inspect(p, drag);
+                    }
                     onExited: {
-                        if (pTop.phase === "idle") {
-                            pTop.bad = "";
-                            pTop.fileLine = "";
-                        }
+                        for (const p of [pTop, pTop2])
+                            if (p.phase === "idle") {
+                                p.bad = "";
+                                p.fileLine = "";
+                            }
                     }
                     onDropped: drop => {
                         if (!drop.hasUrls && drop.hasText && pTop.phase === "idle") {   // Warp: texto
@@ -833,15 +870,16 @@ Variants {
                             return;
                         }
                         const t = win.targetOf(drop);
-                        if (!t || pTop.phase !== "idle")
+                        const pt = win.topEn(tBand.x + drop.x);
+                        if (!t || pt.phase !== "idle" || win.busy && win.topActual.phase === "sending")
                             return;
                         icon.text = "description";
-                        if (pTop.bad) {
-                            win.rejectDrop(pTop);
+                        if (pt.bad) {
+                            win.rejectDrop(pt);
                             return;
                         }
-                        win.startAbsorb(pTop);
-                        win.sendMovil(t);
+                        win.startAbsorb(pt);
+                        win.sendMovil(t, pt);
                     }
                 }
             }
@@ -867,11 +905,30 @@ Variants {
                 winW: win.width
                 winH: win.height
                 u: win.u
-                kicker: "MÓVIL"
+                posX: win.dos ? 0.36 : 0.5
+                destino: win.dos ? win.destinos[0].id : ""
+                kicker: win.dos ? win.destinos[0].nombre.toUpperCase() : "MÓVIL"
                 title: "Olimpo"
-                detail: "Bandeja «Desde el PC»"
+                detail: win.dos ? "Solo a este dispositivo" : "Bandeja «Desde el PC»"
                 cta: "Suelta para enviar"
                 onCancel: win.cancelTransfer(pTop)
+            }
+
+            Portal {
+                id: pTop2
+
+                visible: win.dos
+                edge: "top"
+                posX: 0.64
+                winW: win.width
+                winH: win.height
+                u: win.u
+                destino: win.dos ? win.destinos[1].id : ""
+                kicker: win.dos ? win.destinos[1].nombre.toUpperCase() : ""
+                title: "Olimpo"
+                detail: "Solo a este dispositivo"
+                cta: "Suelta para enviar"
+                onCancel: win.cancelTransfer(pTop2)
             }
 
             // Estela estirada del cursor hacia el agujero más cercano (el icono real lo pinta el compositor)
