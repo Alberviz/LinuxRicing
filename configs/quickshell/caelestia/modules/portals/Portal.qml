@@ -50,6 +50,9 @@ Item {
     property string customKicker: ""
     property string customTitle: ""
     property real phaseT: 0
+    // v2.19.1: «a los dos». Mientras dura la fusión el agujero lo pinta Portals.qml (shader BINARIO) y aquí solo quedan
+    // las etiquetas y la tarjeta; el borde recto y el agujero propio se apagan.
+    property bool fundido: false
     readonly property Item maskItem: maskBox
     signal cancel
 
@@ -79,10 +82,18 @@ Item {
             width: root.edge === "right" ? th : (second ? root.winW - (root.cx + rr) : root.cx - rr)
             height: root.edge === "right" ? (second ? root.winH - (root.cy + rr) : root.cy - rr) : th
             visible: width > 0 && height > 0
+            opacity: root.fundido ? 0 : 1
+
+            Behavior on opacity {
+                Anim {
+                    type: Anim.FastEffects
+                }
+            }
         }
     }
 
     ShaderEffect {
+        visible: !root.fundido
         x: root.cx - root.half
         y: root.cy - root.half
         width: root.half * 2
@@ -99,6 +110,18 @@ Item {
         property real pulse: root.pulse
         property real spin: root.spinPhase
         property real pull: root.pullPhase
+        // v2.19.1 (Olimpo, AE1): reloj del cielo y del gas; reposo 1 = disco y halo casi apagados (fuera de alcance)
+        property real time: root.phaseT
+        readonly property real et: Math.max(0, Math.min(1, (root.e - 0.05) / 0.55))
+        property real reposo: root.phase === "idle" ? 1 - et * et * (3 - 2 * et) : 0
+        // Modo 0 = AE1. Los campos del binario no se usan aquí, pero el bloque de uniforms los pide.
+        property real mode: 0
+        property vector2d ctr1: Qt.vector2d(0, 0)
+        property vector2d ctr2: Qt.vector2d(0, 0)
+        property real fase: 0
+        property real uno: 0
+        property real onda: 0
+        property real oval: 0
 
         fragmentShader: Qt.resolvedUrl("shaders/portal.frag.qsb")
     }

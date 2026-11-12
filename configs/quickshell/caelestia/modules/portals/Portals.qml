@@ -30,9 +30,19 @@ Variants {
         property var destinos: []
         readonly property bool dos: destinos.length >= 2
         property var topActual: pTop
+        // v2.19.1 «a los dos» (Olimpo, app/src/warp/fusion.ts): soltar entre los dos agujeros de arriba manda a todos los
+        // dispositivos y los funde en uno. fusionP (0–1) es la coreografía; al acabar el envío vuelve por el mismo camino.
+        property bool fundiendo: false
+        property real fusionP: 0
+        property real fusionSep0: 0
+        property real fusionRb: 40
+        readonly property real duracionFusion: 0.5
+        readonly property real crece: 0.3
         function topEn(x: real): var {
             return dos && x > width / 2 ? pTop2 : pTop;
         }
+        // Cursor sobre el hueco central entre los dos agujeros de arriba (y aún sin soltar): se encienden los dos.
+        readonly property bool ambos: dos && DragWatch.dragging && here && ly < band && Math.abs(lx - width / 2) < width * 0.07
         readonly property bool active: DragWatch.dragging || grace.running || busy || show > 0.002
         readonly property real lx: DragWatch.cx - screen.x
         readonly property real ly: DragWatch.cy - screen.y
@@ -69,6 +79,64 @@ Variants {
         }
         function lerp(a: real, b: real, t: real): real {
             return a + (b - a) * t;
+        }
+        function io(x: real): real {
+            return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+        }
+        // Estado de la fusión en el progreso p (port de `estadoFusion` de Olimpo): dos agujeros de radio rb con
+        // semiseparación sep0. Tramos: anticipación, acercamiento, espiral con puente, contacto y asentamiento.
+        function estadoFusion(p: real, sep0: real, rb: real): var {
+            const t = Math.max(0, Math.min(1, p));
+            const A = 0.12, B = 0.28, C = 0.58, D = 0.64;
+            const e = {
+                sep: sep0,
+                ang: 0,
+                en: 0.55,
+                uno: 0,
+                onda: 0,
+                oval: 0,
+                R: rb
+            };
+            if (t <= 0)
+                return e;
+            if (t < A) {
+                e.en = 0.55 + 0.4 * io(t / A);
+            } else if (t < B) {
+                e.sep = lerp(sep0, Math.min(sep0, 5 * rb), io((t - A) / (B - A)));
+                e.en = 0.95;
+            } else if (t < C) {
+                const k = (t - B) / (C - B);
+                e.sep = lerp(Math.min(sep0, 5 * rb), 1.25 * rb, Math.pow(k, 1.6));
+                e.ang = k * k * Math.PI * 1.8;
+                e.en = 0.95;
+            } else if (t < D) {
+                const k = (t - C) / (D - C);
+                e.sep = lerp(1.25 * rb, 0, io(k));
+                e.ang = Math.PI * 1.8 + k * 0.5;
+                e.uno = k;
+                e.en = 1;
+            } else {
+                const k = (t - D) / (1 - D);
+                const s = k * 1.6;
+                e.sep = 0;
+                e.ang = Math.PI * 1.8 + 0.5;
+                e.uno = 1;
+                e.onda = 1 - k;
+                e.oval = 0.16 * Math.exp(-s * 3.2) * Math.cos(s * 15) * (1 - k);
+                e.R = rb * (1 + crece * io(Math.max(0, Math.min(1, s / 0.4))));
+                e.en = 0.8;
+            }
+            return e;
+        }
+        function empezarFusion(): void {
+            fusionRb = pTop.r;
+            fusionSep0 = width * 0.14;   // semiseparación: los dos agujeros están en 0,36 y 0,64 del ancho
+            fusionP = 0;
+            fundiendo = true;
+        }
+        function cerrarFusion(): void {
+            fundiendo = false;
+            fusionP = 0;
         }
         function fmtSize(b: real): string {
             if (b >= 1073741824)
@@ -154,6 +222,12 @@ Variants {
                     p.armed = false;
                     p.over = false;
                 }
+                if (on && ambos && p.edge === "top") {   // «a los dos»: se encienden los dos a la vez
+                    p.over = true;
+                    p.armed = p.bad === "";
+                    if (p.armed)
+                        armedAny = p;
+                }
                 if (p.armed || p.over)
                     target = 1;
                 if (p.phase === "sending")
@@ -163,7 +237,7 @@ Variants {
                 p.e = lerp(p.e, target, 1 - Math.pow(0.0009, dt));
             }
             for (const p of ps) {
-                p.dim = lerp(p.dim, armedAny && armedAny !== p ? 1 : 0, 1 - Math.pow(0.002, dt));
+                p.dim = lerp(p.dim, armedAny && armedAny !== p && !(ambos && p.edge === "top" && armedAny.edge === "top") ? 1 : 0, 1 - Math.pow(0.002, dt));
                 const Rt = (30 + 26 * sm(0, 0.9, p.e) + (p.hot ? 16 : 0)) * u;
                 p.r = lerp(p.r, Rt, 1 - Math.pow(0.0005, dt));
                 const out = lerp(-p.r * 1.4, 0, show);
@@ -174,11 +248,20 @@ Variants {
                     p.cx = width * p.posX;
                     p.cy = out;
                 }
-                p.vis = show * (1 - 0.55 * p.dim);
+                p.vis = show * (1 - 0.55 * p.dim) * (fundiendo && p === pTop2 ? 0 : 1);
+                p.fundido = fundiendo && p !== pRight;
                 p.spinPhase += (0.25 * (0.3 + 0.7 * show)) * (1 + 1.4 * p.e + (p.armed ? 1 : 0)) * (p.over && p.bad !== "" ? 0.3 : 1) * dt;
                 p.pullPhase += (0.35 + 1.5 * p.e + (p.armed ? 0.8 : 0) + (p.phase === "sending" ? 0.5 : 0)) * (0.2 + 0.8 * show) * dt;
                 p.phaseT += dt;
                 p.pulse = Math.max(0, p.pulse - dt / 0.48);
+            }
+
+            // Fusión «a los dos»: mientras hay envío en el portal de arriba va hacia 1; al acabar vuelve por el mismo camino.
+            if (fundiendo) {
+                const objetivo = pTop.phase !== "idle" ? 1 : 0;
+                fusionP = objetivo > 0 ? Math.min(1, fusionP + dt / duracionFusion) : Math.max(0, fusionP - dt / duracionFusion);
+                if (objetivo === 0 && fusionP <= 0)
+                    fundiendo = false;
             }
 
             // Tele: sigue el estado del helper (preparing -> BUFFERING -> PLAYING / error)
@@ -323,7 +406,7 @@ Variants {
             });
         }
 
-        function sendMovil(t: string, portal): void {
+        function sendMovil(t: string, portal, todos): void {
             const pt = portal ?? pTop;
             topActual = pt;
             if (!olimpo) {
@@ -342,7 +425,7 @@ Variants {
             triedProgreso = true;
             sawJson = false;
             finalMsg = null;
-            olimpoProc.command = [olimpo, "enviar", "--json", "--progreso"].concat(pt.destino ? ["--a", pt.destino] : []).concat([t]);
+            olimpoProc.command = [olimpo, "enviar", "--json", "--progreso"].concat(todos ? ["--a", "todos"] : (pt.destino ? ["--a", pt.destino] : [])).concat([t]);
             olimpoProc.running = true;
         }
 
@@ -543,6 +626,7 @@ Variants {
                 dispProc.running = true;
             }
             if (!active) {
+                cerrarFusion();
                 show = 0;
                 frags = [];
                 for (const p of [pRight, pTop, pTop2]) {
@@ -870,16 +954,20 @@ Variants {
                             return;
                         }
                         const t = win.targetOf(drop);
-                        const pt = win.topEn(tBand.x + drop.x);
-                        if (!t || pt.phase !== "idle" || win.busy && win.topActual.phase === "sending")
+                        // Hueco central entre los dos agujeros: a los dos (se funden y va con `--a todos`)
+                        const ambos = win.dos && Math.abs(tBand.x + drop.x - win.width / 2) < win.width * 0.07;
+                        const pt = ambos ? pTop : win.topEn(tBand.x + drop.x);
+                        if (!t || pt.phase !== "idle" || win.busy && win.topActual.phase === "sending" || ambos && pTop2.phase !== "idle")
                             return;
                         icon.text = "description";
                         if (pt.bad) {
                             win.rejectDrop(pt);
                             return;
                         }
+                        if (ambos)
+                            win.empezarFusion();
                         win.startAbsorb(pt);
-                        win.sendMovil(t, pt);
+                        win.sendMovil(t, pt, ambos);
                     }
                 }
             }
@@ -905,7 +993,7 @@ Variants {
                 winW: win.width
                 winH: win.height
                 u: win.u
-                posX: win.dos ? 0.36 : 0.5
+                posX: win.dos && !win.fundiendo ? 0.36 : 0.5
                 destino: win.dos ? win.destinos[0].id : ""
                 kicker: win.dos ? win.destinos[0].nombre.toUpperCase() : "MÓVIL"
                 title: "Olimpo"
@@ -929,6 +1017,45 @@ Variants {
                 detail: "Solo a este dispositivo"
                 cta: "Suelta para enviar"
                 onCancel: win.cancelTransfer(pTop2)
+            }
+
+            // «A los dos»: el agujero de la fusión (shader BINARIO de portal.frag). Cubre el ancho de la pantalla desde el
+            // borde de arriba; solo existe mientras dura la fusión.
+            ShaderEffect {
+                id: fusionFx
+
+                readonly property var fs: win.estadoFusion(win.fusionP, win.fusionSep0, win.fusionRb)
+                readonly property real ox: Math.cos(fs.ang) * fs.sep
+                readonly property real oy: Math.sin(fs.ang) * fs.sep * 0.35
+
+                visible: win.fundiendo && pTop.vis > 0.01
+                x: 0
+                y: 0
+                width: win.width
+                height: Math.min(win.height, win.fusionRb * 13 + 40 * win.u)
+
+                property vector2d size: Qt.vector2d(width, height)
+                property vector2d outward: Qt.vector2d(0, -1)
+                property color tint: Qt.rgba(Colours.palette.m3primary.r, Colours.palette.m3primary.g, Colours.palette.m3primary.b, 0.18)
+                property real rad: pTop.r / win.fusionRb * fs.R * (0.15 + 0.85 * Math.min(1, pTop.vis))
+                property real upx: win.u
+                property real en: Math.max(pTop.e, fs.en)
+                property real vis: pTop.vis
+                property real armed: 0
+                property real pulse: pTop.pulse
+                property real spin: pTop.spinPhase
+                property real pull: pTop.pullPhase
+                property real time: pTop.phaseT
+                property real reposo: 0
+                property real mode: 1
+                property vector2d ctr1: Qt.vector2d(win.width / 2 - ox, pTop.cy - oy)
+                property vector2d ctr2: Qt.vector2d(win.width / 2 + ox, pTop.cy + oy)
+                property real fase: fs.ang
+                property real uno: fs.uno
+                property real onda: fs.onda
+                property real oval: fs.oval
+
+                fragmentShader: Qt.resolvedUrl("shaders/portal.frag.qsb")
             }
 
             // Estela estirada del cursor hacia el agujero más cercano (el icono real lo pinta el compositor)
