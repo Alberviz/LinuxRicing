@@ -206,6 +206,12 @@ Variants {
                 show = Math.min(1, show + (1 - show) * (1 - Math.pow(0.0004, dt)) + 0.0005);
             else
                 show = Math.max(0, show - dt / 0.38 * (0.35 + 1.9 * (1 - show)));
+            // Lente: la captura es de cuando empezó el arrastre. Vale mientras se arrastra; al soltar con un envío en marcha
+            // se funde y se da por gastada (la pantalla de detrás ya ha cambiado) hasta el siguiente arrastre con captura nueva.
+            const conCaptura = capturaLista && !capturaGastada && (DragWatch.dragging || !busy);
+            lenteK = lerp(lenteK, conCaptura ? 1 : 0, 1 - Math.pow(0.0005, dt));
+            if (!conCaptura && capturaLista && lenteK < 0.01)
+                capturaGastada = true;
             const ps = dos ? [pRight, pTop, pTop2] : [pRight, pTop];
             let armedAny = null;
             for (const p of ps) {
@@ -730,7 +736,7 @@ Variants {
                 }
                 const r = win.finalMsg;
                 if (r && r.ok === true)
-                    win.finishTransfer(win.topActual, true, "Enviado a " + (win.topActual.destino ? win.topActual.kicker.toLowerCase() : "tu móvil"));
+                    win.finishTransfer(win.topActual, true, "Enviado a " + (win.topActual.destino ? win.topActual.title.split(" · ")[0].toLowerCase() : "tu móvil"));
                 else
                     win.finishTransfer(win.topActual, false, r?.error ?? (olimpoErr.text.trim().split("\n").pop() || "Olimpo no responde"));
             }
@@ -827,7 +833,7 @@ Variants {
             }
         }
 
-        // Prueba de estados sin arrastrar: qs -c caelestia ipc call portals demo <bad|progress|tele|ok|error>
+        // Prueba de estados sin arrastrar: qs -c caelestia ipc call portals demo <bad|progress|fusion|tele|ok|error>
         IpcHandler {
             function demo(kind: string): void {
                 if (kind === "bad") {
@@ -844,6 +850,13 @@ Variants {
                     pTop.tProgress = 0.37;
                     pTop.tText = "37 % · 4,2 MB/s";
                     pTop.tSub = "18 / 49 MB · 0:07";
+                } else if (kind === "fusion") {   // «a los dos» sin soltar nada: funde los dos agujeros de arriba (acaba con `demo ok`)
+                    win.empezarFusion();
+                    win.topActual = pTop;
+                    pTop.phase = "sending";
+                    pTop.tName = "Apuntes Redes T4.pdf";
+                    pTop.tProgress = 0.37;
+                    pTop.tText = "37 % · a los dos";
                 } else if (kind === "tele") {
                     pRight.phase = "sending";
                     pRight.tName = "Wicked Part Uno (2025).mkv";
@@ -881,6 +894,53 @@ Variants {
             }
 
             target: "portals"
+        }
+
+        // Lente real (Fase 5): al empezar el arrastre se captura la pantalla UNA vez (congelada: así el portal no sale en su
+        // propia captura y solo cuesta una captura por arrastre). Solo en pantallas grandes (el PC).
+        readonly property bool conLente: width >= 1400
+        property bool capturaLista: false
+        property bool capturaGastada: false
+        property real lenteK: 0   // 0..1: cuánto pinta la lente (lo lleva tick)
+        Loader {
+            id: capLoader
+
+            active: win.active && win.conLente
+            sourceComponent: ScreencopyView {
+                captureSource: win.screen
+                live: false
+                paintCursor: false
+                visible: false
+                width: win.width
+                height: win.height
+                onHasContentChanged: {
+                    if (hasContent)
+                        capTex.scheduleUpdate();
+                }
+            }
+        }
+        ShaderEffectSource {
+            id: capTex
+
+            sourceItem: capLoader.item
+            live: false
+            visible: false
+            width: win.width
+            height: win.height
+            onScheduledUpdateCompleted: {
+                win.capturaLista = !!capLoader.item && capLoader.item.hasContent;
+                win.capturaGastada = false;
+            }
+        }
+        Connections {
+            target: win
+            function onActiveChanged() {
+                if (!win.active) {
+                    win.capturaLista = false;
+                    win.capturaGastada = false;
+                    win.lenteK = 0;
+                }
+            }
         }
 
         Item {
@@ -978,11 +1038,14 @@ Variants {
                 edge: "right"
                 winW: win.width
                 winH: win.height
+                captura: capTex
+                capturaLista: win.capturaLista
+                lenteK: win.lenteK
                 u: win.u
                 kicker: "TELE"
                 title: Cast.selectedDevice?.name ?? "Sin Chromecast"
-                detail: Cast.selectedDevice ? (Cast.selectedDevice.model ?? "") + " · " + (Cast.selectedDevice.host ?? "") : "no hay dispositivos"
-                cta: "Suelta para reproducir"
+                detail: Cast.selectedDevice ? (Cast.selectedDevice.online === false ? "Sin conexión" : (Cast.selectedDevice.model ?? "") + " · " + (Cast.selectedDevice.host ?? "")) : "no hay dispositivos"
+                cta: (Cast.selectedDevice && Cast.selectedDevice.online === false) ? "Tele desconectada" : "Suelta para reproducir"
                 onCancel: win.cancelTransfer(pRight)
             }
 
@@ -992,12 +1055,16 @@ Variants {
                 edge: "top"
                 winW: win.width
                 winH: win.height
+                captura: capTex
+                capturaLista: win.capturaLista
+                lenteK: win.lenteK
                 u: win.u
                 posX: win.dos && !win.fundiendo ? 0.36 : 0.5
                 destino: win.dos ? win.destinos[0].id : ""
-                kicker: win.dos ? win.destinos[0].nombre.toUpperCase() : "MÓVIL"
-                title: "Olimpo"
-                detail: win.dos ? "Solo a este dispositivo" : "Bandeja «Desde el PC»"
+                vecino: win.dos && !win.fundiendo ? pTop2 : null
+                kicker: "WARP"
+                title: (win.destinos.length > 0 ? win.destinos[0].nombre : "Móvil") + " · Olimpo"
+                detail: "Bandeja «Desde el PC»"
                 cta: "Suelta para enviar"
                 onCancel: win.cancelTransfer(pTop)
             }
@@ -1010,11 +1077,15 @@ Variants {
                 posX: 0.64
                 winW: win.width
                 winH: win.height
+                captura: capTex
+                capturaLista: win.capturaLista
+                lenteK: win.lenteK
                 u: win.u
                 destino: win.dos ? win.destinos[1].id : ""
-                kicker: win.dos ? win.destinos[1].nombre.toUpperCase() : ""
-                title: "Olimpo"
-                detail: "Solo a este dispositivo"
+                vecino: win.dos && !win.fundiendo ? pTop : null
+                kicker: "WARP"
+                title: win.dos ? win.destinos[1].nombre + " · Olimpo" : ""
+                detail: "Bandeja «Desde el PC»"
                 cta: "Suelta para enviar"
                 onCancel: win.cancelTransfer(pTop2)
             }
@@ -1054,6 +1125,13 @@ Variants {
                 property real uno: fs.uno
                 property real onda: fs.onda
                 property real oval: fs.oval
+                // La lente de AE1 no se usa en el binario, pero el bloque de uniforms la pide.
+                property vector2d quadPos: Qt.vector2d(0, 0)
+                property vector2d scrSize: Qt.vector2d(1, 1)
+                property real lente: 0
+                property real fuerza: 0
+                property vector4d vecino: Qt.vector4d(0, 0, 0, 0)
+                property var bg: null
 
                 fragmentShader: Qt.resolvedUrl("shaders/portal.frag.qsb")
             }

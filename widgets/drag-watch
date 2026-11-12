@@ -14,8 +14,21 @@ $XDG_RUNTIME_DIR/drag-watch.sock con un JSON por línea:
     {"dragging": true, "x": 1200, "y": 300}      # ~30 Hz, SOLO mientras dura el arrastre
 En reposo el proceso duerme bloqueado en select(): cero CPU, cero sondeo.
 
-Variables: DRAG_WATCH_THRESHOLD (px, 40), DRAG_WATCH_CLASSES (regex de class de ventana;
-vacío = cualquiera).
+CUÁNDO SALEN LOS PORTALES (reglas, 2026-11-12). Wayland no cuenta los arrastres de otros, así que se deduce y se
+filtra para no confundir un arrastre de archivo o de texto con seleccionar texto, mover un deslizador o un rectángulo
+de selección:
+  1. Botón izquierdo mantenido y el cursor se aleja más de UMBRAL px del clic.
+  2. La ventana activa decide qué cuenta:
+       · gestor de archivos (Dolphin, Thunar…): vale cualquier arrastre (un archivo, varios);
+       · navegador: solo si había texto seleccionado ANTES del clic (selección primaria no vacía) y no cambia durante
+         el arrastre. Seleccionar texto nuevo (la selección cambia) o mover un deslizador, una barra o un mapa
+         (sin selección previa) no enciende nada. (Arrastrar un enlace o una imagen de una página no se detecta;
+         DRAG_WATCH_NAVEGADOR=todo lo vuelve a permitir.)
+       · cualquier otra ventana: nunca.
+  3. Zona: los portales solo se encienden cuando el cursor entra en la franja de arriba (los 40 % superiores de la
+     pantalla) o en la de la derecha (el 25 % derecho). Una vez encendidos se quedan hasta soltar.
+Variables: DRAG_WATCH_THRESHOLD (px, 40), DRAG_WATCH_CLASSES (regex de gestores de archivos),
+DRAG_WATCH_NAVEGADOR (seleccion|todo|nada; por defecto seleccion), DRAG_WATCH_ZONA (alto%,ancho%; 40,25; 100,100 = todo).
 Prueba:  drag-watch sim x y | drag-watch sim off   (emite estados falsos a los clientes).
 """
 import glob
@@ -33,10 +46,19 @@ SOCK = os.path.join(RUNTIME, "drag-watch.sock")
 THRESHOLD = float(os.environ.get("DRAG_WATCH_THRESHOLD", "40"))
 CLASSES = os.environ.get(
     "DRAG_WATCH_CLASSES",
-    r"(?i)thunar|dolphin|nautilus|nemo|pcmanfm|caja|krusader|doublecmd|files|"
-    r"zen|firefox|chrom|brave|librewolf|vivaldi|floorp|waterfox",
+    r"(?i)thunar|dolphin|nautilus|nemo|pcmanfm|caja|krusader|doublecmd|files",
 )
+NAVEGADORES = os.environ.get(
+    "DRAG_WATCH_NAVEGADORES",
+    r"(?i)zen|firefox|chrom|brave|librewolf|vivaldi|floorp|waterfox",
+)
+MODO_NAVEGADOR = os.environ.get("DRAG_WATCH_NAVEGADOR", "seleccion")
+try:
+    ZONA_ALTO, ZONA_ANCHO = (float(v) / 100 for v in os.environ.get("DRAG_WATCH_ZONA", "40,25").split(","))
+except ValueError:
+    ZONA_ALTO, ZONA_ANCHO = 0.40, 0.25
 CLASS_RE = re.compile(CLASSES) if CLASSES else None
+NAV_RE = re.compile(NAVEGADORES) if NAVEGADORES else None
 BTN_LEFT = 0x110
 EV_KEY = 1
 EVFMT = "llHHi"
@@ -78,6 +100,36 @@ def cursor():
 def active_class():
     r = hypr("j/activewindow")
     return (r.get("class") or "") if isinstance(r, dict) else ""
+
+
+def primaria():
+    """Texto de la selección primaria (None si no se puede leer; '' si está vacía)."""
+    import subprocess
+    try:
+        r = subprocess.run(["wl-paste", "--primary", "--no-newline"], capture_output=True, timeout=0.3)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return r.stdout if r.returncode == 0 else b""
+
+
+def pantalla_enfocada():
+    """(x, y, ancho, alto) lógicos del monitor enfocado, o None."""
+    r = hypr("j/monitors")
+    if not isinstance(r, list):
+        return None
+    for m in r:
+        if m.get("focused"):
+            esc = float(m.get("scale") or 1) or 1.0
+            return (float(m["x"]), float(m["y"]), float(m["width"]) / esc, float(m["height"]) / esc)
+    return None
+
+
+def en_zona(pos, pant):
+    """¿Está el cursor en la franja de arriba o en la de la derecha del monitor?"""
+    if not pant:
+        return True
+    x0, y0, w, h = pant
+    return (pos[1] - y0) <= h * ZONA_ALTO or (pos[0] - x0) >= w * (1 - ZONA_ANCHO)
 
 
 def has_btn_left(ev):
@@ -130,6 +182,10 @@ def daemon():
     pressed = False
     origin = None
     sim = False
+    clase = ""          # ventana activa al hacer clic
+    previa = None        # selección primaria al hacer clic (navegadores)
+    pant = None          # monitor enfocado al hacer clic
+    ultimo_chequeo = 0.0
 
     def publish(obj):
         data = (json.dumps(obj) + "\n").encode()
@@ -193,6 +249,9 @@ def daemon():
                         if val == 1:
                             pressed = True
                             origin = cursor()
+                            clase = active_class()
+                            pant = pantalla_enfocada()
+                            previa = primaria() if (NAV_RE and NAV_RE.search(clase) and MODO_NAVEGADOR == "seleccion") else None
                         elif val == 0:
                             pressed = False
                             origin = None
@@ -203,16 +262,36 @@ def daemon():
         if pressed and origin:
             pos = cursor()
             if pos:
+                dx, dy = pos[0] - origin[0], pos[1] - origin[1]
+                lejos = (dx * dx + dy * dy) ** 0.5 > THRESHOLD
                 if not state.get("dragging"):
-                    dx, dy = pos[0] - origin[0], pos[1] - origin[1]
-                    if (dx * dx + dy * dy) ** 0.5 > THRESHOLD and (
-                        CLASS_RE is None or CLASS_RE.search(active_class())
-                    ):
-                        set_state({"dragging": True, "x": pos[0], "y": pos[1]})
-                    elif (dx * dx + dy * dy) ** 0.5 > THRESHOLD:
-                        pressed = False  # arrastre de otra cosa: ignorar hasta soltar
+                    if lejos:
+                        veredicto = clasificar(clase, previa)
+                        if veredicto is None:
+                            pressed = False  # no es un arrastre de archivo o de texto: ignorar hasta soltar
+                        elif en_zona(pos, pant):
+                            set_state({"dragging": True, "x": pos[0], "y": pos[1]})
                 else:
+                    # En un navegador la selección no puede cambiar: si cambia, era seleccionar texto, no arrastrarlo.
+                    if previa is not None and time.monotonic() - ultimo_chequeo > 0.15:
+                        ultimo_chequeo = time.monotonic()
+                        if primaria() != previa:
+                            pressed = False
+                            set_state({"dragging": False})
+                            continue
                     set_state({"dragging": True, "x": pos[0], "y": pos[1]})
+
+
+def clasificar(clase, previa):
+    """True/False: arrastre posible según la ventana; None: ignorar. Ver las reglas en la cabecera."""
+    if CLASS_RE and CLASS_RE.search(clase):
+        return True
+    if NAV_RE and NAV_RE.search(clase):
+        if MODO_NAVEGADOR == "todo":
+            return True
+        if MODO_NAVEGADOR == "seleccion" and previa:
+            return True
+    return None
 
 
 def main():

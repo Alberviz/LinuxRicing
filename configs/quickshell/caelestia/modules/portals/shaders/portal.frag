@@ -8,7 +8,7 @@
 //      Centros en px del quad (ctr1, ctr2); fase, uno, onda y oval los da la fusión (Portals.qml).
 // Se mantiene el arco del borde de pantalla que rodea el agujero (el tramo recto lo pone QML) y el tinte del tema.
 // Todo procedural: sin partículas en CPU. Recompilar:
-//   /usr/lib/qt6/bin/qsb --qt6 -o portal.frag.qsb portal.frag
+//   /usr/lib/qt6/bin/qsb --qt6 -b -o portal.frag.qsb portal.frag
 layout(location = 0) in vec2 qt_TexCoord0;
 layout(location = 0) out vec4 fragColor;
 layout(std140, binding = 0) uniform buf {
@@ -34,7 +34,13 @@ layout(std140, binding = 0) uniform buf {
     float uno;       // BINARIO: 0 dos agujeros, 1 fundidos
     float onda;      // BINARIO: onda gravitatoria 1 -> 0
     float oval;      // BINARIO: temblor del óvalo al asentarse
+    vec2  quadPos;   // LENTE: esquina del quad en px de pantalla (para pasar a UV de la captura)
+    vec2  scrSize;   // LENTE: tamaño lógico de la pantalla en px
+    float lente;     // LENTE: 0 sin captura (cielo sintético) .. 1 con captura de pantalla (se funde al soltar)
+    float fuerza;    // LENTE: 0 móvil/tablet, 1 PC grande (más desvío, disco más opaco y brillante)
+    vec4  vecino;    // LENTE: el otro agujero del borde (xy: su centro desde el mío en px, z: su radio en px o 0, w: su vis)
 };
+layout(binding = 1) uniform sampler2D bg;   // captura congelada de la pantalla (al empezar el arrastre)
 
 #define R rad
 #define U upx
@@ -102,12 +108,32 @@ vec4 trazar(vec2 s, float dir, float flujo, float brillo, out float tr){
                 vec3 tg = normalize(vec3(-x.z, 0.0, x.x)) * dir; float be = sqrt(0.5 / rc); float D = sqrt(1.0 - be * be) / (1.0 - be * dot(tg, -normalize(vel)));
                 float I = pow(RIN / rc, 1.5) * pow(D, 3.0) * gas(x, rc, dir, flujo) * edge;
                 I += pulse * 1.4 * exp(-pow((rc - RIN - 0.6) / 0.8, 2.0)) * pow(D, 3.0);
-                col += tr * paleta(clamp(rn * 1.15 - (D - 1.0) * 0.6, 0.0, 1.0)) * I * brillo; tr *= 1.0 - 0.8 * edge * clamp(I * 1.2, 0.0, 1.0);
+                col += tr * paleta(clamp(rn * 1.15 - (D - 1.0) * 0.6, 0.0, 1.0)) * I * brillo; tr *= 1.0 - (0.8 + 0.17 * fuerza) * edge * clamp(I * (1.2 + 0.8 * fuerza), 0.0, 1.0);
             }
         }
         pos = np; if (rr > 18.0 && dot(pos, vel) > 0.0) break;
     }
     return vec4(col, cap);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// LENTE (solo PC): todo en radios de sombra, así la deformación crece y encoge con el agujero.
+// ---------------------------------------------------------------------------------------------------------------
+const float LENTE_TE = 1.20;    // radio del anillo de Einstein (1 = borde de la sombra). Más alto = lente más fuerte
+const float LENTE_RMAX = 3.3;   // alcance: a partir de aquí la pantalla no se toca (el disco llega a ~4)
+const float LENTE_VEC0 = 2.1;   // con dos agujeros: dentro de este radio del vecino manda SU lente (la mía no pinta)...
+const float LENTE_VEC1 = 3.0;   // ...y a partir de este vuelve a pintar la mía. Entre los dos pintan lo mismo
+// Desvío de la luz a distancia s del centro. Tiene la forma del de un agujero de Schwarzschild: lejos cae como 1/s y al
+// llegar a la sombra (s = 1, la esfera de fotones) se dispara como un logaritmo. Se normaliza para que el anillo de
+// Einstein quede en LENTE_TE y se lleva a cero, sin escalón ni pico, en LENTE_RMAX.
+float desvio(float s){
+    float c = LENTE_TE / -log(1.0 - 1.0 / LENTE_TE);
+    return -c * log(1.0 - 1.0 / max(s, 1.004)) * (1.0 - sm(LENTE_TE, LENTE_RMAX, s));
+}
+// Captura en un punto del quad (px desde el centro del agujero). Fuera de la pantalla se refleja en el borde.
+vec3 muestra(vec2 q){
+    vec2 uv = (quadPos + size * 0.5 + q) / scrSize;
+    return texture(bg, clamp(1.0 - abs(1.0 - abs(uv)), 0.0, 1.0)).rgb;
 }
 
 void ae1(){
@@ -116,12 +142,45 @@ void ae1(){
     if (r > 9.0){ fragColor = vec4(0.0); return; }
     float tr = 1.0; vec4 d = vec4(0.0);
     // v2.19.1: el interruptor `armed` suma un poco de brillo al disco (como en el borde antes de AE1)
-    if (r < 4.6) d = trazar(s, 1.0, T * 0.45 * (1.0 + en), vis * mix(0.42 + 0.62 * en + 0.1 * armed, 0.13, reposo), tr);
+    float brillo = vis * mix((0.42 + 0.62 * en + 0.1 * armed) * (1.0 + 0.7 * fuerza), 0.13, reposo);
+    if (r < 4.6) d = trazar(s, 1.0, T * 0.45 * (1.0 + en), brillo, tr);
     vec3 rgb = d.rgb;
     vec3 aire = vec3(1.0, 0.62, 0.32) * vis * mix(0.5 + en, 0.25, reposo) * (0.05 * exp(-max(r - 1.0, 0.0) * 0.8) + 0.02 * exp(-max(r - 1.0, 0.0) * 0.28) * sm(9.0, 5.0, r));
-    rgb += (1.0 - d.a) * tr * (aire + cielo(p, 1.9 * R, 1.0, 1.2 * en + 5.0 * pulse + T * 0.15) * vis);
+    vec3 fondo = cielo(p, 1.9 * R, 1.0, 1.2 * en + 5.0 * pulse + T * 0.15) * vis;
+    // Lente gravitatoria sobre la captura de la pantalla (ver desvio()): cada píxel a distancia r del centro enseña lo que
+    // hay en beta = r - desvío(r), en la misma dirección. Fuera del anillo de Einstein la imagen se aprieta hacia el
+    // agujero y se estira en arco; dentro (entre el anillo y la sombra) sale la imagen secundaria, del revés y muy fina.
+    float a = 0.0; vec3 cap = vec3(0.0);
+    if (lente > 0.001){
+        float Rg = R * g; float kv = min(vis, 1.0);
+        float dl = desvio(r) * kv;
+        float b0 = r - dl;
+        // Huella radial: px de la captura que caben en un px de pantalla (crece hacia la sombra); se promedia para no serrar.
+        float b1 = r + 1.0 / Rg - desvio(r + 1.0 / Rg) * kv;
+        float huella = clamp(abs(b1 - b0) * Rg, 1.0, 14.0) - 1.0;
+        vec2 dir = s / max(r, 0.001);
+        // Dos agujeros en el mismo borde: los desvíos se suman (cada quad pinta la misma imagen donde se pisan) y cerca
+        // del vecino no pinto yo, para no taparle el disco ni la sombra: ninguno se come al otro.
+        vec2 dv = vec2(0.0); float libre = 1.0;
+        if (vecino.z > 1.0){
+            vec2 pv = p - vecino.xy; float rv = length(pv) / vecino.z;
+            dv = pv / max(length(pv), 0.001) * desvio(rv) * vecino.z * min(vecino.w, 1.0);
+            libre = sm(LENTE_VEC0, LENTE_VEC1, rv);
+        }
+        for (int i = 0; i < 5; i++) cap += muestra(dir * (b0 * Rg + (float(i) - 2.0) * 0.25 * huella) - dv);
+        cap *= 0.2 * sm(1.0, 1.12, r);   // la imagen secundaria se apaga al llegar a la sombra
+        // La captura solo tapa la pantalla donde el desvío se ve (más de ~3 px); por debajo de medio píxel ya no pinta:
+        // así no hay costura ni imagen doble donde acaba la lente.
+        a = lente * libre * sm(0.5, 3.0, length(dir * dl * Rg + dv)) * bordes(qt_TexCoord0 * size);
+        fondo *= 1.0 - a;
+    }
+    rgb += (1.0 - d.a) * tr * (aire + fondo);
     rgb += (1.0 - d.a) * vec3(1.0, 0.8, 0.55) * aroDentro(r) * vis * 1.4;
     rgb = tinte(1.0 - exp(-rgb * 1.3));
+    // Lo que deja pasar el agujero: nada la sombra y, en el PC (`fuerza`), solo lo que no tapa el disco. La captura no pasa
+    // por el tono (se conserva tal cual) y va premultiplicada: color = captura · alfa, sin oscurecer ni duplicar.
+    float paso = (1.0 - d.a * vis) * mix(1.0, tr, fuerza);
+    rgb += paso * a * cap;
     // Arco del borde de pantalla curvado alrededor del agujero (solo el arco; el tramo recto lo pone QML)
     float Rr = R * (1.45 + 0.25 * en) * vis;
     if (dot(p, outward) <= 0.0 && Rr > 1.0){
@@ -129,7 +188,8 @@ void ae1(){
         rgb += rc * amp * 0.06 * (1.0 - smoothstep(2.5 * U, 2.5 * U + 2.0, dd));
         rgb += rc * amp * 0.45 * (1.0 - smoothstep(0.7 * U, 0.7 * U + 1.2, dd));
     }
-    fragColor = vec4(max(rgb * bordes(qt_TexCoord0 * size) + trama(), 0.0), d.a * vis) * qt_Opacity;
+    float alfa = clamp(1.0 - paso * (1.0 - a), 0.0, 1.0);
+    fragColor = vec4(max(rgb * bordes(qt_TexCoord0 * size) + trama(), 0.0), alfa) * qt_Opacity;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
