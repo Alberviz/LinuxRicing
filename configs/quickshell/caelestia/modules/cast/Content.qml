@@ -20,7 +20,7 @@ Item {
     readonly property var act: Cast.active
     property string monitor: ""
     property bool busy: false
-    readonly property bool scanning: Cast.devices.length === 0
+    property bool scanning: false
     // Qué proyectar / ajustes de la próxima proyección (los defaults vienen del backend)
     property string srcKind: "monitor"
     property string srcWorkspace: ""
@@ -48,12 +48,19 @@ Item {
     Keys.onEscapePressed: root.close()
     Component.onCompleted: {
         forceActiveFocus();
+        root.scanning = Cast.devices.length === 0;
         Cast.observers++;
         Cast.refresh();
         Cast.scan();
         Cast.mirrorOptions();
     }
     Component.onDestruction: Cast.observers--
+
+    Timer {
+        interval: 3500
+        running: root.scanning
+        onTriggered: root.scanning = false
+    }
 
     // Pantalla elegida: la última usada si existe, si no la primera
     FileView {
@@ -443,31 +450,102 @@ Item {
                 color: Colours.palette.m3onSurfaceVariant
                 font: Tokens.font.body.small
             }
-            StyledText {
+
+            StyledRect {
                 Layout.fillWidth: true
                 visible: !root.scanning && root.availableMonitors.length === 0
-                text: "No hay ninguna pantalla capturable (¿está encendida?)"
-                color: Colours.palette.m3error
-                font: Tokens.font.body.small
-                wrapMode: Text.WordWrap
+                implicitHeight: noMonRow.implicitHeight + Tokens.padding.medium * 2
+                radius: Tokens.rounding.medium
+                color: Qt.alpha(Colours.palette.m3errorContainer, 0.45)
+
+                RowLayout {
+                    id: noMonRow
+                    anchors.fill: parent
+                    anchors.margins: Tokens.padding.medium
+                    spacing: Tokens.spacing.small
+
+                    MaterialIcon {
+                        text: "warning"
+                        color: Colours.palette.m3onErrorContainer
+                        fontStyle: Tokens.font.icon.small
+                    }
+                    StyledText {
+                        Layout.fillWidth: true
+                        text: "No hay ninguna pantalla capturable (comprueba si está encendida)"
+                        color: Colours.palette.m3onErrorContainer
+                        font: Tokens.font.body.small
+                        wrapMode: Text.WordWrap
+                    }
+                }
+            }
+
+            StyledRect {
+                Layout.fillWidth: true
+                visible: !root.scanning && Cast.onlineDevices.length === 0
+                implicitHeight: noDevRow.implicitHeight + Tokens.padding.large * 2
+                radius: Tokens.rounding.large
+                color: Colours.tPalette.m3surfaceContainerLowest
+                opacity: 0.75
+
+                RowLayout {
+                    id: noDevRow
+                    anchors.fill: parent
+                    anchors.margins: Tokens.padding.large
+                    spacing: Tokens.spacing.medium
+
+                    MaterialIcon {
+                        text: "tv_off"
+                        color: Colours.palette.m3outline
+                        fontStyle: Tokens.font.icon.large
+                    }
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 0
+
+                        StyledText {
+                            text: "No se encontró ningún Chromecast"
+                            font: Tokens.font.body.medium
+                            color: Colours.palette.m3onSurfaceVariant
+                        }
+                        StyledText {
+                            text: "Comprueba que la tele esté encendida y en la misma red"
+                            font: Tokens.font.body.small
+                            color: Colours.palette.m3outline
+                        }
+                    }
+                    IconButton {
+                        icon: "refresh"
+                        type: IconButton.Tonal
+                        onClicked: {
+                            root.scanning = true;
+                            Cast.scan();
+                        }
+                    }
+                }
             }
 
             Repeater {
-                model: Cast.devices
+                model: Cast.onlineDevices
 
                 StyledRect {
                     id: row
 
                     required property var modelData
+                    readonly property bool isOnline: modelData.online !== false
 
                     Layout.fillWidth: true
                     implicitHeight: rl.implicitHeight + Tokens.padding.large * 2
                     radius: Tokens.rounding.large
-                    color: Colours.tPalette.m3surfaceContainer
+                    color: row.isOnline ? Colours.tPalette.m3surfaceContainer : Colours.tPalette.m3surfaceContainerLowest
+                    opacity: row.isOnline ? 1.0 : 0.62
+
+                    Behavior on opacity {
+                        Anim {}
+                    }
 
                     StateLayer {
                         radius: Tokens.rounding.large
-                        disabled: root.busy || (root.srcKind === "monitor" && root.availableMonitors.length === 0)
+                        disabled: !row.isOnline || root.busy || (root.srcKind === "monitor" && root.availableMonitors.length === 0)
                         onClicked: root.start(row.modelData)
                     }
 
@@ -479,8 +557,8 @@ Item {
                         spacing: Tokens.spacing.medium
 
                         MaterialIcon {
-                            text: "tv"
-                            color: Colours.palette.m3primary
+                            text: row.isOnline ? "tv" : "tv_off"
+                            color: row.isOnline ? Colours.palette.m3primary : Colours.palette.m3outline
                             fontStyle: Tokens.font.icon.large
                         }
                         ColumnLayout {
@@ -491,12 +569,15 @@ Item {
                                 Layout.fillWidth: true
                                 text: row.modelData.name
                                 font: Tokens.font.body.medium
+                                color: row.isOnline ? Colours.palette.m3onSurface : Colours.palette.m3onSurfaceVariant
                                 elide: Text.ElideRight
                             }
                             StyledText {
                                 Layout.fillWidth: true
-                                text: row.modelData.model + " · " + row.modelData.host
-                                color: Colours.palette.m3onSurfaceVariant
+                                text: row.isOnline
+                                    ? row.modelData.model + " · " + row.modelData.host
+                                    : "Sin conexión · " + (row.modelData.host || "desconectada")
+                                color: row.isOnline ? Colours.palette.m3onSurfaceVariant : Colours.palette.m3outline
                                 font: Tokens.font.body.small
                                 elide: Text.ElideRight
                             }
@@ -505,12 +586,12 @@ Item {
                             implicitWidth: 36
                             implicitHeight: 36
                             radius: Tokens.rounding.full
-                            color: Colours.palette.m3primary
+                            color: row.isOnline ? Colours.palette.m3primary : Colours.tPalette.m3surfaceContainerHigh
 
                             MaterialIcon {
                                 anchors.centerIn: parent
-                                text: "cast"
-                                color: Colours.palette.m3onPrimary
+                                text: row.isOnline ? "cast" : "wifi_off"
+                                color: row.isOnline ? Colours.palette.m3onPrimary : Colours.palette.m3outline
                             }
                         }
                     }
@@ -603,13 +684,41 @@ Item {
             }
         }
 
-        StyledText {
+        StyledRect {
             Layout.fillWidth: true
             visible: Cast.shownError !== ""
-            text: Cast.shownError
-            color: Colours.palette.m3error
-            font: Tokens.font.body.small
-            wrapMode: Text.WordWrap
+            implicitHeight: errRow.implicitHeight + Tokens.padding.medium * 2
+            radius: Tokens.rounding.medium
+            color: Qt.alpha(Colours.palette.m3errorContainer, 0.45)
+
+            RowLayout {
+                id: errRow
+
+                anchors.fill: parent
+                anchors.margins: Tokens.padding.medium
+                spacing: Tokens.spacing.small
+
+                MaterialIcon {
+                    text: "info"
+                    color: Colours.palette.m3onErrorContainer
+                    fontStyle: Tokens.font.icon.small
+                }
+                StyledText {
+                    Layout.fillWidth: true
+                    text: Cast.shownError
+                    color: Colours.palette.m3onErrorContainer
+                    font: Tokens.font.body.small
+                    wrapMode: Text.WordWrap
+                }
+                IconButton {
+                    icon: "close"
+                    type: IconButton.Text
+                    onClicked: {
+                        Cast.cmdError = "";
+                        Cast.error = "";
+                    }
+                }
+            }
         }
     }
 }

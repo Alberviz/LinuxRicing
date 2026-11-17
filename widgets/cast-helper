@@ -30,7 +30,10 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.parse
+import urllib.request
+import select
 
 # ── rutas ────────────────────────────────────────────────────────────────────
 RUNTIME = os.environ.get("XDG_RUNTIME_DIR") or "/tmp"
@@ -38,6 +41,7 @@ SOCK_PATH = os.path.join(RUNTIME, "cast-helper.sock")
 WORK_DIR = os.path.join(RUNTIME, "cast-helper")
 STATE_PATH = os.path.join(WORK_DIR, "state.json")
 CACHE_PATH = os.path.expanduser("~/.cache/cast-helper/devices.json")
+TORRENT_SERVER = os.path.expanduser("~/.local/lib/cast-torrent/server.js")
 DEFAULT_PORT = 45114
 APP_MEDIA_RECEIVER = "CC1AD845"
 IDLE_APP_ID = "E8C28D3C"
@@ -73,6 +77,52 @@ def _import_cast_libs():
 
 
 # ── utilidades ───────────────────────────────────────────────────────────────
+def ensure_desktop_env():
+    """Restaura variables del compositor (Hyprland / Wayland) si el servicio arrancó antes o sin ellas."""
+    rt = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+
+    # 1. HYPRLAND_INSTANCE_SIGNATURE
+    sig = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE")
+    sig_valid = False
+    if sig:
+        sock = os.path.join(rt, "hypr", sig, ".socket.sock")
+        if os.path.exists(sock):
+            sig_valid = True
+    if not sig_valid:
+        hypr_dirs = glob.glob(os.path.join(rt, "hypr", "*"))
+        valid = [d for d in hypr_dirs if os.path.exists(os.path.join(d, ".socket.sock")) or os.path.exists(os.path.join(d, ".socket2.sock"))]
+        if valid:
+            newest = max(valid, key=os.path.getmtime)
+            os.environ["HYPRLAND_INSTANCE_SIGNATURE"] = os.path.basename(newest)
+
+    # 2. WAYLAND_DISPLAY
+    wl = os.environ.get("WAYLAND_DISPLAY")
+    wl_valid = False
+    if wl:
+        sock = os.path.join(rt, wl)
+        if os.path.exists(sock):
+            wl_valid = True
+    if not wl_valid:
+        wl_socks = glob.glob(os.path.join(rt, "wayland-[0-9]*"))
+        socks = [s for s in wl_socks if not s.endswith(".lock") and os.path.exists(s)]
+        if socks:
+            newest = max(socks, key=os.path.getmtime)
+            os.environ["WAYLAND_DISPLAY"] = os.path.basename(newest)
+
+
+def check_device_online(dev, timeout=0.3):
+    """Comprueba si un Chromecast responde por TCP en su puerto (por defecto 8009)."""
+    host = dev.get("host")
+    port = dev.get("port") or 8009
+    if not host:
+        return False
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+
 def ensure_dirs():
     os.makedirs(WORK_DIR, exist_ok=True)
     os.makedirs(os.path.dirname(CACHE_PATH), exist_ok=True)
@@ -168,12 +218,25 @@ def ext_sub_info(path):
     return {"path": path, "lang": lang, "forced": forced}
 
 
-def probe_file(path):
-    if not os.path.isfile(path):
+def is_torrent_source(src):
+    s = (src or "").strip()
+    if s.startswith("magnet:"):
+        return True
+    clean = s.split("?", 1)[0].lower()
+    return clean.endswith(".torrent")
+
+
+def probe_file(path, external_subs=None):
+    is_url = bool(re.match(r"^https?://", path))
+    if not is_url and not os.path.isfile(path):
         raise ValueError(f"no existe el archivo: {path}")
+    cmd = ["ffprobe", "-v", "error"]
+    if is_url:
+        cmd += ["-probesize", "10M", "-analyzeduration", "10M"]
+    cmd += ["-print_format", "json", "-show_format", "-show_streams", path]
     r = subprocess.run(
-        ["ffprobe", "-v", "error", "-print_format", "json", "-show_format", "-show_streams", path],
-        capture_output=True, text=True,
+        cmd,
+        capture_output=True, text=True, timeout=120 if is_url else None,
     )
     if r.returncode != 0:
         raise ValueError("ffprobe falló: " + (r.stderr.strip().splitlines() or ["?"])[-1])
@@ -206,7 +269,7 @@ def probe_file(path):
     if video is None:
         raise ValueError("el archivo no tiene pista de vídeo")
     fmt = data.get("format", {})
-    ext_paths = find_external_subs(path)
+    ext_paths = list(external_subs) if external_subs is not None else ([] if is_url else find_external_subs(path))
     return {
         "duration": fmt_dur(fmt.get("duration")),
         "format": fmt.get("format_name", ""),
@@ -223,13 +286,13 @@ def default_audio(audio):
     return audio[0] if audio else None
 
 
-def plan_playback(path, info, audio_index=None):
+def plan_playback(path, info, audio_index=None, name_hint=None):
     """Devuelve (mode, reason, error). error != None => no reproducible."""
     v = info["video"]
     if v["codec"] not in DIRECT_VIDEO:
         return "transcode", f"vídeo {v['codec']}", \
             f"vídeo {v['codec']} no soportado por el Chromecast (solo h264/hevc/vp9) y no se transcodifica el vídeo"
-    ext = os.path.splitext(path)[1].lower()
+    ext = os.path.splitext(name_hint or path)[1].lower()
     fmt = info["format"]
     container_ok = ext in DIRECT_CONTAINER_EXT and ("mp4" in fmt or "webm" in fmt)
     if not info["audio"]:
@@ -401,6 +464,7 @@ MIRROR_KBPS = int(os.environ.get("CAST_MIRROR_KBPS", "6000"))
 
 def list_monitors():
     """Salidas capturables por gpu-screen-recorder (o Hyprland como fallback): [{name,width,height}]."""
+    ensure_desktop_env()
     res = []
     try:
         out = subprocess.run(["gpu-screen-recorder", "--list-monitors"], capture_output=True, text=True, timeout=8).stdout
@@ -541,6 +605,7 @@ def resolve_quality(q, enc):
 
 
 def hypr_json(what):
+    ensure_desktop_env()
     try:
         return json.loads(subprocess.run(["hyprctl", "-j", what], capture_output=True, text=True, timeout=5).stdout or "[]")
     except Exception:  # noqa: BLE001
@@ -578,6 +643,7 @@ def real_monitors():
 
 
 def mirror_options():
+    ensure_desktop_env()
     mons = [{"name": m["name"], "width": m["width"], "height": m["height"], "focused": bool(m.get("focused"))}
             for m in real_monitors()]
     wss = [{"id": w["id"], "name": w["name"], "monitor": w.get("monitor"), "windows": w.get("windows", 0)}
@@ -846,6 +912,8 @@ class MediaServer:
                 try:
                     if rt.kind == "direct":
                         self._serve_file(rt, head)
+                    elif rt.kind == "proxy":
+                        self._serve_proxy(rt, head)
                     elif rt.kind == "sub":
                         self._serve_bytes(rt, head)
                     elif rt.kind == "mirror":
@@ -866,6 +934,37 @@ class MediaServer:
                 self.end_headers()
                 if not head:
                     self.wfile.write(data)
+
+            def _serve_proxy(self, rt, head):
+                headers = {}
+                rng = self.headers.get("Range")
+                if rng:
+                    headers["Range"] = rng
+                req = urllib.request.Request(rt.path, headers=headers, method="HEAD" if head else "GET")
+                try:
+                    resp = urllib.request.urlopen(req, timeout=30)
+                except urllib.error.HTTPError as e:
+                    self.send_response(e.code)
+                    self._cors()
+                    self.end_headers()
+                    return
+                with resp:
+                    self.send_response(resp.status)
+                    for h in ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges"):
+                        v = resp.headers.get(h)
+                        if v:
+                            self.send_header(h, v)
+                    self.send_header("Cache-Control", "no-store")
+                    self._cors()
+                    self.end_headers()
+                    if head:
+                        return
+                    while True:
+                        chunk = resp.read(65536)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        self.wfile.flush()
 
             def _serve_file(self, rt, head):
                 size = os.path.getsize(rt.path)
@@ -1076,6 +1175,11 @@ class Session:
         self.sub_lang = "es"
         self.ip = None
         self.fake = False
+        self.torrent_proc = None
+        self.is_torrent = False
+        self.torrent_req = None
+        self.torrent_name = None
+        self._torrent_err = None
 
     # -- estado --
     def position(self):
@@ -1116,11 +1220,96 @@ class Session:
         }
 
     # -- carga --
+    def _start_torrent(self):
+        # stderr a un fichero: un PIPE sin lector acabaría bloqueando a node al llenarse (64 KiB).
+        errlog_path = os.path.join(WORK_DIR, "cast-torrent.err")
+        self._torrent_err = open(errlog_path, "w", encoding="utf-8")
+        proc = subprocess.Popen(
+            ["node", TORRENT_SERVER, self.source],
+            stdout=subprocess.PIPE, stderr=self._torrent_err, text=True,
+        )
+        self.torrent_proc = proc
+        deadline = time.monotonic() + 60.0
+        line = ""
+        while time.monotonic() < deadline:
+            if self.dead:
+                raise RuntimeError("reproducción cancelada")
+            if proc.poll() is not None:
+                rem = proc.stdout.read().strip() if proc.stdout else ""
+                if rem:
+                    line = rem.splitlines()[-1]
+                    break
+                try:
+                    err = open(errlog_path, encoding="utf-8").read().strip()
+                except OSError:
+                    err = ""
+                raise RuntimeError(err.splitlines()[-1] if err else "cast-torrent terminó inesperadamente")
+            rlist, _, _ = select.select([proc.stdout], [], [], 0.25)
+            if rlist:
+                line = proc.stdout.readline().strip()
+                if line:
+                    break
+        if not line:
+            raise RuntimeError("tiempo de espera agotado conectando a peers del torrent (60 s)")
+        try:
+            meta = json.loads(line)
+        except Exception as e:
+            raise RuntimeError(f"respuesta inválida de cast-torrent: {line}") from e
+        if not meta.get("ready"):
+            raise RuntimeError(meta.get("error") or "no se pudo abrir el torrent")
+        self.source = meta["url"]
+        self.torrent_name = meta.get("name") or "Torrent"
+        req = self.torrent_req or {}
+        if not req.get("title"):
+            self.title = clean_title(self.torrent_name)
+        status_url = meta.get("statusUrl")
+        if status_url:
+            buf_deadline = time.monotonic() + 35.0
+            last_peers = 0
+            while time.monotonic() < buf_deadline:
+                if self.dead:
+                    raise RuntimeError("reproducción cancelada")
+                try:
+                    with urllib.request.urlopen(status_url, timeout=2) as r:
+                        st = json.loads(r.read().decode())
+                    last_peers = int(st.get("peers") or 0)
+                    if int(st.get("downloaded") or 0) > 0:
+                        break
+                except Exception:
+                    pass
+                time.sleep(0.5)
+            else:
+                raise RuntimeError(f"el torrent no tiene peers disponibles ({last_peers} conectados)")
+        info = probe_file(self.source, external_subs=meta.get("subs") or [])
+        aidx = req.get("audio")
+        if aidx is None:
+            a = default_audio(info["audio"])
+            aidx = a["index"] if a else None
+        else:
+            aidx = int(aidx)
+        mode, _, err = plan_playback(self.source, info, aidx, name_hint=self.torrent_name)
+        if err:
+            raise ValueError(err)
+        spec = self.daemon._sub_spec(req, info)
+        self.mode = mode
+        self.info = info
+        self.duration = info["duration"]
+        self.audio_index = aidx if mode == "transcode" else None
+        self.audio_active = aidx if aidx is not None else (info["audio"][0]["index"] if info["audio"] else None)
+        return spec
+
     def run_load(self, start, sub_spec):
         try:
             if self.mode == "url":
                 self._connect()
                 self._load_url(start)
+            elif self.mode == "torrent":
+                spec = self._start_torrent()
+                if self.dead:
+                    return
+                self._prepare_subs(spec)
+                self._connect()
+                self._load(start)
             else:
                 self._prepare_subs(sub_spec)
                 self._extract_art()
@@ -1154,7 +1343,7 @@ class Session:
         info = self.info
         if not info:
             return
-        texts = [x for x in info["subs"] if x["text"]]
+        texts = [] if self.is_torrent else [x for x in info["subs"] if x["text"]]
         if texts:
             load_embedded_batch(self.source, [x["index"] for x in texts])
         for x in texts:
@@ -1217,8 +1406,9 @@ class Session:
         mc_start = 0.0 if self.mode == "transcode" else float(start)
         mname = f"{self.token}-m{self.reload_n}.mp4"
         if self.mode == "direct":
-            mime = "video/webm" if self.source.lower().endswith(".webm") else "video/mp4"
-            rt = Route("direct", self.source, mime)
+            fname = self.torrent_name or self.source
+            mime = "video/webm" if fname.lower().endswith(".webm") else "video/mp4"
+            rt = Route("proxy" if self.is_torrent else "direct", self.source, mime)
         else:
             rt = Route("transcode", self.source, "video/mp4", info=self.info, audio=self.audio_index)
             rt.offset = self.offset
@@ -1314,7 +1504,7 @@ class Session:
         if not any(a["index"] == n for a in self.info["audio"]):
             raise ValueError(f"pista de audio {n} inexistente")
         pos = self.position()
-        mode, _reason, err = plan_playback(self.source, self.info, n)
+        mode, _reason, err = plan_playback(self.source, self.info, n, name_hint=self.torrent_name)
         if err:
             raise ValueError(err)
         self.mode = mode
@@ -1347,6 +1537,13 @@ class Session:
     def cleanup(self):
         """Limpia rutas/ficheros (no toca el Chromecast)."""
         self.dead = True
+        if self.torrent_proc is not None:
+            kill_proc(self.torrent_proc)
+            self.torrent_proc = None
+            try:
+                self._torrent_err.close()
+            except Exception:  # noqa: BLE001
+                pass
         rt = self.route
         if rt is not None and getattr(rt, "procs", None):      # espejo HLS: no dejar gsr/ffmpeg huérfanos
             for q in rt.procs:
@@ -1427,7 +1624,7 @@ class _CastListener:
             return
         s.volume = round(status.volume_level * 100)
         s.muted = bool(status.volume_muted)
-        if s.loaded and not s.reloading and status.app_id != APP_MEDIA_RECEIVER:
+        if s.loaded and not s.reloading and s.mode != "mirror" and status.app_id != APP_MEDIA_RECEIVER:
             s.daemon.end_session(s, error=None)
             return
         s.daemon.publish()
@@ -1685,8 +1882,22 @@ class CastStreamSession(Session):
                     log.info("cambio de energía %s: el encoder pasa a %s", pw, resolve_encoder("auto", pw, self.quality_mode))
                     self._request_restart()
 
+    def _sync_cast_bg(self):
+        try:
+            self.cast = self.daemon.get_cast(self.dev)
+            self.cast_listener = _CastListener(self)
+            self.cast.register_status_listener(self.cast_listener)
+            st = self.cast.status
+            if st:
+                self.volume = round(st.volume_level * 100)
+                self.muted = bool(st.volume_muted)
+                self.daemon.publish()
+        except Exception as e:  # noqa: BLE001
+            log.warning("no se pudo enlazar volumen de Chromecast: %s", e)
+
     def run_load(self, start, sub_spec):
         threading.Thread(target=self._watch_power, daemon=True).start()
+        threading.Thread(target=self._sync_cast_bg, daemon=True).start()
         try:
             self.ip = local_ip_for(self.dev["host"])
             attempt = 0
@@ -2091,15 +2302,48 @@ class Daemon:
     def _load_cache(self):
         try:
             for d in json.load(open(CACHE_PATH, encoding="utf-8")):
+                d["online"] = False
                 self.devices[d["uuid"]] = d
         except Exception:  # noqa: BLE001
             pass
+        self.refresh_devices_online()
 
     def _save_cache(self):
         try:
-            atomic_write(CACHE_PATH, json.dumps(list(self.devices.values()), ensure_ascii=False, indent=1))
+            devs = [{k: v for k, v in d.items() if k != "online"} for d in self.devices.values()]
+            atomic_write(CACHE_PATH, json.dumps(devs, ensure_ascii=False, indent=1))
         except Exception:  # noqa: BLE001
             log.exception("cache de dispositivos")
+
+    def refresh_devices_online(self, sync=False):
+        def _check():
+            from concurrent.futures import ThreadPoolExecutor
+
+            devs = list(self.devices.values())
+            if not devs:
+                return
+            active_uuid = self.active.device_uuid if self.active else None
+
+            def _probe(dev):
+                if active_uuid and dev.get("uuid") == active_uuid:
+                    return True
+                return check_device_online(dev)
+
+            with ThreadPoolExecutor(max_workers=min(16, len(devs))) as ex:
+                results = list(ex.map(_probe, devs))
+
+            changed = False
+            for dev, on in zip(devs, results):
+                if dev.get("online") != on:
+                    dev["online"] = on
+                    changed = True
+            if changed:
+                self.publish()
+
+        if sync:
+            _check()
+        else:
+            threading.Thread(target=_check, daemon=True).start()
 
     def start_discovery(self):
         import pychromecast
@@ -2108,30 +2352,37 @@ class Daemon:
 
         class L(AbstractCastListener):
             def add_cast(self, uuid, service):
-                d._on_device(uuid)
+                d._on_device(uuid, online=True)
 
             def update_cast(self, uuid, service):
-                d._on_device(uuid)
+                d._on_device(uuid, online=True)
 
             def remove_cast(self, uuid, service, cast_info):
-                pass  # mantenemos el ultimo host conocido
+                d._on_device_lost(uuid)
 
         self.zc = create_zeroconf()
         self.browser = CastBrowser(L(), self.zc)
         self.browser.start_discovery()
         self._pychromecast = pychromecast
 
-    def _on_device(self, uuid):
+    def _on_device(self, uuid, online=True):
         info = self.browser.devices.get(uuid)
         if not info:
             return
         self.cast_info[str(uuid)] = info
         rec = {"uuid": str(uuid), "name": info.friendly_name or info.host,
-               "model": info.model_name or "", "host": info.host, "port": info.port or 8009}
+               "model": info.model_name or "", "host": info.host, "port": info.port or 8009,
+               "online": online}
         if self.devices.get(rec["uuid"]) != rec:
             self.devices[rec["uuid"]] = rec
             self._save_cache()
         self.publish()
+
+    def _on_device_lost(self, uuid):
+        uid = str(uuid)
+        if uid in self.devices:
+            self.devices[uid]["online"] = False
+            self.publish()
 
     def device_list(self):
         return sorted(self.devices.values(), key=lambda x: x["name"])
@@ -2171,7 +2422,7 @@ class Daemon:
             s = self.active
             st = {
                 "updated": time.time(),
-                "devices": [{k: d[k] for k in ("uuid", "name", "model", "host")} for d in self.device_list()],
+                "devices": [{k: d[k] for k in ("uuid", "name", "model", "host", "online") if k in d} for d in self.device_list()],
                 "active": s.as_dict() if s else None,
                 "monitors": self.monitors,
                 "error": self.error,
@@ -2227,10 +2478,18 @@ class Daemon:
         threading.Thread(target=go, daemon=True).start()
 
     def ticker(self):
+        ticks = 0
         while not self._stop.wait(1.0):
+            ticks += 1
             s = self.active
             if s and s.state in ("PLAYING", "BUFFERING"):
                 self.publish()
+            elif ticks % 10 == 0:
+                self.refresh_devices_online()
+                mons = list_monitors()
+                if mons != self.monitors:
+                    self.monitors = mons
+                    self.publish()
 
     # -- comandos --
     def handle(self, req):
@@ -2252,6 +2511,7 @@ class Daemon:
 
     def cmd_devices(self, req):
         self.monitors = list_monitors() or self.monitors
+        self.refresh_devices_online(sync=True)
         t0 = time.time()
         while not self.devices and time.time() - t0 < 4:
             time.sleep(0.2)
@@ -2298,8 +2558,25 @@ class Daemon:
         dev = self.find_device(req["device"])
         if not dev:
             raise ValueError(f"dispositivo no encontrado: {req['device']}")
+        if dev.get("online") is False and not check_device_online(dev):
+            raise ValueError(f"la tele ({dev['name']}) está desconectada o apagada")
         src = req["source"]
         start = float(req.get("start") or 0)
+        if is_torrent_source(src):
+            if not os.path.isfile(TORRENT_SERVER) or shutil.which("node") is None:
+                raise ValueError("cast-torrent no está instalado (~/.local/lib/cast-torrent/server.js)")
+            if not src.startswith("magnet:") and not re.match(r"^https?://", src):
+                src = os.path.abspath(os.path.expanduser(src))
+                if not os.path.isfile(src):
+                    raise ValueError(f"no existe el archivo torrent: {src}")
+            self.server.start()
+            s = Session(self, dev, src, "torrent", req.get("title") or "Cargando torrent…")
+            s.is_torrent = True
+            s.torrent_req = req
+            self.error = None
+            self.set_active(s)
+            threading.Thread(target=s.run_load, args=(start, None), daemon=True).start()
+            return {"ok": True, "mode": "torrent", "preparing": True}
         if re.match(r"^https?://", src):
             self.server_ok = None
             s = Session(self, dev, src, "url", req.get("title") or src)
@@ -2339,6 +2616,7 @@ class Daemon:
             self.publish()
             return {"ok": True, "monitors": self.monitors}
         if act == "options":
+            self.monitors = list_monitors() or self.monitors
             return mirror_options()
         if act == "set":
             s = self._need_active()
@@ -2371,6 +2649,8 @@ class Daemon:
         dev = self.find_device(key) if key else (self.device_list() or [None])[0]
         if not dev:
             raise ValueError("no hay ningún Chromecast")
+        if dev.get("online") is False and not check_device_online(dev):
+            raise ValueError(f"la tele ({dev['name']}) está desconectada o apagada")
         if not self.monitors:
             self.monitors = list_monitors()
         kind, _, val = src_req.partition(":")
@@ -2549,6 +2829,7 @@ def default_sub_spec(info):
 
 
 def run_daemon():
+    ensure_desktop_env()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     _import_cast_libs()
     ensure_dirs()
@@ -2650,6 +2931,7 @@ def serve_test(args):
 
 
 def main():
+    ensure_desktop_env()
     ap = argparse.ArgumentParser(prog="cast-helper", description="Helper de Chromecast para el panel Quickshell")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("daemon", help="proceso largo (unidad systemd)")
@@ -2709,7 +2991,7 @@ def main():
         req["path"] = os.path.abspath(os.path.expanduser(args.path))
     elif args.cmd == "cast":
         src = args.source
-        if not re.match(r"^https?://", src):
+        if not (re.match(r"^https?://", src) or src.startswith("magnet:")):
             src = os.path.abspath(os.path.expanduser(src))
         req.update(device=args.device, source=src, audio=args.audio, sub=args.sub,
                    sub_file=args.sub_file, no_subs=args.no_subs, start=args.start, title=args.title)

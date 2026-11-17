@@ -64,7 +64,7 @@ Variants {
         property string sendPath: ""
         property bool warpSending: false
         property bool teleExternalSending: false
-        readonly property var mediaExt: ["mp4", "m4v", "mkv", "webm", "avi", "mov", "ts", "mpg", "mpeg", "wmv", "flv", "ogv", "mp3", "flac", "m4a", "aac", "ogg", "opus", "wav", "mka"]
+        readonly property var mediaExt: ["mp4", "m4v", "mkv", "webm", "avi", "mov", "ts", "mpg", "mpeg", "wmv", "flv", "ogv", "mp3", "flac", "m4a", "aac", "ogg", "opus", "wav", "mka", "torrent"]
         // 0..1 aparición global. Entra con muelle (ease-out) y sale acelerando (~380 ms); es
         // estado continuo, así que invertir a mitad no produce saltos.
         property real show: 0
@@ -175,7 +175,7 @@ Variants {
             portal.fileName = baseName(t);
             portal.bad = "";
             portal.fileLine = portal.fileName.length > 38 ? portal.fileName.substring(0, 35) + "…" : portal.fileName;
-            if (t.startsWith("http://") || t.startsWith("https://"))
+            if (t.startsWith("http://") || t.startsWith("https://") || t.startsWith("magnet:"))
                 return;
             if (portal.edge === "right") {
                 const ext = (portal.fileName.split(".").pop() || "").toLowerCase();

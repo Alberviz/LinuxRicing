@@ -24,6 +24,7 @@
 #    rgb/{agent-notify,akko-rgb,battery-lighting,magichome-control,mchose-battery,
 #         mchose-lighting,rgb-notify-flash} -> ~/.local/bin/
 #    widgets/cast-helper            -> ~/.local/bin/  (daemon Chromecast; tarjeta del panel rápido)
+#    widgets/cast-torrent/          -> ~/.local/lib/cast-torrent/  (torrents en streaming a la tele; npm ci)
 #    widgets/warp                   -> ~/.local/bin/  (Warp: texto y archivos al móvil; docs/WARP.md)
 #    widgets/drag-watch             -> ~/.local/bin/  (vigilante de arrastres; portales de Quickshell, requiere grupo input)
 #    systemd/*.service              -> ~/.config/systemd/user/
@@ -337,6 +338,19 @@ if [ -f "$BASE_DIR/widgets/cast-helper" ]; then
     cp -u "$BASE_DIR/widgets/cast-helper" "$HOME/.local/bin/cast-helper"
     chmod +x "$HOME/.local/bin/cast-helper"
     echo -e "  ${SUCCESS}✔ cast-helper instalado en ~/.local/bin${RESET}"
+fi
+
+# 4e1. cast-torrent (servidor HTTP de torrents en streaming; lo lanza cast-helper al enviar un magnet o .torrent)
+if [ -f "$BASE_DIR/widgets/cast-torrent/server.js" ]; then
+    mkdir -p "$HOME/.local/lib/cast-torrent"
+    cp -u "$BASE_DIR/widgets/cast-torrent/"{server.js,package.json,package-lock.json} "$HOME/.local/lib/cast-torrent/"
+    if command -v npm >/dev/null 2>&1; then
+        (cd "$HOME/.local/lib/cast-torrent" && npm ci --omit=dev --no-audit --no-fund >/dev/null 2>&1) \
+            && echo -e "  ${SUCCESS}✔ cast-torrent instalado en ~/.local/lib/cast-torrent${RESET}" \
+            || echo -e "  ${WARNING}⚠ cast-torrent: falló «npm ci» (¿sin red?); los torrents no funcionarán${RESET}"
+    else
+        echo -e "  ${WARNING}⚠ cast-torrent: falta npm/node; los torrents no funcionarán${RESET}"
+    fi
 fi
 
 # 4e2. Instalar warp (pasar texto y archivos al móvil por Olimpo; atajo Super+Shift+M, Laura y órdenes de Instinct)
