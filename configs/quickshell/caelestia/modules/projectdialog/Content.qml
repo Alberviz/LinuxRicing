@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
+import Quickshell.Io
 import Caelestia.Config
 import qs.components
 import qs.components.controls
@@ -45,30 +46,59 @@ StyledRect {
         }
     }
 
-    readonly property int targetHz: PowerSaving.active ? 60 : 144
+    // Estado real de los monitores (lo da `display-mode status`).
+    property var info: ({
+            "mode": "unknown",
+            "targetHz": 60,
+            "internal": null,
+            "externals": []
+        })
+    readonly property bool hasExternal: info.externals.length > 0
+    readonly property bool hasInternal: info.internal !== null
+    readonly property string externalName: {
+        const n = info.externals.length;
+        return n === 0 ? qsTr("monitor externo") : n === 1 ? info.externals[0].name : qsTr("%1 pantallas externas").arg(n);
+    }
+
+    Process {
+        id: statusProc
+
+        command: [root.helper, "status"]
+        running: true
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    root.info = JSON.parse(text);
+                } catch (e) {}
+            }
+        }
+    }
+
+    readonly property string helper: `${Quickshell.env("HOME")}/.local/bin/display-mode`
+
+    function apply(mode: string): void {
+        root.close();
+        Quickshell.execDetached([root.helper, mode]);
+    }
 
     function modeExternalOnly(): void {
-        root.close();
-        Quickshell.execDetached(["hyprctl", "eval", "hl.monitor({ output = 'eDP-2', disabled = true }); hl.monitor({ output = 'HDMI-A-1', mode = '1920x1080@144', position = '0x0', scale = 1, disabled = false })"]);
-        Quickshell.execDetached(["notify-send", "-a", "Pantalla", "-i", "video-display", "Modo: Solo Monitor Externo", "Pantalla integrada apagada (0 consumo).\nMonitor externo activo a 144Hz."]);
+        if (root.hasExternal)
+            root.apply("external");
     }
 
     function modeExtend(): void {
-        root.close();
-        Quickshell.execDetached(["hyprctl", "eval", `hl.monitor({ output = 'HDMI-A-1', mode = '1920x1080@144', position = '1920x0', scale = 1, disabled = false }); hl.monitor({ output = 'eDP-2', mode = '1920x1080@${root.targetHz}', position = '0x0', scale = 1, disabled = false })`]);
-        Quickshell.execDetached(["notify-send", "-a", "Pantalla", "-i", "video-display", "Modo: Pantallas Extendidas", `Doble monitor activo (portátil a ${root.targetHz}Hz).`]);
+        if (root.hasExternal && root.hasInternal)
+            root.apply("extend");
     }
 
     function modeMirror(): void {
-        root.close();
-        Quickshell.execDetached(["hyprctl", "eval", `hl.monitor({ output = 'eDP-2', mode = '1920x1080@${root.targetHz}', position = 'auto', scale = 1, disabled = false }); hl.monitor({ output = 'HDMI-A-1', mode = '1920x1080@${root.targetHz}', position = 'auto', scale = 1, mirror = 'eDP-2', disabled = false })`]);
-        Quickshell.execDetached(["notify-send", "-a", "Pantalla", "-i", "video-display", "Modo: Duplicado / Espejo", `Ambas pantallas en espejo a ${root.targetHz}Hz.`]);
+        if (root.hasExternal && root.hasInternal)
+            root.apply("mirror");
     }
 
     function modeLaptopOnly(): void {
-        root.close();
-        Quickshell.execDetached(["hyprctl", "eval", `hl.monitor({ output = 'HDMI-A-1', disabled = true }); hl.monitor({ output = 'eDP-2', mode = '1920x1080@${root.targetHz}', position = '0x0', scale = 1, disabled = false })`]);
-        Quickshell.execDetached(["notify-send", "-a", "Pantalla", "-i", "video-display", "Modo: Solo Portátil", `Monitor externo deshabilitado.\nPanel integrado a ${root.targetHz}Hz.`]);
+        if (root.hasInternal)
+            root.apply("laptop");
     }
 
     ColumnLayout {
@@ -153,8 +183,10 @@ StyledRect {
             Layout.fillWidth: true
             icon: "desktop_windows"
             title: qsTr("Solo monitor externo")
-            description: qsTr("Apaga la pantalla del portátil para ahorro y 0 consumo")
+            description: root.hasExternal ? qsTr("Apaga el portátil y usa %1").arg(root.externalName) : qsTr("No hay ningún monitor externo conectado")
             shortcutKey: "1"
+            enabled: root.hasExternal
+            current: root.info.mode === "external"
             iconColor: Colours.palette.m3primary
             iconBgColor: Qt.alpha(Colours.palette.m3primary, 0.2)
             onClicked: root.modeExternalOnly()
@@ -165,8 +197,10 @@ StyledRect {
             Layout.fillWidth: true
             icon: "splitscreen"
             title: qsTr("Extender pantallas")
-            description: qsTr("Doble monitor activo a 144Hz en paralelo")
+            description: root.hasExternal ? qsTr("Escritorio ampliado, portátil a %1 Hz").arg(root.info.targetHz) : qsTr("No hay ningún monitor externo conectado")
             shortcutKey: "2"
+            enabled: root.hasExternal && root.hasInternal
+            current: root.info.mode === "extend"
             iconColor: Colours.palette.m3secondary
             iconBgColor: Qt.alpha(Colours.palette.m3secondary, 0.2)
             onClicked: root.modeExtend()
@@ -177,8 +211,10 @@ StyledRect {
             Layout.fillWidth: true
             icon: "flip_to_front"
             title: qsTr("Duplicar / Espejo")
-            description: qsTr("Muestra el mismo contenido en ambas pantallas a 144Hz")
+            description: root.hasExternal ? qsTr("Muestra lo mismo en el portátil y en %1").arg(root.externalName) : qsTr("No hay ningún monitor externo conectado")
             shortcutKey: "3"
+            enabled: root.hasExternal && root.hasInternal
+            current: root.info.mode === "mirror"
             iconColor: Colours.palette.m3tertiary
             iconBgColor: Qt.alpha(Colours.palette.m3tertiary, 0.2)
             onClicked: root.modeMirror()
@@ -189,8 +225,10 @@ StyledRect {
             Layout.fillWidth: true
             icon: "laptop"
             title: qsTr("Solo pantalla del portátil")
-            description: qsTr("Deshabilita el monitor externo y deja solo el portátil")
+            description: qsTr("Apaga las pantallas externas y deja solo el portátil a %1 Hz").arg(root.info.targetHz)
             shortcutKey: "4"
+            enabled: root.hasInternal
+            current: root.info.mode === "laptop"
             iconColor: Colours.palette.m3outline
             iconBgColor: Qt.alpha(Colours.palette.m3outline, 0.2)
             onClicked: root.modeLaptopOnly()

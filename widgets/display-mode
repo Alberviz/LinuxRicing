@@ -1,0 +1,220 @@
+#!/usr/bin/env python3
+"""display-mode — cambia el modo de proyección de pantallas (como Win+P) en Hyprland.
+
+Uso:
+    display-mode status            # JSON con monitores, modos disponibles y modo actual
+    display-mode external|extend|mirror|laptop [--dry-run]
+
+Lo usan el diálogo de Quickshell (modules/projectdialog) y el fallback de
+display-selector. Lección aprendida: NO fijar frecuencias ni nombres de salida.
+El HDMI de sobremesa solo hace 60 Hz y forzar @144 lo deja mal configurado; un
+``hl.monitor`` sin ``mirror`` no deshace un espejo previo; y apagar el portátil sin
+monitor externo conectado deja el equipo sin imagen.
+"""
+import json
+import re
+import subprocess
+import sys
+
+MODES = ("external", "extend", "mirror", "laptop")
+TITLES = {
+    "external": "Solo monitor externo",
+    "extend": "Pantallas extendidas",
+    "mirror": "Duplicado / espejo",
+    "laptop": "Solo portátil",
+}
+
+
+def parse_modes(available):
+    """['1920x1080@144.00Hz', ...] -> [(w, h, hz)] en el orden que da Hyprland."""
+    out = []
+    for m in available:
+        r = re.match(r"(\d+)x(\d+)@([\d.]+)Hz", m)
+        if r:
+            out.append((int(r[1]), int(r[2]), float(r[3])))
+    return out
+
+
+def pick_mode(available, target_hz=None):
+    """Mejor modo `WxH@Hz` a partir de los modos reales del monitor.
+
+    Resolución: la nativa (la preferida que anuncia el monitor, o la mayor).
+    Frecuencia: la mayor disponible en esa resolución; con `target_hz`, la mayor
+    que no lo supere (o la menor existente si todas lo superan).
+    Devuelve (modo, ancho, alto).
+    """
+    modes = parse_modes(available)
+    if not modes:
+        return "preferred", 1920, 1080
+    w, h, _ = max(modes[:1] + modes, key=lambda m: (m[0] * m[1], m is modes[0]))
+    same = [m for m in modes if (m[0], m[1]) == (w, h)]
+    if target_hz is not None:
+        ok = [m for m in same if m[2] <= target_hz + 0.5]
+        hz = max(m[2] for m in ok) if ok else min(m[2] for m in same)
+    else:
+        hz = max(m[2] for m in same)
+    return f"{w}x{h}@{hz:.2f}", w, h
+
+
+def plan(mode, internal, externals, target_hz):
+    """Lista de pasos `hl.monitor` en el orden en que deben aplicarse.
+
+    `internal`: dict {name, modes, scale} o None. `externals`: lista de lo mismo
+    (cualquier número de monitores o teles). Lanza ValueError si el modo no es posible.
+    Se enciende SIEMPRE lo que queda antes de apagar lo otro.
+    """
+    if mode not in MODES:
+        raise ValueError(f"modo desconocido: {mode}")
+    if mode != "laptop" and not externals:
+        raise ValueError("No hay ningún monitor o tele externo conectado")
+    if mode != "external" and internal is None:
+        raise ValueError("No se encuentra la pantalla del portátil")
+
+    def entry(mon, hz, x, **kw):
+        spec, w, h = pick_mode(mon["modes"], hz)
+        scale = mon.get("scale") or 1
+        pos = "auto" if x is None else f"{x}x0"
+        return ({"output": mon["name"], "mode": spec, "scale": scale,
+                 "position": pos, "disabled": False, "mirror": "", **kw},
+                round(w / scale))
+
+    def off(mon):
+        return {"output": mon["name"], "disabled": True}
+
+    def chain(mons, x0):
+        steps, x = [], x0
+        for m in mons:
+            st, lw = entry(m, None, x)
+            steps.append(st)
+            x += lw
+        return steps
+
+    if mode == "external":
+        return chain(externals, 0) + ([off(internal)] if internal else [])
+    if mode == "laptop":
+        first, _ = entry(internal, target_hz, 0)
+        return [first] + [off(m) for m in externals]
+    first, lw = entry(internal, target_hz, 0)
+    if mode == "extend":
+        return [first] + chain(externals, lw)
+    return [first] + [entry(m, None, None, mirror=internal["name"])[0] for m in externals]
+
+
+def lua(step):
+    parts = [f"output = '{step['output']}'"]
+    if step.get("disabled"):
+        parts.append("disabled = true")
+    else:
+        parts += [f"mode = '{step['mode']}'", f"position = '{step['position']}'",
+                  f"scale = {step['scale']}", "disabled = false",
+                  f"mirror = '{step['mirror']}'"]
+    return "hl.monitor({ " + ", ".join(parts) + " })"
+
+
+def is_internal(name):
+    return name.startswith(("eDP", "LVDS", "DSI"))
+
+
+def read_monitors():
+    raw = subprocess.check_output(["hyprctl", "monitors", "all", "-j"], text=True)
+    internal, externals = None, []
+    for m in json.loads(raw):
+        info = {"name": m["name"], "modes": m.get("availableModes", []),
+                "scale": m.get("scale", 1), "raw": m}
+        if is_internal(m["name"]) and internal is None:
+            internal = info
+        else:
+            externals.append(info)
+    return internal, externals
+
+
+def target_hz():
+    try:
+        with open("/sys/class/power_supply/ACAD/online") as f:
+            if f.read().strip() == "0":
+                return 60
+    except OSError:
+        pass
+    try:
+        out = subprocess.check_output(["powerprofilesctl", "get"], text=True,
+                                      stderr=subprocess.DEVNULL).strip()
+        if out == "power-saver":
+            return 60
+    except (OSError, subprocess.CalledProcessError):
+        pass
+    return 144
+
+
+def current_mode(internal, externals):
+    live = [e for e in externals if not e["raw"].get("disabled")]
+    if internal is None:
+        return "external" if live else "unknown"
+    if internal["raw"].get("disabled"):
+        return "external" if live else "unknown"
+    if not live:
+        return "laptop"
+    if any(e["raw"].get("mirrorOf") not in (None, "none", "") for e in live):
+        return "mirror"
+    return "extend"
+
+
+def status():
+    internal, externals = read_monitors()
+
+    def brief(m):
+        return {"name": m["name"], "disabled": m["raw"].get("disabled", False),
+                "refresh": round(m["raw"].get("refreshRate", 0), 2),
+                "maxHz": max((x[2] for x in parse_modes(m["modes"])), default=0),
+                "description": m["raw"].get("description", "")}
+
+    return {"mode": current_mode(internal, externals), "targetHz": target_hz(),
+            "internal": brief(internal) if internal else None,
+            "externals": [brief(e) for e in externals]}
+
+
+def notify(title, body):
+    subprocess.run(["notify-send", "-a", "Pantalla", "-i", "video-display", title, body],
+                   check=False)
+
+
+def apply(mode, dry=False):
+    internal, externals = read_monitors()
+    hz = target_hz()
+    try:
+        steps = plan(mode, internal, externals, hz)
+    except ValueError as e:
+        notify("Proyectar pantalla", str(e))
+        print(str(e), file=sys.stderr)
+        return 1
+    code = "; ".join(lua(s) for s in steps)
+    if dry:
+        print(code)
+        return 0
+    subprocess.run(["hyprctl", "eval", code], check=False, stdout=subprocess.DEVNULL)
+    # Verificar: relee el estado y avisa con lo que realmente quedó
+    import time
+    time.sleep(1.2)
+    st = status()
+    ok = st["mode"] == mode
+    detail = []
+    for m in ([st["internal"]] if st["internal"] else []) + st["externals"]:
+        if not m["disabled"]:
+            detail.append(f"{m['name']} a {m['refresh']:.0f} Hz")
+    notify(("Modo: " + TITLES[mode]) if ok else "No se pudo aplicar el modo " + TITLES[mode],
+           "\n".join(detail))
+    return 0 if ok else 2
+
+
+def main(argv):
+    args = [a for a in argv[1:] if not a.startswith("--")]
+    if not args:
+        print(__doc__)
+        return 1
+    if args[0] == "status":
+        print(json.dumps(status()))
+        return 0
+    return apply(args[0], dry="--dry-run" in argv)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
