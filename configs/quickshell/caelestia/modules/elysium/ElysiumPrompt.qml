@@ -101,7 +101,7 @@ StyledRect {
 
                 StyledText {
                     Layout.fillWidth: true
-                    text: qsTr("¿Entrar en Elysium?")
+                    text: card.elysium.tvScreen ? qsTr("¿Jugar en la tele?") : qsTr("¿Entrar en Elysium?")
                     color: Colours.palette.m3onSurface
                     font: Tokens.font.title.medium
                 }

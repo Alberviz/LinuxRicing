@@ -22,6 +22,15 @@ PanelWindow {
     property int index: 0
 
     readonly property var items: elysium.games.concat([
+        ...(elysium.onTv ? [
+                {
+                    "system": "laptop",
+                    "name": qsTr("Portátil"),
+                    "subtitle": ({ "apoyo": qsTr("Pantalla de apoyo: métricas, Laura y avisos"), "escritorio": qsTr("Escritorio normal para trabajar"), "apagada": qsTr("Pantalla apagada, todo para la tele") })[elysium.companionMode],
+                    "tag": qsTr("Pantalla del portátil · A para cambiar"),
+                    "glyph": ({ "apoyo": "monitoring", "escritorio": "laptop_chromebook", "apagada": "desktop_access_disabled" })[elysium.companionMode]
+                }
+            ] : []),
         {
             "system": "gamemode",
             "name": qsTr("Modo juego"),
@@ -43,7 +52,9 @@ PanelWindow {
 
     function activate(): void {
         const it = current;
-        if (it.system === "desktop")
+        if (it.system === "laptop")
+            elysium.cycleCompanion();
+        else if (it.system === "desktop")
             elysium.leave(false);
         else if (it.system === "gamemode")
             elysium.leave(true);
@@ -80,7 +91,7 @@ PanelWindow {
         }
     }
 
-    screen: Quickshell.screens.find(s => Hypr.monitorFor(s) === Hypr.focusedMonitor) ?? Quickshell.screens[0]
+    screen: elysium.consoleScreen
     visible: elysium.consoleShown || stage.opacity > 0.01
     color: "transparent"
     WlrLayershell.namespace: "caelestia-elysium"
@@ -539,7 +550,7 @@ PanelWindow {
 
                     StyledText {
                         anchors.verticalCenter: parent.verticalCenter
-                        text: win.current.system === "desktop" ? qsTr("Salir") : win.current.system === "gamemode" ? qsTr("Ir al escritorio") : win.isRunning ? qsTr("Volver al juego") : qsTr("Jugar")
+                        text: win.current.system === "laptop" ? qsTr("Cambiar") : win.current.system === "desktop" ? qsTr("Salir") : win.current.system === "gamemode" ? qsTr("Ir al escritorio") : win.isRunning ? qsTr("Volver al juego") : qsTr("Jugar")
                         color: Colours.palette.m3onPrimary
                         font: Tokens.font.title.medium
                     }

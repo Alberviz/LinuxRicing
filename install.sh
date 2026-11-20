@@ -164,6 +164,8 @@ if [ "$SELECTED_WIDGETS" = true ]; then
     if [ -f "$BASE_DIR/widgets/gamepad-watch" ]; then  # mando -> Elysium (modo consola)
         cp -u "$BASE_DIR/widgets/gamepad-watch" "$HOME/.local/bin/gamepad-watch"
         chmod +x "$HOME/.local/bin/gamepad-watch"
+        cp -u "$BASE_DIR/widgets/elysium-stats" "$HOME/.local/bin/elysium-stats"
+        chmod +x "$HOME/.local/bin/elysium-stats"
     fi
     if [ -f "$BASE_DIR/widgets/display-selector" ]; then
         cp -u "$BASE_DIR/widgets/display-selector" "$HOME/.local/bin/display-selector"

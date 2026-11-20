@@ -45,6 +45,38 @@ Scope {
 
     readonly property bool consoleShown: active && (!playing || summoned)
 
+    // --- tele ---
+    // La tele es cualquier salida que no sea el panel del portátil (eDP).
+    readonly property var tvScreen: Quickshell.screens.find(s => !s.name.startsWith("eDP")) ?? null
+    readonly property var laptopScreen: Quickshell.screens.find(s => s.name.startsWith("eDP")) ?? null
+    property bool onTv: false
+    // Qué hace el portátil mientras se juega en la tele: apoyo | escritorio | apagada
+    property string companionMode: "apoyo"
+    property date enteredAt: new Date()
+    property string prevSink: ""
+    readonly property var consoleScreen: onTv ? tvScreen : (Quickshell.screens.find(s => Hypr.monitorFor(s) === Hypr.focusedMonitor) ?? Quickshell.screens[0])
+
+    function setCompanion(mode: string): void {
+        if (mode === companionMode)
+            return;
+        if (companionMode === "apagada")
+            Quickshell.execDetached(["brightnessctl", "-r"]);
+        if (mode === "apagada")
+            Quickshell.execDetached(["brightnessctl", "-s", "set", "0"]);
+        companionMode = mode;
+    }
+
+    function cycleCompanion(): void {
+        setCompanion({ "apoyo": "escritorio", "escritorio": "apagada", "apagada": "apoyo" }[companionMode]);
+    }
+
+    function focusTv(): void {
+        if (!onTv || !tvScreen)
+            return;
+        const n = tvScreen.name;
+        Hypr.dispatch(Hypr.usingLua ? `hl.dsp.focus({ monitor = "${n}" })` : `focusmonitor ${n}`);
+    }
+
     signal pad(string b)
 
     function showPrompt(name: string): void {
@@ -65,12 +97,22 @@ Scope {
         prompt = false;
         if (active)
             return;
+        // Marca para `modo-juego`: con Elysium no se para el servicio de Laura.
+        Quickshell.execDetached(["touch", `${Quickshell.env("XDG_RUNTIME_DIR")}/elysium-active`]);
         ownGameMode = !GameMode.enabled;
         GameMode.enabled = true;
         prevProfile = PowerProfiles.profile;
         PowerProfiles.profile = PowerProfile.Performance;
         ownDnd = !Notifs.dnd;
         Notifs.dnd = true;
+        enteredAt = new Date();
+        onTv = tvScreen !== null;
+        if (onTv) {
+            companionMode = "apoyo";
+            // Extender (si estaba en espejo/solo externa) y audio por el HDMI de la tele.
+            Quickshell.execDetached(["sh", "-c", `m=$(display-mode status | python3 -c 'import json,sys;print(json.load(sys.stdin)["mode"])'); [ "$m" = extend ] || display-mode extend`]);
+            sinkProc.running = true;
+        }
         lauraCmd("gamemode on");
         active = true;
     }
@@ -84,6 +126,14 @@ Scope {
         if (ownDnd)
             Notifs.dnd = false;
         lauraCmd("gamemode off");
+        Quickshell.execDetached(["rm", "-f", `${Quickshell.env("XDG_RUNTIME_DIR")}/elysium-active`]);
+        if (onTv) {
+            setCompanion("apoyo");
+            if (prevSink)
+                Quickshell.execDetached(["pactl", "set-default-sink", prevSink]);
+            prevSink = "";
+            onTv = false;
+        }
         if (!keepGameMode) {
             if (ownGameMode)
                 GameMode.enabled = false;
@@ -93,10 +143,27 @@ Scope {
 
     function launch(g: var): void {
         runningGame = g;
+        focusTv();
         Quickshell.execDetached(["setsid", "-f", "sh", "-c", g.exec]);
         playing = true;
         summoned = false;
         aliveTimer.misses = 0;
+    }
+
+    // Guarda el sink actual y pasa el audio al HDMI.
+    Process {
+        id: sinkProc
+
+        command: ["sh", "-c", "pactl get-default-sink; pactl list short sinks | awk '/hdmi/ {print $2; exit}'"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const [cur, hdmi] = text.trim().split("\n");
+                if (hdmi && cur !== hdmi) {
+                    root.prevSink = cur;
+                    Quickshell.execDetached(["pactl", "set-default-sink", hdmi]);
+                }
+            }
+        }
     }
 
     // --- mando ---
@@ -215,7 +282,7 @@ except Exception: pass`]);
         id: promptWin
 
         visible: root.prompt || card.opacity > 0
-        screen: Quickshell.screens.find(s => Hypr.monitorFor(s) === Hypr.focusedMonitor) ?? Quickshell.screens[0]
+        screen: root.consoleScreen
         color: "transparent"
         WlrLayershell.namespace: "caelestia-elysium-prompt"
         WlrLayershell.layer: WlrLayer.Overlay
@@ -242,6 +309,15 @@ except Exception: pass`]);
         activeAsync: root.active || lingerTimer.running
 
         ElysiumConsole {
+            elysium: root
+        }
+    }
+
+    // Pantalla de apoyo en el portátil mientras se juega en la tele.
+    LazyLoader {
+        activeAsync: root.active && root.onTv && root.laptopScreen !== null && root.companionMode !== "escritorio"
+
+        ElysiumCompanion {
             elysium: root
         }
     }
@@ -288,6 +364,14 @@ except Exception: pass`]);
 
         function status(): string {
             return root.active ? (root.playing ? `jugando: ${root.runningGame?.subtitle ?? "?"}` : "abierto") : "cerrado";
+        }
+
+        // apoyo | escritorio | apagada | siguiente
+        function companion(mode: string): void {
+            if (mode === "siguiente")
+                root.cycleCompanion();
+            else
+                root.setCompanion(mode);
         }
 
         function toggle(): void {
