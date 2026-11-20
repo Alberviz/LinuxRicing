@@ -476,10 +476,10 @@ def watch_hotplug():
                             cfg = load_config()
                             prev = read_saved_state()
                             m = find_monitors(cfg)
-                            if line.startswith("monitoradded") and m["hdmi"] and prev.get("transport") == "wifi" and prev.get("mode") in ("personal", "agents"):
+                            if line.startswith("monitoradded") and m["hdmi"] and prev.get("transport") == "wifi" and prev.get("mode") in ("personal", "agents", "gaming"):
                                 # Entró HDMI mientras estábamos en Wi-Fi -> migrar a HDMI automáticamente
                                 set_mode(prev["mode"], allow_wifi=False)
-                                notify("Cable HDMI detectado", "Sesión de Tele migrada a HDMI.")
+                                notify("Cable HDMI detectado", "Sesión de Tele migrada automáticamente a HDMI.")
                             elif line.startswith("monitorremoved") and not m["hdmi"] and prev.get("transport") == "hdmi" and prev.get("mode") in ("personal", "agents"):
                                 # Se desconectó HDMI -> preguntar si pasamos a Wi-Fi
                                 cc = find_chromecast(cfg)
