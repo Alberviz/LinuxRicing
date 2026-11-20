@@ -145,12 +145,12 @@ for rep in range(4):
         if rep in (1, 2):
             for tt, vel in ((0, 0.9), (2.5, 0.6)):
                 for j, nn in enumerate(ch[1:]):
-                    put(epiano(hz(nn) * 2, BEAT * 2.6, vel), t0 + tt * BEAT + j * 0.012, 0.3, 0.09)
+                    put(epiano(hz(nn), BEAT * 2.6, vel), t0 + tt * BEAT + j * 0.012, 0.3, 0.09)
         # melodía de campana (vuelta 3): notas largas de la escala
         if rep == 2:
             mel = ["B4", "G#4", "E5", "F#5", "D#5", "E5", "C#5", "B4"][k]
-            put(epiano(hz(mel) * 2, BEAT * 3, 1.0), t0 + BEAT * 0.5, 0.15, 0.12)
-            put(star(hz(mel) * 4), t0 + BEAT * 2.75, 0.5, 0.05)
+            put(epiano(hz(mel), BEAT * 3, 1.0), t0 + BEAT * 0.5, 0.15, 0.12)
+            put(star(hz(mel) * 2), t0 + BEAT * 2.75, 0.5, 0.04)
         # escobilla: en los tiempos 2 y 4, desde la vuelta 2 (más floja en la 4)
         if rep in (1, 2, 3):
             for beat in (1, 3):
@@ -158,7 +158,7 @@ for rep in range(4):
             put(brush(0.08), t0 + 3.5 * BEAT, -0.2, 0.25)
         # destellos (estrellas) sueltos, siempre
         if rng.random() < 0.7:
-            f = hz(rng.choice(["E6", "B6", "G#6", "F#6", "D#7"]))
+            f = hz(rng.choice(["E5", "B5", "G#5", "F#5", "B4"]))
             put(star(f), t0 + rng.uniform(0, BAR), rng.uniform(-0.8, 0.8), 0.045)
 
 # ---------------- reverb (convolución FFT) + bucle continuo ----------------

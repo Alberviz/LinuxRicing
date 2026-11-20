@@ -71,6 +71,27 @@ def pad(freqs, dur, attack=0.5):
     return s * np.clip(e, 0, 1) / len(freqs)
 
 
+def lowpass(s, cutoff):
+    """paso bajo de un polo (dos pasadas): quita el brillo, deja el cuerpo"""
+    a = np.exp(-2 * np.pi * cutoff / SR)
+    for _ in range(2):
+        y = np.zeros_like(s)
+        acc = 0.0
+        # vectorizado por bloques sería más rápido; los sonidos son cortos
+        for i in range(len(s)):
+            acc = (1 - a) * s[i] + a * acc
+            y[i] = acc
+        s = y
+    return s
+
+
+def sub(freq, dur, attack=0.6):
+    n = int(SR * dur)
+    t = np.arange(n) / SR
+    e = np.minimum(1, t / attack) * np.minimum(1, (dur - t) / (dur * 0.6))
+    return np.sin(2 * np.pi * freq * t) * np.clip(e, 0, 1)
+
+
 def save(name, s, peak=0.42):
     s = s / (np.abs(s).max() + 1e-9) * peak
     f = int(SR * 0.01)
@@ -89,13 +110,24 @@ save("back", mix(0.32, (0, bell(N("B5"), 0.2, 0.12, 0.2)), (0.055, bell(N("E5"),
 save("dialog", echo(bell(N("G#5"), 0.25, 0.1, 0.25), 0.07, 0.2, 2), peak=0.26)
 save("toggle_on", mix(0.22, (0, bell(N("E5"), 0.12, 0.06, 0.2)), (0.05, bell(N("G#5"), 0.16, 0.08, 0.2))), peak=0.26)
 save("toggle_off", mix(0.22, (0, bell(N("G#5"), 0.12, 0.06, 0.2)), (0.05, bell(N("E5"), 0.16, 0.08, 0.2))), peak=0.24)
-save("prompt", echo(mix(0.9, (0, bell(N("E6"), 0.6, 0.35)), (0.16, bell(N("B5"), 0.7, 0.4)))), peak=0.34)
+save("prompt", lowpass(echo(mix(1.1, (0, bell(N("B4"), 0.8, 0.45, 0.15)), (0.18, bell(N("E4"), 0.9, 0.5, 0.15)))), 2500), peak=0.34)
 save("error", mix(0.45, (0, bell(N("C#4"), 0.3, 0.12, 0.6)), (0.12, bell(N("C4"), 0.32, 0.14, 0.6))), peak=0.32)
-save("success", echo(mix(1.4, *[(i * 0.085, bell(N(n), 1.0 - i * 0.1, 0.45)) for i, n in enumerate(["E5", "G#5", "B5", "E6"])])), peak=0.36)
-save("open", echo(mix(2.0, (0, pad([N("E3"), N("B3"), N("E4"), N("G#4")], 1.9, 0.7) * 0.8),
-                     (0.15, air(1.2, 300, 5000, 0.5)), (0.75, bell(N("B5"), 1.1, 0.5)), (0.9, bell(N("E6"), 1.0, 0.5)))), peak=0.38)
-save("close", mix(1.2, (0, pad([N("G#4"), N("E4"), N("B3")], 1.1, 0.05) * 0.7), (0, air(0.9, 4000, 300, 0.4)),
-                  (0.05, bell(N("E5"), 0.8, 0.35, 0.2))), peak=0.3)
-save("launch", echo(mix(2.4, (0, air(1.3, 200, 9000, 0.9)), (0.55, pad([N("E3"), N("E4"), N("B4"), N("G#5")], 1.8, 0.4)),
-                       (0.9, bell(N("E6"), 1.3, 0.6)), (1.0, bell(N("B6"), 1.2, 0.5, 0.2)))), peak=0.4)
+save("success", lowpass(echo(mix(1.6, *[(i * 0.11, bell(N(n), 1.2 - i * 0.1, 0.55, 0.15)) for i, n in enumerate(["E4", "G#4", "B4", "E5"])])), 3000), peak=0.34)
+# Abrir Elysium: respiración de nave. Sub-bajo + pad grave que se abre despacio, soplido apagado
+# (60 -> 900 Hz) y dos campanas en registro medio muy suaves. Nada por encima de ~2 kHz.
+save("open", lowpass(echo(mix(3.2, (0, sub(N("E1"), 3.0, 0.9) * 0.9),
+                              (0, pad([N("E2"), N("B2"), N("E3"), N("G#3")], 3.0, 1.2) * 0.9),
+                              (0.2, air(2.2, 60, 900, 0.35)),
+                              (1.1, bell(N("B3"), 1.8, 0.9, 0.08) * 0.55), (1.5, bell(N("E4"), 1.6, 0.9, 0.08) * 0.45)),
+                         0.16, 0.3, 3), 1800), peak=0.36)
+save("close", lowpass(mix(2.0, (0, pad([N("G#3"), N("E3"), N("B2")], 1.9, 0.08) * 0.8), (0, sub(N("E1"), 1.9, 0.05) * 0.6),
+                          (0, air(1.6, 800, 60, 0.3))), 1500), peak=0.3)
+# Lanzar juego: despegue lento. Soplido grave que crece (40 -> 1200 Hz), sub que sube una quinta,
+# acorde grave abierto y una sola campana media al final.
+n_l = int(SR * 3.0)
+t_l = np.arange(n_l) / SR
+rise = np.sin(2 * np.pi * np.cumsum(np.linspace(N("E1"), N("B1"), n_l)) / SR) * np.clip(np.minimum(t_l / 1.2, (3.0 - t_l) / 1.4), 0, 1)
+save("launch", lowpass(echo(mix(3.4, (0, air(2.4, 40, 1200, 0.6)), (0, rise * 0.9),
+                                (0.9, pad([N("E2"), N("B2"), N("E3"), N("B3")], 2.4, 0.9) * 0.9),
+                                (1.6, bell(N("E4"), 1.6, 0.8, 0.08) * 0.5)), 0.18, 0.3, 3), 2000), peak=0.4)
 print("ok:", sorted(f for f in os.listdir(HERE) if f.endswith(".wav")))
