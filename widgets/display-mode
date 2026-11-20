@@ -12,6 +12,7 @@ El HDMI de sobremesa solo hace 60 Hz y forzar @144 lo deja mal configurado; un
 monitor externo conectado deja el equipo sin imagen.
 """
 import json
+import os
 import re
 import subprocess
 import sys
@@ -84,6 +85,15 @@ def plan(mode, internal, externals, target_hz):
     def chain(mons, x0):
         steps, x = [], x0
         for m in mons:
+            place = LAYOUT.get(m.get("raw", {}).get("description", ""), "")
+            if place in ("above", "below", "left"):
+                # posición fija para este monitor (monitor-layout.json): no empuja la cadena
+                st, lw = entry(m, None, 0)
+                spec, w, h = pick_mode(m["modes"], None)
+                lh = round(h / (m.get("scale") or 1))
+                st["position"] = {"above": f"0x-{lh}", "below": "0x1080", "left": f"-{lw}x0"}[place]
+                steps.append(st)
+                continue
             st, lw = entry(m, None, x)
             steps.append(st)
             x += lw
@@ -98,6 +108,23 @@ def plan(mode, internal, externals, target_hz):
     if mode == "extend":
         return [first] + chain(externals, lw)
     return [first] + [entry(m, None, None, mirror=internal["name"])[0] for m in externals]
+
+
+# Dónde va cada monitor externo al extender, por su descripción exacta (hyprctl monitors):
+# "above" | "below" | "left" | "right" (por defecto, a la derecha).
+LAYOUT_FILE = os.path.expanduser("~/.config/caelestia/monitor-layout.json")
+LAYOUT_DEFAULT = {"Samsung Electric Company SyncMaster H1AK500000": "above"}
+try:
+    with open(LAYOUT_FILE) as _f:
+        LAYOUT = json.load(_f)
+except (OSError, ValueError):
+    LAYOUT = dict(LAYOUT_DEFAULT)
+    try:
+        os.makedirs(os.path.dirname(LAYOUT_FILE), exist_ok=True)
+        with open(LAYOUT_FILE, "w") as _f:
+            json.dump(LAYOUT, _f, indent=2)
+    except OSError:
+        pass
 
 
 def lua(step):
