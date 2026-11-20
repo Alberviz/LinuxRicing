@@ -136,7 +136,7 @@ Scope {
         // Volver al audio de antes; si no había (ya estaba en el HDMI), a unos cascos
         // (USB/Bluetooth) o, si no, a los altavoces del portátil.
         if (prevSink)
-            Quickshell.execDetached(["pactl", "set-default-sink", prevSink]);
+            setSink(prevSink);
         else
             audioOffHdmi();
         prevSink = "";
@@ -156,8 +156,15 @@ Scope {
             Quickshell.execDetached(["sh", "-c", `hyprctl dispatch 'hl.dsp.focus({ monitor = "${tv}" })'; hyprctl dispatch "hl.dsp.focus({ workspace = \"${ws}\" })"; ${back ? `hyprctl dispatch 'hl.dsp.focus({ monitor = "${back}" })'` : ""}`]);
     }
 
+    // Cambia la salida por defecto Y mueve lo que ya suena: los flujos de Qt (música y
+    // efectos de Elysium) quedan fijados a la salida de cuando se crearon
+    // (node.dont-reconnect) y, sin esto, seguían sonando en los cascos con la tele puesta.
+    function setSink(sink: string): void {
+        Quickshell.execDetached(["sh", "-c", `pactl set-default-sink '${sink}'; for r in 0 1.5; do sleep $r; for i in $(pactl list short sink-inputs | cut -f1); do pactl move-sink-input $i '${sink}'; done; done`]);
+    }
+
     function audioOffHdmi(): void {
-        Quickshell.execDetached(["sh", "-c", "cur=$(pactl get-default-sink); case $cur in *hdmi*) s=$(pactl list short sinks | awk '{print $2}' | grep -E 'bluez|usb' | head -n1); [ -n \"$s\" ] || s=$(pactl list short sinks | awk '{print $2}' | grep -v hdmi | head -n1); [ -n \"$s\" ] && pactl set-default-sink \"$s\";; esac"]);
+        Quickshell.execDetached(["sh", "-c", "cur=$(pactl get-default-sink); case $cur in *hdmi*) s=$(pactl list short sinks | awk '{print $2}' | grep -E 'bluez|usb' | head -n1); [ -n \"$s\" ] || s=$(pactl list short sinks | awk '{print $2}' | grep -v hdmi | head -n1); [ -n \"$s\" ] && { pactl set-default-sink \"$s\"; for i in $(pactl list short sink-inputs | cut -f1); do pactl move-sink-input $i \"$s\"; done; };; esac"]);
     }
 
     function setPlayOnTv(v: bool): void {
@@ -290,8 +297,14 @@ Scope {
             "launch": sLaunch
         })
 
+    // Salida de audio: siempre la que el sistema tenga por defecto (tele, cascos…).
+    MediaDevices {
+        id: mediaDevices
+    }
+
     component Sfx: SoundEffect {
         volume: 0.7
+        audioDevice: mediaDevices.defaultAudioOutput
     }
 
     Sfx { id: sMove; source: Qt.resolvedUrl("sounds/move.wav"); volume: 0.5 }
@@ -377,6 +390,7 @@ Scope {
         source: Qt.resolvedUrl("music/elysium-ambient.ogg")
         loops: root.userTracks.length > 0 ? 1 : MediaPlayer.Infinite
         audioOutput: AudioOutput {
+            device: mediaDevices.defaultAudioOutput
             volume: 0.32 * root.musicLevel * (Laura.active ? 0.25 : 1)
 
             Behavior on volume {
@@ -545,7 +559,7 @@ Scope {
                 const [cur, hdmi] = text.trim().split("\n");
                 if (hdmi && cur !== hdmi) {
                     root.prevSink = cur;
-                    Quickshell.execDetached(["pactl", "set-default-sink", hdmi]);
+                    root.setSink(hdmi);
                 }
             }
         }
