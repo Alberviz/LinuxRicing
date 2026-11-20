@@ -5,6 +5,7 @@ Salida por stdout, una línea por evento:
   connected <nombre>      un mando nuevo aparece
   disconnected <nombre>   desaparece
   btn <a|b|x|y|start|select|home|up|down|left|right|lb|rb>
+  chord lb+down           LB mantenido + ↓ (cruceta o eje Y); no emite `btn down` ni `btn lb` sueltos
   hold <select|home>      botón mantenido >= 0.6 s (−/View = Laura); un toque corto da `btn …`.
                           Ojo: con xpadneo, Home (botón Xbox) es «shift» y mantenerlo apaga
                           el mando, así que para Laura se usa −/View.
@@ -123,7 +124,7 @@ def main():
                 keys = dict(KEYS)
                 if not NINTENDO.search(name):
                     keys.update(XBOX_SWAP)
-                devs[p] = {"fd": fd, "name": name, "axes": axes, "dir": {}, "keys": keys}
+                devs[p] = {"fd": fd, "name": name, "axes": axes, "dir": {}, "keys": keys, "lb": False, "lb_used": False}
                 if grabbed:
                     set_grab(fd, True)
                 # Los que ya estaban al arrancar no disparan el aviso.
@@ -158,14 +159,30 @@ def main():
                 continue
             for i in range(0, len(data) - EVENT.size + 1, EVENT.size):
                 _, _, typ, code, val = EVENT.unpack_from(data, i)
-                if typ == EV_KEY and code in HOLDABLE:
+                if typ == EV_KEY and code == 310:
+                    if val == 1:
+                        d["lb"] = True
+                        d["lb_used"] = False
+                    elif val == 0:
+                        was = d.get("lb", False)
+                        used = d.get("lb_used", False)
+                        d["lb"] = False
+                        d["lb_used"] = False
+                        if was and not used:
+                            emit("btn lb")
+                elif typ == EV_KEY and code in HOLDABLE:
                     if val == 1:
                         down[code] = time.monotonic()
                     elif val == 0:
                         if down.pop(code, None) is not None:
                             emit("btn " + HOLDABLE[code])
                 elif typ == EV_KEY and val == 1 and code in d["keys"]:
-                    emit("btn " + d["keys"][code])
+                    btn_name = d["keys"][code]
+                    if btn_name == "down" and d.get("lb"):
+                        d["lb_used"] = True
+                        emit("chord lb+down")
+                    else:
+                        emit("btn " + btn_name)
                 elif typ == EV_ABS and code in d["axes"]:
                     lo, hi = d["axes"][code]
                     mid, span = (lo + hi) / 2, max(1, (hi - lo) / 2)
@@ -173,7 +190,11 @@ def main():
                     neg, pos = ("left", "right") if code in (0, 16) else ("up", "down")
                     cur = neg if v < -0.6 else pos if v > 0.6 else None
                     if cur and d["dir"].get(code) != cur:
-                        emit("btn " + cur)
+                        if cur == "down" and d.get("lb"):
+                            d["lb_used"] = True
+                            emit("chord lb+down")
+                        else:
+                            emit("btn " + cur)
                     d["dir"][code] = cur
 
 
