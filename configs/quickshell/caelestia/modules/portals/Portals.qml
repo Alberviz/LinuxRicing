@@ -25,7 +25,10 @@ Variants {
 
         required property ShellScreen modelData
 
-        readonly property bool busy: pRight.phase !== "idle" || pTop.phase !== "idle" || pTop2.phase !== "idle"
+        readonly property bool busy: pRight.phase !== "idle" || pTop.phase !== "idle" || pTop2.phase !== "idle" || pBottom.phase !== "idle"
+        readonly property bool hasTeleHdmi: Screens.screens.some(s => !s.name.startsWith("eDP"))
+        readonly property var teleScreen: Screens.screens.find(s => !s.name.startsWith("eDP")) || null
+        readonly property string teleHdmiName: teleScreen ? (teleScreen.name + (teleScreen.model ? " · " + teleScreen.model : "")) : "Tele HDMI"
         // v2.17 (Olimpo): a quién se puede mandar (móvil, tablet…). Con dos o más, un agujero por dispositivo.
         property var destinos: []
         readonly property bool dos: destinos.length >= 2
@@ -65,6 +68,7 @@ Variants {
         property bool warpSending: false
         property bool teleExternalSending: false
         readonly property var mediaExt: ["mp4", "m4v", "mkv", "webm", "avi", "mov", "ts", "mpg", "mpeg", "wmv", "flv", "ogv", "mp3", "flac", "m4a", "aac", "ogg", "opus", "wav", "mka", "torrent"]
+        readonly property var imageExt: ["jpg", "jpeg", "png", "webp", "gif", "svg", "bmp", "avif"]
         // 0..1 aparición global. Entra con muelle (ease-out) y sale acelerando (~380 ms); es
         // estado continuo, así que invertir a mitad no produce saltos.
         property real show: 0
@@ -182,12 +186,17 @@ Variants {
                 if (!mediaExt.includes(ext))
                     portal.bad = "No se puede reproducir en la tele" + (ext && ext !== portal.fileName.toLowerCase() ? " · ." + ext : "");
             }
+            if (portal.edge === "bottom") {
+                const ext = (portal.fileName.split(".").pop() || "").toLowerCase();
+                if (!mediaExt.includes(ext) && !imageExt.includes(ext) && ext !== "html")
+                    portal.bad = "";
+            }
             statProc.portal = portal;
             statProc.command = ["stat", "-L", "-c", "%s", t];
             statProc.running = true;
         }
         function clearInfo(): void {
-            for (const p of [pRight, pTop, pTop2]) {
+            for (const p of [pRight, pTop, pTop2, pBottom]) {
                 if (p.phase === "idle" || p.phase === "ok") {
                     p.bad = "";
                     p.fileLine = "";
@@ -212,15 +221,15 @@ Variants {
             lenteK = lerp(lenteK, conCaptura ? 1 : 0, 1 - Math.pow(0.0005, dt));
             if (!conCaptura && capturaLista && lenteK < 0.01)
                 capturaGastada = true;
-            const ps = dos ? [pRight, pTop, pTop2] : [pRight, pTop];
+            const ps = dos ? (hasTeleHdmi ? [pRight, pTop, pTop2, pBottom] : [pRight, pTop, pTop2]) : (hasTeleHdmi ? [pRight, pTop, pBottom] : [pRight, pTop]);
             let armedAny = null;
             for (const p of ps) {
                 let target = 0;
-                const d = p.edge === "right" ? width - lx : ly;
+                const d = p.edge === "right" ? width - lx : (p.edge === "bottom" ? height - ly : ly);
                 const al = p.edge === "right" ? Math.abs(ly - height / 2) / (height / 2) : Math.abs(lx - width * p.posX) / (width / 2);
                 if (on) {
                     target = sm(width * 0.55, width * 0.11, d) * (1 - 0.45 * sm(0.55, 1, al));
-                    p.over = d < band && al < along && (p.edge === "right" || topEn(lx) === p);
+                    p.over = d < band && al < along && (p.edge === "right" || p.edge === "bottom" || topEn(lx) === p);
                     p.armed = p.over && p.bad === "";
                     if (p.armed)
                         armedAny = p;
@@ -250,12 +259,15 @@ Variants {
                 if (p.edge === "right") {
                     p.cx = width - out;
                     p.cy = height / 2;
+                } else if (p.edge === "bottom") {
+                    p.cx = width * p.posX;
+                    p.cy = height - out;
                 } else {
                     p.cx = width * p.posX;
                     p.cy = out;
                 }
                 p.vis = show * (1 - 0.55 * p.dim) * (fundiendo && p === pTop2 ? 0 : 1);
-                p.fundido = fundiendo && p !== pRight;
+                p.fundido = fundiendo && p !== pRight && p !== pBottom;
                 p.spinPhase += (0.25 * (0.3 + 0.7 * show)) * (1 + 1.4 * p.e + (p.armed ? 1 : 0)) * (p.over && p.bad !== "" ? 0.3 : 1) * dt;
                 p.pullPhase += (0.35 + 1.5 * p.e + (p.armed ? 0.8 : 0) + (p.phase === "sending" ? 0.5 : 0)) * (0.2 + 0.8 * show) * dt;
                 p.phaseT += dt;
@@ -456,6 +468,25 @@ Variants {
             }
         }
 
+        function sendTeleHdmi(t: string): void {
+            pBottom.phase = "sending";
+            pBottom.tName = baseName(t);
+            pBottom.tProgress = -1;
+            pBottom.tSub = "";
+            pBottom.tText = "Cargando en la tele HDMI…";
+            Quickshell.execDetached([`${Quickshell.env("HOME")}/.local/bin/escaparate`, "open-target", t]);
+            teleHdmiTimer.restart();
+        }
+
+        Timer {
+            id: teleHdmiTimer
+            interval: 1400
+            onTriggered: {
+                if (pBottom.phase === "sending")
+                    win.finishTransfer(pBottom, true, "Mostrando en la tele HDMI");
+            }
+        }
+
         function cancelTransfer(portal): void {
             if (portal.phase !== "sending")
                 return;
@@ -463,6 +494,10 @@ Variants {
                 cancelled = true;
                 olimpoProc.signal(15);
                 finishTransfer(portal, false, "Envío cancelado");
+            } else if (portal === pBottom) {
+                teleHdmiTimer.stop();
+                Quickshell.execDetached([`${Quickshell.env("HOME")}/.local/bin/escaparate`, "off"]);
+                finishTransfer(pBottom, false, "Reproducción cancelada");
             } else {
                 teleTarget = "";
                 teleExternalSending = false;
@@ -611,6 +646,9 @@ Variants {
                 item: tBand
             }
             Region {
+                item: bBand
+            }
+            Region {
                 item: pRight.maskItem
             }
             Region {
@@ -618,6 +656,9 @@ Variants {
             }
             Region {
                 item: pTop2.maskItem
+            }
+            Region {
+                item: pBottom.maskItem
             }
         }
 
@@ -636,7 +677,7 @@ Variants {
                 cerrarFusion();
                 show = 0;
                 frags = [];
-                for (const p of [pRight, pTop, pTop2]) {
+                for (const p of [pRight, pTop, pTop2, pBottom]) {
                     p.vis = 0;
                     p.e = 0;
                     p.dim = 0;
@@ -670,6 +711,7 @@ Variants {
                 pRight.phase = "idle";
                 pTop.phase = "idle";
                 pTop2.phase = "idle";
+                pBottom.phase = "idle";
                 clearInfo();
                 grace.restart();
             }
@@ -879,6 +921,15 @@ Variants {
                         artista: "Bad Bunny",
                         tele: "Tele Salón"
                     }));
+                } else if (kind === "teleHdmi") {
+                    pBottom.phase = "sending";
+                    pBottom.tName = "effectcraft-smoketest.mp4";
+                    pBottom.tProgress = -1;
+                    pBottom.tText = "Cargando en la tele HDMI…";
+                } else if (kind === "teleHdmiOk") {
+                    pBottom.phase = "sending";
+                    pBottom.tName = "effectcraft-smoketest.mp4";
+                    win.finishTransfer(pBottom, true, "Mostrando en la tele HDMI");
                 } else if (kind === "ok") {
                     pTop.phase = "sending";
                     pTop.tName = "Apuntes Redes T4.pdf";
@@ -892,6 +943,10 @@ Variants {
 
             function teleEvent(jsonStr: string): void {
                 win.onTeleLine(jsonStr);
+            }
+
+            function dropHdmi(target: string): void {
+                win.sendTeleHdmi(target);
             }
 
             target: "portals"
@@ -1033,6 +1088,41 @@ Variants {
                 }
             }
 
+            Item {
+                id: bBand
+
+                anchors.bottom: parent.bottom
+                x: parent.width * (1 - win.along) / 2
+                width: win.active && win.hasTeleHdmi ? parent.width * win.along : 0
+                height: win.active && win.hasTeleHdmi ? win.band : 0
+
+                DropArea {
+                    anchors.fill: parent
+                    keys: ["text/uri-list", "text/plain"]
+                    onEntered: drag => win.inspect(pBottom, drag)
+                    onExited: {
+                        if (pBottom.phase === "idle") {
+                            pBottom.bad = "";
+                            pBottom.fileLine = "";
+                        }
+                    }
+                    onDropped: drop => {
+                        const t = win.targetOf(drop);
+                        if (!t || pBottom.phase !== "idle")
+                            return;
+                        if (pBottom.bad) {
+                            win.rejectDrop(pBottom);
+                            return;
+                        }
+                        const ext = (win.baseName(t).split(".").pop() || "").toLowerCase();
+                        icon.text = win.imageExt.includes(ext) ? "image" : (t.startsWith("http://") || t.startsWith("https://") ? "language" : "movie");
+                        icon.color = Colours.palette.m3onSurface;
+                        win.startAbsorb(pBottom);
+                        win.sendTeleHdmi(t);
+                    }
+                }
+            }
+
             Portal {
                 id: pRight
 
@@ -1089,6 +1179,25 @@ Variants {
                 detail: "Bandeja «Desde el PC»"
                 cta: "Suelta para enviar"
                 onCancel: win.cancelTransfer(pTop2)
+            }
+
+            Portal {
+                id: pBottom
+
+                visible: win.hasTeleHdmi
+                edge: "bottom"
+                winW: win.width
+                winH: win.height
+                captura: capTex
+                capturaLista: win.capturaLista
+                lenteK: win.lenteK
+                u: win.u
+                posX: 0.5
+                kicker: "TELE · HDMI"
+                title: "Tele (HDMI)"
+                detail: win.teleHdmiName
+                cta: "Suelta para mostrar en la tele"
+                onCancel: win.cancelTransfer(pBottom)
             }
 
             // «A los dos»: el agujero de la fusión (shader BINARIO de portal.frag). Cubre el ancho de la pantalla desde el

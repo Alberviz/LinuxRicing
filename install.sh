@@ -179,6 +179,15 @@ if [ "$SELECTED_WIDGETS" = true ]; then
         echo -e "  ${SUCCESS}✔ Selector de pantallas (Win+P) instalado en ~/.local/bin${RESET}"
     fi
 
+    # 3d. Tele en el sofá y Escaparate (tele-window, escaparate)
+    for bin in tele-window escaparate; do
+        if [ -f "$BASE_DIR/widgets/$bin" ]; then
+            cp -u "$BASE_DIR/widgets/$bin" "$HOME/.local/bin/$bin"
+            chmod +x "$HOME/.local/bin/$bin"
+        fi
+    done
+    echo -e "  ${SUCCESS}✔ Helpers de tele y escaparate instalados en ~/.local/bin${RESET}"
+
     # 3b. Modo servidor: scripts de usuario (el botón "Server mode" de Caelestia
     #     invoca `caelestia-server-mode on`; `volver-escritorio` es la vuelta desde tty)
     for bin in caelestia-server-mode volver-escritorio; do

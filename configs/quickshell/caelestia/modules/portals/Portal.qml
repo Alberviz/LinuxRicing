@@ -11,7 +11,7 @@ import qs.services
 Item {
     id: root
 
-    required property string edge      // "right" | "top"
+    required property string edge      // "right" | "top" | "bottom"
     required property real winW
     required property real winH
     required property real u           // px por px de mockup (ancho/1280)
@@ -39,7 +39,7 @@ Item {
     property real posX: 0.5
     property string destino: ""
     property real cx: edge === "right" ? winW + 2 * r : winW * posX
-    property real cy: edge === "right" ? winH / 2 : -2 * r
+    property real cy: edge === "right" ? winH / 2 : (edge === "bottom" ? winH + 2 * r : -2 * r)
     property bool armed: false
     property string phase: "idle"      // idle | sending | ok | error | unavail
     property string status: ""
@@ -85,7 +85,7 @@ Item {
 
             color: Qt.rgba(1, 0.871, 0.725, a)
             x: root.edge === "right" ? root.winW - th - 0 : (second ? root.cx + rr : 0)
-            y: root.edge === "right" ? (second ? root.cy + rr : 0) : 0
+            y: root.edge === "right" ? (second ? root.cy + rr : 0) : (root.edge === "bottom" ? root.winH - th : 0)
             width: root.edge === "right" ? th : (second ? root.winW - (root.cx + rr) : root.cx - rr)
             height: root.edge === "right" ? (second ? root.winH - (root.cy + rr) : root.cy - rr) : th
             visible: width > 0 && height > 0
@@ -107,7 +107,7 @@ Item {
         height: root.half * 2
 
         property vector2d size: Qt.vector2d(width, height)
-        property vector2d outward: root.edge === "right" ? Qt.vector2d(1, 0) : Qt.vector2d(0, -1)
+        property vector2d outward: root.edge === "right" ? Qt.vector2d(1, 0) : (root.edge === "bottom" ? Qt.vector2d(0, 1) : Qt.vector2d(0, -1))
         property color tint: root.bad !== "" && root.over ? Qt.rgba(1, 0.3, 0.2, 0.8) : (root.tIcon === "music_note" ? Qt.rgba(0.11, 0.73, 0.33, 0.28) : Qt.rgba(Colours.palette.m3primary.r, Colours.palette.m3primary.g, Colours.palette.m3primary.b, 0.18))
         property real rad: root.r * (0.15 + 0.85 * Math.min(1, root.vis))  // v2.16: crece desde un punto
         property real upx: root.u
@@ -185,7 +185,7 @@ Item {
             // Derecho: arriba-izquierda del agujero (margen respecto a la sombra), dentro de pantalla.
             // Superior: a la derecha del agujero. Siempre sin salirse de la ventana.
             x: root.edge === "right" ? Math.max(8, root.cx - root.r * 1.5 - width) : Math.min(root.winW - width - 8, root.cx + root.r * 1.7)
-            y: root.edge === "right" ? Math.max(24 * root.u, root.cy - root.r * 1.4 - height) : root.r * 0.5 + 10
+            y: root.edge === "right" ? Math.max(24 * root.u, root.cy - root.r * 1.4 - height) : (root.edge === "bottom" ? Math.max(8, root.winH - root.r * 1.5 - height - 16 * root.u) : root.r * 0.5 + 10)
             spacing: fs * 0.55
             opacity: root.phase === "idle" && root.vis > 0.05 && root.e > 0.35 ? Math.min(1, (root.e - 0.35) / 0.3) * (1 - 0.6 * root.dim) * Math.max(0, Math.min(1, (root.vis - 0.55) / 0.35)) : 0
 
@@ -281,7 +281,7 @@ Item {
             width: 340 * root.u
             height: col.implicitHeight + pad * 2
             x: root.edge === "right" ? root.winW - width - 28 * root.u : Math.min(root.winW - width - 8, root.cx + root.r * 1.7)
-            y: root.edge === "right" ? Math.min(root.winH - height - 8, root.cy + root.r * 1.7) : 40 * root.u
+            y: root.edge === "right" ? Math.min(root.winH - height - 8, root.cy + root.r * 1.7) : (root.edge === "bottom" ? Math.max(8, root.winH - height - 40 * root.u) : 40 * root.u)
             visible: root.vis > 0.01 && (root.phase === "sending" || root.phase === "ok" || root.phase === "error")
             radius: Tokens.rounding.large
             color: Qt.alpha(Colours.palette.m3surfaceContainer, 0.96)

@@ -1,0 +1,150 @@
+#!/usr/bin/env python3
+"""tele-window — manda la ventana activa a la tele (HDMI) a pantalla completa,
+o si ya está en la tele, la devuelve a su monitor/workspace original en el portátil.
+Guarda el estado en $XDG_RUNTIME_DIR/tele-window/<address>.json."""
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+
+def run_cmd(*args):
+    return subprocess.run(args, capture_output=True, text=True).stdout
+
+
+def hypr_dispatch(cmd_str):
+    return subprocess.run(["hyprctl", "dispatch", cmd_str], capture_output=True, text=True).stdout
+
+
+def notify(title, body=""):
+    cmd = ["notify-send", "-a", "Tele", "-i", "video-display", title]
+    if body:
+        cmd.append(body)
+    subprocess.run(cmd)
+
+
+def get_monitors():
+    try:
+        out = run_cmd("hyprctl", "monitors", "-j")
+        return json.loads(out)
+    except Exception:
+        return []
+
+
+def get_active_window():
+    try:
+        out = run_cmd("hyprctl", "activewindow", "-j")
+        win = json.loads(out)
+        if win and win.get("address"):
+            return win
+    except Exception:
+        pass
+    return None
+
+
+def get_clients():
+    try:
+        out = run_cmd("hyprctl", "clients", "-j")
+        return json.loads(out)
+    except Exception:
+        return []
+
+
+def main():
+    monitors = get_monitors()
+    if not monitors:
+        notify("Error", "No se pudieron obtener los monitores de Hyprland")
+        return 1
+
+    # Laptop monitor: first with name starting with eDP (or id 0)
+    laptop_mon = next((m for m in monitors if m.get("name", "").startswith("eDP")), monitors[0])
+    # Tele monitor: first monitor not starting with eDP
+    tele_mon = next((m for m in monitors if not m.get("name", "").startswith("eDP")), None)
+
+    if not tele_mon:
+        notify("Tele no conectada", "No se ha encontrado ninguna pantalla externa conectada.")
+        return 0
+
+    win = get_active_window()
+    if not win:
+        notify("Sin ventana activa", "No hay ninguna ventana seleccionada para mover.")
+        return 0
+
+    addr = win["address"]
+    title = win.get("title") or win.get("class") or "Ventana"
+    win_mon_id = win.get("monitor")
+    tele_mon_id = tele_mon.get("id")
+    tele_mon_name = tele_mon.get("name")
+    laptop_mon_name = laptop_mon.get("name")
+
+    runtime_dir = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
+    state_dir = runtime_dir / "tele-window"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    state_file = state_dir / f"{addr.replace(':', '_')}.json"
+
+    is_on_tele = (win_mon_id == tele_mon_id)
+
+    if not is_on_tele:
+        # Guardar estado previo para poder devolverla
+        state = {
+            "address": addr,
+            "monitor_id": win_mon_id,
+            "monitor_name": laptop_mon_name,
+            "workspace_id": win.get("workspace", {}).get("id"),
+            "workspace_name": win.get("workspace", {}).get("name"),
+            "fullscreen": win.get("fullscreen", 0),
+            "floating": win.get("floating", False),
+            "title": title
+        }
+        try:
+            state_file.write_text(json.dumps(state, indent=2))
+        except Exception as e:
+            sys.stderr.write(f"Aviso: no se pudo guardar estado: {e}\n")
+
+        # Mover a la tele
+        hypr_dispatch(f'hl.dsp.window.move({{ monitor = "{tele_mon_name}", window = "address:{addr}" }})')
+        hypr_dispatch(f'hl.dsp.focus({{ window = "address:{addr}" }})')
+
+        # Si no estaba a pantalla completa, poner a pantalla completa
+        if win.get("fullscreen", 0) == 0:
+            hypr_dispatch(f'hl.dsp.window.fullscreen({{ mode = "fullscreen", window = "address:{addr}" }})')
+
+        notify(f"En la tele: {title}")
+    else:
+        # Está en la tele: devolver al portátil sin pantalla completa
+        target_mon = laptop_mon_name
+        target_ws = None
+        if state_file.exists():
+            try:
+                st = json.loads(state_file.read_text())
+                target_mon = st.get("monitor_name") or target_mon
+                target_ws = st.get("workspace_name")
+            except Exception:
+                pass
+            try:
+                state_file.unlink()
+            except Exception:
+                pass
+
+        # Si está a pantalla completa, quitarla
+        clients = get_clients()
+        cur_client = next((c for c in clients if c.get("address") == addr), None)
+        if cur_client and cur_client.get("fullscreen", 0) != 0:
+            hypr_dispatch(f'hl.dsp.window.fullscreen({{ mode = "fullscreen", window = "address:{addr}" }})')
+
+        # Devolver a workspace original o monitor portátil
+        if target_ws and not target_ws.startswith("name:tele") and not target_ws.startswith("special:"):
+            hypr_dispatch(f'hl.dsp.window.move({{ workspace = "{target_ws}", window = "address:{addr}" }})')
+        else:
+            hypr_dispatch(f'hl.dsp.window.move({{ monitor = "{target_mon}", window = "address:{addr}" }})')
+
+        hypr_dispatch(f'hl.dsp.focus({{ window = "address:{addr}" }})')
+        notify("De vuelta al portátil", title)
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
