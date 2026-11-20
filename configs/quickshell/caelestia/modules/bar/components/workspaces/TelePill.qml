@@ -13,9 +13,9 @@ import qs.services
 StyledRect {
     id: root
 
-    visible: Tele.active
-    implicitWidth: 30
-    implicitHeight: visible ? col.implicitHeight + 10 : 0
+    visible: Tele.active && (Tele.mode === "agents" || Tele.transport === "wifi")
+    implicitWidth: Tokens.sizes.bar.innerWidth
+    implicitHeight: visible ? col.implicitHeight + 12 : 0
     radius: Tokens.rounding.full
     color: Tele.interacting
         ? Colours.palette.m3tertiaryContainer

@@ -190,29 +190,24 @@ Item {
         }
     }
 
-    // Halo visible para distinguir workspaces asignados al segundo monitor / Tele (pares cuando hay 2 monitores)
+    // Cápsula limpia que abraza todo el workspace (pip + iconos de ventanas) cuando pertenece al 2º monitor / Tele
     StyledRect {
-        z: 5
         visible: root.onOtherMonitor
-        anchors.top: layout.top
         anchors.horizontalCenter: layout.horizontalCenter
-        width: Tokens.sizes.bar.innerWidth - 2
-        height: Tokens.sizes.bar.innerWidth - 2
+        y: -2
+        width: Tokens.sizes.bar.innerWidth - Tokens.padding.small + 2
+        height: layout.implicitHeight + 4
         radius: Tokens.rounding.full
-        color: Qt.alpha(root.otherMonitorColour, root.activeOnOtherMonitor ? 0.28 : 0.10)
-        border.width: root.activeOnOtherMonitor ? 2 : 1.5
-        border.color: Qt.alpha(root.otherMonitorColour, root.activeOnOtherMonitor ? 1.0 : 0.75)
+        color: Qt.alpha(root.otherMonitorColour, root.activeOnOtherMonitor ? 0.16 : 0.04)
+        border.width: root.activeOnOtherMonitor ? 1.5 : 1
+        border.color: Qt.alpha(root.otherMonitorColour, root.activeOnOtherMonitor ? 0.85 : 0.35)
 
-        // Punto indicador en la esquina superior derecha del pip
-        Rectangle {
-            width: 6
-            height: 6
-            radius: 3
-            anchors.top: parent.top
-            anchors.right: parent.right
-            anchors.topMargin: 0
-            anchors.rightMargin: 0
-            color: root.otherMonitorColour
+        Behavior on color {
+            CAnim {}
+        }
+
+        Behavior on border.color {
+            CAnim {}
         }
     }
 
