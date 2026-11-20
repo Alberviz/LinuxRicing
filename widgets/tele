@@ -284,6 +284,24 @@ def stop_wifi_if_active():
         subprocess.run([CAST_HELPER, "stop"], capture_output=True, timeout=10)
 
 
+def pick_personal_workspace(cfg, tv_mon: str) -> str:
+    """Elige el workspace más óptimo para la Tele en modo personal:
+    1) Si la Tele ya tiene un workspace numérico activo (> 0), lo mantiene.
+    2) Si no, busca el primer workspace libre a partir del 6 (sin pisar 1..5 del portátil)."""
+    wss = hypr_json("workspaces")
+    mons = hypr_json("monitors")
+    tv_m = next((m for m in mons if m.get("name") == tv_mon), None)
+    if tv_m:
+        cur_id = (tv_m.get("activeWorkspace") or {}).get("id", 0)
+        if isinstance(cur_id, int) and cur_id > 0:
+            return str(cur_id)
+    used = {w.get("id") for w in wss if isinstance(w.get("id"), int)}
+    for n in range(6, 20):
+        if n not in used:
+            return str(n)
+    return str(cfg.get("personal_workspace", 8))
+
+
 def set_mode(mode: str, allow_wifi: bool = True, force_wifi_gaming: bool = False):
     cfg = load_config()
     m = find_monitors(cfg)
@@ -321,7 +339,7 @@ def set_mode(mode: str, allow_wifi: bool = True, force_wifi_gaming: bool = False
 
     if mode == "personal":
         apply_agents_rules(False, "", cfg)
-        ws = str(cfg["personal_workspace"])
+        ws = pick_personal_workspace(cfg, tv_mon)
         hypr_dispatch(f'hl.dsp.workspace.move({{ workspace = {ws}, monitor = "{tv_mon}" }})')
         hypr_dispatch(f'hl.dsp.focus({{ monitor = "{tv_mon}" }})')
         hypr_dispatch(f'hl.dsp.focus({{ workspace = {ws} }})')

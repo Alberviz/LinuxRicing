@@ -36,15 +36,20 @@ Item {
     readonly property list<int> focusedShapeList: [MaterialShape.Slanted, MaterialShape.Oval, MaterialShape.Pill, MaterialShape.Triangle, MaterialShape.Arrow, MaterialShape.Diamond, MaterialShape.Pentagon, MaterialShape.Gem, MaterialShape.VerySunny, MaterialShape.Sunny, MaterialShape.Cookie4Sided, MaterialShape.Cookie6Sided, MaterialShape.Cookie7Sided, MaterialShape.Cookie9Sided, MaterialShape.Cookie12Sided, MaterialShape.Clover4Leaf, MaterialShape.SoftBurst, MaterialShape.Ghostish]
 
     property color offMonitorColour: Colours.palette.m3outlineVariant
-    readonly property bool onOtherMonitor: {
+    readonly property HyprlandMonitor otherMonitorObj: {
         if (Config.bar.workspaces.perMonitor)
-            return false;
+            return null;
         const mon = Hypr.workspaces.values.find(w => w.id === ws)?.monitor;
-        return mon && mon !== monitor;
+        return (mon && mon !== monitor) ? mon : null;
     }
+    readonly property bool onOtherMonitor: otherMonitorObj !== null
+    readonly property bool activeOnOtherMonitor: otherMonitorObj !== null && otherMonitorObj.activeWorkspace?.id === ws
+    readonly property color otherMonitorColour: (otherMonitorObj && !otherMonitorObj.name.startsWith("eDP")) ? Colours.palette.m3tertiary : Colours.palette.m3secondary
     readonly property color fgColour: {
+        if (activeOnOtherMonitor)
+            return otherMonitorColour;
         if (onOtherMonitor)
-            return offMonitorColour;
+            return Qt.alpha(otherMonitorColour, 0.7);
         if (hasAgent)
             return Colours.palette.m3onPrimaryContainer;
         if (focused || isOccupied || Config.bar.workspaces.occupiedBg)
@@ -174,6 +179,18 @@ Item {
                 id: loaderIconCacher
             }
         }
+    }
+
+    // Halo sutil para distinguir workspaces asignados a otro monitor (ej. la Tele)
+    StyledRect {
+        visible: root.onOtherMonitor
+        anchors.centerIn: layout
+        width: Tokens.sizes.bar.innerWidth - 2
+        height: layout.implicitHeight + 2
+        radius: Tokens.rounding.full
+        color: Qt.alpha(root.otherMonitorColour, root.activeOnOtherMonitor ? 0.22 : 0.08)
+        border.width: root.activeOnOtherMonitor ? 1.5 : 1
+        border.color: Qt.alpha(root.otherMonitorColour, root.activeOnOtherMonitor ? 0.9 : 0.4)
     }
 
     ColumnLayout {
