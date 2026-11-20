@@ -36,20 +36,29 @@ Item {
     readonly property list<int> focusedShapeList: [MaterialShape.Slanted, MaterialShape.Oval, MaterialShape.Pill, MaterialShape.Triangle, MaterialShape.Arrow, MaterialShape.Diamond, MaterialShape.Pentagon, MaterialShape.Gem, MaterialShape.VerySunny, MaterialShape.Sunny, MaterialShape.Cookie4Sided, MaterialShape.Cookie6Sided, MaterialShape.Cookie7Sided, MaterialShape.Cookie9Sided, MaterialShape.Cookie12Sided, MaterialShape.Clover4Leaf, MaterialShape.SoftBurst, MaterialShape.Ghostish]
 
     property color offMonitorColour: Colours.palette.m3outlineVariant
+    readonly property bool dualMonitor: Tele.active || Hypr.monitors.values.length > 1
     readonly property HyprlandMonitor otherMonitorObj: {
+        const _deps = [Hypr.workspaces.values.length, Hypr.monitors.values.length, Hypr.activeWsId, Tele.transport, Tele.mode];
         if (Config.bar.workspaces.perMonitor)
             return null;
-        const mon = Hypr.workspaces.values.find(w => w.id === ws)?.monitor;
-        return (mon && mon !== monitor) ? mon : null;
+        const wsObj = Hypr.workspaces.values.find(w => w.id === ws);
+        const mon = wsObj?.monitor ?? null;
+        if (mon && monitor && mon.name !== monitor.name)
+            return mon;
+        // Si aún está vacío (no está en Hypr.workspaces), con 2 monitores los pares son de la Tele
+        if (!wsObj && dualMonitor && ws % 2 === 0)
+            return Hypr.monitors.values.find(m => m.name !== monitor?.name) ?? null;
+        return null;
     }
-    readonly property bool onOtherMonitor: otherMonitorObj !== null
+    readonly property bool onOtherMonitor: otherMonitorObj !== null || (dualMonitor && ws % 2 === 0 && (!Hypr.workspaces.values.find(w => w.id === ws) || Hypr.workspaces.values.find(w => w.id === ws)?.monitor?.name !== monitor?.name))
     readonly property bool activeOnOtherMonitor: otherMonitorObj !== null && otherMonitorObj.activeWorkspace?.id === ws
-    readonly property color otherMonitorColour: (otherMonitorObj && !otherMonitorObj.name.startsWith("eDP")) ? Colours.palette.m3tertiary : Colours.palette.m3secondary
+    // Cian luminoso para distinguir claramente el 2º monitor / Tele del tema cálido del portátil
+    readonly property color otherMonitorColour: "#58C4DC"
     readonly property color fgColour: {
         if (activeOnOtherMonitor)
             return otherMonitorColour;
         if (onOtherMonitor)
-            return Qt.alpha(otherMonitorColour, 0.7);
+            return Qt.alpha(otherMonitorColour, 0.85);
         if (hasAgent)
             return Colours.palette.m3onPrimaryContainer;
         if (focused || isOccupied || Config.bar.workspaces.occupiedBg)
@@ -190,19 +199,19 @@ Item {
         width: Tokens.sizes.bar.innerWidth - 2
         height: Tokens.sizes.bar.innerWidth - 2
         radius: Tokens.rounding.full
-        color: Qt.alpha(root.otherMonitorColour, root.activeOnOtherMonitor ? 0.24 : 0.08)
+        color: Qt.alpha(root.otherMonitorColour, root.activeOnOtherMonitor ? 0.28 : 0.10)
         border.width: root.activeOnOtherMonitor ? 2 : 1.5
-        border.color: Qt.alpha(root.otherMonitorColour, root.activeOnOtherMonitor ? 0.95 : 0.65)
+        border.color: Qt.alpha(root.otherMonitorColour, root.activeOnOtherMonitor ? 1.0 : 0.75)
 
         // Punto indicador en la esquina superior derecha del pip
         Rectangle {
-            width: 5
-            height: 5
-            radius: 2.5
+            width: 6
+            height: 6
+            radius: 3
             anchors.top: parent.top
             anchors.right: parent.right
-            anchors.topMargin: 1
-            anchors.rightMargin: 1
+            anchors.topMargin: 0
+            anchors.rightMargin: 0
             color: root.otherMonitorColour
         }
     }
