@@ -6,10 +6,11 @@ igual que el real.
     fake-gamepad.py "<guion>"
 guion: pasos separados por espacios:
     wait:<s>      esperar
-    tap:<botón>   pulsar y soltar   (a b x y start select home up down left right)
+    tap:<botón>   pulsar y soltar   (a b x y lb rb start select home up down left right)
     hold:<botón>:<s>  mantener
+    chord:<b1>+<b2>   mantener b1, pulsar b2 y soltar ambos (ej. chord:lb+down)
 Botones por código Linux (como los manda xpadneo): south=304 east=305 north=307
-west=308 select=314 start=315 mode=316. Se llama «GuliKit Controller XW (test)»,
+west=308 lb=310 rb=311 select=314 start=315 mode=316. Se llama «GuliKit Controller XW (test)»,
 así que gamepad-watch aplica la disposición Nintendo (abajo=B, derecha=A).
 """
 import fcntl, os, struct, sys, time
@@ -17,7 +18,8 @@ import fcntl, os, struct, sys, time
 UI_SET_EVBIT, UI_SET_KEYBIT, UI_SET_ABSBIT = 0x40045564, 0x40045565, 0x40045567
 UI_DEV_CREATE, UI_DEV_DESTROY = 0x5501, 0x5502
 EV_SYN, EV_KEY, EV_ABS = 0, 1, 3
-CODES = {"b": 304, "a": 305, "x": 307, "y": 308, "select": 314, "start": 315, "home": 316,  # disposición Nintendo
+CODES = {"b": 304, "a": 305, "x": 307, "y": 308, "lb": 310, "rb": 311,
+         "select": 314, "start": 315, "home": 316,  # disposición Nintendo
          "up": 544, "down": 545, "left": 546, "right": 547}
 
 fd = os.open("/dev/uinput", os.O_WRONLY | os.O_NONBLOCK)
@@ -58,6 +60,11 @@ try:
             key(CODES[args[0]], 1); time.sleep(0.08); key(CODES[args[0]], 0)
         elif kind == "hold":
             key(CODES[args[0]], 1); time.sleep(float(args[1])); key(CODES[args[0]], 0)
+        elif kind == "chord":
+            b1, b2 = args[0].split("+", 1)
+            key(CODES[b1], 1); time.sleep(0.05)
+            key(CODES[b2], 1); time.sleep(0.06); key(CODES[b2], 0)
+            time.sleep(0.05); key(CODES[b1], 0)
         print("ok", step, flush=True)
 finally:
     fcntl.ioctl(fd, UI_DEV_DESTROY)

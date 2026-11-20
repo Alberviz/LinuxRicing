@@ -539,7 +539,33 @@ PanelWindow {
                     }
                 }
 
+                // Ahora suena (Spotify / MPRIS).
                 Caption {
+                    text: qsTr("Ahora suena")
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: npCard.implicitHeight + 28
+                    radius: 16
+                    color: Qt.alpha(Colours.palette.m3onSurface, 0.05)
+                    border.width: 1
+                    border.color: Qt.alpha(win.elysium.spotifyPlaying ? win.accent : Colours.palette.m3onSurface, win.elysium.spotifyPlaying ? 0.35 : 0.09)
+
+                    NowPlaying {
+                        id: npCard
+
+                        anchors.fill: parent
+                        anchors.margins: 14
+                        elysium: win.elysium
+                        compact: true
+                        showControls: true
+                        showDevice: true
+                    }
+                }
+
+                Caption {
+                    Layout.topMargin: 6
                     text: qsTr("Avisos")
                 }
 
