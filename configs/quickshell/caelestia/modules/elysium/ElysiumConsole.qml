@@ -48,6 +48,13 @@ PanelWindow {
             "glyph": LauraService.state === "off" ? "voice_over_off" : "graphic_eq"
         },
         {
+            "system": "music",
+            "name": qsTr("Música"),
+            "subtitle": elysium.musicOn ? (elysium.userTracks.length ? qsTr("Sonando tu música (%1 pistas en ~/Música/Elysium) · A para quitarla").arg(elysium.userTracks.length) : qsTr("Sonando la música de Elysium · A para quitarla")) : qsTr("En silencio · A para poner música"),
+            "tag": qsTr("Ambiente"),
+            "glyph": elysium.musicOn ? "music_note" : "music_off"
+        },
+        {
             "system": "gamemode",
             "name": qsTr("Modo juego"),
             "subtitle": qsTr("Volver al escritorio y seguir con el modo juego activo"),
@@ -72,6 +79,8 @@ PanelWindow {
             elysium.cycleCompanion();
         else if (it.system === "laura")
             LauraService.toggle();
+        else if (it.system === "music")
+            elysium.setMusic(!elysium.musicOn);
         else if (it.system === "screen")
             elysium.setPlayOnTv(!elysium.playOnTv);
         else if (it.system === "desktop")
@@ -716,7 +725,7 @@ PanelWindow {
 
                     StyledText {
                         anchors.verticalCenter: parent.verticalCenter
-                        text: win.current.updates && win.elysium.updRunning && !win.isRunning ? qsTr("Ver progreso") : win.current.updates && win.elysium.hsCheck.update && !win.isRunning ? qsTr("Jugar o actualizar") : win.current.system === "laptop" || win.current.system === "screen" ? qsTr("Cambiar") : win.current.system === "laura" ? (LauraService.on || LauraService.state === "starting" ? qsTr("Apagar") : qsTr("Encender")) : win.current.system === "desktop" ? qsTr("Salir") : win.current.system === "gamemode" ? qsTr("Ir al escritorio") : win.isRunning ? qsTr("Volver al juego") : qsTr("Jugar")
+                        text: win.current.updates && win.elysium.updRunning && !win.isRunning ? qsTr("Ver progreso") : win.current.updates && win.elysium.hsCheck.update && !win.isRunning ? qsTr("Jugar o actualizar") : win.current.system === "laptop" || win.current.system === "screen" ? qsTr("Cambiar") : win.current.system === "laura" ? (LauraService.on || LauraService.state === "starting" ? qsTr("Apagar") : qsTr("Encender")) : win.current.system === "music" ? (win.elysium.musicOn ? qsTr("Silenciar") : qsTr("Poner música")) : win.current.system === "desktop" ? qsTr("Salir") : win.current.system === "gamemode" ? qsTr("Ir al escritorio") : win.isRunning ? qsTr("Volver al juego") : qsTr("Jugar")
                         color: Colours.palette.m3onPrimary
                         font: Tokens.font.title.medium
                     }

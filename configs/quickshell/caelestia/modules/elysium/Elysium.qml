@@ -322,6 +322,78 @@ Scope {
         }
     }
 
+    // ================= Música ambiente =================
+    // Suena en los menús (no con un juego abierto), se funde al entrar/salir y baja
+    // cuando habla Laura. Si hay audio en ~/Música/Elysium/, se usa eso (aleatorio);
+    // si no, la pieza propia (music/elysium-ambient.ogg, de sounds/music_gen.py).
+    readonly property bool musicWanted: prefs.music && active && consoleShown && !playing
+    property real musicLevel: musicWanted ? 1 : 0
+    property var userTracks: []
+    property int trackIdx: 0
+
+    Behavior on musicLevel {
+        NumberAnimation {
+            duration: 1600
+            easing.type: Easing.InOutSine
+        }
+    }
+
+    onMusicWantedChanged: {
+        if (musicWanted) {
+            musicDir.running = true;
+            if (music.playbackState !== MediaPlayer.PlayingState)
+                music.play();
+        }
+    }
+    onMusicLevelChanged: if (!musicWanted && musicLevel <= 0.001 && music.playbackState === MediaPlayer.PlayingState)
+        music.pause()
+
+    function nextTrack(): void {
+        if (userTracks.length === 0)
+            return;
+        trackIdx = Math.floor(Math.random() * userTracks.length);
+        music.source = "file://" + userTracks[trackIdx];
+        music.play();
+    }
+
+    Process {
+        id: musicDir
+
+        command: ["sh", "-c", `find "${Quickshell.env("HOME")}/Música/Elysium" -maxdepth 2 -type f \\( -iname '*.ogg' -o -iname '*.mp3' -o -iname '*.flac' -o -iname '*.opus' -o -iname '*.m4a' -o -iname '*.wav' \\) 2>/dev/null`]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const list = text.split("\n").filter(l => l.length > 0);
+                const changed = JSON.stringify(list) !== JSON.stringify(root.userTracks);
+                root.userTracks = list;
+                if (changed && list.length > 0)
+                    root.nextTrack();
+            }
+        }
+    }
+
+    MediaPlayer {
+        id: music
+
+        source: Qt.resolvedUrl("music/elysium-ambient.ogg")
+        loops: root.userTracks.length > 0 ? 1 : MediaPlayer.Infinite
+        audioOutput: AudioOutput {
+            volume: 0.32 * root.musicLevel * (Laura.active ? 0.25 : 1)
+
+            Behavior on volume {
+                NumberAnimation {
+                    duration: 500
+                }
+            }
+        }
+        onMediaStatusChanged: if (mediaStatus === MediaPlayer.EndOfMedia && root.userTracks.length > 0)
+            root.nextTrack()
+    }
+
+    function setMusic(on: bool): void {
+        prefs.music = on;
+        sfx(on ? "toggle_on" : "toggle_off");
+    }
+
     // ================= Actualizaciones de Hookshot =================
     // check: {current, latest, published, sizeMB, update} · upd: estado de la actualización
     // en curso (archivo que escribe `elysium-hookshot run`, en segundo plano con systemd).
@@ -495,6 +567,7 @@ Scope {
         property bool playOnTv: true
         property var lauraOff: []
         property bool sound: true
+        property bool music: true
         property bool loaded: false
 
         onPlayOnTvChanged: if (loaded)
@@ -503,9 +576,12 @@ Scope {
             prefsFile.save()
         onSoundChanged: if (loaded)
             prefsFile.save()
+        onMusicChanged: if (loaded)
+            prefsFile.save()
     }
 
     readonly property bool playOnTv: prefs.playOnTv
+    readonly property bool musicOn: prefs.music
 
     FileView {
         id: prefsFile
@@ -518,6 +594,7 @@ Scope {
                 prefs.playOnTv = j.playOnTv ?? true;
                 prefs.lauraOff = j.lauraOff ?? [];
                 prefs.sound = j.sound ?? true;
+                prefs.music = j.music ?? true;
             } catch (e) {}
             prefs.loaded = true;
         }
@@ -527,7 +604,8 @@ Scope {
             setText(JSON.stringify({
                 "playOnTv": prefs.playOnTv,
                 "lauraOff": prefs.lauraOff,
-                "sound": prefs.sound
+                "sound": prefs.sound,
+                "music": prefs.music
             }, null, 2));
         }
     }
@@ -849,7 +927,8 @@ except Exception: pass`]);
                 "padGrab": root.padGrab,
                 "consoleScreen": root.consoleScreen?.name ?? null,
                 "laura": LauraService.state,
-                "lauraStoppedForGame": root.lauraStoppedForGame
+                "lauraStoppedForGame": root.lauraStoppedForGame,
+                "music": ["parado", "sonando", "pausa"][music.playbackState] + " vol=" + music.audioOutput.volume.toFixed(2)
             });
         }
 
@@ -873,6 +952,10 @@ except Exception: pass`]);
             root.updAskGame = root.games[0];
             root.updAsk = true;
             root.sfx("prompt");
+        }
+
+        function music(on: bool): void {
+            root.setMusic(on);
         }
 
         function sound(on: bool): void {
