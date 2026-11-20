@@ -56,6 +56,12 @@ ColumnLayout {
         radius: Tokens.rounding.medium
         color: Qt.alpha(Colours.palette.m3errorContainer, 0.85)
 
+        StateLayer {
+            color: Colours.palette.m3error
+            radius: captivePortalBanner.radius
+            onClicked: Nmcli.openCaptivePortal()
+        }
+
         RowLayout {
             id: portalCardLayout
             anchors.fill: parent

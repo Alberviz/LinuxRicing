@@ -1,8 +1,8 @@
 ---
 fileClass: Backlog
 tipo: tarea
-estado: pendiente
-prioridad: 3
+estado: idea
+prioridad: 5
 area: caelestia
 origen: Alberto
 esfuerzo: S

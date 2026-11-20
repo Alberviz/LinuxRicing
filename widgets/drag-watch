@@ -155,6 +155,18 @@ def open_pointers():
     return fds
 
 
+def refresh_pointers(fds):
+    known = set(fds.values())
+    for p in sorted(glob.glob("/dev/input/event*")):
+        ev = os.path.basename(p)
+        if ev in known or not has_btn_left(ev):
+            continue
+        try:
+            fds[os.open(p, os.O_RDONLY | os.O_NONBLOCK)] = ev
+        except OSError:
+            pass
+
+
 def send_cmd(args):
     s = socket.socket(socket.AF_UNIX)
     s.connect(SOCK + ".ctl")
@@ -187,6 +199,8 @@ def daemon():
     pant = None          # monitor enfocado al hacer clic
     ultimo_chequeo = 0.0
 
+    ultimo_rescan = time.monotonic()
+
     def publish(obj):
         data = (json.dumps(obj) + "\n").encode()
         for c in clients[:]:
@@ -203,8 +217,11 @@ def daemon():
 
     while True:
         dragging = state.get("dragging")
-        timeout = TICK if (pressed or dragging) and not sim else None
+        timeout = TICK if (pressed or dragging) and not sim else 3.0
         rl, _, _ = select.select([srv, ctl, *fds, *clients], [], [], timeout)
+        if time.monotonic() - ultimo_rescan >= 3.0:
+            ultimo_rescan = time.monotonic()
+            refresh_pointers(fds)
         for r in rl:
             if r is srv:
                 c, _ = srv.accept()
@@ -242,6 +259,11 @@ def daemon():
                     continue
                 except OSError:
                     fds.pop(r, None)
+                    try:
+                        os.close(r)
+                    except OSError:
+                        pass
+                    refresh_pointers(fds)
                     continue
                 for i in range(0, len(data) - EVSIZE + 1, EVSIZE):
                     _, _, typ, code, val = struct.unpack(EVFMT, data[i:i + EVSIZE])

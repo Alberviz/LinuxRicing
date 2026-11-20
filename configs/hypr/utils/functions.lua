@@ -125,10 +125,8 @@ local function default_config()
                 match   = {
                     { class = "chrome-hgknnnmidhnefhfdiaapcoehkjnnfcgp-Profile_1" },
                     { initial_class = "chrome-hgknnnmidhnefhfdiaapcoehkjnnfcgp-Profile_1" },
-                    { title = "Olimpo" },
                 },
                 command = { "/usr/bin/chromium", "--profile-directory=Profile 1", "--app-id=hgknnnmidhnefhfdiaapcoehkjnnfcgp" },
-                move    = true,
             },
         },
         whatsapp = {

@@ -1,6 +1,6 @@
 ---
 tipo: fix
-estado: pendiente
+estado: hecha
 prioridad: alta
 componentes:
   - bluetooth

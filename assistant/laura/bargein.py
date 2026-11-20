@@ -58,6 +58,11 @@ class BargeIn:
     def install(self) -> None:
         """Se engancha al audio de salida: vigila solo mientras Laura habla."""
         if self.enabled():
+            try:
+                from silero_vad import load_silero_vad
+                self._model = load_silero_vad()
+            except Exception as e:  # noqa: BLE001
+                log(f"barge-in: error cargando VAD inicial: {e}")
             OUT.on_change(self._on_speaking)
 
     def _on_speaking(self, speaking: bool) -> None:

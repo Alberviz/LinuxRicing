@@ -106,7 +106,7 @@ StyledRect {
 
         command: [
             "sh", "-c",
-            "clip=$(wl-paste -n 2>/dev/null | head -n1); case \"$clip\" in magnet:*|http://*|https://*) ;; *) clip='' ;; esac; exec zenity --entry --title='Enviar enlace o magnet a Chromecast' --text='Pega un enlace magnet:, URL o ruta:' --entry-text=\"$clip\""
+            "clip=$(wl-paste -n 2>/dev/null | head -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'); case \"$clip\" in magnet:*|http://*|https://*) ;; *) clip='' ;; esac; exec zenity --entry --title='Enviar enlace o magnet a Chromecast' --text='Pega un enlace magnet:, URL o ruta:' --entry-text=\"$clip\""
         ]
 
         stdout: StdioCollector {

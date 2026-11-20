@@ -226,6 +226,19 @@ def is_torrent_source(src):
     return clean.endswith(".torrent")
 
 
+def is_local_stream_url(src):
+    """Detecta URLs HTTP locales (p. ej. servidor de streaming de Stremio en 127.0.0.1:11470)."""
+    s = (src or "").strip()
+    if not re.match(r"^https?://", s, re.I):
+        return False
+    try:
+        u = urllib.parse.urlparse(s)
+    except Exception:
+        return False
+    host = (u.hostname or "").lower()
+    return host in ("127.0.0.1", "localhost", "::1", "0.0.0.0") or u.port == 11470
+
+
 def probe_file(path, external_subs=None):
     is_url = bool(re.match(r"^https?://", path))
     if not is_url and not os.path.isfile(path):
@@ -273,6 +286,7 @@ def probe_file(path, external_subs=None):
     return {
         "duration": fmt_dur(fmt.get("duration")),
         "format": fmt.get("format_name", ""),
+        "title": (fmt.get("tags") or {}).get("title", ""),
         "video": video, "audio": audio, "subs": subs,
         "external_subs": ext_paths,
         "external_subs_info": [ext_sub_info(p) for p in ext_paths],
@@ -311,6 +325,8 @@ def plan_playback(path, info, audio_index=None, name_hint=None):
         reasons.append(f"contenedor {ext or fmt} no reproducible directamente")
     if chosen["codec"] not in DIRECT_AUDIO:
         reasons.append(f"audio {chosen['codec']} no soportado")
+    elif chosen["codec"] == "aac" and (chosen.get("channels") or 2) > 2:
+        reasons.append("audio AAC multicanal")
     if chosen["index"] != first["index"]:
         reasons.append("audio no es la primera pista")
     if reasons:
@@ -836,7 +852,7 @@ def build_ffmpeg_cmd(path, info, audio_index, start):
         cmd += ["-tag:v", "hvc1"]
     if audio_index is not None:
         a = next(x for x in info["audio"] if x["index"] == audio_index)
-        if a["codec"] == "aac":
+        if a["codec"] == "aac" and (a.get("channels") or 2) <= 2:
             cmd += ["-c:a", "copy"]
         else:
             cmd += ["-c:a", "aac", "-ac", "2", "-b:a", "256k"]
@@ -942,7 +958,7 @@ class MediaServer:
                     headers["Range"] = rng
                 req = urllib.request.Request(rt.path, headers=headers, method="HEAD" if head else "GET")
                 try:
-                    resp = urllib.request.urlopen(req, timeout=30)
+                    resp = urllib.request.urlopen(req, timeout=60)
                 except urllib.error.HTTPError as e:
                     self.send_response(e.code)
                     self._cors()
@@ -1146,6 +1162,7 @@ class Session:
         self.daemon = daemon
         self.dev = dev
         self.source = source
+        self.orig_source = source
         self.mode = mode
         self.title = title
         self.token = secrets.token_hex(6)
@@ -1177,6 +1194,7 @@ class Session:
         self.fake = False
         self.torrent_proc = None
         self.is_torrent = False
+        self.is_proxy = False
         self.torrent_req = None
         self.torrent_name = None
         self._torrent_err = None
@@ -1197,7 +1215,7 @@ class Session:
     def as_dict(self):
         return {
             "device_uuid": self.dev["uuid"], "device_name": self.dev["name"],
-            "title": self.title, "source": self.source, "mode": self.mode,
+            "title": self.title, "source": self.source, "target": self.orig_source, "mode": self.mode,
             "state": self.state, "position": round(self.position(), 1),
             "duration": round(self.duration, 1), "volume": self.volume,
             "muted": self.muted, "subs": self.subs_label, "preparing": self.preparing,
@@ -1229,7 +1247,7 @@ class Session:
             stdout=subprocess.PIPE, stderr=self._torrent_err, text=True,
         )
         self.torrent_proc = proc
-        deadline = time.monotonic() + 60.0
+        deadline = time.monotonic() + 90.0
         line = ""
         while time.monotonic() < deadline:
             if self.dead:
@@ -1250,7 +1268,7 @@ class Session:
                 if line:
                     break
         if not line:
-            raise RuntimeError("tiempo de espera agotado conectando a peers del torrent (60 s)")
+            raise RuntimeError("tiempo de espera agotado conectando a peers del torrent (90 s)")
         try:
             meta = json.loads(line)
         except Exception as e:
@@ -1269,6 +1287,8 @@ class Session:
             while time.monotonic() < buf_deadline:
                 if self.dead:
                     raise RuntimeError("reproducción cancelada")
+                if proc.poll() is not None:
+                    raise RuntimeError("cast-torrent se cerró inesperadamente")
                 try:
                     with urllib.request.urlopen(status_url, timeout=2) as r:
                         st = json.loads(r.read().decode())
@@ -1281,15 +1301,22 @@ class Session:
             else:
                 raise RuntimeError(f"el torrent no tiene peers disponibles ({last_peers} conectados)")
         info = probe_file(self.source, external_subs=meta.get("subs") or [])
+        return self._configure_probed(info, req, name_hint=self.torrent_name)
+
+    def _configure_probed(self, info, req, name_hint=None):
         aidx = req.get("audio")
         if aidx is None:
             a = default_audio(info["audio"])
             aidx = a["index"] if a else None
         else:
             aidx = int(aidx)
-        mode, _, err = plan_playback(self.source, info, aidx, name_hint=self.torrent_name)
+        mode, _, err = plan_playback(self.source, info, aidx, name_hint=name_hint)
         if err:
             raise ValueError(err)
+        # Los streams de torrent/Stremio en .mp4 suelen tener el átomo moov al final o audio 5.1,
+        # lo que provoca errores o bloqueos de Range en Chromecast en modo directo; remuxear a fMP4 evita ambos.
+        if (self.is_torrent or self.is_proxy) and mode == "direct":
+            mode = "transcode"
         spec = self.daemon._sub_spec(req, info)
         self.mode = mode
         self.info = info
@@ -1298,6 +1325,14 @@ class Session:
         self.audio_active = aidx if aidx is not None else (info["audio"][0]["index"] if info["audio"] else None)
         return spec
 
+    def _prepare_local_url(self):
+        req = self.torrent_req or {}
+        info = probe_file(self.source)
+        if not req.get("title"):
+            fmt_title = info.get("title")
+            self.title = clean_title(fmt_title) if fmt_title else clean_title(self.source.split("?", 1)[0])
+        return self._configure_probed(info, req)
+
     def run_load(self, start, sub_spec):
         try:
             if self.mode == "url":
@@ -1305,6 +1340,13 @@ class Session:
                 self._load_url(start)
             elif self.mode == "torrent":
                 spec = self._start_torrent()
+                if self.dead:
+                    return
+                self._prepare_subs(spec)
+                self._connect()
+                self._load(start)
+            elif self.mode == "local_url":
+                spec = self._prepare_local_url()
                 if self.dead:
                     return
                 self._prepare_subs(spec)
@@ -1343,7 +1385,7 @@ class Session:
         info = self.info
         if not info:
             return
-        texts = [] if self.is_torrent else [x for x in info["subs"] if x["text"]]
+        texts = [] if (self.is_torrent or self.is_proxy) else [x for x in info["subs"] if x["text"]]
         if texts:
             load_embedded_batch(self.source, [x["index"] for x in texts])
         for x in texts:
@@ -1408,7 +1450,7 @@ class Session:
         if self.mode == "direct":
             fname = self.torrent_name or self.source
             mime = "video/webm" if fname.lower().endswith(".webm") else "video/mp4"
-            rt = Route("proxy" if self.is_torrent else "direct", self.source, mime)
+            rt = Route("proxy" if (self.is_torrent or self.is_proxy) else "direct", self.source, mime)
         else:
             rt = Route("transcode", self.source, "video/mp4", info=self.info, audio=self.audio_index)
             rt.offset = self.offset
@@ -1507,6 +1549,8 @@ class Session:
         mode, _reason, err = plan_playback(self.source, self.info, n, name_hint=self.torrent_name)
         if err:
             raise ValueError(err)
+        if (self.is_torrent or self.is_proxy) and mode == "direct":
+            mode = "transcode"
         self.mode = mode
         self.audio_index = n if mode == "transcode" else None
         self.audio_active = n
@@ -2322,7 +2366,7 @@ class Daemon:
             devs = list(self.devices.values())
             if not devs:
                 return
-            active_uuid = self.active.device_uuid if self.active else None
+            active_uuid = self.active.dev.get("uuid") if self.active else None
 
             def _probe(dev):
                 if active_uuid and dev.get("uuid") == active_uuid:
@@ -2560,7 +2604,7 @@ class Daemon:
             raise ValueError(f"dispositivo no encontrado: {req['device']}")
         if dev.get("online") is False and not check_device_online(dev):
             raise ValueError(f"la tele ({dev['name']}) está desconectada o apagada")
-        src = req["source"]
+        src = (req["source"] or "").strip()
         start = float(req.get("start") or 0)
         if is_torrent_source(src):
             if not os.path.isfile(TORRENT_SERVER) or shutil.which("node") is None:
@@ -2572,11 +2616,21 @@ class Daemon:
             self.server.start()
             s = Session(self, dev, src, "torrent", req.get("title") or "Cargando torrent…")
             s.is_torrent = True
+            s.is_proxy = True
             s.torrent_req = req
             self.error = None
             self.set_active(s)
             threading.Thread(target=s.run_load, args=(start, None), daemon=True).start()
             return {"ok": True, "mode": "torrent", "preparing": True}
+        if is_local_stream_url(src):
+            self.server.start()
+            s = Session(self, dev, src, "local_url", req.get("title") or "Cargando stream…")
+            s.is_proxy = True
+            s.torrent_req = req
+            self.error = None
+            self.set_active(s)
+            threading.Thread(target=s.run_load, args=(start, None), daemon=True).start()
+            return {"ok": True, "mode": "stream", "preparing": True}
         if re.match(r"^https?://", src):
             self.server_ok = None
             s = Session(self, dev, src, "url", req.get("title") or src)

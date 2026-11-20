@@ -16,6 +16,7 @@ import "modules/rebootdialog"
 import "modules/projectdialog"
 import "modules/assistant"
 import "modules/holo"
+import "modules/hookshot"
 import "modules/elysium"
 import "modules/lock"
 import QtQuick
@@ -47,6 +48,7 @@ ShellRoot {
     ProjectDialog {}
     Assistant {}
     HoloOverlay {}
+    HookshotWarmup {}
     Elysium {}
     Lock {
         id: lock

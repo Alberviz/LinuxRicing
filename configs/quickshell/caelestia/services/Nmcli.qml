@@ -50,6 +50,7 @@ Singleton {
     // Captive portal & network connectivity status
     property string connectivity: "full"
     readonly property bool isCaptivePortal: connectivity === "portal"
+    readonly property string captivePortalBin: Quickshell.env("HOME") + "/.local/bin/captive-portal"
 
     readonly property alias connectionCheckTimer: connectionCheckTimer
     readonly property alias immediateCheckTimer: immediateCheckTimer
@@ -911,7 +912,7 @@ Singleton {
     }
 
     function openCaptivePortal(): void {
-        Quickshell.execDetached(["captive-portal", "login"]);
+        Quickshell.execDetached(["sh", "-c", `exec '${root.captivePortalBin}' login 2>/dev/null || exec captive-portal login 2>/dev/null || exec xdg-open 'http://captive.apple.com/hotspot-detect.html'`]);
     }
 
     function getDeviceDetails(interfaceName: string, callback: var): void {

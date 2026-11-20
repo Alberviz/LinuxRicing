@@ -274,15 +274,16 @@ Variants {
             if (pRight.phase === "sending" && teleTarget) {
                 const nm = Cast.selectedDevice?.name ?? "la tele";
                 const act = Cast.active;
+                const sameTarget = act && (act.source === teleTarget || act.target === teleTarget);
                 if (Cast.error && Cast.error !== teleErr0) {
                     finishTransfer(pRight, false, Cast.error);
                 } else if (Date.now() - teleT0 > 120000) {
                     finishTransfer(pRight, false, "Tiempo agotado cargando en " + nm);
-                } else if (act && act.source === teleTarget && act.state === "PLAYING" && !act.preparing) {
+                } else if (sameTarget && act.state === "PLAYING" && !act.preparing) {
                     finishTransfer(pRight, true, "Reproduciendo en " + nm);
                 } else if (Cast.preparing) {
                     pRight.tText = "Preparando…";
-                } else if (act && act.source === teleTarget) {
+                } else if (sameTarget) {
                     pRight.tText = "Cargando en " + nm + "…";
                 } else if (teleRunDone) {
                     pRight.tText = "Cargando en " + nm + "…";

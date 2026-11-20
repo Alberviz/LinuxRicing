@@ -414,6 +414,28 @@ def main() -> None:
 
     avisos.Scheduler(on_aviso).start()
 
+    gamemode_active = [False]
+
+    def _unload_ollama() -> None:
+        try:
+            subprocess.run(["ollama", "stop", "qwen3:4b-instruct"], capture_output=True, timeout=3)
+        except Exception:
+            pass
+        try:
+            import urllib.request
+            req = urllib.request.Request("http://127.0.0.1:11434/api/generate",
+                                         data=b'{"model":"qwen3:4b-instruct","keep_alive":0}',
+                                         headers={"Content-Type": "application/json"})
+            urllib.request.urlopen(req, timeout=2)
+        except Exception:
+            pass
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+
     def run(mode: str, first_text: str | None = None) -> None:
         if wake is not None:
             wake.pause()
@@ -424,7 +446,9 @@ def main() -> None:
             notify("Laura", f"error: {e}")
             bus.emit(type="state", value="idle", mode=mode)
         finally:
-            if wake is not None:
+            if gamemode_active[0]:
+                _unload_ollama()
+            elif wake is not None:
                 wake.resume()
 
     def fire(mode: str, first_text: str | None = None) -> None:
@@ -468,6 +492,26 @@ def main() -> None:
             if busy():
                 cancel.set()
             return {"ok": True}
+        if cmd == "gamemode":
+            action = arg.strip().lower()
+            if action in ("on", "1", "true", "enable", "activar"):
+                if wake is not None:
+                    wake.pause()
+                _unload_ollama()
+                gamemode_active[0] = True
+                log("modo juego activado (wake pausado, Ollama descargado)")
+                return {"ok": True, "gamemode": True}
+            elif action in ("off", "0", "false", "disable", "desactivar"):
+                gamemode_active[0] = False
+                if wake is not None:
+                    wake.resume()
+                log("modo juego desactivado (wake reanudado)")
+                return {"ok": True, "gamemode": False}
+            elif action == "toggle":
+                nuevo = not gamemode_active[0]
+                return control(f"gamemode {'on' if nuevo else 'off'}")
+            else:
+                return {"ok": True, "gamemode": gamemode_active[0]}
         if cmd == "vigia-now":
             vig.now()
             return {"ok": True}

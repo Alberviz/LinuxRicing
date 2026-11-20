@@ -11,6 +11,17 @@ const VIDEO_EXTS = new Set([".mp4", ".m4v", ".mkv", ".webm", ".avi", ".mov", ".t
 const AUDIO_EXTS = new Set([".mp3", ".flac", ".wav", ".ogg", ".m4a", ".aac", ".opus"]);
 const SUB_EXTS = new Set([".srt", ".vtt", ".ass", ".ssa"]);
 
+// Trackers públicos de respaldo para magnets sin &tr= (ej. Torrentio/DHT-only)
+const DEFAULT_TRACKERS = [
+  "udp://tracker.opentrackr.org:1337/announce",
+  "udp://open.stealth.si:80/announce",
+  "udp://tracker.torrent.eu.org:451/announce",
+  "udp://exodus.desync.com:6969/announce",
+  "udp://tracker.tiny-vps.com:6969/announce",
+  "udp://open.demonii.com:1337/announce",
+  "http://tracker.opentrackr.org:1337/announce",
+];
+
 const MIME_MAP = {
   ".mp4": "video/mp4",
   ".m4v": "video/mp4",
@@ -109,7 +120,7 @@ function downloadSubFile(file, destDir) {
         try { rs.destroy(); } catch (_) {}
         try { ws.destroy(); } catch (_) {}
         resolve(null);
-      }, 15000);
+      }, 6000);
       rs.pipe(ws);
       ws.on("finish", () => {
         clearTimeout(timer);
@@ -207,7 +218,10 @@ async function main() {
     connections: 80,
     uploads: 5,
     verify: true,
+    trackers: DEFAULT_TRACKERS,
   });
+
+  engine.listen(0);
 
   engine.on("error", (err) => {
     console.error("torrent-stream error:", err.message);
@@ -310,8 +324,10 @@ async function main() {
       const destroyStream = () => {
         try { stream.destroy(); } catch (_) {}
       };
-      req.on("close", destroyStream);
-      res.on("close", destroyStream);
+      req.on("aborted", destroyStream);
+      res.on("close", () => {
+        if (!res.writableEnded) destroyStream();
+      });
       stream.on("error", () => {
         if (!res.headersSent) res.writeHead(500);
         res.end();

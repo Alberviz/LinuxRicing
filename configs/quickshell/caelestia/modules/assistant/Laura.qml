@@ -33,6 +33,34 @@ Singleton {
     property real amplitude: 0
 
     readonly property bool active: state !== "idle"
+    property bool serviceActive: false
+
+    function checkService(): void {
+        if (!serviceCheckProc.running)
+            serviceCheckProc.running = true;
+    }
+
+    function toggleService(): void {
+        const next = !root.serviceActive;
+        root.serviceActive = next;
+        serviceToggleProc.command = ["systemctl", "--user", next ? "start" : "stop", "laura.service"];
+        serviceToggleProc.running = true;
+    }
+
+    Process {
+        id: serviceCheckProc
+        command: ["systemctl", "--user", "is-active", "--quiet", "laura.service"]
+        onExited: exitCode => {
+            root.serviceActive = (exitCode === 0);
+        }
+    }
+
+    Process {
+        id: serviceToggleProc
+        onExited: root.checkService()
+    }
+
+    Component.onCompleted: root.checkService()
 
     // ¿Pinta el borde de luz? Solo cuando Alberto levanta a Laura (ciclo con
     // escucha / pensar) — un aviso del vigía que habla por su cuenta NO lo enciende.
@@ -472,9 +500,14 @@ Singleton {
             connected: true
             // Al (re)conectar, pedir la lista viva de trabajos: así no se
             // pierde el estado tras reiniciar el shell.
-            onConnectedChanged: if (connected) {
-                root.refreshJobs();
-                root.sendUi();
+            onConnectedChanged: {
+                if (connected) {
+                    root.serviceActive = true;
+                    root.refreshJobs();
+                    root.sendUi();
+                } else {
+                    root.checkService();
+                }
             }
             parser: SplitParser {
                 onRead: line => root._handle(line)

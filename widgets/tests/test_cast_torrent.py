@@ -55,6 +55,16 @@ class FuenteTorrent(unittest.TestCase):
             self.h.main()
         self.assertEqual(capturado["source"], "magnet:?xt=urn:btih:abc&dn=x")
 
+    def test_urls_locales_stremio(self):
+        for s in (
+            "http://127.0.0.1:11470/abc/0",
+            "http://localhost:11470/abc/0",
+            "http://192.168.1.20:11470/abc/0",
+        ):
+            self.assertTrue(self.h.is_local_stream_url(s), s)
+        for s in ("https://youtu.be/x", "http://example.com/video.mp4", "magnet:?xt=urn:btih:abc", ""):
+            self.assertFalse(self.h.is_local_stream_url(s), s)
+
 
 @unittest.skipUnless(shutil.which("node") and (INSTALADO / "node_modules").is_dir(),
                      "falta node o ~/.local/lib/cast-torrent/node_modules")

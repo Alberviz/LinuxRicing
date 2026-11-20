@@ -88,9 +88,9 @@ def main():
     global AGY
     AGY = "conversationId" in hook or "workspacePaths" in hook
     name = hook.get("hook_event_name") or hook.get("hookEventName") or hook.get("event") or ""
-    tool = str(hook.get("tool_name") or hook.get("toolName") or "")
+    tool = str(hook.get("tool_name") or hook.get("toolName") or (hook.get("toolCall") or {}).get("name") or "")
     sid = str(hook.get("agent_id") or hook.get("tool_use_id") or hook.get("toolCallId")
-              or hook.get("tool_call_id") or "")
+              or hook.get("tool_call_id") or (f"agy_{hook.get('stepIdx')}" if hook.get("stepIdx") is not None else "") or "")
     if ev == "hook":
         if name == "SubagentStart": ev = "start"
         elif name == "SubagentStop": ev = "stop"
@@ -121,5 +121,9 @@ if __name__ == "__main__":
     except Exception:
         pass
     if AGY:
-        sys.stdout.write("{}\n")   # Antigravity exige JSON válido por stdout
+        hint = sys.argv[2] if len(sys.argv) > 2 else ""
+        if hint == "pre":
+            sys.stdout.write(json.dumps({"decision": "allow"}) + "\n")
+        else:
+            sys.stdout.write("{}\n")
     sys.exit(0)

@@ -547,7 +547,7 @@ Detalles:
 - **HoloText**: `Flickable` + `TextEdit { readOnly: true; textFormat: payload.formato === "markdown" ? TextEdit.MarkdownText : TextEdit.PlainText; font.family: formato === "mono" ? "JetBrains Mono" : Tokens.font.family.sans (o el que use el resto del shell); wrapMode: Wrap; selectByMouse: true; color: m3onSurface }`; si `truncado`, una línea final «… (recortado)» en `m3onSurfaceVariant`.
 - **HoloOther**: icono grande `payload.icono`, nombre, `payload.aviso` si lo hay, y botón «Abrir con su programa» → `HoloState.externo(panel.item_n)`.
 
-- [ ] Implementar; sincronizar; reiniciar; ampliar `HoloState.demo()` para que abra también un PDF (`payload.src` = una imagen cualquiera, `paginas: 12`), un texto markdown y un `otro`; capturar con `grim`. Sin ratón.
+- [x] Implementar; sincronizar; reiniciar; ampliar `HoloState.demo()` para que abra también un PDF (`payload.src` = una imagen cualquiera, `paginas: 12`), un texto markdown y un `otro`; capturar con `grim`. Sin ratón.
 
 ---
 

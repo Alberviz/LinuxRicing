@@ -1,7 +1,7 @@
 ---
 fileClass: Backlog
 tipo: tarea
-estado: en-curso
+estado: hecha
 area: agentes
 origen: Alberto
 esfuerzo: L

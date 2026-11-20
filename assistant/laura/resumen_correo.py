@@ -43,16 +43,19 @@ def limpiar(t: str) -> str:
 
 def frase_basica(m: dict) -> str:
     asunto = limpiar(m.get("asunto", "")) or "sin asunto"
-    return f"un correo de {nombre(m.get('de', ''))}: {asunto}"
+    return f"{nombre(m.get('de', ''))}: {asunto}"
 
 
-_PROMPT = """Resume cada correo para leerlo en voz alta a Alberto. Devuelve SOLO un objeto JSON:
+_PROMPT = """Resume cada correo en una frase directa y ultra resumida para leerla en voz alta a Alberto. Devuelve SOLO un objeto JSON:
 {{"correos": [{{"id": "<id>", "frase": "<frase>", "importante": <true|false>}}]}}
-La frase: una locución en español de 6 a 14 palabras que empieza con artículo, p. ej. «un pedido de Honor de un cargador»,
-«una alerta de seguridad de Google por un inicio de sesión nuevo», «un correo de Marta preguntando por la reunión».
+La frase: una oración corta en español (5 a 12 palabras) con lenguaje natural que diga quién escribe y qué pasa directamente,
+sin empezar con «un correo de», «correo de» ni «te ha llegado».
+Ejemplos: «Anthropic avisa de un nuevo inicio de sesión», «Google alerta de un inicio de sesión nuevo»,
+«Honor confirma tu pedido de un cargador», «Marta pregunta por la reunión de mañana»,
+«la universidad recuerda el plazo de matrícula».
 Reglas: sin números de pedido, códigos, URLs ni dominios; traduce lo que esté en polaco o inglés; el remitente con su
-nombre humano o de marca («Honor», «la universidad», «Marta»); di qué es y de qué trata. importante=true si es de una
-persona, la universidad, un pago, un plazo o seguridad de la cuenta; false para pedidos, avisos automáticos y boletines.
+nombre humano o de marca («Anthropic», «Honor», «la universidad», «Marta»); ve directo al grano para que se entienda qué es.
+importante=true si es de una persona, la universidad, un pago, un plazo o seguridad de la cuenta; false para pedidos, avisos automáticos y boletines.
 Correos:
 {lista}"""
 

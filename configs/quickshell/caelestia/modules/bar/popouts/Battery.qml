@@ -5,6 +5,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Services.UPower
 import Caelestia.Config
+import Caelestia.I18n
 import qs.components
 import qs.services
 import qs.utils
@@ -58,7 +59,11 @@ Column {
                     const dev = UPower.displayDevice;
                     if (UPower.onBattery) {
                         const t = root.formatSeconds(dev.timeToEmpty);
-                        return t ? qsTr("Quedan %1").arg(t) : qsTr("Calculando…");
+                        if (!t)
+                            return qsTr("Calculando…");
+                        const end = new Date(Time.date.getTime() + dev.timeToEmpty * 1000);
+                        const endStr = Qt.formatTime(end, Units.twelveHourClock ? "h:mm ap" : "HH:mm");
+                        return qsTr("Quedan %1 · ~%2").arg(t).arg(endStr);
                     }
                     if (dev.state === UPowerDeviceState.FullyCharged)
                         return qsTr("Cargada");

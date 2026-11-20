@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import time
@@ -351,3 +352,35 @@ def ejecutar_comando(comando: str) -> dict:
     if nivel == shellguard.DIRECTO:
         return shellguard.ejecutar(comando)
     return {"ok": True, "confirmar": True, "comando": comando, "resumen": "Pido confirmación"}
+
+
+@tool("modo_juego",
+      "Controla el modo juego del sistema. Úsalo cuando Alberto diga que va a jugar («voy a jugar», «activa el modo juego», «pon el modo juego», «modo gaming») o que ha terminado («ya he jugado», «quita el modo juego», «desactiva modo juego»). Libera la memoria de vídeo de la gráfica (VRAM) para el juego, pausa la detección continua de voz para que no interfiera con el sonido o partidas online, y optimiza Hyprland.",
+      {"accion": {"type": "string", "enum": ["activar", "desactivar", "alternar", "estado"]}},
+      required=["accion"], icon="sports_esports")
+def modo_juego(accion: str) -> dict:
+    """accion: activar | desactivar | alternar | estado"""
+    cmd_map = {
+        "activar": "on",
+        "desactivar": "off",
+        "alternar": "toggle",
+        "estado": "status",
+    }
+    sub = cmd_map.get(accion)
+    if not sub:
+        return {"ok": False, "error": f"acción desconocida: {accion}"}
+
+    script = os.path.expanduser("~/.local/bin/modo-juego")
+    res = subprocess.run([script, sub], capture_output=True, text=True)
+
+    if accion == "activar":
+        resumen = "Modo juego activado. VRAM liberada y sistema optimizado."
+    elif accion == "desactivar":
+        resumen = "Modo juego desactivado. Sistema restaurado."
+    elif accion == "alternar":
+        resumen = "Modo juego alternado."
+    else:
+        resumen = "Modo juego: " + (res.stdout.strip() or "consultado.")
+
+    return {"ok": res.returncode == 0, "accion": accion, "resumen": resumen, "salida": res.stdout.strip()}
+

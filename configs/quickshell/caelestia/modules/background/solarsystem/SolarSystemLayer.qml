@@ -53,7 +53,8 @@ Variants {
 
         // El sistema solar entero — shader GPU, capa Canvas y el FrameAnimation —
         // se DESCARGA (no se pausa: Loader.active) cuando:
-        //   · el modo ahorro está activo (batería / perfil power-saver / <20 %), o
+        //   · el modo ahorro está activo (batería / perfil power-saver / <20 %),
+        //   · el modo juego está activo (GameMode.enabled), o
         //   · Alberto ha apagado el fondo a mano desde el popout de batería.
         // En ambos casos queda sólo esta ventana negra a pantalla completa; al
         // reactivar se reinstancia limpio (nada de hot-reload — CLAUDE.md).
@@ -61,7 +62,7 @@ Variants {
             id: solarLoader
 
             anchors.fill: parent
-            active: !PowerSaving.active && SolarSystemModel.enabled
+            active: !PowerSaving.active && !GameMode.enabled && SolarSystemModel.enabled
 
             sourceComponent: SolarSystem {
                 anchors.fill: parent

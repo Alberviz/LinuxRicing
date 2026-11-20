@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+# ==============================================================================
+#  modo-juego — Modo juego para Hyprland, Laura y Ollama
+# ==============================================================================
+#
+#  Uso:
+#    modo-juego on            Activa modo juego
+#    modo-juego off           Desactiva modo juego
+#    modo-juego toggle        Alterna modo juego
+#    modo-juego status        Muestra estado
+#    modo-juego on_from_qs    Llamado desde Quickshell (evita bucle IPC)
+#    modo-juego off_from_qs   Llamado desde Quickshell (evita bucle IPC)
+# ==============================================================================
+
+set -uo pipefail
+
+STATE_FILE="${XDG_CACHE_HOME:-$HOME/.cache}/modo-juego.state"
+LAURA_SOCK="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/laura.sock"
+
+is_active() {
+    [ -f "$STATE_FILE" ]
+}
+
+laura_cmd() {
+    local cmd="$1"
+    if [ -S "$LAURA_SOCK" ]; then
+        python3 -c "
+import socket
+try:
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(1.5)
+    s.connect('$LAURA_SOCK')
+    s.sendall(b'$cmd\n')
+    s.close()
+except Exception:
+    pass
+" 2>/dev/null || true
+    fi
+}
+
+game_on() {
+    local from_qs="${1:-0}"
+    mkdir -p "$(dirname "$STATE_FILE")"
+    touch "$STATE_FILE"
+
+    # 1. Liberar memoria VRAM de Ollama inmediatamente
+    if command -v ollama >/dev/null 2>&1; then
+        for model in $(ollama ps 2>/dev/null | awk 'NR>1 {print $1}'); do
+            ollama stop "$model" >/dev/null 2>&1 || true
+        done
+        curl -s -X POST http://127.0.0.1:11434/api/generate -d '{"model": "qwen3:4b-instruct", "keep_alive": 0}' >/dev/null 2>&1 || true
+    fi
+
+    # 2. Detener Laura por completo para liberar 650MB VRAM (Whisper/Torch) y micro
+    laura_cmd "gamemode on"
+    # En Elysium Laura se queda viva (Home mantenido en el mando = hablar); solo pausa el wake.
+    (sleep 1.5 && [ ! -e "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/elysium-active" ] && systemctl --user stop laura.service) >/dev/null 2>&1 &
+
+    # 3. Sincronizar Caelestia Quickshell si no venimos de ahí
+    if [ "$from_qs" -eq 0 ]; then
+        if command -v qs >/dev/null 2>&1; then
+            local qs_st
+            qs_st=$(qs -c caelestia ipc call gameMode isEnabled 2>/dev/null || echo "error")
+            if [ "$qs_st" = "false" ]; then
+                qs -c caelestia ipc call gameMode enable >/dev/null 2>&1 || true
+            fi
+        fi
+    fi
+
+    notify-send -a "Modo Juego" -i "input-gaming-symbolic" "Modo Juego Activado" "VRAM de RTX liberada y sistema optimizado para jugar." 2>/dev/null || true
+    echo "ON"
+}
+
+game_off() {
+    local from_qs="${1:-0}"
+    rm -f "$STATE_FILE"
+
+    # 1. Reanudar servicio de Laura
+    systemctl --user start laura.service >/dev/null 2>&1 || true
+
+    # 2. Sincronizar Caelestia Quickshell si no venimos de ahí
+    if [ "$from_qs" -eq 0 ]; then
+        if command -v qs >/dev/null 2>&1; then
+            local qs_st
+            qs_st=$(qs -c caelestia ipc call gameMode isEnabled 2>/dev/null || echo "error")
+            if [ "$qs_st" = "true" ]; then
+                qs -c caelestia ipc call gameMode disable >/dev/null 2>&1 || true
+            fi
+        fi
+    fi
+
+    notify-send -a "Modo Juego" -i "input-gaming-symbolic" "Modo Juego Desactivado" "Sistema y asistente Laura restaurados." 2>/dev/null || true
+    echo "OFF"
+}
+
+case "${1:-status}" in
+    on)
+        game_on 0
+        ;;
+    on_from_qs)
+        game_on 1
+        ;;
+    off)
+        game_off 0
+        ;;
+    off_from_qs)
+        game_off 1
+        ;;
+    toggle)
+        if is_active; then
+            game_off 0
+        else
+            game_on 0
+        fi
+        ;;
+    status)
+        if is_active; then
+            echo "modo juego: ON"
+            exit 0
+        else
+            echo "modo juego: OFF"
+            exit 1
+        fi
+        ;;
+    *)
+        echo "uso: modo-juego {on|off|toggle|status}" >&2
+        exit 2
+        ;;
+esac

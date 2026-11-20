@@ -1,7 +1,7 @@
 ---
 fileClass: Backlog
 tipo: tarea
-estado: en-curso
+estado: hecha
 prioridad: 4
 area: assistant
 origen: Alberto

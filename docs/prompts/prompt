@@ -1,0 +1,9 @@
+Continúa el sistema solar v3 del escritorio (rama feat/sistema-solar-v3, worktree .worktrees/sistema-solar-v3, sin mergear, no toques main).
+▎
+▎ Lee primero docs/sistema-solar-v3-ESTADO-Y-SIGUIENTE.md entero — es el traspaso: arquitectura actual (fondo en shader GPU SolarField/solarfield.frag, capa fina en Canvas, modo Laura), qué funciona, qué falta, y los gotchas de esta máquina (grim/monitor, caché de QML fallida → pkill -9 + borrar ~/.cache/quickshell/qmlcache, API Lua de hyprctl dispatch, qsb, cómo medir CPU). La spec de diseño es docs/sistema-solar-v3-DISENO.md.
+▎
+▎ Dos prioridades, en orden:
+▎ 1. Rendimiento — "se ve petado". El ShaderEffect a pantalla completa añade ~5-8 % de CPU en esta máquina multi-GPU. Mide en limpio (la máquina ahora está tranquila tras el reinicio), y baja el coste: fps del shader a ~12-15, recortar el .frag, o dimensionar el shader solo a la caja del agujero (bhBounds). Ver §3.1 del traspaso.
+▎ 2. El agujero negro del shader perdió detalle vs la versión Canvas: plano, sin horizonte visible ni anillo de fotones ni gradiente de temperatura. Otra pasada al solarfield.frag. Referencia: git show d0b5d44:configs/quickshell/caelestia/modules/background/solarsystem/SolarSystem.qml (función _drawBlackHole) + docs/sistema-solar-v3-mockup/harness-v3.html. Ver §3.2.
+▎
+▎ Itera el shader con qs -p + grim (el harness WebGL headless no funciona en esta máquina). Commit pronto, en español, con Co-Authored-By + Claude-Session.
