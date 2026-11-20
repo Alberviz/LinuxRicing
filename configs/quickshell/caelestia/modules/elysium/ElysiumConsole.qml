@@ -80,47 +80,93 @@ PanelWindow {
             elysium.leave(true);
         else if (isRunning)
             elysium.summoned = false;
-        else
+        else if (it.updates && elysium.updRunning) {
+            elysium.updView = true;   // se está actualizando: enseñar el progreso
+            elysium.sfx("dialog");
+        } else if (it.updates && elysium.hsCheck.update) {
+            elysium.updAskGame = it;
+            elysium.updAsk = true;    // hay versión nueva: preguntar
+            elysium.sfx("dialog");
+        } else {
+            elysium.sfx("launch");
             launchSeq.start();
+        }
     }
 
     property bool confirmClose: false
 
     function pad(b: string): void {
+        const E = elysium;
         if (launching)
             return;
+        // Pantalla de progreso de la actualización: B = segundo plano, Y = cancelar.
+        if (E.updView) {
+            if (b === "b" || b === "home" || ((b === "a" || b === "start") && !E.updRunning)) {
+                E.updView = false;
+                E.sfx("back");
+            } else if (b === "y" && E.updRunning) {
+                E.hookshotCancel();
+            }
+            return;
+        }
+        // «Hay una versión nueva»: A actualiza, B juega con la actual, Y/Home más tarde.
+        if (E.updAsk) {
+            if (b === "a" || b === "start") {
+                E.hookshotUpdate(false);
+            } else if (b === "b") {
+                E.updAsk = false;
+                E.sfx("launch");
+                launchSeq.start();
+            } else if (b === "y" || b === "home") {
+                E.updAsk = false;
+                E.sfx("back");
+            }
+            return;
+        }
         // Diálogo «¿Cerrar el juego?»: A cierra, B (o Y otra vez) cancela.
         if (confirmClose) {
             if (b === "a" || b === "start") {
                 confirmClose = false;
-                elysium.closeGame();
+                E.sfx("toggle_off");
+                E.closeGame();
             } else if (b === "b" || b === "y" || b === "home") {
                 confirmClose = false;
+                E.sfx("back");
             }
             return;
         }
         if (b === "y") {
-            if (isRunning)
+            if (isRunning) {
                 confirmClose = true;
+                E.sfx("dialog");
+            }
             return;
         }
         // X en un juego: Laura sí/no en ese juego (se recuerda).
         if (b === "x") {
-            if (current.proc)
-                elysium.setLauraFor(current, !elysium.lauraFor(current));
+            if (current.proc) {
+                const on = !E.lauraFor(current);
+                E.setLauraFor(current, on);
+                E.sfx(on ? "toggle_on" : "toggle_off");
+            }
             return;
         }
-        if (b === "left")
-            index = Math.max(0, index - 1);
-        else if (b === "right")
-            index = Math.min(items.length - 1, index + 1);
-        else if (b === "a" || b === "start")
+        if (b === "left" || b === "right") {
+            const next = Math.max(0, Math.min(items.length - 1, index + (b === "left" ? -1 : 1)));
+            if (next !== index) {
+                index = next;
+                E.sfx("move");
+            }
+        } else if (b === "a" || b === "start") {
+            if (current.system)
+                E.sfx("select");
             activate();
-        else if (b === "b" || b === "home") {
-            if (elysium.playing)
-                elysium.summoned = false;
+        } else if (b === "b" || b === "home") {
+            E.sfx("back");
+            if (E.playing)
+                E.summoned = false;
             else if (current.system === "desktop")
-                elysium.leave(false);   // B dos veces = salir
+                E.leave(false);   // B dos veces = salir
             else
                 index = items.length - 1;
         }
@@ -465,6 +511,25 @@ PanelWindow {
                 }
             }
 
+            Row {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: win.elysium.updRunning && !win.elysium.updView
+                spacing: 8
+
+                MaterialIcon {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: win.elysium.upd.stage === "shaders" ? "deployed_code" : "downloading"
+                    color: win.accent
+                }
+
+                StyledText {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("Hookshot %1 %").arg(Math.round((win.elysium.upd.pct ?? 0) * 100))
+                    color: Colours.palette.m3onSurface
+                    font: Tokens.font.label.large
+                }
+            }
+
             LauraStatus {
                 anchors.verticalCenter: parent.verticalCenter
                 compact: true
@@ -575,6 +640,26 @@ PanelWindow {
                 wrapMode: Text.WordWrap
             }
 
+            // Juego con actualizaciones: versión y estado.
+            Row {
+                visible: !!win.current.updates
+                spacing: 10
+
+                MaterialIcon {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: win.elysium.updRunning ? "downloading" : win.elysium.hsChecking ? "sync" : win.elysium.hsCheck.update ? "system_update_alt" : "verified"
+                    color: win.elysium.hsCheck.update || win.elysium.updRunning ? win.accent : Colours.palette.m3onSurfaceVariant
+                    fill: 1
+                }
+
+                StyledText {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: win.elysium.updRunning ? qsTr("Actualizando · %1 %  ·  A para ver el progreso").arg(Math.round((win.elysium.upd.pct ?? 0) * 100)) : win.elysium.hsChecking ? qsTr("Buscando actualizaciones…") : win.elysium.hsCheck.update ? qsTr("Nueva versión %1 disponible (tienes %2)").arg(win.elysium.hsCheck.latest).arg(win.elysium.hsCheck.current) : win.elysium.hsCheck.current ? qsTr("%1 · al día").arg(win.elysium.hsCheck.current) : ""
+                    color: win.elysium.hsCheck.update || win.elysium.updRunning ? win.accent : Colours.palette.m3onSurfaceVariant
+                    font: Tokens.font.body.large
+                }
+            }
+
             // Juego: Laura sí/no en este juego (X).
             Row {
                 visible: !!win.current.proc
@@ -631,7 +716,7 @@ PanelWindow {
 
                     StyledText {
                         anchors.verticalCenter: parent.verticalCenter
-                        text: win.current.system === "laptop" || win.current.system === "screen" ? qsTr("Cambiar") : win.current.system === "laura" ? (LauraService.on || LauraService.state === "starting" ? qsTr("Apagar") : qsTr("Encender")) : win.current.system === "desktop" ? qsTr("Salir") : win.current.system === "gamemode" ? qsTr("Ir al escritorio") : win.isRunning ? qsTr("Volver al juego") : qsTr("Jugar")
+                        text: win.current.updates && win.elysium.updRunning && !win.isRunning ? qsTr("Ver progreso") : win.current.updates && win.elysium.hsCheck.update && !win.isRunning ? qsTr("Jugar o actualizar") : win.current.system === "laptop" || win.current.system === "screen" ? qsTr("Cambiar") : win.current.system === "laura" ? (LauraService.on || LauraService.state === "starting" ? qsTr("Apagar") : qsTr("Encender")) : win.current.system === "desktop" ? qsTr("Salir") : win.current.system === "gamemode" ? qsTr("Ir al escritorio") : win.isRunning ? qsTr("Volver al juego") : qsTr("Jugar")
                         color: Colours.palette.m3onPrimary
                         font: Tokens.font.title.medium
                     }
@@ -732,6 +817,46 @@ PanelWindow {
                             color: slot.sel ? win.accent : Colours.palette.m3onSurfaceVariant
                             fontStyle: Tokens.font.icon.builders.medium.scale(2.6).build()
                             fill: slot.sel ? 1 : 0
+                        }
+
+                        // Progreso de la actualización sobre la carátula.
+                        Shape {
+                            anchors.centerIn: parent
+                            width: parent.width * 0.5
+                            height: width
+                            visible: !!slot.modelData.updates && win.elysium.updRunning
+                            preferredRendererType: Shape.CurveRenderer
+
+                            Rectangle {
+                                anchors.centerIn: parent
+                                width: parent.width + 14
+                                height: width
+                                radius: width / 2
+                                color: Qt.rgba(0, 0, 0, 0.55)
+                                z: -1
+                            }
+
+                            ShapePath {
+                                fillColor: "transparent"
+                                strokeColor: win.accent
+                                strokeWidth: 4
+                                capStyle: ShapePath.RoundCap
+                                PathAngleArc {
+                                    centerX: face.width * 0.25
+                                    centerY: face.width * 0.25
+                                    radiusX: face.width * 0.25 - 4
+                                    radiusY: face.width * 0.25 - 4
+                                    startAngle: -90
+                                    sweepAngle: Math.max(1, 360 * (win.elysium.upd.pct ?? 0))
+                                }
+                            }
+
+                            StyledText {
+                                anchors.centerIn: parent
+                                text: Math.round((win.elysium.upd.pct ?? 0) * 100) + "%"
+                                color: "white"
+                                font: Tokens.font.title.small
+                            }
                         }
 
                         // Punto verde si el juego está abierto.
@@ -965,6 +1090,17 @@ PanelWindow {
                     }
                 }
             }
+        }
+
+        // --- actualización de Hookshot: diálogo y progreso ---
+        UpdateDialog {
+            anchors.fill: parent
+            elysium: win.elysium
+        }
+
+        UpdateView {
+            anchors.fill: parent
+            elysium: win.elysium
         }
 
         // --- lanzamiento: el acento se expande desde la carátula ---

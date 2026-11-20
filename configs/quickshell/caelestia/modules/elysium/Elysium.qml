@@ -6,10 +6,12 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Services.UPower
+import Caelestia
 import Caelestia.Config
 import qs.components
 import qs.services
 import qs.modules.assistant
+import QtMultimedia
 
 // Elysium — el modo consola. Al conectar un mando sale un aviso arriba a la
 // derecha; si no tocas nada en 6 s entra en Elysium (sistema a pantalla
@@ -25,7 +27,8 @@ Scope {
             "tag": "N64 · Recompilación nativa",
             "icon": `${Quickshell.env("HOME")}/Games/Hookshot/hookshot.png`,
             "logo": `${Quickshell.env("HOME")}/Games/Hookshot/elysium/oot-logo-light.png`,
-            "exec": `env RX_VK_STARTUP_SCREEN=0 RX_VK_NO_WARM=1 RX_VK_PREPARE_BACKGROUND=1 prime-run gamemoderun ${Quickshell.env("HOME")}/Games/Hookshot/hookshot`,
+            "updates": "hookshot",
+            "exec": `env HOOKSHOT_SKIP_UPDATE_CHECK=1 RX_VK_STARTUP_SCREEN=0 RX_VK_NO_WARM=1 RX_VK_PREPARE_BACKGROUND=1 prime-run gamemoderun ${Quickshell.env("HOME")}/Games/Hookshot/hookshot`,
             "proc": "Games/Hookshot/hookshot",
             "wmClass": "io.github.pixl27.ProjectHookshot",
             "tint": "#0f1a14"
@@ -103,6 +106,7 @@ Scope {
         padName = name;
         countdown = 6;
         prompt = true;
+        sfx("prompt");
     }
 
     function enterNormal(): void {
@@ -112,8 +116,14 @@ Scope {
     }
 
     // Jugar en la tele (si está conectada) o en el portátil. Se recuerda entre sesiones.
+    // Escritorio que tenía la tele al entrar: se le devuelve al salir (si no, se quedaba
+    // en el workspace «gaming» vacío y no se podía usar para trabajar).
+    property string prevTvWs: ""
+
     function tvSetup(): void {
         onTv = true;
+        const ws = Hypr.monitorFor(tvScreen)?.activeWorkspace?.name ?? "";
+        prevTvWs = ws === "gaming" ? "" : ws;
         companionMode = "apoyo";
         // Extender (si estaba en espejo/solo externa) y audio por el HDMI de la tele.
         Quickshell.execDetached(["sh", "-c", `m=$(display-mode status | python3 -c 'import json,sys;print(json.load(sys.stdin)["mode"])'); [ "$m" = extend ] || display-mode extend`]);
@@ -131,7 +141,19 @@ Scope {
             audioOffHdmi();
         prevSink = "";
         tvRules(false);
+        restoreTvWorkspace();
         onTv = false;
+    }
+
+    function restoreTvWorkspace(): void {
+        if (!tvScreen)
+            return;
+        const tv = tvScreen.name, back = laptopScreen?.name ?? "";
+        // Sin escritorio previo: el primer número libre a partir del 6 (no roba uno del portátil).
+        const ws = prevTvWs || "$(hyprctl workspaces -j | python3 -c 'import json,sys; u={w[\"name\"] for w in json.load(sys.stdin)}; print(next(str(n) for n in range(6,20) if str(n) not in u))')";
+        prevTvWs = "";
+        if (Hypr.usingLua)
+            Quickshell.execDetached(["sh", "-c", `hyprctl dispatch 'hl.dsp.focus({ monitor = "${tv}" })'; hyprctl dispatch "hl.dsp.focus({ workspace = \"${ws}\" })"; ${back ? `hyprctl dispatch 'hl.dsp.focus({ monitor = "${back}" })'` : ""}`]);
     }
 
     function audioOffHdmi(): void {
@@ -193,6 +215,8 @@ Scope {
             audioOffHdmi();  // tele conectada pero se juega en el portátil
         lauraCmd("gamemode on");
         active = true;
+        sfx("open");
+        hookshotCheck(false);
     }
 
     // keepGameMode: salir al escritorio pero dejando el modo juego normal.
@@ -202,6 +226,7 @@ Scope {
         active = false;
         summoned = false;
         hideIdleCursor(false);
+        sfx("close");
         if (ownDnd)
             Notifs.dnd = false;
         lauraCmd("gamemode off");
@@ -236,6 +261,186 @@ Scope {
         if (lauraStoppedForGame) {
             lauraStoppedForGame = false;
             LauraService.start();
+        }
+    }
+
+    // ================= Sonidos =================
+    function sfx(name: string): void {
+        if (!prefs.sound)
+            return;
+        const e = sfxObj[name];
+        if (e) {
+            e.stop();
+            e.play();
+        }
+    }
+
+    readonly property var sfxObj: ({
+            "move": sMove,
+            "select": sSelect,
+            "back": sBack,
+            "dialog": sDialog,
+            "toggle_on": sOn,
+            "toggle_off": sOff,
+            "prompt": sPrompt,
+            "error": sError,
+            "success": sSuccess,
+            "open": sOpen,
+            "close": sClose,
+            "launch": sLaunch
+        })
+
+    component Sfx: SoundEffect {
+        volume: 0.7
+    }
+
+    Sfx { id: sMove; source: Qt.resolvedUrl("sounds/move.wav"); volume: 0.5 }
+    Sfx { id: sSelect; source: Qt.resolvedUrl("sounds/select.wav") }
+    Sfx { id: sBack; source: Qt.resolvedUrl("sounds/back.wav") }
+    Sfx { id: sDialog; source: Qt.resolvedUrl("sounds/dialog.wav") }
+    Sfx { id: sOn; source: Qt.resolvedUrl("sounds/toggle_on.wav") }
+    Sfx { id: sOff; source: Qt.resolvedUrl("sounds/toggle_off.wav") }
+    Sfx { id: sPrompt; source: Qt.resolvedUrl("sounds/prompt.wav") }
+    Sfx { id: sError; source: Qt.resolvedUrl("sounds/error.wav") }
+    Sfx { id: sSuccess; source: Qt.resolvedUrl("sounds/success.wav") }
+    Sfx { id: sOpen; source: Qt.resolvedUrl("sounds/open.wav") }
+    Sfx { id: sClose; source: Qt.resolvedUrl("sounds/close.wav") }
+    Sfx { id: sLaunch; source: Qt.resolvedUrl("sounds/launch.wav") }
+
+    Connections {
+        target: LauraService
+
+        function onStateChanged(): void {
+            if (!root.active)
+                return;
+            if (LauraService.state === "on")
+                root.sfx("toggle_on");
+            else if (LauraService.state === "off")
+                root.sfx("toggle_off");
+            else if (LauraService.state === "error")
+                root.sfx("error");
+        }
+    }
+
+    // ================= Actualizaciones de Hookshot =================
+    // check: {current, latest, published, sizeMB, update} · upd: estado de la actualización
+    // en curso (archivo que escribe `elysium-hookshot run`, en segundo plano con systemd).
+    readonly property string hsHelper: `${Quickshell.env("HOME")}/.local/bin/elysium-hookshot`
+    property var hsCheck: ({})
+    property bool hsChecking: false
+    property real hsCheckedAt: 0
+    property var upd: ({})
+    readonly property bool updRunning: ["downloading", "building", "shaders"].indexOf(upd.state ?? "") >= 0 && updAlive
+    property bool updAlive: false
+    property bool updView: false      // pantalla de progreso abierta (si no, va en segundo plano)
+    property bool updAsk: false       // diálogo «¿Actualizar?»
+    property bool updAskedThisSession: false
+    property var updAskGame: null
+    property string _lastUpdState: ""
+
+    function hookshotCheck(force: bool): void {
+        if (hsChecking || updRunning || (!force && Date.now() - hsCheckedAt < 20 * 60 * 1000))
+            return;
+        hsChecking = true;
+        hsCheckProc.running = true;
+    }
+
+    property bool hsSimulate: false   // prueba: la actualización corre en simulación
+
+    function hookshotUpdate(simulate: bool): void {
+        simulate = simulate || hsSimulate;
+        if (updRunning)
+            return;
+        updAsk = false;
+        updView = true;
+        sfx("select");
+        Quickshell.execDetached([hsHelper, "update"].concat(simulate ? ["--simulate"] : []));
+        updAliveTimer.restart();
+    }
+
+    function hookshotCancel(): void {
+        Quickshell.execDetached([hsHelper, "cancel"]);
+        sfx("toggle_off");
+    }
+
+    Process {
+        id: hsCheckProc
+
+        command: [root.hsHelper, "check"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    const j = JSON.parse(text);
+                    root.hsCheck = j;
+                    // Nada más entrar: si hay versión nueva, preguntarlo una vez por sesión.
+                    if (j.update && root.active && !root.playing && !root.updAskedThisSession) {
+                        root.updAskedThisSession = true;
+                        root.updAskGame = root.games.find(g => g.updates === "hookshot") ?? null;
+                        root.updAsk = true;
+                        root.sfx("prompt");
+                    }
+                } catch (e) {}
+                root.hsChecking = false;
+                root.hsCheckedAt = Date.now();
+            }
+        }
+        onExited: root.hsChecking = false
+    }
+
+    FileView {
+        id: updFile
+
+        path: `${Quickshell.env("HOME")}/.cache/elysium/hookshot-update.json`
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+        onLoaded: {
+            try {
+                root.upd = JSON.parse(text());
+            } catch (e) {}
+        }
+    }
+
+    // ¿Sigue vivo el servicio? (si el archivo dice «en curso» pero el servicio murió)
+    Timer {
+        id: updAliveTimer
+
+        interval: 2000
+        repeat: true
+        running: true
+        triggeredOnStart: true
+        onTriggered: updAliveProc.running = true
+    }
+
+    Process {
+        id: updAliveProc
+
+        command: ["systemctl", "--user", "is-active", "-q", "elysium-hookshot-update"]
+        onExited: code => root.updAlive = code === 0
+    }
+
+    onUpdChanged: {
+        const st = upd.state ?? "";
+        if (st === _lastUpdState)
+            return;
+        const prev = _lastUpdState;
+        _lastUpdState = st;
+        if (!prev)
+            return;   // primera lectura al arrancar el shell: sin avisos
+        if (st === "shaders") {
+            sfx("prompt");
+            Toaster.toast(qsTr("Precompilando shaders"), qsTr("Hookshot sigue en segundo plano: puedes usar el PC mientras tanto"), "deployed_code");
+        } else if (st === "done") {
+            sfx("success");
+            Toaster.toast(qsTr("Hookshot actualizado"), qsTr("Versión %1 lista para jugar").arg(upd.latest ?? ""), "check_circle");
+            hsCheck = Object.assign({}, hsCheck, { "update": false, "current": upd.latest ?? hsCheck.current });
+            updAsk = false;
+            if (!hsSimulate)
+                hookshotCheck(true);
+            hsSimulate = false;
+        } else if (st === "error") {
+            sfx("error");
+            Toaster.toast(qsTr("La actualización de Hookshot falló"), upd.error ?? "", "error");
         }
     }
 
@@ -289,11 +494,14 @@ Scope {
 
         property bool playOnTv: true
         property var lauraOff: []
+        property bool sound: true
         property bool loaded: false
 
         onPlayOnTvChanged: if (loaded)
             prefsFile.save()
         onLauraOffChanged: if (loaded)
+            prefsFile.save()
+        onSoundChanged: if (loaded)
             prefsFile.save()
     }
 
@@ -309,6 +517,7 @@ Scope {
                 const j = JSON.parse(text());
                 prefs.playOnTv = j.playOnTv ?? true;
                 prefs.lauraOff = j.lauraOff ?? [];
+                prefs.sound = j.sound ?? true;
             } catch (e) {}
             prefs.loaded = true;
         }
@@ -317,7 +526,8 @@ Scope {
         function save(): void {
             setText(JSON.stringify({
                 "playOnTv": prefs.playOnTv,
-                "lauraOff": prefs.lauraOff
+                "lauraOff": prefs.lauraOff,
+                "sound": prefs.sound
             }, null, 2));
         }
     }
@@ -641,6 +851,32 @@ except Exception: pass`]);
                 "laura": LauraService.state,
                 "lauraStoppedForGame": root.lauraStoppedForGame
             });
+        }
+
+        function hookshotCheck(): void {
+            root.hookshotCheck(true);
+        }
+
+        // Actualiza Hookshot (simulate=true: recorrido acelerado para probar la interfaz).
+        function hookshotUpdate(simulate: bool): void {
+            root.hookshotUpdate(simulate);
+        }
+
+        // Prueba: finge que hay versión nueva (la actualización correrá en simulación).
+        function fakeUpdate(): void {
+            root.hsSimulate = true;
+            root.hsCheck = Object.assign({}, root.hsCheck, {
+                "update": true,
+                "latest": "v2.3.3",
+                "published": "2026-11-20"
+            });
+            root.updAskGame = root.games[0];
+            root.updAsk = true;
+            root.sfx("prompt");
+        }
+
+        function sound(on: bool): void {
+            prefs.sound = on;
         }
 
         function list(): string {

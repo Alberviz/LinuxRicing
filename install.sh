@@ -167,6 +167,8 @@ if [ "$SELECTED_WIDGETS" = true ]; then
         cp -u "$BASE_DIR/widgets/elysium-stats" "$HOME/.local/bin/elysium-stats"
         cp -u "$BASE_DIR/widgets/elysium-tv-move" "$HOME/.local/bin/elysium-tv-move"
         cp -u "$BASE_DIR/widgets/elysium-close" "$HOME/.local/bin/elysium-close"
+        cp -u "$BASE_DIR/widgets/elysium-hookshot" "$HOME/.local/bin/elysium-hookshot"
+        chmod +x "$HOME/.local/bin/elysium-hookshot"
         chmod +x "$HOME/.local/bin/elysium-close"
         chmod +x "$HOME/.local/bin/elysium-tv-move"
         chmod +x "$HOME/.local/bin/elysium-stats"

@@ -1,0 +1,233 @@
+#!/usr/bin/env python3
+"""elysium-hookshot — actualizaciones de Hookshot para Elysium.
+
+    elysium-hookshot check            JSON: {current, latest, published, sizeMB, update}
+    elysium-hookshot update [--simulate]   arranca la actualización EN SEGUNDO PLANO
+                                      (systemd-run --user: sobrevive a reinicios del shell)
+    elysium-hookshot run [--simulate]      (interno) lo que corre ese servicio
+    elysium-hookshot cancel           para la actualización en curso
+
+Estado en ~/.cache/elysium/hookshot-update.json (lo vigila Elysium):
+    state: downloading | building | shaders | done | error
+    stage: id de etapa (download, read, lift, compile, finish, shaders) · text
+    pct (0..1 total) · stagePct · eta (s, compilación) · files [hechos, total]
+    current/latest · started · error · log (últimas líneas)
+
+Reutiliza ~/.local/bin/hookshot-update (descarga la AppImage, preserva el lanzador,
+recompila con `hookshot --cli --update`), y lee su salida: la barra de curl y las
+líneas @@stage/@@progress/@@plan/@@file/@@eta/@@done/@@error del builder
+(make_game.py) y de la preparación de shaders del juego (hookshot --prepare-shaders).
+"""
+import json, os, re, subprocess, sys, time
+
+HOME = os.path.expanduser("~")
+STATE = os.path.join(HOME, ".cache/elysium/hookshot-update.json")
+UPDATER = os.path.join(HOME, ".local/bin/hookshot-update")
+UNIT = "elysium-hookshot-update"
+# Reparto del total (la compilación es lo largo; los shaders, varios minutos).
+SPAN = {"download": (0.0, 0.04), "read": (0.04, 0.10), "lift": (0.10, 0.18),
+        "compile": (0.18, 0.80), "finish": (0.80, 0.86), "shaders": (0.86, 1.0)}
+TEXT = {"download": "Descargando la versión nueva", "read": "Leyendo los archivos del juego",
+        "lift": "Traduciendo el juego a código de PC", "compile": "Compilando",
+        "finish": "Montando la carpeta del juego", "shaders": "Precompilando shaders"}
+
+
+def write(st):
+    os.makedirs(os.path.dirname(STATE), exist_ok=True)
+    tmp = STATE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(st, f)
+    os.replace(tmp, STATE)
+
+
+def last_update_minutes():
+    """Cuánto tardó la última actualización en este PC (build_times.json del builder)."""
+    try:
+        b = json.load(open(os.path.join(HOME, ".cache/hookshot-builder/build_times.json")))["builds"]
+        ups = [x for x in b if x.get("kind") == "update"] or b
+        return round(ups[-1]["total_seconds"] / 60)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def check():
+    try:
+        r = subprocess.run([UPDATER, "--check"], capture_output=True, text=True, timeout=25)
+    except Exception as e:  # noqa: BLE001
+        print(json.dumps({"error": str(e)}))
+        return
+    out = r.stdout
+    cur = re.search(r"Versión instalada:\s*(\S+)", out)
+    lat = re.search(r"Última versión:\s*(\S+)\s*\(([^)]*)\)", out)
+    size = None
+    try:  # tamaño de la descarga (para el diálogo)
+        api = subprocess.run(["curl", "-fsSL", "--max-time", "8",
+                              "https://git.notrexed.dev/api/v1/repos/Hookshot/Hookshot/releases?limit=5"],
+                             capture_output=True, text=True, timeout=10).stdout
+        for rel in json.loads(api):
+            if lat and rel.get("tag_name") == lat.group(1):
+                size = sum(a.get("size", 0) for a in rel.get("assets", []) if a.get("name", "").endswith("x86_64.AppImage"))
+                break
+    except Exception:  # noqa: BLE001
+        pass
+    print(json.dumps({
+        "current": cur.group(1) if cur else None,
+        "latest": lat.group(1) if lat else None,
+        "published": lat.group(2) if lat else None,
+        "sizeMB": round(size / 1048576) if size else None,
+        "update": r.returncode == 10,
+        "lastUpdateMin": last_update_minutes(),
+        "error": None if r.returncode in (0, 10) else (r.stderr or out).strip()[-200:],
+    }))
+
+
+def simulated_lines():
+    """La salida real de una actualización, en acelerado (para probar la interfaz)."""
+    yield "[12:00:00] Versión instalada: v2.3.2 | Última versión: v2.3.3"
+    yield "[12:00:00] ⬇️  Descargando Hookshot-v2.3.3-x86_64.AppImage..."
+    for p in range(0, 101, 4):
+        yield "\r" + "#" * (p // 2) + " %5.1f%%" % p
+        time.sleep(0.12)
+    yield "[12:00:05] 🛠️  Recompilando /home/alberviz/Games/Hookshot a v2.3.3 (usando 16 hilos)..."
+    for sid, steps in (("read", 6), ("lift", 8)):
+        yield "@@stage %s %s" % (sid, {"read": "Reading your game files", "lift": "Translating the game to PC code"}[sid])
+        for i in range(1, steps + 1):
+            yield "@@progress %.3f" % (i / steps)
+            time.sleep(0.25)
+    yield "@@stage compile Compiling"
+    yield "@@plan 438 756"
+    for i in range(1, 439, 9):
+        yield "@@file mod_%04d.c 2.1 new" % i
+        yield "@@progress %.3f" % (i / 438)
+        yield "@@eta %d" % int((438 - i) * 7.1)
+        time.sleep(0.08)
+    yield "@@stage finish Putting the game folder together"
+    for i in range(1, 6):
+        yield "@@progress %.3f" % (i / 5)
+        time.sleep(0.3)
+    yield "@@times 3220 3120 3100"
+    yield "@@stage shaders Preparing shaders"
+    for i in range(1, 41):
+        yield "@@progress %.3f" % (i / 40)
+        time.sleep(0.25)
+    yield "@@done /home/alberviz/Games/Hookshot"
+    yield "[12:58:00] ✅ Hookshot actualizado correctamente a v2.3.3."
+
+
+def real_lines():
+    env = dict(os.environ, HOOKSHOT_NO_UPDATE_CHECK="1")
+    p = subprocess.Popen([UPDATER], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+    buf = b""
+    while True:
+        ch = p.stdout.read1(4096) if hasattr(p.stdout, "read1") else p.stdout.read(1)
+        if not ch:
+            break
+        buf += ch
+        while True:  # la barra de curl usa \r; el resto, \n
+            m = re.search(rb"[\r\n]", buf)
+            if not m:
+                break
+            sep = buf[m.start():m.start() + 1]
+            line, buf = buf[:m.start()], buf[m.end():]
+            yield ("\r" if sep == b"\r" else "") + line.decode("utf-8", "replace")
+    if buf:
+        yield buf.decode("utf-8", "replace")
+    p.wait()
+    if p.returncode != 0:
+        yield "@@error hookshot-update terminó con código %d" % p.returncode
+
+
+def run(simulate):
+    st = {"state": "downloading", "stage": "download", "text": TEXT["download"], "pct": 0.0, "stagePct": 0.0,
+          "eta": None, "files": None, "current": None, "latest": None, "started": time.time(), "error": None,
+          "log": [], "simulated": simulate}
+    write(st)
+    last_write = 0.0
+    after_times = False
+    for raw in (simulated_lines() if simulate else real_lines()):
+        line = raw.lstrip("\r").strip()
+        if not line:
+            continue
+        if not raw.startswith("\r"):
+            st["log"] = (st["log"] + [line[:160]])[-8:]
+        m = re.search(r"Versión instalada: (\S+) \| Última versión: (\S+)", line)
+        if m:
+            st["current"], st["latest"] = m.group(1), m.group(2)
+        m = re.search(r"(\d+(?:[.,]\d+)?)%\s*$", line)
+        if m and st["stage"] == "download":
+            st["stagePct"] = float(m.group(1).replace(",", ".")) / 100
+        if line.startswith("@@"):
+            w = line[2:].split()
+            kind = w[0] if w else ""
+            if kind == "stage" and len(w) > 1:
+                sid = w[1] if w[1] in SPAN and not after_times else "shaders" if after_times else w[1]
+                st["stage"], st["stagePct"] = sid, 0.0
+                st["text"] = TEXT.get(sid, " ".join(w[2:]))
+                st["state"] = "shaders" if sid == "shaders" else "building"
+                if sid != "compile":
+                    st["eta"] = None
+            elif kind == "progress" and len(w) > 1:
+                try:
+                    st["stagePct"] = max(0.0, min(1.0, float(w[1])))
+                except ValueError:
+                    pass
+            elif kind == "plan" and len(w) > 2:
+                st["files"] = [0, int(w[1])]
+            elif kind == "file" and st.get("files"):
+                st["files"][0] = min(st["files"][1], st["files"][0] + 1)
+            elif kind == "eta" and len(w) > 1:
+                try:
+                    st["eta"] = int(float(w[1]))
+                except ValueError:
+                    pass
+            elif kind == "times":
+                after_times = True  # lo siguiente es la preparación de shaders del juego
+            elif kind == "error":
+                st["state"], st["error"] = "error", " ".join(w[1:])
+            elif kind == "done":
+                st["state"], st["pct"], st["stagePct"] = "done", 1.0, 1.0
+        if "the shaders were not prepared now" in line:
+            st["log"].append("Shaders: se prepararán al abrir el juego")
+        lo, hi = SPAN.get(st["stage"], (0.0, 1.0))
+        if st["state"] not in ("done",):
+            st["pct"] = max(st["pct"], lo + (hi - lo) * st["stagePct"])
+        now = time.time()
+        if now - last_write > 0.4 or st["state"] in ("done", "error"):
+            write(st)
+            last_write = now
+    if st["state"] not in ("done", "error"):
+        # hookshot-update termina con «✅ … actualizado» sin @@done si no había nada que hacer
+        ok = any("✅" in l for l in st["log"])
+        st["state"] = "done" if ok else "error"
+        st["error"] = None if ok else (st["log"][-1] if st["log"] else "terminó sin decir nada")
+        st["pct"] = 1.0 if ok else st["pct"]
+    st["finished"] = time.time()
+    write(st)
+
+
+def main():
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "check"
+    simulate = "--simulate" in sys.argv
+    if cmd == "check":
+        check()
+    elif cmd == "update":
+        if subprocess.run(["systemctl", "--user", "is-active", "-q", UNIT]).returncode == 0:
+            print("ya en curso")
+            return
+        subprocess.run(["systemctl", "--user", "reset-failed", UNIT], capture_output=True)
+        subprocess.run(["systemd-run", "--user", "--unit", UNIT, "--collect", "--quiet",
+                        "-p", "Nice=5", sys.executable, os.path.abspath(__file__), "run"] + (["--simulate"] if simulate else []))
+    elif cmd == "run":
+        run(simulate)
+    elif cmd == "cancel":
+        subprocess.run(["systemctl", "--user", "stop", UNIT])
+        try:
+            st = json.load(open(STATE))
+            st["state"], st["error"] = "error", "Cancelada"
+            write(st)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+if __name__ == "__main__":
+    main()

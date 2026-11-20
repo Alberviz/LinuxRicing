@@ -371,6 +371,73 @@ PanelWindow {
                 Layout.alignment: Qt.AlignTop
                 spacing: 14
 
+                // Actualización de Hookshot en segundo plano.
+                Rectangle {
+                    Layout.fillWidth: true
+                    visible: win.elysium.updRunning
+                    implicitHeight: updCol.implicitHeight + 28
+                    radius: 14
+                    color: Qt.alpha(win.accent, 0.10)
+                    border.width: 1
+                    border.color: Qt.alpha(win.accent, 0.35)
+
+                    ColumnLayout {
+                        id: updCol
+
+                        anchors.fill: parent
+                        anchors.margins: 14
+                        spacing: 8
+
+                        RowLayout {
+                            MaterialIcon {
+                                text: win.elysium.upd.stage === "shaders" ? "deployed_code" : "downloading"
+                                color: win.accent
+                            }
+
+                            StyledText {
+                                Layout.fillWidth: true
+                                text: qsTr("Actualizando Hookshot")
+                                color: Colours.palette.m3onSurface
+                                font: Tokens.font.title.small
+                            }
+
+                            StyledText {
+                                text: Math.round((win.elysium.upd.pct ?? 0) * 100) + " %"
+                                color: win.accent
+                                font: Tokens.font.title.small
+                            }
+                        }
+
+                        StyledText {
+                            Layout.fillWidth: true
+                            text: (win.elysium.upd.text ?? "") + (win.elysium.upd.files && win.elysium.upd.stage === "compile" ? qsTr(" · %1/%2").arg(win.elysium.upd.files[0]).arg(win.elysium.upd.files[1]) : "")
+                            color: Colours.palette.m3onSurfaceVariant
+                            font: Tokens.font.body.small
+                            elide: Text.ElideRight
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            implicitHeight: 3
+                            radius: 2
+                            color: Qt.alpha(Colours.palette.m3onSurface, 0.1)
+
+                            Rectangle {
+                                height: parent.height
+                                radius: 2
+                                color: win.accent
+                                width: parent.width * (win.elysium.upd.pct ?? 0)
+
+                                Behavior on width {
+                                    NumberAnimation {
+                                        duration: 600
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 Caption {
                     text: qsTr("Avisos")
                 }
