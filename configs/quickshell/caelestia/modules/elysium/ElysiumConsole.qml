@@ -31,6 +31,22 @@ PanelWindow {
                     "glyph": ({ "apoyo": "monitoring", "escritorio": "laptop_chromebook", "apagada": "desktop_access_disabled" })[elysium.companionMode]
                 }
             ] : []),
+        ...(elysium.tvScreen ? [
+                {
+                    "system": "screen",
+                    "name": qsTr("Pantalla de juego"),
+                    "subtitle": elysium.playOnTv ? qsTr("Jugando en la tele · A para jugar en el portátil") : qsTr("Jugando en el portátil · A para jugar en la tele"),
+                    "tag": qsTr("Sistema"),
+                    "glyph": elysium.playOnTv ? "tv" : "laptop"
+                }
+            ] : []),
+        {
+            "system": "laura",
+            "name": "Laura",
+            "subtitle": ({ "on": qsTr("Lista · A para apagarla y liberar la gráfica"), "off": qsTr("Apagada · A para encenderla (~%1 s)").arg(Math.round(LauraService.typicalStart)), "starting": qsTr("Encendiéndose…"), "stopping": qsTr("Apagándose…"), "error": qsTr("No arrancó · A para reintentar") })[LauraService.state] ?? "",
+            "tag": qsTr("Asistente"),
+            "glyph": LauraService.state === "off" ? "voice_over_off" : "graphic_eq"
+        },
         {
             "system": "gamemode",
             "name": qsTr("Modo juego"),
@@ -54,6 +70,10 @@ PanelWindow {
         const it = current;
         if (it.system === "laptop")
             elysium.cycleCompanion();
+        else if (it.system === "laura")
+            LauraService.toggle();
+        else if (it.system === "screen")
+            elysium.setPlayOnTv(!elysium.playOnTv);
         else if (it.system === "desktop")
             elysium.leave(false);
         else if (it.system === "gamemode")
@@ -82,6 +102,12 @@ PanelWindow {
         if (b === "y") {
             if (isRunning)
                 confirmClose = true;
+            return;
+        }
+        // X en un juego: Laura sí/no en ese juego (se recuerda).
+        if (b === "x") {
+            if (current.proc)
+                elysium.setLauraFor(current, !elysium.lauraFor(current));
             return;
         }
         if (b === "left")
@@ -439,6 +465,11 @@ PanelWindow {
                 }
             }
 
+            LauraStatus {
+                anchors.verticalCenter: parent.verticalCenter
+                compact: true
+            }
+
             Row {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 6
@@ -544,6 +575,37 @@ PanelWindow {
                 wrapMode: Text.WordWrap
             }
 
+            // Juego: Laura sí/no en este juego (X).
+            Row {
+                visible: !!win.current.proc
+                spacing: 10
+
+                MaterialIcon {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: win.elysium.lauraFor(win.current) ? "graphic_eq" : "voice_over_off"
+                    color: win.elysium.lauraFor(win.current) ? win.accent : Colours.palette.m3onSurfaceVariant
+                }
+
+                StyledText {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: win.elysium.lauraFor(win.current) ? qsTr("Laura activa en este juego") : qsTr("Laura apagada en este juego (más gráfica para el juego)")
+                    color: Colours.palette.m3onSurfaceVariant
+                    font: Tokens.font.body.large
+                }
+
+                Glyph {
+                    anchors.verticalCenter: parent.verticalCenter
+                    letter: "X"
+                    tone: Colours.palette.m3onSurfaceVariant
+                }
+            }
+
+            // Tarjeta Laura: estado con fases y progreso.
+            LauraStatus {
+                visible: win.current.system === "laura"
+                barWidth: win.width * 0.32
+            }
+
             Item {
                 width: 1
                 height: 18
@@ -569,7 +631,7 @@ PanelWindow {
 
                     StyledText {
                         anchors.verticalCenter: parent.verticalCenter
-                        text: win.current.system === "laptop" ? qsTr("Cambiar") : win.current.system === "desktop" ? qsTr("Salir") : win.current.system === "gamemode" ? qsTr("Ir al escritorio") : win.isRunning ? qsTr("Volver al juego") : qsTr("Jugar")
+                        text: win.current.system === "laptop" || win.current.system === "screen" ? qsTr("Cambiar") : win.current.system === "laura" ? (LauraService.on || LauraService.state === "starting" ? qsTr("Apagar") : qsTr("Encender")) : win.current.system === "desktop" ? qsTr("Salir") : win.current.system === "gamemode" ? qsTr("Ir al escritorio") : win.isRunning ? qsTr("Volver al juego") : qsTr("Jugar")
                         color: Colours.palette.m3onPrimary
                         font: Tokens.font.title.medium
                     }
@@ -745,6 +807,12 @@ PanelWindow {
                 visible: win.isRunning
                 letter: "Y"
                 label: qsTr("Cerrar juego")
+            }
+
+            Hint {
+                visible: !!win.current.proc
+                letter: "X"
+                label: qsTr("Laura en este juego")
             }
 
             Hint {

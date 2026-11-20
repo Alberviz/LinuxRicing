@@ -68,6 +68,7 @@
             }
         ],
         "tray": {
+            "hiddenIcons": ["blueman"],
             "background": false,
             "compact": false,
             "recolour": true

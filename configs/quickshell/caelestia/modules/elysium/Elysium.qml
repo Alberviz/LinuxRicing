@@ -111,6 +111,69 @@ Scope {
         PowerProfiles.profile = PowerProfile.Performance;
     }
 
+    // Jugar en la tele (si está conectada) o en el portátil. Se recuerda entre sesiones.
+    function tvSetup(): void {
+        onTv = true;
+        companionMode = "apoyo";
+        // Extender (si estaba en espejo/solo externa) y audio por el HDMI de la tele.
+        Quickshell.execDetached(["sh", "-c", `m=$(display-mode status | python3 -c 'import json,sys;print(json.load(sys.stdin)["mode"])'); [ "$m" = extend ] || display-mode extend`]);
+        sinkProc.running = true;
+        tvRules(true);
+    }
+
+    function tvTeardown(): void {
+        setCompanion("apoyo");
+        // Volver al audio de antes; si no había (ya estaba en el HDMI), a unos cascos
+        // (USB/Bluetooth) o, si no, a los altavoces del portátil.
+        if (prevSink)
+            Quickshell.execDetached(["pactl", "set-default-sink", prevSink]);
+        else
+            audioOffHdmi();
+        prevSink = "";
+        tvRules(false);
+        onTv = false;
+    }
+
+    function audioOffHdmi(): void {
+        Quickshell.execDetached(["sh", "-c", "cur=$(pactl get-default-sink); case $cur in *hdmi*) s=$(pactl list short sinks | awk '{print $2}' | grep -E 'bluez|usb' | head -n1); [ -n \"$s\" ] || s=$(pactl list short sinks | awk '{print $2}' | grep -v hdmi | head -n1); [ -n \"$s\" ] && pactl set-default-sink \"$s\";; esac"]);
+    }
+
+    function setPlayOnTv(v: bool): void {
+        prefs.playOnTv = v;
+        if (!active)
+            return;
+        if (v && tvScreen && !onTv)
+            tvSetup();
+        else if (!v && onTv)
+            tvTeardown();
+    }
+
+    // --- Laura por juego ---
+    property bool lauraStoppedForGame: false
+
+    function lauraFor(g: var): bool {
+        return g?.proc ? (prefs.lauraOff.indexOf(g.proc) < 0) : true;
+    }
+
+    function setLauraFor(g: var, on: bool): void {
+        if (!g?.proc)
+            return;
+        const l = prefs.lauraOff.filter(p => p !== g.proc);
+        if (!on)
+            l.push(g.proc);
+        prefs.lauraOff = l;
+        // Si ese juego está abierto, aplicarlo ya.
+        if (playing && runningGame?.proc === g.proc) {
+            if (!on && LauraService.state !== "off") {
+                lauraStoppedForGame = true;
+                LauraService.stop();
+            } else if (on && lauraStoppedForGame) {
+                lauraStoppedForGame = false;
+                LauraService.start();
+            }
+        }
+    }
+
     function enter(): void {
         prompt = false;
         if (active)
@@ -124,14 +187,10 @@ Scope {
         ownDnd = !Notifs.dnd;
         Notifs.dnd = true;
         enteredAt = new Date();
-        onTv = tvScreen !== null;
-        if (onTv) {
-            companionMode = "apoyo";
-            // Extender (si estaba en espejo/solo externa) y audio por el HDMI de la tele.
-            Quickshell.execDetached(["sh", "-c", `m=$(display-mode status | python3 -c 'import json,sys;print(json.load(sys.stdin)["mode"])'); [ "$m" = extend ] || display-mode extend`]);
-            sinkProc.running = true;
-            tvRules(true);
-        }
+        if (tvScreen !== null && playOnTv)
+            tvSetup();
+        else if (tvScreen !== null)
+            audioOffHdmi();  // tele conectada pero se juega en el portátil
         lauraCmd("gamemode on");
         active = true;
     }
@@ -142,17 +201,16 @@ Scope {
             return;
         active = false;
         summoned = false;
+        hideIdleCursor(false);
         if (ownDnd)
             Notifs.dnd = false;
         lauraCmd("gamemode off");
         Quickshell.execDetached(["rm", "-f", `${Quickshell.env("XDG_RUNTIME_DIR")}/elysium-active`]);
-        if (onTv) {
-            setCompanion("apoyo");
-            if (prevSink)
-                Quickshell.execDetached(["pactl", "set-default-sink", prevSink]);
-            prevSink = "";
-            tvRules(false);
-            onTv = false;
+        if (onTv)
+            tvTeardown();
+        if (lauraStoppedForGame) {
+            lauraStoppedForGame = false;
+            LauraService.start();
         }
         if (!keepGameMode) {
             if (ownGameMode)
@@ -166,6 +224,7 @@ Scope {
         const g = runningGame;
         if (!g)
             return;
+        restoreLauraAfterGame();
         Quickshell.execDetached([`${Quickshell.env("HOME")}/.local/bin/elysium-close`, g.wmClass ?? "", g.proc]);
         playing = false;
         summoned = false;
@@ -173,8 +232,20 @@ Scope {
         runningGame = null;
     }
 
+    function restoreLauraAfterGame(): void {
+        if (lauraStoppedForGame) {
+            lauraStoppedForGame = false;
+            LauraService.start();
+        }
+    }
+
     function launch(g: var): void {
         runningGame = g;
+        // Laura desactivada para este juego: se apaga y libera la gráfica.
+        if (!lauraFor(g) && LauraService.state !== "off") {
+            lauraStoppedForGame = true;
+            LauraService.stop();
+        }
         focusTv();
         gameReady = !g.wmClass;
         if (g.wmClass) {
@@ -210,6 +281,45 @@ Scope {
             onRead: () => root.gameReady = true
         }
         onExited: root.gameReady = true
+    }
+
+    // Preferencias que se guardan: pantalla de juego y juegos sin Laura.
+    QtObject {
+        id: prefs
+
+        property bool playOnTv: true
+        property var lauraOff: []
+        property bool loaded: false
+
+        onPlayOnTvChanged: if (loaded)
+            prefsFile.save()
+        onLauraOffChanged: if (loaded)
+            prefsFile.save()
+    }
+
+    readonly property bool playOnTv: prefs.playOnTv
+
+    FileView {
+        id: prefsFile
+
+        path: `${Quickshell.env("HOME")}/.local/state/caelestia/elysium.json`
+        printErrors: false
+        onLoaded: {
+            try {
+                const j = JSON.parse(text());
+                prefs.playOnTv = j.playOnTv ?? true;
+                prefs.lauraOff = j.lauraOff ?? [];
+            } catch (e) {}
+            prefs.loaded = true;
+        }
+        onLoadFailed: prefs.loaded = true
+
+        function save(): void {
+            setText(JSON.stringify({
+                "playOnTv": prefs.playOnTv,
+                "lauraOff": prefs.lauraOff
+            }, null, 2));
+        }
     }
 
     // --- mando ---
@@ -261,14 +371,29 @@ except Exception: pass`]);
     // Hablar con Laura desde el mando. Solo dispara si está en reposo (empieza a
     // escuchar) o hablando (la corta y escucha): si ya escucha o piensa, un segundo
     // disparo cerraría el ciclo («disparo repetido») y parecía que Laura no iba.
+    property bool talkPending: false
+
     function talkToLaura(): void {
+        // Apagada (la apagó Alberto, GameMode o el ahorro): arrancarla y hablar al estar lista.
+        if (LauraService.state !== "on") {
+            talkPending = true;
+            LauraService.start();
+            return;
+        }
         if (Laura.state !== "idle" && Laura.state !== "speaking")
             return;
-        // Si el servicio está parado (lo para GameMode vía `modo-juego` fuera de Elysium,
-        // o el ahorro de batería), se arranca y se espera a su socket antes de activarla.
-        const toggle = `python3 ${Quickshell.env("HOME")}/proyectos/LinuxRicing/assistant/laura-toggle centro`;
-        const ready = `journalctl --user -u laura.service --since "$t0" -o cat | grep -q "listo. control"`;
-        Quickshell.execDetached(["sh", "-c", `systemctl --user is-active -q laura || { t0=$(date '+%F %T'); systemctl --user start laura; i=0; until ${ready} || [ $i -ge 60 ]; do sleep 0.5; i=$((i+1)); done; }; ${toggle}`]);
+        Quickshell.execDetached(["python3", `${Quickshell.env("HOME")}/proyectos/LinuxRicing/assistant/laura-toggle`, "centro"]);
+    }
+
+    Connections {
+        target: LauraService
+
+        function onReady(): void {
+            if (root.talkPending) {
+                root.talkPending = false;
+                root.talkToLaura();
+            }
+        }
     }
 
     // Mantener −/View = Laura (Home no: con xpadneo el botón Xbox es «shift» y
@@ -285,13 +410,36 @@ except Exception: pass`]);
             return;
         Hypr.dispatch(Hypr.usingLua ? `hl.dsp.focus({ window = "class:${cls}" })` : `focuswindow class:${cls}`);
         parkCursor();
+        // Pantalla completa ya con el foco (pedida antes, mientras Elysium tenía el
+        // teclado, Hyprland la ignoraba en el portátil).
+        Quickshell.execDetached(["sh", "-c", `sleep 0.3; hyprctl clients -j | python3 -c 'import json,sys; sys.exit(0 if any(c["class"]=="${cls}" and not c["fullscreen"] for c in json.load(sys.stdin)) else 1)' && hyprctl dispatch 'hl.dsp.window.fullscreen({ mode = "fullscreen", window = "class:${cls}" })'`]);
     }
 
     // Cursor al centro-abajo del portátil: no tapa el juego y el foco se queda en él.
+    // Cursor oculto tras 1 s quieto mientras se juega (las esquinas abren paneles de
+    // Caelestia, así que no se «aparca» en una esquina). En la tele, además, se lleva
+    // al portátil para que no quede encima del juego.
+    property var prevCursorTimeout: null
+
+    function hideIdleCursor(on: bool): void {
+        if (on) {
+            if (prevCursorTimeout === null)
+                prevCursorTimeout = Hypr.options["cursor:inactive_timeout"] ?? 0; // qmllint disable missing-property
+            Hypr.extras.applyOptions({ "cursor:inactive_timeout": 1 });
+        } else if (prevCursorTimeout !== null) {
+            Hypr.extras.applyOptions({ "cursor:inactive_timeout": prevCursorTimeout });
+            prevCursorTimeout = null;
+        }
+    }
+
+    onPlayingChanged: hideIdleCursor(playing)
+
     function parkCursor(): void {
         if (!onTv || !laptopScreen)
             return;
-        const x = laptopScreen.x + Math.round(laptopScreen.width / 2), y = laptopScreen.y + laptopScreen.height - 80;
+        const sc = laptopScreen;
+        const x = sc.x + Math.round(sc.width / 2);
+        const y = sc.y + sc.height - 80;
         Hypr.dispatch(Hypr.usingLua ? `hl.dsp.cursor.move({ x = ${x}, y = ${y} })` : `movecursor ${x} ${y}`);
     }
 
@@ -370,6 +518,7 @@ except Exception: pass`]);
             }
             // Dos fallos seguidos (el lanzador tarda en exec'ear el binario).
             if (++aliveTimer.misses >= 2) {
+                root.restoreLauraAfterGame();
                 root.playing = false;
                 root.summoned = false;
             }
@@ -475,6 +624,23 @@ except Exception: pass`]);
         // Simula mantener un botón (depuración): select | home
         function hold(b: string): void {
             root.handleHold(b);
+        }
+
+        // Estado interno (depuración).
+        function debug(): string {
+            return JSON.stringify({
+                "active": root.active,
+                "playing": root.playing,
+                "summoned": root.summoned,
+                "gameReady": root.gameReady,
+                "consoleShown": root.consoleShown,
+                "onTv": root.onTv,
+                "playOnTv": root.playOnTv,
+                "padGrab": root.padGrab,
+                "consoleScreen": root.consoleScreen?.name ?? null,
+                "laura": LauraService.state,
+                "lauraStoppedForGame": root.lauraStoppedForGame
+            });
         }
 
         function list(): string {

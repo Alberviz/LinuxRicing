@@ -22,10 +22,15 @@ for _ in range(120):
         continue
     if mon:
         hc("dispatch", f'hl.dsp.focus({{ monitor = "{mon}" }})')
-        # Al cambiar de monitor la ventana pierde la pantalla completa: devolvérsela.
-        if not win.get("fullscreen"):
-            time.sleep(0.5)
-            hc("dispatch", f'hl.dsp.window.fullscreen({{ mode = "fullscreen", window = "class:{cls}" }})')
+    # A pantalla completa siempre (al cambiar de monitor la pierde, y en el portátil a
+    # veces abre en ventana). Se espera un poco por si el juego la pide él solo.
+    time.sleep(1.5)
+    try:
+        win = next((c for c in json.loads(hc("clients", "-j")) if c["class"] == cls), win)
+    except ValueError:
+        pass
+    if not win.get("fullscreen"):
+        hc("dispatch", f'hl.dsp.window.fullscreen({{ mode = "fullscreen", window = "class:{cls}" }})')
     print("ready", flush=True)
     sys.exit(0)
 print("timeout", flush=True)

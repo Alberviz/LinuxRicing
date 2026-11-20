@@ -295,7 +295,7 @@ PanelWindow {
                                 color: Qt.alpha(win.accent, 0.25)
                             }
                         }
-                        opacity: Laura.active ? 1 : 0.45
+                        opacity: LauraService.on ? (Laura.active ? 1 : 0.45) : 0.12
 
                         SequentialAnimation on scale {
                             running: Laura.active && !win.off
@@ -326,8 +326,15 @@ PanelWindow {
                     }
                 }
 
+                // Estado del daemon (apagada / encendiéndose con fases / lista).
+                LauraStatus {
+                    Layout.alignment: Qt.AlignHCenter
+                    barWidth: 380
+                }
+
                 StyledText {
                     Layout.alignment: Qt.AlignHCenter
+                    visible: LauraService.on
                     text: ({ "idle": qsTr("Mantén − en el mando para hablar"), "listening": qsTr("Te escucho…"), "thinking": qsTr("Pensando…"), "speaking": qsTr("Hablando") })[Laura.state] ?? Laura.state
                     color: Laura.active ? win.accent : Colours.palette.m3onSurfaceVariant
                     font: Tokens.font.title.small
