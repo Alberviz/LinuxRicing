@@ -14,6 +14,7 @@ import "modules/whitehole"
 import "modules/rgbcontrol"
 import "modules/rebootdialog"
 import "modules/projectdialog"
+import "modules/escaparate"
 import "modules/assistant"
 import "modules/holo"
 import "modules/hookshot"
@@ -46,6 +47,7 @@ ShellRoot {
     RgbControl {}
     RebootDialog {}
     ProjectDialog {}
+    EscaparateDialog {}
     Assistant {}
     HoloOverlay {}
     HookshotWarmup {}

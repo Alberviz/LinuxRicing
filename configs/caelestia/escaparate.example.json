@@ -1,0 +1,30 @@
+[
+  {
+    "id": "video-demo",
+    "name": "Efectos Visuales (Loop)",
+    "icon": "movie",
+    "kind": "video",
+    "target": "/home/alberviz/Vídeos/effectcraft-smoketest.mp4"
+  },
+  {
+    "id": "olimpo",
+    "name": "Olimpo (Tareas)",
+    "icon": "task_alt",
+    "kind": "web",
+    "target": "https://vizcapon-pi.tail76abc5.ts.net:8443"
+  },
+  {
+    "id": "reloj-sala",
+    "name": "Reloj de Sala (HTML)",
+    "icon": "schedule",
+    "kind": "web",
+    "target": "/home/alberviz/.config/caelestia/escaparate-reloj.html"
+  },
+  {
+    "id": "web-dev",
+    "name": "Servidor Web Local",
+    "icon": "language",
+    "kind": "web",
+    "target": "http://localhost:5173"
+  }
+]

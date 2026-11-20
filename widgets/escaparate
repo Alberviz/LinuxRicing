@@ -1,0 +1,429 @@
+#!/usr/bin/env python3
+"""escaparate — gestiona lo que se muestra en la tele (HDMI) en el workspace name:tele.
+Soporta vídeo en bucle (mpv), webs o apps locales (chromium --app), imágenes y comandos.
+
+Uso:
+  escaparate list                 — lista en JSON los elementos configurados
+  escaparate status               — estado del escaparate actual (JSON)
+  escaparate show <id>            — muestra el elemento <id> en la tele a pantalla completa
+  escaparate open-target <target> — abre un archivo/URL directamente en la tele (vídeo/imagen/web)
+  escaparate off                  — apaga el escaparate y devuelve la tele al workspace 8
+"""
+
+import json
+import os
+import signal
+import socket
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+CONFIG_PATH = Path(os.path.expanduser("~/.config/caelestia/escaparate.json"))
+RUNTIME_DIR = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")) / "escaparate"
+STATE_FILE = RUNTIME_DIR / "state.json"
+MPV_SOCK = RUNTIME_DIR / "mpv.sock"
+
+
+def run_cmd(*args):
+    return subprocess.run(args, capture_output=True, text=True).stdout
+
+
+def hypr_dispatch(cmd_str):
+    return subprocess.run(["hyprctl", "dispatch", cmd_str], capture_output=True, text=True).stdout
+
+
+def hypr_eval(code_str):
+    return subprocess.run(["hyprctl", "eval", code_str], capture_output=True, text=True).stdout
+
+
+def notify(title, body=""):
+    cmd = ["notify-send", "-a", "Escaparate", "-i", "video-display", title]
+    if body:
+        cmd.append(body)
+    subprocess.run(cmd)
+
+
+def get_monitors():
+    try:
+        out = run_cmd("hyprctl", "monitors", "-j")
+        return json.loads(out)
+    except Exception:
+        return []
+
+
+def get_clients():
+    try:
+        out = run_cmd("hyprctl", "clients", "-j")
+        return json.loads(out)
+    except Exception:
+        return []
+
+
+def load_config():
+    if not CONFIG_PATH.exists():
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        default_items = [
+            {
+                "id": "video-demo",
+                "name": "Efectos Visuales (Loop)",
+                "icon": "movie",
+                "kind": "video",
+                "target": os.path.expanduser("~/Vídeos/effectcraft-smoketest.mp4")
+            },
+            {
+                "id": "olimpo",
+                "name": "Olimpo (Tareas)",
+                "icon": "task_alt",
+                "kind": "web",
+                "target": "https://vizcapon-pi.tail76abc5.ts.net:8443"
+            },
+            {
+                "id": "reloj-sala",
+                "name": "Reloj de Sala (HTML)",
+                "icon": "schedule",
+                "kind": "web",
+                "target": os.path.expanduser("~/.config/caelestia/escaparate-reloj.html")
+            },
+            {
+                "id": "web-dev",
+                "name": "Servidor Web Local",
+                "icon": "language",
+                "kind": "web",
+                "target": "http://localhost:5173"
+            }
+        ]
+        CONFIG_PATH.write_text(json.dumps(default_items, indent=2))
+        return default_items
+
+    try:
+        return json.loads(CONFIG_PATH.read_text())
+    except Exception as e:
+        sys.stderr.write(f"Error al leer {CONFIG_PATH}: {e}\n")
+        return []
+
+
+def get_state():
+    if not STATE_FILE.exists():
+        return {"active": False}
+    try:
+        st = json.loads(STATE_FILE.read_text())
+        pid = st.get("pid")
+        if pid:
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                st["active"] = False
+        return st
+    except Exception:
+        return {"active": False}
+
+
+def save_state(state):
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    STATE_FILE.write_text(json.dumps(state, indent=2))
+
+
+def stop_active(restore_ws=True):
+    st = get_state()
+    watcher_pid = st.get("watcher_pid")
+    if watcher_pid:
+        try:
+            os.kill(watcher_pid, signal.SIGTERM)
+        except OSError:
+            pass
+
+    pid = st.get("pid")
+    kind = st.get("kind")
+
+    if (kind == "video" or kind == "image") and MPV_SOCK.exists():
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                s.settimeout(0.5)
+                s.connect(str(MPV_SOCK))
+                s.sendall(b'{"command": ["quit"]}\n')
+        except Exception:
+            pass
+
+    if pid:
+        try:
+            os.kill(pid, signal.SIGTERM)
+            time.sleep(0.2)
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+
+    # Cerrar posibles ventanas residuales de escaparate
+    for cls in ("escaparate-video", "escaparate-web", "escaparate-cmd"):
+        clients = get_clients()
+        for c in clients:
+            if c.get("class") == cls or cls in c.get("initialClass", ""):
+                hypr_dispatch(f'hl.dsp.window.close({{ window = "address:{c["address"]}" }})')
+
+    if MPV_SOCK.exists():
+        try:
+            MPV_SOCK.unlink()
+        except OSError:
+            pass
+
+    save_state({"active": False})
+
+    monitors = get_monitors()
+    laptop_mon = next((m for m in monitors if m.get("name", "").startswith("eDP")), monitors[0] if monitors else None)
+    tele_mon = next((m for m in monitors if not m.get("name", "").startswith("eDP")), None)
+
+    if restore_ws and tele_mon:
+        hypr_eval('if _G.tele_rule then _G.tele_rule:set_enabled(false) end')
+        tele_name = tele_mon.get("name", "HDMI-A-1")
+        hypr_dispatch(f'hl.dsp.focus({{ monitor = "{tele_name}" }})')
+        hypr_dispatch('hl.dsp.focus({ workspace = 8 })')
+        if laptop_mon:
+            laptop_name = laptop_mon.get("name", "eDP-2")
+            hypr_dispatch(f'hl.dsp.focus({{ monitor = "{laptop_name}" }})')
+
+
+def start_html_watcher(file_path):
+    script = f"""
+import subprocess, time, os, sys
+
+path = "{file_path}"
+has_inotify = subprocess.run(["which", "inotifywait"], capture_output=True).returncode == 0
+
+def reload():
+    subprocess.run(["hyprctl", "dispatch", "hl.dsp.send_shortcut({{ mods = '', key = 'F5', window = 'class:escaparate-web' }})"], capture_output=True)
+
+if has_inotify:
+    proc = subprocess.Popen(["inotifywait", "-m", "-e", "modify,close_write", path], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    for line in proc.stdout:
+        time.sleep(0.1)
+        reload()
+else:
+    last_mtime = os.path.getmtime(path) if os.path.exists(path) else 0
+    while True:
+        time.sleep(2)
+        try:
+            m = os.path.getmtime(path)
+            if m != last_mtime:
+                last_mtime = m
+                reload()
+        except Exception:
+            pass
+"""
+    proc = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return proc.pid
+
+
+def show_item_dict(item):
+    monitors = get_monitors()
+    tele_mon = next((m for m in monitors if not m.get("name", "").startswith("eDP")), None)
+    laptop_mon = next((m for m in monitors if m.get("name", "").startswith("eDP")), monitors[0] if monitors else None)
+
+    if not tele_mon:
+        notify("Tele no conectada", "No se detecta ninguna pantalla externa HDMI.")
+        return False
+
+    tele_name = tele_mon.get("name", "HDMI-A-1")
+    laptop_name = laptop_mon.get("name", "eDP-2") if laptop_mon else "eDP-2"
+
+    stop_active(restore_ws=False)
+
+    hypr_eval(f'_G.tele_rule = hl.workspace_rule({{ workspace = "name:tele", monitor = "{tele_name}" }})')
+    hypr_dispatch(f'hl.dsp.workspace.move({{ workspace = "name:tele", monitor = "{tele_name}" }})')
+    hypr_dispatch(f'hl.dsp.focus({{ workspace = "name:tele" }})')
+
+    kind = item.get("kind", "web")
+    target = os.path.expanduser(item.get("target", ""))
+    watcher_pid = None
+    proc = None
+
+    if kind == "video":
+        RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+        if MPV_SOCK.exists():
+            try:
+                MPV_SOCK.unlink()
+            except OSError:
+                pass
+        cmd = [
+            "mpv",
+            "--loop-file=inf",
+            "--fs",
+            "--no-terminal",
+            "--really-quiet",
+            f"--input-ipc-server={MPV_SOCK}",
+            "--wayland-app-id=escaparate-video",
+            target
+        ]
+        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    elif kind == "image":
+        RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+        if MPV_SOCK.exists():
+            try:
+                MPV_SOCK.unlink()
+            except OSError:
+                pass
+        cmd = [
+            "mpv",
+            "--loop-file=inf",
+            "--image-display-duration=inf",
+            "--fs",
+            "--no-terminal",
+            "--really-quiet",
+            f"--input-ipc-server={MPV_SOCK}",
+            "--wayland-app-id=escaparate-video",
+            target
+        ]
+        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    elif kind == "web":
+        is_html = target.endswith(".html") or target.startswith("file://") or (os.path.exists(target) and not target.startswith("http"))
+        if is_html:
+            clean_path = target[7:] if target.startswith("file://") else target
+            clean_path = os.path.abspath(clean_path)
+            url = f"file://{clean_path}"
+            if os.path.exists(clean_path):
+                watcher_pid = start_html_watcher(clean_path)
+        else:
+            url = target
+
+        cache_dir = os.path.expanduser("~/.cache/escaparate-chromium")
+        os.makedirs(cache_dir, exist_ok=True)
+        cmd = [
+            "chromium",
+            f"--app={url}",
+            f"--user-data-dir={cache_dir}",
+            "--class=escaparate-web",
+            "--no-first-run",
+            "--no-default-browser-check"
+        ]
+        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    elif kind == "cmd":
+        proc = subprocess.Popen(target, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    target_addr = None
+    cls_expected = "escaparate-video" if (kind == "video" or kind == "image") else ("escaparate-web" if kind == "web" else None)
+
+    for _ in range(25):
+        time.sleep(0.1)
+        clients = get_clients()
+        for c in clients:
+            if (cls_expected and (c.get("class") == cls_expected or cls_expected in c.get("initialClass", ""))) or (proc and c.get("pid") == proc.pid):
+                target_addr = c.get("address")
+                break
+        if target_addr:
+            break
+
+    if target_addr:
+        hypr_dispatch(f'hl.dsp.window.move({{ workspace = "name:tele", window = "address:{target_addr}" }})')
+        clients = get_clients()
+        win = next((c for c in clients if c.get("address") == target_addr), None)
+        if win and win.get("fullscreen", 0) == 0:
+            hypr_dispatch(f'hl.dsp.window.fullscreen({{ mode = "fullscreen", window = "address:{target_addr}" }})')
+
+    hypr_dispatch(f'hl.dsp.focus({{ monitor = "{laptop_name}" }})')
+
+    save_state({
+        "active": True,
+        "id": item.get("id"),
+        "name": item.get("name"),
+        "kind": kind,
+        "target": target,
+        "pid": proc.pid if proc else None,
+        "watcher_pid": watcher_pid
+    })
+
+    notify(f"Escaparate: {item.get('name')}", "Mostrando en la tele")
+    return True
+
+
+def show_item(item_id):
+    items = load_config()
+    item = next((it for it in items if it.get("id") == item_id), None)
+    if not item:
+        sys.stderr.write(f"Elemento '{item_id}' no encontrado en {CONFIG_PATH}\n")
+        return False
+    return show_item_dict(item)
+
+
+def open_target(target_str):
+    target = target_str.strip()
+    if target.startswith("file://"):
+        target = target[7:]
+    target = os.path.expanduser(target)
+
+    media_ext = {"mp4", "m4v", "mkv", "webm", "avi", "mov", "ts", "mpg", "mpeg", "wmv", "flv", "ogv"}
+    image_ext = {"jpg", "jpeg", "png", "webp", "gif", "svg", "bmp", "avif"}
+
+    ext = target.split(".")[-1].lower() if "." in target else ""
+    is_url = target.startswith("http://") or target.startswith("https://")
+
+    if is_url or ext == "html":
+        kind = "web"
+    elif ext in image_ext:
+        kind = "image"
+    elif ext in media_ext:
+        kind = "video"
+    elif os.path.exists(target) and os.access(target, os.X_OK):
+        kind = "cmd"
+    else:
+        kind = "video" if ext in media_ext else "web"
+
+    name = os.path.basename(target) if not is_url else target
+    item = {
+        "id": "target-dropped",
+        "name": name,
+        "kind": kind,
+        "target": target
+    }
+    return show_item_dict(item)
+
+
+def main():
+    if len(sys.argv) < 2:
+        print("Uso: escaparate <list|status|show <id>|open-target <target>|off>")
+        return 1
+
+    action = sys.argv[1].lower()
+
+    if action == "list":
+        items = load_config()
+        print(json.dumps(items, indent=2, ensure_ascii=False))
+        return 0
+
+    elif action == "status":
+        st = get_state()
+        print(json.dumps(st, indent=2, ensure_ascii=False))
+        return 0
+
+    elif action == "off":
+        stop_active(restore_ws=True)
+        notify("Escaparate apagado", "La tele ha vuelto a su workspace normal.")
+        print(json.dumps({"ok": True, "status": "off"}))
+        return 0
+
+    elif action == "show":
+        if len(sys.argv) < 3:
+            sys.stderr.write("Error: falta el id a mostrar (escaparate show <id>)\n")
+            return 1
+        item_id = sys.argv[2]
+        ok = show_item(item_id)
+        print(json.dumps({"ok": ok, "id": item_id}))
+        return 0 if ok else 1
+
+    elif action == "open-target":
+        if len(sys.argv) < 3:
+            sys.stderr.write("Error: falta el target a abrir (escaparate open-target <target>)\n")
+            return 1
+        target = sys.argv[2]
+        ok = open_target(target)
+        print(json.dumps({"ok": ok, "target": target}))
+        return 0 if ok else 1
+
+    else:
+        sys.stderr.write(f"Acción desconocida '{action}'\n")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
