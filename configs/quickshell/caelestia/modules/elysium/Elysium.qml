@@ -232,8 +232,12 @@ except Exception: pass`]);
                 prompt = false;
             return;
         }
-        if (!active)
+        // Desde el escritorio: un toque de Home abre Elysium (por si no salió el aviso).
+        if (!active) {
+            if (b === "home")
+                enter();
             return;
+        }
         if (playing && !summoned) {
             if (b === "home")
                 summoned = true;
