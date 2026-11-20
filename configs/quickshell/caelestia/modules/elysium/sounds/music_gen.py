@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""Música ambiente de Elysium: pieza original en bucle (Mi mayor, 74 BPM, ~1:44).
+"""Ambiente espacial de Elysium: el «sonido de nave en el espacio» de las películas.
 
-Espíritu: la calidez de un menú de consola (piano eléctrico suave, bajo redondo,
-escobilla) con un toque espacial de fogata bajo las estrellas (cuerdas pulsadas
-Karplus-Strong, pads lentos, destellos agudos con mucha reverb). Estéreo, 48 kHz.
-El bucle es continuo: la cola de la reverb se pliega sobre el principio.
+Nada de instrumentos ni ritmo: capas de zumbido y ruido que respiran muy despacio.
+    - zumbido de la nave: fundamental grave (E1 ≈ 41 Hz) + armónicos con batidos lentos
+    - rumor sub: ruido marrón por debajo de ~90 Hz que crece y se retira
+    - aire de cabina: ruido suave filtrado (~150-700 Hz) con un barrido muy lento
+    - dron tonal: quintas y octavas graves (E/B) que aparecen y desaparecen en 30-60 s
+    - resonancias lejanas: «gemidos» metálicos graves (bandas estrechas 180-420 Hz) muy espaciados
+    - reverb larga
+Todo se sintetiza en el dominio de la frecuencia sobre la duración EXACTA del bucle y con
+LFOs de un número entero de ciclos: el bucle es circular y no tiene costura.
 
     python3 music_gen.py      -> ../music/elysium-ambient.ogg (necesita ffmpeg)
 """
@@ -13,179 +18,114 @@ import os, subprocess, wave
 import numpy as np
 
 SR = 48000
-BPM = 74
-BEAT = 60 / BPM
-BAR = 4 * BEAT
-rng = np.random.default_rng(11)
+DUR = 192.0                     # s (bucle)
+N = int(SR * DUR)
+t = np.arange(N) / SR
+rng = np.random.default_rng(23)
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "..", "music")
+F = np.fft.rfftfreq(N, 1 / SR)
 
 
-def hz(n):  # "E4" -> Hz
-    names = "C C# D D# E F F# G G# A A# B".split()
-    return 440 * 2 ** ((names.index(n[:-1]) - 9) / 12 + int(n[-1]) - 4)
+def lfo(cycles, phase=0.0):
+    """LFO de 0..1 con un número entero de ciclos en el bucle (circular)"""
+    return 0.5 + 0.5 * np.sin(2 * np.pi * cycles * t / DUR + phase)
 
 
-# Progresión de 8 compases (x4 con variaciones = 32 compases)
-PROG = [  # (bajo, voces del acorde)
-    ("E2", ["E3", "G#3", "B3", "D#4", "F#4"]),   # Emaj9
-    ("C#2", ["C#3", "E3", "G#3", "B3"]),          # C#m7
-    ("A1", ["A2", "C#3", "E3", "G#3", "B3"]),     # Amaj9
-    ("B1", ["B2", "D#3", "F#3", "G#3"]),          # B6
-    ("G#1", ["G#2", "B2", "D#3", "F#3"]),         # G#m7
-    ("C#2", ["C#3", "E3", "G#3", "B3", "D#4"]),   # C#m9
-    ("A1", ["A2", "C#3", "E3", "F#3"]),           # A6
-    ("B1", ["B2", "E3", "F#3", "A3"]),            # Bsus7
-]
-BARS = len(PROG) * 4
-LEN = int(SR * BAR * BARS)
-mixL = np.zeros(LEN + SR * 8)
-mixR = np.zeros(LEN + SR * 8)
+def shaped_noise(gain_fn, seed):
+    """ruido circular con una curva de ganancia por frecuencia"""
+    r = np.random.default_rng(seed)
+    spec = (r.standard_normal(len(F)) + 1j * r.standard_normal(len(F))) * gain_fn(F)
+    spec[0] = 0
+    x = np.fft.irfft(spec, N)
+    return x / (np.abs(x).max() + 1e-12)
 
 
-def put(sig, t, pan=0.0, gain=1.0):
-    i = int(t * SR)
-    n = min(len(sig), len(mixL) - i)
-    l, r = np.cos((pan + 1) * np.pi / 4), np.sin((pan + 1) * np.pi / 4)
-    mixL[i:i + n] += sig[:n] * gain * l
-    mixR[i:i + n] += sig[:n] * gain * r
+def tone(f, phase=0.0):
+    # frecuencia ajustada para que haga ciclos enteros en el bucle (sin salto)
+    f = round(f * DUR) / DUR
+    return np.sin(2 * np.pi * f * t + phase)
 
 
-def adsr(n, a, d, s, r_):
-    t = np.arange(n) / SR
-    e = np.where(t < a, t / a, s + (1 - s) * np.exp(-(t - a) / d))
-    rel = int(r_ * SR)
-    if rel < n:
-        e[-rel:] *= np.linspace(1, 0, rel) ** 2
-    return e
+def band(lo, hi, slope=2.0):
+    def g(f):
+        g = np.ones_like(f)
+        g *= 1 / (1 + (lo / np.maximum(f, 1)) ** (2 * slope))
+        g *= 1 / (1 + (f / hi) ** (2 * slope))
+        return g
+    return g
 
 
-def epiano(f, dur, vel=1.0):
-    """piano eléctrico tipo Rhodes: seno + parcial 2 con campana, trémolo suave"""
-    n = int(dur * SR)
-    t = np.arange(n) / SR
-    s = np.sin(2 * np.pi * f * t + 0.6 * np.exp(-t * 6) * np.sin(2 * np.pi * f * 2 * t))
-    s += 0.18 * np.sin(2 * np.pi * f * 4.0 * t) * np.exp(-t * 9)
-    s *= 1 + 0.12 * np.sin(2 * np.pi * 4.6 * t)
-    return s * adsr(n, 0.006, 1.1, 0.0, 0.25) * vel
+E1, B1, E2, B2, E3 = 41.2, 61.7, 82.4, 123.5, 164.8
+
+layers = []
+
+# 1) zumbido de la nave: E1 + armónicos, con pares desafinados (batido lento)
+hum = np.zeros(N)
+for k, amp in ((1, 1.0), (2, 0.55), (3, 0.28), (4, 0.16), (6, 0.07)):
+    f = E1 * k
+    hum += amp * (tone(f) + tone(f + 0.07 * k, 1.3)) * 0.5
+hum *= 0.75 + 0.25 * lfo(5, 0.4)
+layers.append((hum / np.abs(hum).max(), 0.34, 0.0))
+
+# 2) rumor sub (ruido marrón < 90 Hz), crece y se retira
+sub = shaped_noise(lambda f: band(18, 90, 2)(f) / np.maximum(f, 18) * 30, 1)
+sub *= 0.45 + 0.55 * lfo(3, 2.0)
+layers.append((sub, 0.42, 0.0))
+
+# 3) aire de cabina: dos versiones del mismo ruido (más oscura y más abierta) cruzándose
+air_dark = shaped_noise(band(120, 380, 1.5), 2)
+air_open = shaped_noise(band(180, 750, 1.5), 3)
+x = lfo(2, 1.1)
+air = air_dark * (1 - x) + air_open * x
+air *= 0.6 + 0.4 * lfo(7, 0.2)
+layers.append((air, 0.10, 0.0))
+
+# 4) dron tonal: E2, B2, E3 que aparecen y desaparecen muy despacio, cada uno a su ritmo
+drone = np.zeros(N)
+for f, cyc, ph, amp in ((E2, 3, 0.0, 0.9), (B2, 4, 1.7, 0.7), (E3, 5, 3.1, 0.45), (B1, 2, 4.2, 0.6)):
+    # timbre suave: fundamental + 2º armónico, con un vibrato lentísimo
+    vib = 0.15 * np.sin(2 * np.pi * 1 * t / DUR * 9)
+    ph_acc = 2 * np.pi * np.cumsum(f + vib) / SR
+    ph_acc -= np.linspace(0, ph_acc[-1] - round(ph_acc[-1] / (2 * np.pi)) * 2 * np.pi, N)  # cerrar el ciclo
+    s = np.sin(ph_acc + ph) + 0.3 * np.sin(2 * ph_acc + ph)
+    drone += amp * s * lfo(cyc, ph) ** 2.2
+layers.append((drone / np.abs(drone).max(), 0.20, 0.0))
+
+# 5) resonancias lejanas: bandas estrechas graves que se hinchan muy de vez en cuando
+groan = np.zeros(N)
+for i, (fc, when) in enumerate(((210, 0.12), (330, 0.37), (180, 0.58), (260, 0.81), (410, 0.93))):
+    nb = shaped_noise(lambda f, fc=fc: np.exp(-((f - fc) / (fc * 0.012)) ** 2), 10 + i)
+    center = when * DUR
+    d = np.minimum(np.abs(t - center), DUR - np.abs(t - center))  # distancia circular
+    env = np.exp(-(d / 5.5) ** 2)
+    groan += nb * env
+layers.append((groan / (np.abs(groan).max() + 1e-9), 0.13, 0.0))
+
+mono = sum(sig * g for sig, g, _ in layers)
+
+# Estéreo amplio: cada lado con un retardo y un ruido de aire distinto
+L = mono + 0.04 * shaped_noise(band(150, 600, 1.5), 40) * (0.5 + 0.5 * lfo(3, 0))
+R = np.roll(mono, int(0.017 * SR)) + 0.04 * shaped_noise(band(150, 600, 1.5), 41) * (0.5 + 0.5 * lfo(3, 2))
 
 
-def pluck(f, dur, bright=0.5):
-    """cuerda pulsada Karplus-Strong (vectorizada por periodos)"""
-    n = int(dur * SR)
-    p = max(2, int(SR / f))
-    buf = rng.uniform(-1, 1, p)
-    # cuerpo más blando: ruido filtrado
-    for _ in range(int(3 * (1 - bright)) + 1):
-        buf = 0.5 * (buf + np.roll(buf, 1))
-    out = np.zeros(n + p + 1)
-    out[:p] = buf
-    i = p
-    decay = 0.996
-    while i < n:
-        j = min(i + p, n)
-        prev = out[i - p:j - p + 1]
-        out[i:j] = decay * 0.5 * (prev[:-1] + prev[1:]) if len(prev) > j - i else decay * prev[:j - i]
-        i = j
-    s = out[:n]
-    return s * adsr(n, 0.002, 2.0, 0.0, 0.12)
-
-
-def pad(freqs, dur):
-    n = int(dur * SR)
-    t = np.arange(n) / SR
-    s = np.zeros(n)
-    for f in freqs:
-        for det in (-0.12, 0.0, 0.13):
-            ph = rng.uniform(0, 2 * np.pi)
-            s += np.sin(2 * np.pi * f * (1 + det / 100) * t + ph) + 0.25 * np.sin(2 * np.pi * 2 * f * (1 + det / 100) * t + ph)
-    s /= len(freqs) * 3
-    return s * adsr(n, dur * 0.35, 9, 1.0, dur * 0.35)
-
-
-def bass(f, dur):
-    n = int(dur * SR)
-    t = np.arange(n) / SR
-    s = np.sin(2 * np.pi * f * t) + 0.3 * np.sin(2 * np.pi * 2 * f * t) * np.exp(-t * 3)
-    return s * adsr(n, 0.02, 0.9, 0.55, 0.2)
-
-
-def brush(dur=0.18):
-    n = int(dur * SR)
-    x = rng.standard_normal(n)
-    x = x - np.concatenate([[0], x[:-1]])  # aclarar (paso alto simple)
-    return x * adsr(n, 0.004, 0.05, 0.0, 0.05) * 0.25
-
-
-def star(f):
-    n = int(2.5 * SR)
-    t = np.arange(n) / SR
-    s = np.sin(2 * np.pi * f * t) + 0.3 * np.sin(2 * np.pi * f * 2.76 * t) * np.exp(-t * 4)
-    return s * adsr(n, 0.003, 0.7, 0.0, 0.4)
-
-
-# ---------------- composición ----------------
-for rep in range(4):
-    for k, (b, ch) in enumerate(PROG):
-        bar = rep * len(PROG) + k
-        t0 = bar * BAR
-        # pad de fondo (siempre)
-        put(pad([hz(n) for n in ch[:4]], BAR * 1.15), t0, 0.0, 0.32)
-        # bajo: desde la 2ª vuelta, redondas/blancas
-        if rep >= 1:
-            put(bass(hz(b), BEAT * 2.2), t0, 0, 0.42)
-            put(bass(hz(b), BEAT * 1.8), t0 + BEAT * 2.5, 0, 0.32)
-        # punteo de cuerda (fogata): corcheas en arpegio, desde el principio
-        pattern = [0, 2, 1, 3, 2, 4 % len(ch), 1, 3]
-        for i, idx in enumerate(pattern):
-            f = hz(ch[idx % len(ch)]) * (2 if rep == 2 and i % 4 == 3 else 1)
-            sw = 0.035 if i % 2 else 0  # un poco de swing
-            put(pluck(f, 1.6, 0.35 + 0.1 * (i % 2)), t0 + i * BEAT / 2 + sw, -0.35 + 0.1 * (i % 3), 0.26 * (1.0 if i % 2 == 0 else 0.75))
-        # piano eléctrico: acordes en 1 y en el «y» del 3 (vueltas 2 y 3)
-        if rep in (1, 2):
-            for tt, vel in ((0, 0.9), (2.5, 0.6)):
-                for j, nn in enumerate(ch[1:]):
-                    put(epiano(hz(nn), BEAT * 2.6, vel), t0 + tt * BEAT + j * 0.012, 0.3, 0.09)
-        # melodía de campana (vuelta 3): notas largas de la escala
-        if rep == 2:
-            mel = ["B4", "G#4", "E5", "F#5", "D#5", "E5", "C#5", "B4"][k]
-            put(epiano(hz(mel), BEAT * 3, 1.0), t0 + BEAT * 0.5, 0.15, 0.12)
-            put(star(hz(mel) * 2), t0 + BEAT * 2.75, 0.5, 0.04)
-        # escobilla: en los tiempos 2 y 4, desde la vuelta 2 (más floja en la 4)
-        if rep in (1, 2, 3):
-            for beat in (1, 3):
-                put(brush(), t0 + beat * BEAT, 0.25, 0.5 if rep < 3 else 0.3)
-            put(brush(0.08), t0 + 3.5 * BEAT, -0.2, 0.25)
-        # destellos (estrellas) sueltos, siempre
-        if rng.random() < 0.7:
-            f = hz(rng.choice(["E5", "B5", "G#5", "F#5", "B4"]))
-            put(star(f), t0 + rng.uniform(0, BAR), rng.uniform(-0.8, 0.8), 0.045)
-
-# ---------------- reverb (convolución FFT) + bucle continuo ----------------
-def reverb(x, secs=3.2, mix=0.32, seed=3):
+def reverb_circular(x, secs=6.0, mix=0.45, seed=5):
+    """reverb por convolución CIRCULAR (la cola vuelve al principio del bucle)"""
     r = np.random.default_rng(seed)
     n = int(secs * SR)
-    t = np.arange(n) / SR
-    ir = r.standard_normal(n) * np.exp(-t * 6.9 / secs)
-    ir[: int(0.012 * SR)] = 0  # pre-delay
+    tt = np.arange(n) / SR
+    ir = r.standard_normal(n) * np.exp(-tt * 6.9 / secs)
+    ir = np.fft.irfft(np.fft.rfft(ir) * band(30, 2500, 1.0)(np.fft.rfftfreq(n, 1 / SR)), n)  # reverb oscura
     ir /= np.sqrt((ir ** 2).sum())
-    m = len(x) + n
-    nfft = 1 << (m - 1).bit_length()
-    wet = np.fft.irfft(np.fft.rfft(x, nfft) * np.fft.rfft(ir, nfft), nfft)[:m]
-    return np.concatenate([x, np.zeros(n)]) * (1 - mix) + wet * mix * 3.0
+    irp = np.zeros(N)
+    irp[:n] = ir
+    wet = np.fft.irfft(np.fft.rfft(x) * np.fft.rfft(irp), N)
+    return x * (1 - mix) + wet * mix * 2.5
 
 
-L = reverb(mixL, seed=3)
-R = reverb(mixR, seed=4)
-# plegar la cola sobre el principio para que el bucle no tenga corte
-for ch in (L, R):
-    tail = ch[LEN:].copy()
-    ch[: len(tail)] += tail
-L, R = L[:LEN], R[:LEN]
+L, R = reverb_circular(L, seed=5), reverb_circular(R, seed=6)
 st = np.stack([L, R], 1)
-st /= np.abs(st).max() / 0.6
-# suave «cinta»: compresión ligera
-st = np.tanh(st * 1.3) / np.tanh(1.3)
+st /= np.abs(st).max() / 0.55
 
 os.makedirs(OUT, exist_ok=True)
 wav = os.path.join(OUT, "elysium-ambient.wav")
@@ -197,4 +137,4 @@ with wave.open(wav, "wb") as w:
 ogg = os.path.join(OUT, "elysium-ambient.ogg")
 subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", wav, "-c:a", "libvorbis", "-q:a", "5", ogg], check=True)
 os.remove(wav)
-print("ok:", ogg, "%.1f s" % (LEN / SR))
+print("ok:", ogg, "%.0f s" % DUR)

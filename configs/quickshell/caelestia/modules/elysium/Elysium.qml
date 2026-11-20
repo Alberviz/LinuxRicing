@@ -391,7 +391,7 @@ Scope {
         loops: root.userTracks.length > 0 ? 1 : MediaPlayer.Infinite
         audioOutput: AudioOutput {
             device: mediaDevices.defaultAudioOutput
-            volume: 0.32 * root.musicLevel * (Laura.active ? 0.25 : 1)
+            volume: 0.6 * root.musicLevel * (Laura.active ? 0.25 : 1)
 
             Behavior on volume {
                 NumberAnimation {

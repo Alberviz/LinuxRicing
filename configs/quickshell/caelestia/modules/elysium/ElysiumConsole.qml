@@ -49,8 +49,8 @@ PanelWindow {
         },
         {
             "system": "music",
-            "name": qsTr("Música"),
-            "subtitle": elysium.musicOn ? (elysium.userTracks.length ? qsTr("Sonando tu música (%1 pistas en ~/Música/Elysium) · A para quitarla").arg(elysium.userTracks.length) : qsTr("Sonando la música de Elysium · A para quitarla")) : qsTr("En silencio · A para poner música"),
+            "name": qsTr("Ambiente"),
+            "subtitle": elysium.musicOn ? (elysium.userTracks.length ? qsTr("Sonando tu música (%1 pistas en ~/Música/Elysium) · A para quitarla").arg(elysium.userTracks.length) : qsTr("Sonando el ambiente espacial de Elysium · A para quitarlo")) : qsTr("En silencio · A para poner música"),
             "tag": qsTr("Ambiente"),
             "glyph": elysium.musicOn ? "music_note" : "music_off"
         },
