@@ -66,12 +66,26 @@ PanelWindow {
     }
 
     Item {
+        id: bg
+
         anchors.fill: parent
         visible: !win.off
 
-        // Cielo + horizonte, igual que en la tele pero quieto.
+        // ---------- fondo ----------
+        // Geometría del planeta de la tele (mismo círculo que ElysiumConsole: diámetro 2,4 × ancho,
+        // borde superior al 72 % del alto) pasada a coordenadas del portátil. Con la tele encima,
+        // el portátil queda DENTRO del planeta: se dibuja su interior (continuación de la tele).
+        readonly property var tv: win.elysium.tvScreen
+        readonly property var lap: win.screen
+        readonly property real pR: tv ? tv.width * 1.2 : 0
+        readonly property real pcx: tv ? tv.x + tv.width / 2 - lap.x : 0
+        readonly property real pcy: tv ? tv.y + tv.height * 0.72 + pR - lap.y : 0
+        readonly property bool inside: !!tv && Math.hypot(pcx - win.width / 2, pcy) < pR
+
+        // Exterior (tele al lado o sin tele): cielo con estrellas y el limbo abajo.
         Rectangle {
             anchors.fill: parent
+            visible: !parent.inside
             gradient: Gradient {
                 GradientStop {
                     position: 0
@@ -85,7 +99,7 @@ PanelWindow {
         }
 
         Repeater {
-            model: 90
+            model: parent.inside ? 0 : 90
 
             Rectangle {
                 required property int index
@@ -109,6 +123,7 @@ PanelWindow {
             readonly property real hz: win.height * 0.9
 
             anchors.fill: parent
+            visible: !parent.inside
             preferredRendererType: Shape.CurveRenderer
 
             ShapePath {
@@ -122,6 +137,92 @@ PanelWindow {
                     radiusY: limb.rr
                     startAngle: 180
                     sweepAngle: 180
+                }
+            }
+        }
+
+        // Interior del planeta: negro que continúa el de la tele y un núcleo que brilla abajo.
+        Rectangle {
+            anchors.fill: parent
+            visible: parent.inside
+            gradient: Gradient {
+                GradientStop {
+                    position: 0
+                    color: "#000000"
+                }
+                GradientStop {
+                    position: 0.55
+                    color: "#010103"
+                }
+                GradientStop {
+                    position: 1
+                    color: Qt.tint("#020206", Qt.alpha(win.accent, 0.10))
+                }
+            }
+        }
+
+        // Estratos: círculos concéntricos al del planeta, como horizontes anidados.
+        Shape {
+            id: strata
+
+            anchors.fill: parent
+            visible: parent.inside
+            preferredRendererType: Shape.CurveRenderer
+
+            Stratum {
+                k: 0.93
+                a: 0.30
+            }
+            Stratum {
+                k: 0.855
+                a: 0.22
+            }
+            Stratum {
+                k: 0.77
+                a: 0.16
+            }
+            Stratum {
+                k: 0.67
+                a: 0.11
+            }
+            Stratum {
+                k: 0.56
+                a: 0.08
+            }
+        }
+
+        // Aro de trazos que gira lentísimo alrededor del centro del planeta.
+        Shape {
+            anchors.fill: parent
+            visible: parent.inside
+            preferredRendererType: Shape.CurveRenderer
+
+            ShapePath {
+                id: orbit
+
+                property real rot: 0
+
+                fillColor: "transparent"
+                strokeColor: Qt.alpha(win.accent, 0.35)
+                strokeWidth: 1.6
+                strokeStyle: ShapePath.DashLine
+                dashPattern: [1, 14]
+                dashOffset: rot
+                PathAngleArc {
+                    centerX: bg.pcx
+                    centerY: bg.pcy
+                    radiusX: bg.pR * 0.81
+                    radiusY: bg.pR * 0.81
+                    startAngle: 0
+                    sweepAngle: 360
+                }
+
+                NumberAnimation on rot {
+                    from: 0
+                    to: -1500
+                    duration: 240000
+                    loops: Animation.Infinite
+                    running: bg.inside && !win.off && win.visible
                 }
             }
         }
@@ -555,6 +656,25 @@ PanelWindow {
         anchors.fill: parent
         visible: win.off
         onClicked: win.elysium.setCompanion("apoyo")
+    }
+
+    component Stratum: ShapePath {
+        id: st
+
+        property real k
+        property real a
+
+        fillColor: "transparent"
+        strokeColor: Qt.alpha(win.accent, st.a)
+        strokeWidth: 1.5
+        PathAngleArc {
+            centerX: bg.pcx
+            centerY: bg.pcy
+            radiusX: bg.pR * st.k
+            radiusY: bg.pR * st.k
+            startAngle: 0
+            sweepAngle: 360
+        }
     }
 
     component Caption: StyledText {

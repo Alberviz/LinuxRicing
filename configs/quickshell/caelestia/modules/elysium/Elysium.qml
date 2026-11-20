@@ -238,8 +238,13 @@ Scope {
             Notifs.dnd = false;
         lauraCmd("gamemode off");
         Quickshell.execDetached(["rm", "-f", `${Quickshell.env("XDG_RUNTIME_DIR")}/elysium-active`]);
-        if (onTv)
+        // Con un juego abierto en la tele, salir de Elysium no le quita la pantalla ni el audio.
+        if (onTv && !playing)
             tvTeardown();
+        else if (onTv) {
+            tvRules(false);
+            onTv = false;
+        }
         if (lauraStoppedForGame) {
             lauraStoppedForGame = false;
             LauraService.start();
