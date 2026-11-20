@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+"""elysium-close <clase> [patrón] — cierra un juego: TERM al proceso dueño de la
+ventana de esa clase (y a lo que case con el patrón: lanzadores), y KILL a los 4 s
+si sigue vivo."""
+import json, os, signal, subprocess, sys, time
+
+cls = sys.argv[1]
+pat = sys.argv[2] if len(sys.argv) > 2 else None
+
+
+def pids():
+    out = set()
+    try:
+        out |= {c["pid"] for c in json.loads(subprocess.run(["hyprctl", "clients", "-j"], capture_output=True, text=True).stdout) if c["class"] == cls}
+    except ValueError:
+        pass
+    if pat:
+        r = subprocess.run(["pgrep", "-f", pat], capture_output=True, text=True).stdout.split()
+        out |= {int(p) for p in r if int(p) != os.getpid()}
+    return out
+
+
+for sig, wait in ((signal.SIGTERM, 4), (signal.SIGKILL, 0)):
+    ps = pids()
+    if not ps:
+        break
+    for p in ps:
+        try:
+            os.kill(p, sig)
+        except OSError:
+            pass
+    time.sleep(wait)

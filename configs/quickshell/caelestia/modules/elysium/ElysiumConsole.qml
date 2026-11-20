@@ -64,9 +64,26 @@ PanelWindow {
             launchSeq.start();
     }
 
+    property bool confirmClose: false
+
     function pad(b: string): void {
         if (launching)
             return;
+        // Diálogo «¿Cerrar el juego?»: A cierra, B (o Y otra vez) cancela.
+        if (confirmClose) {
+            if (b === "a" || b === "start") {
+                confirmClose = false;
+                elysium.closeGame();
+            } else if (b === "b" || b === "y" || b === "home") {
+                confirmClose = false;
+            }
+            return;
+        }
+        if (b === "y") {
+            if (isRunning)
+                confirmClose = true;
+            return;
+        }
         if (b === "left")
             index = Math.max(0, index - 1);
         else if (b === "right")
@@ -124,7 +141,9 @@ PanelWindow {
                 [Qt.Key_Return]: "a",
                 [Qt.Key_Enter]: "a",
                 [Qt.Key_Space]: "a",
-                [Qt.Key_Backspace]: "b"
+                [Qt.Key_Backspace]: "b",
+                [Qt.Key_Y]: "y",
+                [Qt.Key_Delete]: "y"
             };
             // Esc desde teclado: salida inmediata, siempre.
             if (e.key === Qt.Key_Escape) {
@@ -723,8 +742,160 @@ PanelWindow {
             }
 
             Hint {
+                visible: win.isRunning
+                letter: "Y"
+                label: qsTr("Cerrar juego")
+            }
+
+            Hint {
                 letter: "⌂"
                 label: qsTr("Mantener: Laura")
+            }
+        }
+
+        // --- diálogo «¿Cerrar el juego?» ---
+        Rectangle {
+            anchors.fill: parent
+            color: Qt.rgba(0, 0, 0, 0.6)
+            opacity: win.confirmClose ? 1 : 0
+            visible: opacity > 0
+
+            Behavior on opacity {
+                NumberAnimation {
+                    duration: 200
+                }
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                onClicked: win.confirmClose = false
+            }
+
+            Rectangle {
+                anchors.centerIn: parent
+                width: 560
+                height: dlg.implicitHeight + 72
+                radius: 28
+                color: Colours.palette.m3surfaceContainer
+                border.width: 1
+                border.color: Qt.alpha(Colours.palette.m3error, 0.45)
+                scale: win.confirmClose ? 1 : 0.92
+
+                Behavior on scale {
+                    NumberAnimation {
+                        duration: 260
+                        easing.type: Easing.OutBack
+                        easing.overshoot: 1.4
+                    }
+                }
+
+                Column {
+                    id: dlg
+
+                    anchors.centerIn: parent
+                    width: parent.width - 72
+                    spacing: 14
+
+                    MaterialIcon {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: "power_settings_new"
+                        color: Colours.palette.m3error
+                        fill: 1
+                        fontStyle: Tokens.font.icon.builders.medium.scale(1.8).build()
+                    }
+
+                    StyledText {
+                        width: parent.width
+                        horizontalAlignment: Text.AlignHCenter
+                        text: qsTr("¿Cerrar %1?").arg(win.elysium.runningGame?.subtitle?.split(" · ")[0] ?? qsTr("el juego"))
+                        color: Colours.palette.m3onSurface
+                        font: Tokens.font.title.large
+                        wrapMode: Text.WordWrap
+                    }
+
+                    StyledText {
+                        width: parent.width
+                        horizontalAlignment: Text.AlignHCenter
+                        text: qsTr("Lo que no hayas guardado se perderá.")
+                        color: Colours.palette.m3onSurfaceVariant
+                        font: Tokens.font.body.large
+                    }
+
+                    Item {
+                        width: 1
+                        height: 10
+                    }
+
+                    Row {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        spacing: 16
+
+                        Rectangle {
+                            implicitHeight: 52
+                            implicitWidth: closeRow.implicitWidth + 40
+                            radius: 26
+                            color: Colours.palette.m3error
+
+                            Row {
+                                id: closeRow
+
+                                anchors.centerIn: parent
+                                spacing: 12
+
+                                Glyph {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    letter: "A"
+                                    tone: Colours.palette.m3onError
+                                }
+
+                                StyledText {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: qsTr("Cerrar juego")
+                                    color: Colours.palette.m3onError
+                                    font: Tokens.font.title.medium
+                                }
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: win.pad("a")
+                            }
+                        }
+
+                        Rectangle {
+                            implicitHeight: 52
+                            implicitWidth: cancelRow.implicitWidth + 40
+                            radius: 26
+                            color: Qt.alpha(Colours.palette.m3onSurface, 0.08)
+
+                            Row {
+                                id: cancelRow
+
+                                anchors.centerIn: parent
+                                spacing: 12
+
+                                Glyph {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    letter: "B"
+                                }
+
+                                StyledText {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: qsTr("Cancelar")
+                                    color: Colours.palette.m3onSurface
+                                    font: Tokens.font.title.medium
+                                }
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: win.pad("b")
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -832,6 +1003,10 @@ PanelWindow {
         function onGameReadyChanged(): void {
             if (win.elysium.gameReady && win.launching)
                 fadeOut.start();
+        }
+
+        function onConsoleShownChanged(): void {
+            win.confirmClose = false;
         }
 
         function onActiveChanged(): void {

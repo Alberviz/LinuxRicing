@@ -160,6 +160,18 @@ Scope {
         }
     }
 
+    // Cierra el juego abierto (TERM y, si a los 4 s sigue vivo, KILL) y vuelve al menú.
+    function closeGame(): void {
+        const g = runningGame;
+        if (!g)
+            return;
+        Quickshell.execDetached([`${Quickshell.env("HOME")}/.local/bin/elysium-close`, g.wmClass ?? "", g.proc]);
+        playing = false;
+        summoned = false;
+        gameReady = true;
+        runningGame = null;
+    }
+
     function launch(g: var): void {
         runningGame = g;
         focusTv();
@@ -393,6 +405,11 @@ except Exception: pass`]);
                 root.launch(g);
             root.summoned = false;
             return `${g.name} · ${g.subtitle}`;
+        }
+
+        // Simula un botón del mando (depuración): a b x y start select home up down left right
+        function pad(b: string): void {
+            root.handle(b);
         }
 
         function list(): string {
