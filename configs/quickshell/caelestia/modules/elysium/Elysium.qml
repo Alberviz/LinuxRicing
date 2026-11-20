@@ -138,7 +138,7 @@ Scope {
     function lauraCmd(cmd: string): void {
         Quickshell.execDetached(["python3", "-c", `import socket,os
 try:
-    s=socket.socket(socket.AF_UNIX);s.settimeout(1.5);s.connect(os.environ["XDG_RUNTIME_DIR"]+"/laura.sock");s.sendall(b"${cmd}\\n")
+    s=socket.socket(socket.AF_UNIX);s.settimeout(1.5);s.connect(os.environ["XDG_RUNTIME_DIR"]+"/laura.sock");s.sendall(b"${cmd}\\n");s.recv(512)
 except Exception: pass`]);
     }
 
