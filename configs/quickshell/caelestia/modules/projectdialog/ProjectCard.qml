@@ -16,14 +16,18 @@ StyledRect {
     property color iconColor: Colours.palette.m3primary
     property color iconBgColor: Qt.alpha(Colours.palette.m3primary, 0.18)
 
+    property bool current: false
+
     signal clicked
 
     implicitWidth: 460
     implicitHeight: 74
     radius: Tokens.rounding.large
-    color: stateLayer.containsMouse || activeFocus ? Colours.palette.m3surfaceContainerHighest : Colours.palette.m3surfaceContainerHigh
-    border.width: stateLayer.containsMouse || activeFocus ? 1.5 : 1
-    border.color: stateLayer.containsMouse || activeFocus ? root.iconColor : Colours.palette.m3outlineVariant
+    color: stateLayer.containsMouse || activeFocus ? Colours.palette.m3surfaceContainerHighest : root.current ? Qt.alpha(root.iconColor, 0.12) : Colours.palette.m3surfaceContainerHigh
+    border.width: stateLayer.containsMouse || activeFocus || root.current ? 1.5 : 1
+    border.color: stateLayer.containsMouse || activeFocus || root.current ? root.iconColor : Colours.palette.m3outlineVariant
+
+    opacity: enabled ? 1 : 0.45
 
     scale: stateLayer.pressed ? 0.98 : (stateLayer.containsMouse || activeFocus) ? 1.015 : 1.0
 
@@ -50,6 +54,7 @@ StyledRect {
 
         anchors.fill: parent
         radius: root.radius
+        disabled: !root.enabled
         onClicked: root.clicked()
     }
 
@@ -96,6 +101,13 @@ StyledRect {
                 color: Colours.palette.m3onSurfaceVariant
                 elide: Text.ElideRight
             }
+        }
+
+        StyledText {
+            visible: root.current
+            text: qsTr("Activo")
+            font: Tokens.font.label.small
+            color: root.iconColor
         }
 
         // Shortcut pill

@@ -1,7 +1,7 @@
 ---
 fileClass: Backlog
 tipo: tarea
-estado: pendiente
+estado: idea
 prioridad: 3
 area: rgb
 origen: Alberto

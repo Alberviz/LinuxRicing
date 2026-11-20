@@ -58,6 +58,17 @@ hl.monitor({
     scale    = 1,
 })
 
+-- La tele del salón (este monitor exacto, por su descripción): siempre ENCIMA del portátil,
+-- así lo que ve el portátil en Elysium es la continuación del planeta de la tele.
+-- (Si se configura distinto desde el diálogo de proyectar, display-mode respeta lo de
+-- ~/.config/caelestia/monitor-layout.json.)
+hl.monitor({
+    output   = "desc:Samsung Electric Company SyncMaster H1AK500000",
+    mode     = "preferred",
+    position = "0x-1080",
+    scale    = 1,
+})
+
 hl.monitor({
     output   = "",
     mode     = "preferred",

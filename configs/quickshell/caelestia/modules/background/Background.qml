@@ -84,10 +84,10 @@ Variants {
                 anchors.fill: parent
                 // v3 (D-1): wallpaper apagado por defecto; fondo negro. Restaurable
                 // con SolarSystemModel.showWallpaper = true. No se borra Wallpaper.qml.
-                // En ahorro de energía se muestra el wallpaper estático (coste ~0)
+                // En ahorro de energía o modo juego se muestra el wallpaper estático (coste ~0)
                 // en vez del negro: lo caro (shader del sistema solar, reloj,
                 // widgets) sigue descargado, pero el fondo deja de ser negro plano.
-                active: Config.background.wallpaperEnabled && (SolarSystemModel.showWallpaper || PowerSaving.active)
+                active: Config.background.wallpaperEnabled && (SolarSystemModel.showWallpaper || PowerSaving.active || GameMode.enabled)
 
                 sourceComponent: Wallpaper {}
             }

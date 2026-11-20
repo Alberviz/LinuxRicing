@@ -51,6 +51,7 @@ kokoro, sounddevice, soundfile; `playerctl`, `wpctl`, `ffmpeg`, `xdg-open`.
 - «abre Spotify» / «abre la terminal» / «abre el navegador»
 - «haz una captura» · «bloquea la pantalla»
 - combinaciones: «quita la música y abre Google»
+- **Hologramas de archivos**: «lístame las descargas», «ábreme la 1 y la 2», «envía esa al móvil», «cierra todo» (ver [`docs/LAURA-HOLO.md`](../docs/LAURA-HOLO.md))
 - cualquier pregunta normal → responde hablando, sin acción
 
 ## Configurar

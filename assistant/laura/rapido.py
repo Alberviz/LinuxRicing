@@ -31,7 +31,7 @@ class Atajo:
     args: dict = field(default_factory=dict)
 
 
-_N = (r"(?:\s+(?:un poco|un poquito|(?:(?:en\s+)?un\s+)?(?P<n>\d{1,3}|" + "|".join(_NUMEROS)
+_N = (r"(?:(?:\s+(?:un poco|un poquito))|(?:\s+(?:(?:en\s+)?un\s+)?(?P<n>\d{1,3}|" + "|".join(_NUMEROS)
       + r")(?:\s*%|\s+por\s*ciento)?))?")
 
 
@@ -52,12 +52,12 @@ _REGLAS: list[tuple[str, Callable[[re.Match], Atajo]]] = [
      lambda m: Atajo("control_musica", {"accion": "anterior"})),
     (r"(?:para|quita|apaga) la musica",
      lambda m: Atajo("control_musica", {"accion": "parar"})),
-    (r"(?:sube(?:me)?(?:lo)?(?: el)? volumen|subelo|mas volumen|aumenta el volumen)" + _N, lambda m: Atajo("volumen", {"porcentaje": _num(m)})),
-    (r"(?:baja(?:me)?(?:lo)?(?: el)? volumen|bajalo|menos volumen|reduce el volumen)" + _N, lambda m: Atajo("volumen", {"porcentaje": -_num(m)})),
+    (r"(?:(?:sube(?:me)?(?:lo)?|aumenta|mas)(?:\s+(?:un poco|un poquito))?(?:\s+(?:el\s+)?volumen)?|subelo)" + _N, lambda m: Atajo("volumen", {"porcentaje": _num(m)})),
+    (r"(?:(?:baja(?:me)?(?:lo)?|reduce|menos)(?:\s+(?:un poco|un poquito))?(?:\s+(?:el\s+)?volumen)?|bajalo)" + _N, lambda m: Atajo("volumen", {"porcentaje": -_num(m)})),
     (r"silencia(?:lo)?(?: el (?:audio|sonido))?|mutea(?:lo)?|quita el sonido",
      lambda m: Atajo("silenciar")),
-    (r"(?:sube(?:me)?(?: el)? brillo|mas brillo|aumenta el brillo)" + _N, lambda m: Atajo("brillo", {"cambio": _num(m)})),
-    (r"(?:baja(?:me)?(?: el)? brillo|menos brillo|reduce el brillo)" + _N, lambda m: Atajo("brillo", {"cambio": -_num(m)})),
+    (r"(?:(?:sube(?:me)?(?: el)?|aumenta|mas)(?:\s+(?:un poco|un poquito))?(?:\s+(?:el\s+)?brillo)?|mas brillo)" + _N, lambda m: Atajo("brillo", {"cambio": _num(m)})),
+    (r"(?:(?:baja(?:me)?(?: el)?|reduce|menos)(?:\s+(?:un poco|un poquito))?(?:\s+(?:el\s+)?brillo)?|menos brillo)" + _N, lambda m: Atajo("brillo", {"cambio": -_num(m)})),
     (r"que hora es", lambda m: Atajo("hora_fecha")),
     (r"bloquea(?: la pantalla| el (?:ordenador|pc)| la sesion)?(?:\s+que me voy.*)?", lambda m: Atajo("bloquear_pantalla")),
     (r"(?:haz(?:me)?|saca(?:me)?) una captura(?: de pantalla)?|saca un pantallazo", lambda m: Atajo("captura_pantalla")),

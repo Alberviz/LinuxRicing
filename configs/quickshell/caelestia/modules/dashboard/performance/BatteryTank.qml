@@ -98,14 +98,18 @@ StyledClippingRect {
                 if (s === 0)
                     return "...";
 
+                const end = new Date(Time.date.getTime() + s * 1000);
+                const endStr = Qt.formatTime(end, Units.twelveHourClock ? "h:mm ap" : "HH:mm");
+
                 const hr = Math.floor(s / 3600);
                 const min = Math.floor((s % 3600) / 60);
-                if (hr > 0)
+                const rem = hr > 0
                     // TRANSLATORS: %1 = hours, %2 = minutes
-                    return Tr.trCtx("%1h %2m", "battery time remaining").arg(hr).arg(min);
+                    ? Tr.trCtx("%1h %2m", "battery time remaining").arg(hr).arg(min)
+                    // TRANSLATORS: %1 = minutes
+                    : Tr.trCtx("%1m", "battery time remaining").arg(min);
 
-                // TRANSLATORS: %1 = minutes
-                return Tr.trCtx("%1m", "battery time remaining").arg(min);
+                return `${rem} · ~${endStr}`;
             }
             color: contents.subTextColour
             font: Tokens.font.body.small

@@ -12,7 +12,7 @@
 ## Coordinación multi-agente
 
 Alberto usa Claude y Gemini a la vez en este repo, misma identidad git. Reparto habitual:
-**Gemini = `vault/`**; **Claude = `rgb/`, `configs/quickshell/`, `widgets/`, `docs/`,
+**Gemini = `vault/`** (apuntes y diario; las tareas no: van a Olimpo); **Claude = `rgb/`, `configs/quickshell/`, `widgets/`, `docs/`,
 `hardware/`, `install.sh`, `systemd/`**. `git fetch` a menudo; commitear pronto (un
 `git add -A` del otro agente puede barrer tu working tree a medias).
 
@@ -20,25 +20,29 @@ Alberto usa Claude y Gemini a la vez en este repo, misma identidad git. Reparto 
 `ydotool` / `hyprctl dispatch 'hl.dsp.cursor.move(...)'`, avisa antes y no uses los workspaces donde
 otro agente esté probando; un clic tuyo puede caer sobre la UI de otro (pasó con el widget de tareas).
 
-## Backlog de tareas y bitácora de sesiones
+## Tareas en Olimpo (única fuente, desde noviembre de 2026)
 
-`vault/🎯 Hoy.md` (+ `vault/Backlog.base` + carpeta `vault/Backlog/`) es la lista viva y
-priorizada de tareas que Alberto abre cada día. **Mantenerla es trabajo de los agentes,
-no de Alberto:**
+Las tareas, el roadmap y lo que hacen los agentes viven en **Olimpo** (la app de Alberto en la Pi). El vault de
+Obsidian, las carpetas `Backlog/`, `vault/🎯 Hoy.md`, `tasks-index`, el widget de tareas y la «bitácora de sesiones»
+quedan **obsoletos**: no crees notas de tarea ni escribas bitácoras ahí. Si encuentras una nota de tarea antigua, no la toques.
 
-- **Atajo:** crear o cambiar de estado una tarea se hace con `tasks-index add|set` (ver «Sistema de tareas de
-  Alberto» al final); lo de abajo describe lo que hace por dentro.
-- **Cuando Alberto diga «añade una tarea», «esto para el futuro», «apunta que hay
-  que…» o similar:** crea `vault/Backlog/<título>.md` con frontmatter `tipo: tarea`,
-  `estado: pendiente`, `prioridad` (1 urgente … 5 algún día), `area`, `origen: Alberto`,
-  `esfuerzo` (S/M/L) y `creado: <fecha ISO>`. Con eso aparece sola en las vistas.
-- **Al ponerte a trabajar en una tarea del backlog:** cambia su nota a `estado:
-  en-curso`. **Al terminar:** `estado: hecha` — nunca borres la nota, la vista «Hechas»
-  es el registro de lo hecho.
-- **Al cerrar la sesión:** añade UNA línea arriba del todo de la sección «📓 Bitácora de
-  sesiones» de `vault/🎯 Hoy.md`: `- **<fecha> · <agente>** — <qué hiciste>`.
-- Los proyectos grandes siguen viviendo en `Roadmap Maestro de Innovaciones.md`; el
-  Backlog es la rodaja accionable y enlaza al roadmap.
+- **Proyecto:** `linuxricing`. Pásalo siempre (`olimpo --proyecto linuxricing …`) si la CLI no lo deduce del repo git.
+- **Antes de crear, busca:** `olimpo buscar "<palabras>"`. Para crear, sigue `olimpo plantillas`: elige el tipo
+  (`error`, `funcionalidad`, `investigacion`, `recado`), escribe sus secciones y un resumen vivo:
+  `olimpo tarea crear --tipo funcionalidad --resumen "…" --notas "…" "Título"`. Si responde con `parecidas`, díselo a Alberto.
+- **Tarea = lo que Alberto pide** («apunta…», «añade una tarea…»). Lo que sea «para el futuro» va al Desván como idea
+  (`olimpo idea --help`). No inventes tareas.
+- **Al empezar:** `olimpo tarea empezar <id>`. **Al terminar:** `olimpo tarea hecha <id>`. Los hallazgos van como
+  aportes (`olimpo tarea aportar <id> "…"`) y el resumen se reescribe con `olimpo tarea resumir`. Nunca borres tareas.
+- **«Al foco» / «para hoy»:** el foco del día son las tareas que Alberto ve primero en Inicio. La tarea debe existir ya
+  en Olimpo. `olimpo foco` lo muestra y `olimpo foco --fijar <id> <id>…` lo **reemplaza entero**: léelo antes y pasa los
+  ids que ya había más el nuevo. No lo confundas con `olimpo tarea empezar`, que solo cambia el estado a `en_curso`.
+- **Lo que has hecho en la sesión:** un aporte en la tarea en la que trabajaste (qué hiciste, qué falta, commits). Es
+  lo que Alberto lee al volver; sustituye a la bitácora.
+- Roadmap: `olimpo roadmap`; versiones: `olimpo version`. Si Alberto menciona una tarea de OTRO proyecto, créala en
+  el suyo con `--proyecto <slug>`.
+- **Firma:** los agentes firman como `claude-pc` (la variable `OLIMPO_TOKEN_FILE` del entorno). Si en el historial sale
+  «laura», falta esa variable: avisa a Alberto; no uses `~/.config/olimpo/cli.json`, que es de Laura.
 
 ## Conocimiento de hardware
 
@@ -50,8 +54,6 @@ relato.
 
 ## Copias que deben ir idénticas
 
-- `widgets/Background.qml` ⇔ `configs/quickshell/caelestia/modules/background/Background.qml`
-  (verificar con `diff -q`, sin salida).
 - `rgb/mchose-battery` ⇔ `widgets/mchose-battery` (verificar con `diff -q`, sin salida).
 
 ## Reinicio obligatorio del Shell tras cambios en UI/Widgets
@@ -64,49 +66,3 @@ relato.
      ```
   3. Comprobar que la salida confirme `INFO: Configuration Loaded` sin errores de sintaxis o propiedades QML.
 
-## Sistema de tareas de Alberto (todos los repos)
-
-Las tareas de Alberto son **notas de Obsidian** en el `Backlog/` de cada repo; un indexador las
-agrupa y las muestran el **widget de tareas** (debajo del reloj del escritorio), el **cometa** del
-sistema solar y **Laura** (por voz). Para este repo (`LinuxRicing`) las notas viven en `vault/Backlog/`.
-
-Además de las tareas, `vault/🎯 Hoy.md` tiene la bitácora de sesiones y las vistas (Ideas, Pendiente, En curso, Terminado).
-
-**Formato** — un `.md` por tarea (el nombre del archivo es el título) con este frontmatter:
-
-```yaml
----
-fileClass: Backlog
-tipo: tarea
-estado: pendiente        # pendiente | en-curso | hecha | idea  (otro valor = se ignora en silencio)
-prioridad: 3             # 1 urgente … 5 algún día
-area: general
-origen: Alberto
-esfuerzo: M              # S | M | L
-creado: 2026-10-05
-tags:
-  - backlog
----
-```
-
-**Cómo crear y cambiar tareas — usa siempre el CLI, no escribas la nota a mano:**
-
-```bash
-tasks-index add LinuxRicing "Título de la tarea" -p 3 -a area   # crea la nota (estado: pendiente)
-tasks-index set LinuxRicing "parte del título" en-curso          # cambia SOLO la línea `estado:`
-tasks-index scan                                            # fuerza el refresco (si no, cada 30 s)
-```
-
-`set` busca por coincidencia aproximada: si el nombre es ambiguo devuelve `candidatos` y no toca
-nada. Los repos registrados están en `~/.config/caelestia/task-repos.json` (`LinuxRicing`,
-`Universidad`, `Minecraft`, `Gym`, `BarberBot`, `VuelosViajes`, `WebLaura`); un repo nuevo = una línea ahí + su `Backlog/`.
-
-**Reglas**
-- **Tarea = lo que Alberto te pide explícitamente** («apunta…», «añade una tarea…»). Las ideas
-  sueltas, lo muy complejo o lo «para el futuro» van con `estado: idea` (no salen en el widget).
-  No inventes tareas por tu cuenta.
-- Al **empezar** una tarea: `estado: en-curso`. Al **terminar**: `estado: hecha`. **Nunca borres**
-  la nota (la vista de «Hechas» es el registro).
-- Si Alberto menciona una tarea de OTRO repo, créala en el suyo (`tasks-index add <Repo> …`).
-- La nota nueva debe estar en el `Backlog/` de ESTE repo; si no sale en el widget, ejecuta
-  `tasks-index scan` y mira que el `estado` sea uno de los cuatro valores válidos.

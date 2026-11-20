@@ -9,6 +9,7 @@ import Caelestia.I18n
 import qs.components
 import qs.components.controls
 import qs.services
+import qs.modules.assistant
 import qs.modules.nexus
 import qs.modules.bar.popouts as BarPopouts
 
@@ -140,11 +141,12 @@ StyledRect {
                     }
                 }
                 DelegateChoice {
-                    roleValue: "serverMode"
-                    delegate: HoldToggle {
-                        icon: "dns"
-                        inactiveOnColour: Colours.palette.m3onSurfaceVariant
-                        onHeld: ServerMode.activate()
+                    roleValue: "laura"
+                    delegate: Toggle {
+                        // Encendida o arrancando; el progreso se ve en los avisos de LauraService.
+                        icon: LauraService.busy ? "hourglass_top" : "auto_awesome"
+                        checked: LauraService.on || LauraService.state === "starting"
+                        onClicked: LauraService.toggle()
                     }
                 }
                 DelegateChoice {

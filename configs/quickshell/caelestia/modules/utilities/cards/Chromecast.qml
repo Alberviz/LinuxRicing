@@ -3,10 +3,10 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
+import Quickshell.Io
 import Caelestia.Config
 import qs.components
 import qs.components.controls
-import qs.components.filedialog
 import qs.services
 import qs.modules.cast
 
@@ -39,7 +39,7 @@ StyledRect {
     implicitHeight: nonAnimHeight
 
     radius: Tokens.rounding.large
-    color: Colours.tPalette.m3surfaceContainer
+    color: Colours.palette.m3surfaceContainer
     clip: true
 
     // Sin animar la altura al crearse (el panel se construye al abrirlo): si no, la tarjeta crece desde 0
@@ -73,28 +73,79 @@ StyledRect {
             return Cast.normalizeTarget(drop.urls[0].toString());
         if (drop.hasText) {
             const t = Cast.normalizeTarget(drop.text);
-            if (t.startsWith("http://") || t.startsWith("https://") || t.startsWith("/"))
+            if (t.startsWith("http://") || t.startsWith("https://") || t.startsWith("magnet:") || t.startsWith("/"))
                 return t;
         }
         return "";
     }
 
     function pick(): void {
+        if (Cast.selectedDevice && Cast.selectedDevice.online === false) {
+            Cast.cmdError = "La tele está desconectada (enciéndela primero)";
+            return;
+        }
+        if (zenityProc.running)
+            return;
         Cast.picking = true;
-        dialog.open();
+        zenityProc.running = true;
     }
 
-    FileDialog {
-        id: dialog
-
-        title: "Elegir vídeo para Chromecast"
-        filterLabel: "Vídeo"
-        filters: ["mp4", "m4v", "mkv", "webm", "avi", "mov", "ts", "mp3", "flac"]
-        onAccepted: path => {
-            Cast.picking = false;
-            Cast.castSelected(Cast.normalizeTarget(path));
+    function pickLink(): void {
+        if (Cast.selectedDevice && Cast.selectedDevice.online === false) {
+            Cast.cmdError = "La tele está desconectada (enciéndela primero)";
+            return;
         }
-        onRejected: Cast.picking = false
+        if (zenityLinkProc.running)
+            return;
+        Cast.picking = true;
+        zenityLinkProc.running = true;
+    }
+
+    Process {
+        id: zenityLinkProc
+
+        command: [
+            "sh", "-c",
+            "clip=$(wl-paste -n 2>/dev/null | head -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'); case \"$clip\" in magnet:*|http://*|https://*) ;; *) clip='' ;; esac; exec zenity --entry --title='Enviar enlace o magnet a Chromecast' --text='Pega un enlace magnet:, URL o ruta:' --entry-text=\"$clip\""
+        ]
+
+        stdout: StdioCollector {
+            id: zenityLinkOut
+        }
+
+        onExited: code => {
+            Cast.picking = false;
+            if (code === 0) {
+                const p = zenityLinkOut.text.trim().split("\n")[0].trim();
+                if (p)
+                    Cast.castSelected(Cast.normalizeTarget(p));
+            }
+        }
+    }
+
+    Process {
+        id: zenityProc
+
+        command: [
+            "zenity",
+            "--file-selection",
+            "--title=Elegir vídeo para Chromecast",
+            "--file-filter=Vídeos, torrents y música (*.mp4, *.mkv, *.torrent, ...) | *.mp4 *.m4v *.mkv *.webm *.avi *.mov *.ts *.torrent *.mp3 *.flac *.wav *.ogg *.m4a",
+            "--file-filter=Todos los archivos | *"
+        ]
+
+        stdout: StdioCollector {
+            id: zenityOut
+        }
+
+        onExited: code => {
+            Cast.picking = false;
+            if (code === 0) {
+                const p = zenityOut.text.trim().split("\n")[0].trim();
+                if (p)
+                    Cast.castSelected(Cast.normalizeTarget(p));
+            }
+        }
     }
 
     DropArea {
@@ -103,6 +154,10 @@ StyledRect {
         anchors.fill: parent
         keys: ["text/uri-list", "text/plain"]
         onDropped: drop => {
+            if (Cast.selectedDevice && Cast.selectedDevice.online === false) {
+                Cast.cmdError = "La tele está desconectada (enciéndela primero)";
+                return;
+            }
             const t = root.dropTarget(drop);
             if (t)
                 Cast.castSelected(t);
@@ -129,21 +184,25 @@ StyledRect {
         }
 
         RowLayout {
+            id: idleRow
+
             Layout.fillWidth: true
             spacing: Tokens.spacing.medium
+
+            readonly property bool isOffline: Cast.selectedDevice && Cast.selectedDevice.online === false
 
             StyledRect {
                 implicitWidth: implicitHeight
                 implicitHeight: idleIcon.implicitHeight + Tokens.padding.large
                 radius: Tokens.rounding.full
-                color: Colours.palette.m3secondaryContainer
+                color: idleRow.isOffline ? Colours.tPalette.m3surfaceContainerHigh : Colours.palette.m3secondaryContainer
 
                 MaterialIcon {
                     id: idleIcon
 
                     anchors.centerIn: parent
-                    text: Cast.devices.length > 0 ? "cast" : "search"
-                    color: Colours.palette.m3onSecondaryContainer
+                    text: idleRow.isOffline ? "tv_off" : (Cast.devices.length > 0 ? "cast" : "search")
+                    color: idleRow.isOffline ? Colours.palette.m3outline : Colours.palette.m3onSecondaryContainer
                     fontStyle: Tokens.font.icon.large
                 }
             }
@@ -154,14 +213,19 @@ StyledRect {
 
                 StyledText {
                     Layout.fillWidth: true
-                    text: Cast.devices.length > 0 ? "Enviar a " + root.deviceName : "Chromecast"
+                    text: idleRow.isOffline
+                        ? (root.deviceName ? root.deviceName + " (Sin conexión)" : "Tele desconectada")
+                        : (Cast.devices.length > 0 ? "Enviar a " + root.deviceName : "Chromecast")
                     font: Tokens.font.body.medium
+                    color: idleRow.isOffline ? Colours.palette.m3onSurfaceVariant : Colours.palette.m3onSurface
                     elide: Text.ElideRight
                 }
 
                 StyledText {
                     Layout.fillWidth: true
-                    text: Cast.devices.length > 0 ? "Arrastra un vídeo o una URL aquí" : "Buscando dispositivos…"
+                    text: idleRow.isOffline
+                        ? "Enciende la tele para proyectar o enviar vídeos"
+                        : (Cast.devices.length > 0 ? "Arrastra un vídeo o una URL aquí" : "Buscando dispositivos…")
                     color: Colours.palette.m3onSurfaceVariant
                     font: Tokens.font.body.small
                     elide: Text.ElideRight
@@ -169,39 +233,48 @@ StyledRect {
             }
 
             IconButton {
-                visible: Cast.devices.length === 0
+                visible: Cast.devices.length === 0 || idleRow.isOffline
                 icon: "refresh"
                 type: IconButton.Text
                 onClicked: Cast.scan()
             }
 
             IconButton {
-                visible: Cast.devices.length > 0
+                visible: Cast.devices.length > 0 && !idleRow.isOffline
+                icon: "link"
+                type: IconButton.Text
+                onClicked: root.pickLink()
+            }
+
+            IconButton {
+                visible: Cast.devices.length > 0 && !idleRow.isOffline
                 icon: "folder_open"
                 type: IconButton.Tonal
                 onClicked: root.pick()
             }
         }
 
-        // Solo si hay más de un Chromecast.
+        // Solo si hay más de un Chromecast accesible.
         Flow {
             Layout.fillWidth: true
             spacing: Tokens.spacing.small
-            visible: Cast.devices.length > 1
+            visible: Cast.onlineDevices.length > 1
 
             Repeater {
-                model: Cast.devices
+                model: Cast.onlineDevices
 
                 StyledRect {
                     id: chip
 
                     required property var modelData
+                    readonly property bool isOnline: modelData.online !== false
                     readonly property bool sel: Cast.selectedDevice?.uuid === modelData.uuid
 
                     implicitWidth: chipText.implicitWidth + Tokens.padding.large * 2
                     implicitHeight: chipText.implicitHeight + Tokens.padding.small * 2
                     radius: Tokens.rounding.full
                     color: sel ? Colours.palette.m3secondaryContainer : Colours.palette.m3surfaceContainerHigh
+                    opacity: chip.isOnline ? 1.0 : 0.6
 
                     StateLayer {
                         color: chip.sel ? Colours.palette.m3onSecondaryContainer : Colours.palette.m3onSurface
@@ -213,7 +286,7 @@ StyledRect {
                         id: chipText
 
                         anchors.centerIn: parent
-                        text: chip.modelData.name
+                        text: chip.isOnline ? chip.modelData.name : chip.modelData.name + " (offline)"
                         color: chip.sel ? Colours.palette.m3onSecondaryContainer : Colours.palette.m3onSurfaceVariant
                         font: Tokens.font.body.small
                     }
@@ -678,31 +751,25 @@ StyledRect {
         }
 
         // Fuente: grupo de botones conectados; el elegido se ensancha y muestra la etiqueta.
-        // OJO: Item y no Row. Con un Row (posicionador) el ancho de los hijos dependía del ancho del Row y el del
-        // Row de los hijos: con la columna oculta (sin Layout que fije el ancho) el polish no convergía y el shell
-        // se quedaba al 100 % de CPU al abrir el panel. Aquí el ancho lo fija SOLO el Layout y la x se calcula a mano.
         Item {
             id: srcRow
 
-            readonly property real spacing: 3
-            readonly property real avail: Math.max(0, width - spacing * 3)
-            // Suma de los `grow` (animados); no depende de ninguna geometría
-            readonly property real totalGrow: {
-                let t = 0;
-                for (let i = 0; i < srcRep.count; i++) {
-                    const it = srcRep.itemAt(i);
-                    t += it ? it.grow : 1;
+            readonly property var modes: [
+                ["monitor", "Pantalla", "desktop_windows"],
+                ["workspace", "Escritorio", "grid_view"],
+                ["window", "Ventana", "select_window"],
+                ["extend", "Extender", "add_to_queue"]
+            ]
+            readonly property int activeIndex: {
+                for (let i = 0; i < modes.length; i++) {
+                    if (mirrorCol.shownKind === modes[i][0])
+                        return i;
                 }
-                return t > 0 ? t : 1;
+                return 0;
             }
-            function growBefore(n: int): real {
-                let t = 0;
-                for (let i = 0; i < n; i++) {
-                    const it = srcRep.itemAt(i);
-                    t += it ? it.grow : 1;
-                }
-                return t;
-            }
+            readonly property real spacing: Tokens.spacing.small
+            readonly property real inactiveWidth: 44
+            readonly property real activeWidth: Math.max(80, width - (inactiveWidth * 3 + spacing * 3))
 
             Layout.fillWidth: true
             implicitWidth: 0
@@ -712,18 +779,19 @@ StyledRect {
             Repeater {
                 id: srcRep
 
-                model: [["monitor", "Pantalla", "desktop_windows"], ["workspace", "Escritorio", "grid_view"], ["window", "Ventana", "select_window"], ["extend", "Extender", "add_to_queue"]]
+                model: srcRow.modes
 
                 StyledRect {
                     id: sb
 
                     required property var modelData
                     required property int index
-                    readonly property bool on: mirrorCol.shownKind === modelData[0]
-                    property real grow: on ? 3.4 : 1
+                    readonly property bool on: srcRow.activeIndex === index
 
-                    x: srcRow.avail * srcRow.growBefore(index) / srcRow.totalGrow + srcRow.spacing * index
-                    width: srcRow.avail * grow / srcRow.totalGrow
+                    x: index <= srcRow.activeIndex
+                        ? index * (srcRow.inactiveWidth + srcRow.spacing)
+                        : (index - 1) * (srcRow.inactiveWidth + srcRow.spacing) + srcRow.activeWidth + srcRow.spacing
+                    width: on ? srcRow.activeWidth : srcRow.inactiveWidth
                     height: 40
                     radius: on ? Tokens.rounding.full : Tokens.rounding.small
                     topLeftRadius: on || index === 0 ? Tokens.rounding.full : Tokens.rounding.small
@@ -731,19 +799,31 @@ StyledRect {
                     topRightRadius: on || index === 3 ? Tokens.rounding.full : Tokens.rounding.small
                     bottomRightRadius: topRightRadius
                     color: on ? Colours.palette.m3primary : Colours.palette.m3surfaceContainerHigh
+                    clip: true
 
-                    Behavior on grow {
+                    Behavior on x {
+                        enabled: root.settled
+
+                        Anim {
+                            type: Anim.FastSpatial
+                        }
+                    }
+
+                    Behavior on width {
+                        enabled: root.settled
+
                         Anim {
                             type: Anim.FastSpatial
                         }
                     }
 
                     StateLayer {
-                        radius: Tokens.rounding.full
+                        radius: sb.radius
                         color: sb.on ? Colours.palette.m3onPrimary : Colours.palette.m3onSurface
                         disabled: Cast.preparing
                         onClicked: mirrorCol.pickKind(sb.modelData[0])
                     }
+
                     Row {
                         anchors.centerIn: parent
                         spacing: 6
@@ -754,9 +834,10 @@ StyledRect {
                             fill: sb.on ? 1 : 0
                             color: sb.on ? Colours.palette.m3onPrimary : Colours.palette.m3onSurfaceVariant
                         }
+
                         StyledText {
                             anchors.verticalCenter: parent.verticalCenter
-                            visible: sb.on && sb.width > 100
+                            visible: sb.on && sb.width > 90
                             text: sb.modelData[1]
                             color: Colours.palette.m3onPrimary
                             font: Tokens.font.label.medium
@@ -857,13 +938,13 @@ StyledRect {
             spacing: Tokens.spacing.small
 
             IconButton {
-                icon: (root.act?.muted ?? false) || (root.act?.volume ?? 0) === 0 ? "volume_off" : "tv"
+                icon: (root.act?.muted ?? false) || (root.act?.volume ?? 0) === 0 ? "volume_off" : "volume_up"
                 type: IconButton.Text
                 onClicked: Cast.mute()
             }
             StyledSlider {
                 Layout.fillWidth: true
-                implicitHeight: 16
+                implicitHeight: 24
                 value: (root.act?.volume ?? 0) / 100
                 interactionOnMove: false
                 onInteraction: v => Cast.setVolume(v * 100)
@@ -881,11 +962,13 @@ StyledRect {
 
     // ───────────── Velo al arrastrar ─────────────
     StyledRect {
+        readonly property bool isOffline: Cast.selectedDevice && Cast.selectedDevice.online === false
+
         anchors.fill: parent
         radius: root.radius
-        color: Qt.alpha(Colours.palette.m3primaryContainer, 0.94)
+        color: isOffline ? Qt.alpha(Colours.palette.m3errorContainer, 0.94) : Qt.alpha(Colours.palette.m3primaryContainer, 0.94)
         border.width: 2
-        border.color: Colours.palette.m3primary
+        border.color: isOffline ? Colours.palette.m3error : Colours.palette.m3primary
         visible: opacity > 0
         opacity: dropArea.containsDrag ? 1 : 0
 
@@ -899,15 +982,17 @@ StyledRect {
 
             MaterialIcon {
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: "cast"
-                color: Colours.palette.m3onPrimaryContainer
+                text: parent.parent.isOffline ? "tv_off" : "cast"
+                color: parent.parent.isOffline ? Colours.palette.m3onErrorContainer : Colours.palette.m3onPrimaryContainer
                 fontStyle: Tokens.font.icon.large
             }
 
             StyledText {
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: root.hasAct ? "Suelta para reproducir esto en su lugar" : "Suelta para enviar a " + root.deviceName
-                color: Colours.palette.m3onPrimaryContainer
+                text: parent.parent.isOffline
+                    ? "Tele desconectada (no disponible)"
+                    : (root.hasAct ? "Suelta para reproducir esto en su lugar" : "Suelta para enviar a " + root.deviceName)
+                color: parent.parent.isOffline ? Colours.palette.m3onErrorContainer : Colours.palette.m3onPrimaryContainer
                 font: Tokens.font.body.medium
             }
         }
@@ -1010,24 +1095,34 @@ StyledRect {
         }
     }
 
-    component ErrorRow: RowLayout {
+    component ErrorRow: StyledRect {
         Layout.fillWidth: true
-        spacing: Tokens.spacing.small
         visible: Cast.shownError !== ""
+        implicitHeight: errLayout.implicitHeight + Tokens.padding.small * 2
+        radius: Tokens.rounding.small
+        color: Qt.alpha(Colours.palette.m3errorContainer, 0.45)
 
-        MaterialIcon {
-            Layout.alignment: Qt.AlignTop
-            text: "error"
-            color: Colours.palette.m3error
-            fontStyle: Tokens.font.icon.small
-        }
+        RowLayout {
+            id: errLayout
 
-        StyledText {
-            Layout.fillWidth: true
-            text: Cast.shownError
-            color: Colours.palette.m3error
-            font: Tokens.font.body.small
-            wrapMode: Text.WordWrap
+            anchors.fill: parent
+            anchors.margins: Tokens.padding.small
+            spacing: Tokens.spacing.small
+
+            MaterialIcon {
+                Layout.alignment: Qt.AlignVCenter
+                text: "info"
+                color: Colours.palette.m3onErrorContainer
+                fontStyle: Tokens.font.icon.small
+            }
+
+            StyledText {
+                Layout.fillWidth: true
+                text: Cast.shownError
+                color: Colours.palette.m3onErrorContainer
+                font: Tokens.font.body.small
+                wrapMode: Text.WordWrap
+            }
         }
     }
 }

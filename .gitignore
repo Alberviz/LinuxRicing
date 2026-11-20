@@ -27,3 +27,9 @@ vault/Laura/
 # Laura: ajuste fino (datos generados y adaptadores)
 assistant/finetune/data/
 assistant/finetune/output/
+
+# Wiki repo (GitHub Wiki)
+wiki/
+
+# cast-torrent: dependencias npm (se instalan en ~/.local/lib/cast-torrent)
+widgets/cast-torrent/node_modules/

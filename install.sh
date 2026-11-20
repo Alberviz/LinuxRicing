@@ -16,7 +16,7 @@
 #    configs/system/caelestia-server-mode-root  -> /usr/local/bin/        (sudo, helper acotado)
 #    configs/system/caelestia-server-mode.sudoers -> /etc/sudoers.d/caelestia-server-mode (0440)
 #    configs/system/caelestia-power-root{,.sudoers} -> /usr/local/bin/ + /etc/sudoers.d/caelestia-power-root (ahorro)
-#    widgets/{gtasks,tasks-index,gym-health,desktop-deck-helper,display-selector,magichome-control,lenovo-battery-control,spotify-autoupdate} -> ~/.local/bin/
+#    widgets/{gtasks,tasks-index,gym-health,desktop-deck-helper,display-selector,display-mode,magichome-control,lenovo-battery-control,spotify-autoupdate} -> ~/.local/bin/
 #    configs/applications/lenovo-battery-control.desktop -> ~/.local/share/applications/
 #    configs/udev/99-lenovo-conservation.rules -> /etc/udev/rules.d/  (manual, con sudo)
 #    rgb/{sync-rgb,argb-wave}.py     -> ~/.config/caelestia/
@@ -24,6 +24,7 @@
 #    rgb/{agent-notify,akko-rgb,battery-lighting,magichome-control,mchose-battery,
 #         mchose-lighting,rgb-notify-flash} -> ~/.local/bin/
 #    widgets/cast-helper            -> ~/.local/bin/  (daemon Chromecast; tarjeta del panel rápido)
+#    widgets/cast-torrent/          -> ~/.local/lib/cast-torrent/  (torrents en streaming a la tele; npm ci)
 #    widgets/warp                   -> ~/.local/bin/  (Warp: texto y archivos al móvil; docs/WARP.md)
 #    widgets/drag-watch             -> ~/.local/bin/  (vigilante de arrastres; portales de Quickshell, requiere grupo input)
 #    systemd/*.service              -> ~/.config/systemd/user/
@@ -156,11 +157,36 @@ if [ "$SELECTED_WIDGETS" = true ]; then
         chmod +x "$HOME/.local/bin/desktop-deck-helper"
         echo -e "  ${SUCCESS}✔ Helper de Clima y Hardware instalado en ~/.local/bin${RESET}"
     fi
+    if [ -f "$BASE_DIR/widgets/display-mode" ]; then
+        cp -u "$BASE_DIR/widgets/display-mode" "$HOME/.local/bin/display-mode"
+        chmod +x "$HOME/.local/bin/display-mode"
+    fi
+    if [ -f "$BASE_DIR/widgets/gamepad-watch" ]; then  # mando -> Elysium (modo consola)
+        cp -u "$BASE_DIR/widgets/gamepad-watch" "$HOME/.local/bin/gamepad-watch"
+        chmod +x "$HOME/.local/bin/gamepad-watch"
+        cp -u "$BASE_DIR/widgets/elysium-stats" "$HOME/.local/bin/elysium-stats"
+        cp -u "$BASE_DIR/widgets/elysium-tv-move" "$HOME/.local/bin/elysium-tv-move"
+        cp -u "$BASE_DIR/widgets/elysium-close" "$HOME/.local/bin/elysium-close"
+        cp -u "$BASE_DIR/widgets/elysium-hookshot" "$HOME/.local/bin/elysium-hookshot"
+        chmod +x "$HOME/.local/bin/elysium-hookshot"
+        chmod +x "$HOME/.local/bin/elysium-close"
+        chmod +x "$HOME/.local/bin/elysium-tv-move"
+        chmod +x "$HOME/.local/bin/elysium-stats"
+    fi
     if [ -f "$BASE_DIR/widgets/display-selector" ]; then
         cp -u "$BASE_DIR/widgets/display-selector" "$HOME/.local/bin/display-selector"
         chmod +x "$HOME/.local/bin/display-selector"
         echo -e "  ${SUCCESS}✔ Selector de pantallas (Win+P) instalado en ~/.local/bin${RESET}"
     fi
+
+    # 3d. Tele en el sofá y Escaparate (tele-window, escaparate)
+    for bin in tele-window escaparate; do
+        if [ -f "$BASE_DIR/widgets/$bin" ]; then
+            cp -u "$BASE_DIR/widgets/$bin" "$HOME/.local/bin/$bin"
+            chmod +x "$HOME/.local/bin/$bin"
+        fi
+    done
+    echo -e "  ${SUCCESS}✔ Helpers de tele y escaparate instalados en ~/.local/bin${RESET}"
 
     # 3b. Modo servidor: scripts de usuario (el botón "Server mode" de Caelestia
     #     invoca `caelestia-server-mode on`; `volver-escritorio` es la vuelta desde tty)
@@ -337,6 +363,19 @@ if [ -f "$BASE_DIR/widgets/cast-helper" ]; then
     cp -u "$BASE_DIR/widgets/cast-helper" "$HOME/.local/bin/cast-helper"
     chmod +x "$HOME/.local/bin/cast-helper"
     echo -e "  ${SUCCESS}✔ cast-helper instalado en ~/.local/bin${RESET}"
+fi
+
+# 4e1. cast-torrent (servidor HTTP de torrents en streaming; lo lanza cast-helper al enviar un magnet o .torrent)
+if [ -f "$BASE_DIR/widgets/cast-torrent/server.js" ]; then
+    mkdir -p "$HOME/.local/lib/cast-torrent"
+    cp -u "$BASE_DIR/widgets/cast-torrent/"{server.js,package.json,package-lock.json} "$HOME/.local/lib/cast-torrent/"
+    if command -v npm >/dev/null 2>&1; then
+        (cd "$HOME/.local/lib/cast-torrent" && npm ci --omit=dev --no-audit --no-fund >/dev/null 2>&1) \
+            && echo -e "  ${SUCCESS}✔ cast-torrent instalado en ~/.local/lib/cast-torrent${RESET}" \
+            || echo -e "  ${WARNING}⚠ cast-torrent: falló «npm ci» (¿sin red?); los torrents no funcionarán${RESET}"
+    else
+        echo -e "  ${WARNING}⚠ cast-torrent: falta npm/node; los torrents no funcionarán${RESET}"
+    fi
 fi
 
 # 4e2. Instalar warp (pasar texto y archivos al móvil por Olimpo; atajo Super+Shift+M, Laura y órdenes de Instinct)

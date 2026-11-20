@@ -25,7 +25,7 @@ VIGIA: "Vigia | None" = None
 
 _PROMPT = """Eres el vigía de Laura. Revisa el Gmail y el Google Calendar de Alberto y responde
 SOLO con un objeto JSON válido, sin texto antes ni después, sin markdown. Formato exacto:
-{{"correos":[{{"id":"<id del mensaje>","de":"<remitente>","asunto":"<asunto>","resumen":"<una frase>","url":"<URL de Gmail o vacío>","urgente":<true|false>}}],
+{{"correos":[{{"id":"<id del mensaje>","de":"<remitente>","asunto":"<asunto>","resumen":"<frase directa ultra resumida en español para leer en voz alta, ej: Anthropic avisa de un nuevo inicio de sesión; sin empezar por 'Correo de' ni repetir el asunto>","url":"<URL de Gmail o vacío>","urgente":<true|false>}}],
 "eventos":[{{"id":"<id del evento>","titulo":"<título>","inicio":"<ISO 8601>","url":"<URL de Calendar o vacío>"}}]}}
 Reglas:
 - correos: solo NO LEÍDOS de las últimas 24 h que importen: personas reales, universidad, trabajo,
@@ -220,7 +220,7 @@ class Vigia:
             prio = prioridad_correo(m, cuerpo, c)
             fu = [{"titulo": "Abrir en Gmail", "url": m["url"]}] if m.get("url") else []
             de = resumen_correo.nombre(m["de"])
-            out.append((f"mail:{m['id']}", f"Correo de {de}", f"Te ha llegado {frases[m['id']]['frase']}", prio, fu,
+            out.append((f"mail:{m['id']}", f"Correo de {de}", frases[m["id"]]["frase"], prio, fu,
                         f"De: {m['de']}\nAsunto: {m['asunto']}\nFecha: {m['fecha']}\n\n{cuerpo}"))
         ahora = datetime.now().astimezone()
         mins = int(c.get("aviso_evento_min", 30))
@@ -252,7 +252,7 @@ class Vigia:
                 continue
             fu = [{"titulo": "Abrir en Gmail", "url": m["url"]}] if m.get("url") else []
             out.append((f"mail:{m['id']}", f"Correo de {m.get('de', '?')}",
-                        f"Correo de {m.get('de', '?')}: {m.get('asunto', '')}. {m.get('resumen', '')}".strip(),
+                        (m.get("resumen") or "").strip() or f"{m.get('de', '?')}: {m.get('asunto', '')}".strip(),
                         "alta" if m.get("urgente") else "normal", fu, json.dumps(m, ensure_ascii=False, indent=1)))
         for e in d.get("eventos") or []:
             if not isinstance(e, dict) or not e.get("id"):

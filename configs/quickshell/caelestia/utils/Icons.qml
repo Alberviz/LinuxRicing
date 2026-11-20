@@ -93,7 +93,8 @@ Singleton {
         [["audio"], "speaker"],
         [["phone"], "smartphone"],
         [["mouse"], "mouse"],
-        [["keyboard"], "keyboard"]
+        [["keyboard"], "keyboard"],
+        [["gaming", "joystick", "gamepad"], "stadia_controller"]
     ]
 
     readonly property var notifIconRules: [

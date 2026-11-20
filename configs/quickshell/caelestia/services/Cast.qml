@@ -19,6 +19,7 @@ Singleton {
 
     // Estado publicado por el daemon.
     property var devices: []
+    readonly property var onlineDevices: devices.filter(d => d.online !== false)
     property var active: null
     property string error: ""
     // Error local de la última orden (daemon no activo, etc.).
@@ -39,14 +40,15 @@ Singleton {
     property string selectedUuid: ""
     readonly property var selectedDevice: {
         const byUuid = devices.find(d => d.uuid === selectedUuid);
-        if (byUuid)
+        if (byUuid && byUuid.online !== false)
             return byUuid;
         if (active) {
             const a = devices.find(d => d.uuid === active.device_uuid);
             if (a)
                 return a;
         }
-        return devices[0] ?? null;
+        const onlineDev = devices.find(d => d.online !== false);
+        return onlineDev ?? (byUuid ?? (devices[0] ?? null));
     }
 
     function refresh(): void {
@@ -62,7 +64,12 @@ Singleton {
     }
 
     function scan(): void {
-        run(["devices"]);
+        run(["devices"], (code, r) => {
+            if (r && r.ok && r.devices) {
+                root.devices = r.devices;
+            }
+            root.refresh();
+        });
     }
 
     function castTo(uuid: string, target: string): void {
@@ -76,11 +83,20 @@ Singleton {
             cmdError = "No hay ningún Chromecast";
             return;
         }
+        if (selectedDevice.online === false) {
+            cmdError = `La tele «${selectedDevice.name}» está desconectada (enciéndela primero)`;
+            return;
+        }
         castTo(selectedDevice.uuid, target);
     }
 
     function mirrorStart(uuid: string, monitor: string, audio: bool): void {
         cmdError = "";
+        const dev = devices.find(d => d.uuid === uuid);
+        if (dev && dev.online === false) {
+            cmdError = `La tele «${dev.name}» está desconectada (enciéndela primero)`;
+            return;
+        }
         const a = ["mirror", "start", "--device", uuid];
         if (monitor)
             a.push("--monitor", monitor);
@@ -91,6 +107,11 @@ Singleton {
     // o: {source: "monitor:X"|"workspace:N"|"window"|"extend", quality, encoder, audio}
     function mirrorStartEx(uuid: string, o: var): void {
         cmdError = "";
+        const dev = devices.find(d => d.uuid === uuid);
+        if (dev && dev.online === false) {
+            cmdError = `La tele «${dev.name}» está desconectada (enciéndela primero)`;
+            return;
+        }
         const a = ["mirror", "start", "--device", uuid, "--source", o.source, "--quality", o.quality, "--encoder", o.encoder, "--audio", o.audio ? "on" : "off"];
         run(a);
     }

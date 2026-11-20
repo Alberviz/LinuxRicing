@@ -142,6 +142,7 @@ return {
     kbShowPanels               = "SUPER + P",
     kbCastPanel                = "SUPER + K",   -- Proyectar (como Win+K)
     kbWarp                     = "SUPER + SHIFT + K",   -- Warp: lo copiado (o lo subrayado) al móvil
+    kbWarpLanzar               = "SUPER + Space",       -- Warp (v2.18): lo seleccionado en Dolphin; si no hay nada, lo copiado
     kbLock                     = "SUPER + L",
     kbRestoreLock              = "SUPER + ALT + L",
     kbSleep                    = "SUPER + SHIFT + L",

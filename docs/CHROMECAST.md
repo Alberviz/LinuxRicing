@@ -41,6 +41,26 @@ playerctl -p casthelper play-pause     # también vale MPRIS / teclas multimedia
 - Audio por defecto: primera pista en español. Subtítulos por defecto: la pista *forzada* en español si
   existe; también detecta `.srt/.vtt` junto al vídeo. PGS (imagen) no soportado.
 
+## Torrents (magnet y `.torrent`) en streaming
+
+`cast-helper cast <tele> "magnet:?xt=…"` (o un `.torrent` local / http) reproduce **mientras descarga**, sin
+esperar al archivo entero. También vale pegar el enlace en la tarjeta «Chromecast», elegir un `.torrent` con el
+selector o soltarlo en el portal de la tele (`Portals.qml`).
+
+- Pieza: `widgets/cast-torrent/server.js` (Node + `torrent-stream`). Lo instala `install.sh` en
+  `~/.local/lib/cast-torrent/` (`npm ci`). El daemon lo lanza por sesión, lee una línea JSON de `stdout`
+  (`ready`, `url`, `statusUrl`, `name`, `subs`) y lo mata al terminar (`Session.cleanup`).
+- Elige el vídeo más grande del torrent (si no, audio, si no, el mayor archivo) y baja sin orden fijo solo lo
+  que se le pide por Range. Los `.srt/.vtt/.ass` pequeños se bajan aparte y salen como subtítulos externos
+  (los incrustados se ignoran en torrents: obligarían a leer el archivo entero).
+- Flujo: `node` abre el swarm (≤ 60 s) → espera el primer byte (≤ 35 s, si no «sin peers») → `ffprobe` sobre
+  `http://127.0.0.1:PORT/video` → `direct` (mp4 h264 + audio compatible, vía `proxy` con Range) o `transcode`
+  (MKV, AC3…) igual que un archivo local.
+- Caché temporal en `~/.cache/cast-torrent/ct-<pid>-…`; se borra al parar y se limpian las huérfanas al arrancar.
+- Diagnóstico: `$XDG_RUNTIME_DIR/cast-helper/cast-torrent.err` (stderr de node) y
+  `curl <statusUrl>` (bytes, velocidad, peers).
+- Sin instalar (`npm ci` falló, sin node): el daemon responde «cast-torrent no está instalado».
+
 ## Red y cortafuegos
 
 El Chromecast descarga el vídeo **desde el PC**: el helper sirve en el puerto **45114/tcp**

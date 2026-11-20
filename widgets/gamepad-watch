@@ -1,0 +1,205 @@
+#!/usr/bin/env python3
+"""gamepad-watch — vigila mandos sin dependencias (lee /dev/input/event* crudo).
+
+Salida por stdout, una línea por evento:
+  connected <nombre>      un mando nuevo aparece
+  disconnected <nombre>   desaparece
+  btn <a|b|x|y|start|select|home|up|down|left|right|lb|rb>
+  chord lb+down           LB mantenido + ↓ (cruceta o eje Y); no emite `btn down` ni `btn lb` sueltos
+  hold <select|home>      botón mantenido >= 0.6 s (−/View = Laura); un toque corto da `btn …`.
+                          Ojo: con xpadneo, Home (botón Xbox) es «shift» y mantenerlo apaga
+                          el mando, así que para Laura se usa −/View.
+
+Por stdin acepta «grab» / «ungrab»: con grab toma el mando en exclusiva (EVIOCGRAB)
+para que los botones no lleguen al juego mientras Elysium está encima; sin grab el
+juego recibe el mando a la vez. Requiere estar en el grupo `input`.
+"""
+import fcntl, os, re, select, struct, subprocess, sys, time
+
+EV_KEY, EV_ABS = 1, 3
+EVENT = struct.Struct("llHHi")
+# Etiquetas por posición estilo Nintendo (abajo=B, derecha=A, arriba=X, izquierda=Y).
+# Los mandos estilo Xbox intercambian: abajo=A, derecha=B, arriba=Y, izquierda=X.
+NINTENDO = re.compile(r"(?i)nintendo|switch|pro controller|joy-con|gulikit|8bitdo")
+XBOX_SWAP = {304: "a", 305: "b", 307: "y", 308: "x"}
+KEYS = {304: "b", 305: "a", 307: "x", 308: "y", 310: "lb", 311: "rb", 314: "select", 315: "start",
+        316: "home", 544: "up", 545: "down", 546: "left", 547: "right"}
+
+
+def absinfo(fd, axis):
+    buf = bytearray(24)
+    req = (2 << 30) | (24 << 16) | (ord("E") << 8) | (0x40 + axis)
+    try:
+        fcntl.ioctl(fd, req, buf)
+        _, lo, hi, *_ = struct.unpack("iiiiii", buf)
+        return lo, hi
+    except OSError:
+        return -32768, 32767
+
+
+def scan():
+    """{event_path: name} de los dispositivos con handler jsN (mandos)."""
+    out = {}
+    try:
+        blocks = open("/proc/bus/input/devices").read().split("\n\n")
+    except OSError:
+        return out
+    for b in blocks:
+        h = re.search(r"H: Handlers=(.*)", b)
+        n = re.search(r'N: Name="(.*)"', b)
+        if not h or not n or not re.search(r"\bjs\d+", h.group(1)):
+            continue
+        if re.search(r"(?i)imu|motion|touchpad", n.group(1)):
+            continue
+        ev = re.search(r"\b(event\d+)", h.group(1))
+        if ev:
+            out["/dev/input/" + ev.group(1)] = n.group(1)
+    return out
+
+
+EVIOCGRAB = 0x40044590
+
+
+def set_grab(fd, on):
+    try:
+        fcntl.ioctl(fd, EVIOCGRAB, 1 if on else 0)
+    except OSError:
+        pass
+
+
+def bt(*args):
+    try:
+        return subprocess.run(["bluetoothctl", *args], capture_output=True, text=True, timeout=4).stdout
+    except Exception:
+        return ""
+
+
+def trust_pads():
+    """Mandos Bluetooth emparejados pero sin confianza -> confiar. Sin confianza,
+    cada reconexión del mando pide autorización (aviso «solicitud de emparejamiento»)
+    y, si nadie la acepta, BlueZ la cancela. Pasa tras re-emparejar (p. ej. después
+    de usarlo en Windows: JustWorksRepairing re-empareja pero sin Trusted)."""
+    for mac in re.findall(r"Device ([0-9A-F:]{17})", bt("devices", "Paired")):
+        info = bt("info", mac)
+        if "Icon: input-gaming" in info and "Trusted: no" in info:
+            bt("trust", mac)
+            name = re.search(r"Name: (.*)", info)
+            emit("trusted " + (name.group(1) if name else mac))
+
+
+def emit(s):
+    sys.stdout.write(s + "\n")
+    sys.stdout.flush()
+
+
+def main():
+    devs = {}  # path -> {fd, name, axes, dir}
+    HOLDABLE = {316: "home", 314: "select"}
+    down = {}  # código -> instante de pulsación (se borra al soltar o al disparar el hold)
+    grabbed = False
+    stdin_open = True
+    first = True
+    last_scan = 0
+    last_trust = 0
+    while True:
+        now = time.monotonic()
+        if now - last_trust > 10:
+            last_trust = now
+            trust_pads()
+        if now - last_scan > 1.5:
+            last_scan = now
+            found = scan()
+            for p in list(devs):
+                if p not in found:
+                    os.close(devs[p]["fd"])
+                    emit("disconnected " + devs.pop(p)["name"])
+            for p, name in found.items():
+                if p in devs:
+                    continue
+                try:
+                    fd = os.open(p, os.O_RDONLY | os.O_NONBLOCK)
+                except OSError:
+                    continue
+                axes = {a: absinfo(fd, a) for a in (0, 1, 16, 17)}
+                keys = dict(KEYS)
+                if not NINTENDO.search(name):
+                    keys.update(XBOX_SWAP)
+                devs[p] = {"fd": fd, "name": name, "axes": axes, "dir": {}, "keys": keys, "lb": False, "lb_used": False}
+                if grabbed:
+                    set_grab(fd, True)
+                # Los que ya estaban al arrancar no disparan el aviso.
+                emit(("present " if first else "connected ") + name)
+            first = False
+        fds = {d["fd"]: d for d in devs.values()}
+        for code, t0 in list(down.items()):
+            if t0 is not None and time.monotonic() - t0 >= 0.6:
+                emit("hold " + HOLDABLE[code])
+                down[code] = None  # disparado: al soltar no da toque corto
+        if fds:
+            pending = any(t is not None for t in down.values())
+            r = select.select(list(fds) + ([0] if stdin_open else []), [], [], 0.05 if pending else 1.0)[0]
+        else:
+            time.sleep(1.0)
+            r = []
+        if 0 in r:
+            line = sys.stdin.readline()
+            if not line:
+                stdin_open = False  # sin quien mande órdenes: nunca agarrar
+                grabbed = False
+            elif line.strip() in ("grab", "ungrab"):
+                grabbed = line.strip() == "grab"
+            for d in devs.values():
+                set_grab(d["fd"], grabbed)
+            r = [x for x in r if x != 0]
+        for fd in r:
+            d = fds[fd]
+            try:
+                data = os.read(fd, EVENT.size * 64)
+            except OSError:
+                continue
+            for i in range(0, len(data) - EVENT.size + 1, EVENT.size):
+                _, _, typ, code, val = EVENT.unpack_from(data, i)
+                if typ == EV_KEY and code == 310:
+                    if val == 1:
+                        d["lb"] = True
+                        d["lb_used"] = False
+                    elif val == 0:
+                        was = d.get("lb", False)
+                        used = d.get("lb_used", False)
+                        d["lb"] = False
+                        d["lb_used"] = False
+                        if was and not used:
+                            emit("btn lb")
+                elif typ == EV_KEY and code in HOLDABLE:
+                    if val == 1:
+                        down[code] = time.monotonic()
+                    elif val == 0:
+                        if down.pop(code, None) is not None:
+                            emit("btn " + HOLDABLE[code])
+                elif typ == EV_KEY and val == 1 and code in d["keys"]:
+                    btn_name = d["keys"][code]
+                    if btn_name == "down" and d.get("lb"):
+                        d["lb_used"] = True
+                        emit("chord lb+down")
+                    else:
+                        emit("btn " + btn_name)
+                elif typ == EV_ABS and code in d["axes"]:
+                    lo, hi = d["axes"][code]
+                    mid, span = (lo + hi) / 2, max(1, (hi - lo) / 2)
+                    v = (val - mid) / span
+                    neg, pos = ("left", "right") if code in (0, 16) else ("up", "down")
+                    cur = neg if v < -0.6 else pos if v > 0.6 else None
+                    if cur and d["dir"].get(code) != cur:
+                        if cur == "down" and d.get("lb"):
+                            d["lb_used"] = True
+                            emit("chord lb+down")
+                        else:
+                            emit("btn " + cur)
+                    d["dir"][code] = cur
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (KeyboardInterrupt, BrokenPipeError):
+        pass

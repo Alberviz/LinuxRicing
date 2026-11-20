@@ -18,6 +18,7 @@ import json, os, subprocess
 from pathlib import Path
 
 SCHEME_PATH = Path(os.path.expanduser("~/.local/state/caelestia/scheme.json"))
+HELPER = os.path.expanduser("~/.local/bin/display-mode")
 
 def get_m3_colors():
     defaults = {
@@ -26,11 +27,8 @@ def get_m3_colors():
         "selection_text": "ffdcccff", "selection_match": "fff6e2ff",
         "border": "f7b999bb",
     }
-    if not SCHEME_PATH.exists():
-        return defaults
     try:
-        data = json.loads(SCHEME_PATH.read_text())
-        c = data.get("colours", {})
+        c = json.loads(SCHEME_PATH.read_text()).get("colours", {})
         return {
             "bg": f"{c.get('surfaceContainer', '130d0a')}f4",
             "text": f"{c.get('onSurface', 'f8e1d6')}ff",
@@ -44,51 +42,25 @@ def get_m3_colors():
     except Exception:
         return defaults
 
-def get_monitors():
-    try:
-        raw = subprocess.check_output(["hyprctl", "monitors", "all", "-j"]).decode()
-        mons = json.loads(raw)
-        internal = "eDP-2"
-        external = "HDMI-A-1"
-        for m in mons:
-            name = m.get("name", "")
-            if name.startswith("eDP"):
-                internal = name
-            elif name:
-                external = name
-        return internal, external
-    except Exception:
-        return "eDP-2", "HDMI-A-1"
+try:
+    st = json.loads(subprocess.check_output([HELPER, "status"], text=True))
+except Exception:
+    st = {"mode": "unknown", "internal": None, "externals": []}
 
-def get_target_hz():
-    try:
-        with open("/sys/class/power_supply/ACAD/online") as f:
-            if f.read().strip() == "0":
-                return "60"
-    except Exception:
-        pass
-    try:
-        out = subprocess.check_output(["powerprofilesctl", "get"], text=True, stderr=subprocess.DEVNULL).strip()
-        if out == "power-saver":
-            return "60"
-    except Exception:
-        pass
-    return "144"
+has_ext, has_int = bool(st["externals"]), st["internal"] is not None
+options = []
+if has_ext:
+    options.append(("external", "🖥️   Solo monitor externo (apaga el portátil)"))
+if has_ext and has_int:
+    options.append(("extend", "🔀  Extender pantallas"))
+    options.append(("mirror", "🪞   Duplicar / Espejo"))
+if has_int:
+    options.append(("laptop", "💻  Solo pantalla del portátil"))
+labels = [("● " if k == st["mode"] else "") + t for k, t in options] + ["❌  Cancelar"]
 
-internal, external = get_monitors()
 colors = get_m3_colors()
-hz = get_target_hz()
-
-options = [
-    "🖥️   Solo monitor externo (Apagar pantalla del portátil)",
-    f"🔀  Extender pantallas (Doble monitor, portátil a {hz}Hz)",
-    f"🪞   Duplicar / Espejo ({hz}Hz)",
-    f"💻  Solo pantalla del portátil ({hz}Hz)",
-    "❌  Cancelar",
-]
-
 fuzzel_cmd = [
-    "fuzzel", "--dmenu", "--lines=5", "--width=48", "--horizontal-pad=28",
+    "fuzzel", "--dmenu", f"--lines={len(labels)}", "--width=48", "--horizontal-pad=28",
     "--vertical-pad=18", "--inner-pad=12", "--line-height=30",
     "--prompt=󰍹  Proyectar pantalla   ", "--placeholder=Elige cómo proyectar...",
     f"--background-color={colors['bg']}", f"--text-color={colors['text']}",
@@ -97,20 +69,12 @@ fuzzel_cmd = [
     f"--selection-text-color={colors['selection_text']}",
     f"--selection-match-color={colors['selection_match']}",
     "--selection-radius=12", f"--border-color={colors['border']}",
-    "--border-width=2", "--border-radius=20",
+    "--border-width=2", "--border-radius=20", "--index",
 ]
-
 try:
-    res = subprocess.check_output(fuzzel_cmd, input="\n".join(options).encode(), stderr=subprocess.DEVNULL).decode().strip()
+    idx = int(subprocess.check_output(fuzzel_cmd, input="\n".join(labels).encode(), stderr=subprocess.DEVNULL).decode().strip())
 except Exception:
-    exit(0)
-
-if "Solo monitor externo" in res:
-    subprocess.run(["hyprctl", "eval", f"hl.monitor({{ output = '{internal}', disabled = true }}); hl.monitor({{ output = '{external}', mode = '1920x1080@144', position = '0x0', scale = 1, disabled = false }})"])
-elif "Extender pantallas" in res:
-    subprocess.run(["hyprctl", "eval", f"hl.monitor({{ output = '{external}', mode = '1920x1080@144', position = '1920x0', scale = 1, disabled = false }}); hl.monitor({{ output = '{internal}', mode = '1920x1080@{hz}', position = '0x0', scale = 1, disabled = false }})"])
-elif "Duplicar" in res:
-    subprocess.run(["hyprctl", "eval", f"hl.monitor({{ output = '{internal}', mode = '1920x1080@{hz}', position = 'auto', scale = 1, disabled = false }}); hl.monitor({{ output = '{external}', mode = '1920x1080@{hz}', position = 'auto', scale = 1, mirror = '{internal}', disabled = false }})"])
-elif "Solo pantalla del portátil" in res:
-    subprocess.run(["hyprctl", "eval", f"hl.monitor({{ output = '{external}', disabled = true }}); hl.monitor({{ output = '{internal}', mode = '1920x1080@{hz}', position = '0x0', scale = 1, disabled = false }})"])
+    raise SystemExit(0)
+if idx < len(options):
+    subprocess.run([HELPER, options[idx][0]])
 PYEOF

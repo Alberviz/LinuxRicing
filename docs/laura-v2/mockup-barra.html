@@ -1,0 +1,673 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Barra de Laura</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700&family=Figtree:wght@400;500;600&family=Fraunces:ital,wght@0,400;1,400&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Tokens de la pagina (la pantalla simulada usa su propia paleta Material You via --m3-*) */
+:root{
+  --bg:#f4f2fa; --surface:#ffffff; --surface2:#ebe8f5; --fg:#1d1a2b; --muted:#6a6482; --line:#d9d4ea; --accent:#5b49d1; --accent-fg:#fff;
+  --good:#1f7a4d; --bad:#a3392f;
+  --f-display:'Bricolage Grotesque',system-ui,sans-serif; --f-body:'Figtree',system-ui,sans-serif; --f-mono:'JetBrains Mono',ui-monospace,monospace; --f-serif:'Fraunces',Georgia,serif;
+  /* Paleta Material You simulada (tema activo). La cambia el selector de tema. */
+  --m3-primary:#bfb0ff; --m3-tertiary:#f2a9cb; --m3-surface:#1a1725; --m3-onsurface:#ebe7f6; --m3-onsurfvar:#b3abc9;
+  --c-gemini:#7db4ff; --c-gemini2:#b69cff; --c-claude:#ee9a6e; --c-claude2:#f6c58a;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#13111b; --surface:#1c1927; --surface2:#262236; --fg:#ebe7f6; --muted:#a199b8; --line:#332e47; --accent:#b9aaff; --accent-fg:#1b1433; --good:#6fdcb4; --bad:#ff8a9c; color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#13111b; --surface:#1c1927; --surface2:#262236; --fg:#ebe7f6; --muted:#a199b8; --line:#332e47; --accent:#b9aaff; --accent-fg:#1b1433; --good:#6fdcb4; --bad:#ff8a9c; color-scheme:dark}
+*{box-sizing:border-box}
+html{background:var(--bg)}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:15px;line-height:1.5;padding:28px max(16px,env(safe-area-inset-right)) 64px max(16px,env(safe-area-inset-left))}
+.wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:26px}
+h1{font-family:var(--f-display);font-weight:700;font-size:clamp(26px,4vw,40px);line-height:1.1;margin:0;text-wrap:balance}
+.lede{margin:8px 0 0;color:var(--muted);max-width:70ch}
+.lab{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.top{display:flex;flex-wrap:wrap;gap:14px 28px;align-items:flex-end;padding:14px 16px;background:var(--surface);border:1px solid var(--line);border-radius:14px;position:sticky;top:8px;z-index:20}
+.grp{display:flex;flex-direction:column;gap:6px;min-width:0}
+.seg{display:flex;flex-wrap:wrap;gap:3px;background:var(--surface2);padding:3px;border-radius:11px}
+.seg button{font:inherit;font-size:13.5px;font-weight:500;border:0;background:transparent;color:var(--fg);padding:6px 11px;border-radius:8px;cursor:pointer;display:flex;gap:6px;align-items:center}
+.seg button[aria-pressed="true"]{background:var(--surface);box-shadow:0 1px 3px rgba(20,10,60,.2);color:var(--accent);font-weight:600}
+.sw{width:11px;height:11px;border-radius:50%;display:inline-block}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn{font:inherit;font-size:13.5px;font-weight:600;border:1px solid var(--line);background:var(--surface);color:var(--fg);padding:7px 13px;border-radius:10px;cursor:pointer;display:inline-flex;gap:7px;align-items:center}
+.btn.go{background:var(--accent);color:var(--accent-fg);border-color:transparent}
+.btn:hover{filter:brightness(1.07)}
+.rules{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:8px;margin:0;padding:0;list-style:none}
+.rules li{font-size:13px;color:var(--muted);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 12px}
+.rules b{color:var(--fg);font-weight:600}
+
+.card{display:flex;flex-direction:column;gap:12px;min-width:0}
+.card.first .stagewrap{box-shadow:0 0 0 2px var(--accent),0 18px 50px rgba(60,30,160,.3)}
+.chead{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:baseline}
+.tag{font-family:var(--f-mono);font-weight:500;font-size:13px;background:var(--accent);color:var(--accent-fg);border-radius:7px;padding:2px 9px}
+.card h2{font-family:var(--f-display);font-size:26px;margin:0;line-height:1.1}
+.badge{font-size:12px;font-weight:600;color:var(--accent-fg);background:var(--accent);padding:2px 9px;border-radius:99px}
+.tagline{flex-basis:100%;margin:0;color:var(--muted);font-size:14.5px}
+.stagewrap{position:relative;width:100%;aspect-ratio:16/9;border-radius:14px;overflow:hidden;background:#0b0a12;border:1px solid var(--line);box-shadow:0 12px 36px rgba(20,10,60,.28)}
+.inner{position:absolute;left:0;top:0;width:1280px;height:720px;transform-origin:0 0;overflow:hidden;color:var(--m3-onsurface);font-family:var(--f-body);line-height:1.35;user-select:none;pointer-events:none}
+.ctl{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center}
+.pc{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:10px}
+.pc div{border-radius:12px;padding:10px 14px;font-size:14px;border:1px solid var(--line);background:var(--surface)}
+.pc b{display:block;font-size:11px;letter-spacing:.09em;text-transform:uppercase;margin-bottom:2px}
+.pc .p b{color:var(--good)} .pc .c b{color:var(--bad)}
+details.impl{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-size:13.5px;color:var(--muted)}
+details.impl summary{cursor:pointer;color:var(--fg);font-weight:600}
+details.impl ul{margin:8px 0 0;padding-left:18px} details.impl li{margin:3px 0}
+details.impl code{font-family:var(--f-mono);font-size:12px;background:var(--surface2);padding:1px 5px;border-radius:5px;color:var(--fg)}
+
+/* ===== Escritorio simulado ===== */
+.desk{position:absolute;inset:0;background:radial-gradient(900px 600px at 18% 12%,#1c1633 0,transparent 60%),radial-gradient(800px 600px at 88% 85%,#14202e 0,transparent 62%),#0c0a13}
+.tb{position:absolute;left:0;right:0;top:0;height:30px;background:rgba(18,15,28,.9);border-bottom:1px solid rgba(235,231,246,.08);display:flex;align-items:center;gap:12px;padding:0 16px;font-size:12.5px;color:#a199b8}
+.tb .ws{display:flex;gap:6px}.tb .ws i{width:7px;height:7px;border-radius:50%;background:#a199b8;opacity:.4}.tb .ws i.on{opacity:1;width:18px;border-radius:5px;background:var(--m3-primary)}
+.tb .sp{flex:1}
+.win{position:absolute;background:#16131f;border:1px solid rgba(235,231,246,.09);border-radius:12px;overflow:hidden;box-shadow:0 14px 40px rgba(0,0,0,.4)}
+.win .wt{height:30px;background:#1d1a2a;display:flex;align-items:center;gap:7px;padding:0 12px;font-size:12px;color:#a199b8;font-family:var(--f-mono)}
+.win .wt i{width:9px;height:9px;border-radius:50%;background:#3a3552}
+.win .ln{display:flex;gap:8px;padding:0 16px;height:21px;align-items:center}
+.win .ln s{display:block;height:7px;border-radius:4px;background:#2f2a45;text-decoration:none}
+.win .gut{font-family:var(--f-mono);font-size:11px;color:#4a4466;width:20px}
+
+/* ===== Subtitulos compartidos ===== */
+.pill{position:absolute;left:50%;bottom:62px;transform:translate(-50%,10px);opacity:0;transition:opacity .28s,transform .32s cubic-bezier(.2,.9,.3,1);min-width:380px;max-width:800px;width:max-content;padding:13px 24px 16px;border-radius:22px;background:color-mix(in srgb,var(--m3-surface) 80%,transparent);border:1px solid color-mix(in srgb,var(--m3-onsurface) 11%,transparent);overflow:hidden}
+.pill::before{content:"";position:absolute;inset:0;background:linear-gradient(180deg,color-mix(in srgb,var(--m3-onsurface) 7%,transparent),transparent 40%);pointer-events:none}
+.pill.on{opacity:1;transform:translate(-50%,0)}
+.chip{display:flex;align-items:center;gap:8px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;font-weight:600;color:var(--m3-onsurfvar);margin-bottom:7px;position:relative}
+.chip .dot{width:8px;height:8px;border-radius:50%;background:var(--cc,var(--m3-primary))}
+.chip .eq{display:flex;gap:2px;align-items:center;height:12px;margin-left:auto}
+.chip .eq i{width:2.5px;height:3px;border-radius:2px;background:var(--cc,var(--m3-primary));opacity:.5}
+.st-listen .eq i,.st-speak .eq i{animation:eq .7s ease-in-out infinite}
+.eq i:nth-child(2){animation-delay:.12s!important}.eq i:nth-child(3){animation-delay:.27s!important}.eq i:nth-child(4){animation-delay:.05s!important}
+@keyframes eq{0%,100%{height:3px;opacity:.5}50%{height:12px;opacity:1}}
+.pill .you,.cine .you,.bub .you{font-size:15px;color:var(--m3-onsurfvar);position:relative}
+.pill .her{font-size:21px;font-weight:500;color:var(--m3-onsurface);margin-top:5px;line-height:1.32;position:relative;text-wrap:pretty}
+.pill.st-speak .you{opacity:.55;font-size:13.5px}
+.pill:not(.st-speak):not(.st-deleg) .her{display:none}
+.pill .you .t::before,.pill .you .r::before{content:""}
+.t{opacity:1}.r{opacity:0}
+.prog{position:absolute;left:0;right:0;bottom:0;height:2.5px;background:linear-gradient(90deg,transparent,var(--cc1,var(--m3-primary)),var(--cc2,var(--m3-tertiary)),transparent);background-size:50% 100%;background-repeat:no-repeat;opacity:0;animation:prog 1.6s linear infinite;animation-play-state:paused}
+.st-deleg .prog{opacity:1;animation-play-state:running}
+@keyframes prog{from{background-position:-60% 0}to{background-position:160% 0}}
+.glyph{width:14px;height:14px;display:none}
+
+/* Cine */
+.cine{position:absolute;left:0;right:0;bottom:0;height:250px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;padding-bottom:50px;text-align:center;background:linear-gradient(180deg,transparent,rgba(5,4,10,.5) 55%,rgba(5,4,10,.72));opacity:0;transition:opacity .4s}
+.cine.on{opacity:1}
+.cine .you{font-family:var(--f-serif);font-style:italic;font-size:19px;max-width:880px}
+.cine.st-speak .you{opacity:.5;font-size:16px}
+.cine .her{font-family:var(--f-serif);font-size:32px;line-height:1.28;max-width:960px;color:#f6f2ff;margin-top:8px;font-weight:400;text-wrap:balance}
+.cine:not(.st-speak):not(.st-deleg) .her{display:none}
+.cine .ag{font-family:var(--f-mono);font-size:11.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--cc,var(--m3-primary));margin-bottom:10px;display:none}
+.cine.st-deleg .ag{display:block}
+
+/* Isla */
+.isl{position:absolute;left:50%;bottom:44px;transform:translateX(-50%) scale(.6);opacity:0;height:58px;width:220px;border-radius:30px;background:#07060b;border:1px solid color-mix(in srgb,var(--m3-onsurface) 14%,transparent);display:flex;align-items:center;gap:14px;padding:0 20px;overflow:hidden;transition:width .55s cubic-bezier(.3,1.35,.5,1),height .55s cubic-bezier(.3,1.35,.5,1),border-radius .55s,opacity .3s,transform .5s cubic-bezier(.3,1.35,.5,1)}
+.isl.on{opacity:1;transform:translateX(-50%) scale(1)}
+.isl .wf{flex:none;width:150px;height:36px;margin:0 auto;transition:width .5s cubic-bezier(.3,1.35,.5,1)}
+.isl .tx{display:none;min-width:0;flex:1;padding:12px 0;text-align:left}
+.isl .you{font-size:12.5px;color:var(--m3-onsurfvar);opacity:.8}
+.isl .her{font-size:18px;font-weight:500;line-height:1.3;margin-top:2px}
+.isl .meta{display:none;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--cc,var(--m3-primary));font-weight:600}
+.isl.st-think{width:176px}
+.isl.st-speak{width:700px;height:112px;border-radius:30px;align-items:center}
+.isl.st-speak .wf{width:80px;margin:0}.isl.st-speak .tx,.isl.st-deleg .tx{display:block}
+.isl.st-deleg{width:560px;height:96px}
+.isl.st-deleg .wf{width:80px;margin:0}
+.isl.st-deleg .meta,.isl.st-speak .meta{display:block}
+.isl.st-speak .you{opacity:.55}
+.isl.st-deleg .you{display:none}
+
+/* Burbuja del orbe (D) */
+.bub{position:absolute;right:34px;top:168px;width:400px;padding:14px 20px 16px;border-radius:20px;background:color-mix(in srgb,var(--m3-surface) 86%,transparent);border:1px solid color-mix(in srgb,var(--m3-primary) 28%,transparent);opacity:0;transform:translateY(-8px) scale(.97);transform-origin:90% 0;transition:opacity .25s,transform .35s cubic-bezier(.2,.9,.3,1)}
+.bub.on{opacity:1;transform:none}
+.bub::before{content:"";position:absolute;right:24px;top:-8px;width:14px;height:14px;background:inherit;border-left:1px solid color-mix(in srgb,var(--m3-primary) 28%,transparent);border-top:1px solid color-mix(in srgb,var(--m3-primary) 28%,transparent);transform:rotate(45deg);background:color-mix(in srgb,var(--m3-surface) 100%,transparent)}
+.bub .her{font-size:19px;font-weight:500;line-height:1.32;margin-top:6px}
+.bub:not(.st-speak):not(.st-deleg) .her{display:none}
+.bub.st-speak .you{opacity:.55;font-size:13.5px}
+.bub .chip{margin-bottom:6px}
+.bub.st-deleg .prog{opacity:1;animation-play-state:running}
+.bub{overflow:hidden}
+.cap-note{position:absolute;left:18px;top:44px;font-family:var(--f-mono);font-size:11px;color:#6d6788;letter-spacing:.04em}
+@media (prefers-reduced-motion:reduce){.st-listen .eq i,.st-speak .eq i,.prog{animation:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Barra de Laura: 5 propuestas</h1>
+    <p class="lede">Rediseño del borde inferior y de los subtítulos. Cada propuesta recorre sola el ciclo completo (escucha, piensa, habla, delega en un agente) o puedes fijar un estado. La <b>E «Gemini»</b> es la principal: la luz nace en el centro del borde inferior y rodea la pantalla.</p>
+  </header>
+
+  <div class="top" role="group" aria-label="Controles globales">
+    <div class="grp"><span class="lab">Estado (todas)</span>
+      <div class="seg" id="gState"></div></div>
+    <div class="grp"><span class="lab">Tema Material You</span>
+      <div class="seg" id="gTheme"></div></div>
+    <div class="grp"><span class="lab">Agente al delegar</span>
+      <div class="seg" id="gAgent"></div></div>
+  </div>
+
+  <ul class="rules" aria-label="Restricciones de implementación">
+    <li><b>Sin shadowBlur ni blur caro.</b> Todo es gradiente lineal/radial; los subtítulos solo usan fondo translúcido (nada de backdrop-blur).</li>
+    <li><b>Animación gateada.</b> Cada escena solo corre mientras esté visible y activa; en reposo se detiene (aquí también: se pausan las que salen de pantalla).</li>
+    <li><b>Tematizable.</b> Colores de <code>Colours.palette</code> (primary, tertiary, surface). Agentes fijos: Gemini azul y morado, Claude naranja.</li>
+    <li><b>Click-through.</b> <code>mask: Region {}</code>, igual que hoy. Todo en español.</li>
+  </ul>
+
+  <main id="cards" class="wrap" style="gap:44px"></main>
+</div>
+
+<script>
+"use strict";
+const W=1280,H=720;
+/* ---------- utilidades ---------- */
+const clamp=(x,a=0,b=1)=>Math.min(b,Math.max(a,x));
+const lerp=(a,b,t)=>a+(b-a)*t;
+const sstep=(a,b,x)=>{const t=clamp((x-a)/(b-a));return t*t*(3-2*t)};
+const hex=h=>{h=h.trim().replace('#','');if(h.length===3)h=[...h].map(c=>c+c).join('');return[parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)]};
+const mix=(a,b,t)=>[lerp(a[0],b[0],t),lerp(a[1],b[1],t),lerp(a[2],b[2],t)];
+const rgba=(c,a)=>`rgba(${c[0]|0},${c[1]|0},${c[2]|0},${clamp(a).toFixed(3)})`;
+const easeIO=p=>p<.5?4*p*p*p:1-Math.pow(-2*p+2,3)/2;
+
+/* ---------- tema ---------- */
+const THEMES={
+  lila:{n:'Lila',primary:'#bfb0ff',tertiary:'#f2a9cb',surface:'#1a1725',on:'#ebe7f6',var:'#b3abc9'},
+  verde:{n:'Menta',primary:'#8fdcb0',tertiary:'#9cc8f2',surface:'#14201b',on:'#e4f2ea',var:'#a5bdb0'},
+  ambar:{n:'Ámbar',primary:'#f0c27a',tertiary:'#e8a0b5',surface:'#221a12',on:'#f5ebdd',var:'#c4b4a0'}
+};
+const AG={gemini:{n:'Gemini',a:'#7db4ff',b:'#b69cff'},claude:{n:'Claude',a:'#ee9a6e',b:'#f6c58a'}};
+let TH={};
+function applyTheme(k){
+  const t=THEMES[k],r=document.documentElement.style;
+  r.setProperty('--m3-primary',t.primary);r.setProperty('--m3-tertiary',t.tertiary);r.setProperty('--m3-surface',t.surface);r.setProperty('--m3-onsurface',t.on);r.setProperty('--m3-onsurfvar',t.var);
+  TH={primary:hex(t.primary),tertiary:hex(t.tertiary),surface:hex(t.surface),on:hex(t.on),
+      gb:hex('#7db4ff'),gp:hex('#b69cff'),co:hex('#ee9a6e'),ca:hex('#f6c58a')};
+}
+
+/* ---------- guion de la simulacion ---------- */
+const U1="Laura, ¿qué tengo mañana?",R1="Mañana tienes clase a las 10 y la reunión con Marta a las 17:00.";
+const DEL={
+  gemini:{you:"Laura, pídele a Gemini que revise el build del widget",her:"Se lo paso a Gemini. Te aviso cuando termine."},
+  claude:{you:"Laura, que Claude refactorice el parser de tareas",her:"Claude se encarga. Te aviso cuando termine."}
+};
+let AGENT_SEL='auto', GSTATE='auto';
+function agentFor(loop){return AGENT_SEL==='auto'?(loop%2?'claude':'gemini'):AGENT_SEL}
+function script(loop){
+  const a=agentFor(loop),d=DEL[a];
+  return[
+    {state:'listen',dur:3700,you:U1},
+    {state:'think',dur:1800,you:U1},
+    {state:'speak',dur:5400,you:U1,her:R1},
+    {state:'listen',dur:3300,you:d.you},
+    {state:'think',dur:1500,you:d.you},
+    {state:'deleg',dur:4800,you:d.you,her:d.her,agent:a},
+    {state:'rest',dur:1900}
+  ];
+}
+function fixedSeg(st,loop){
+  const a=agentFor(loop),d=DEL[a];
+  if(st==='listen')return{state:'listen',dur:3700,you:U1};
+  if(st==='think')return{state:'think',dur:2600,you:U1};
+  if(st==='speak')return{state:'speak',dur:5400,you:U1,her:R1};
+  return{state:'deleg',dur:4800,you:d.you,her:d.her,agent:a};
+}
+const STATE_LABEL={listen:'Escuchando',think:'Pensando',speak:'Laura',deleg:'Delegando',rest:''};
+function voice(t,speak){
+  const f=speak?1.25:1;
+  const syl=Math.abs(Math.sin(t*5.2*f+Math.sin(t*1.3)*2));
+  const word=.5+.5*Math.sin(t*(speak?1.4:1.9)+.6);
+  const gate=sstep(.12,.5,word);
+  return clamp((.22+.78*syl)*(.3+.7*gate)*(.82+.18*Math.sin(t*13.7)));
+}
+
+/* ---------- geometria del contorno (mitad: centro inferior -> derecha -> arriba) ---------- */
+function pathPos(s){
+  const h=W/2;
+  if(s<h)return[W/2+s,H,0];
+  if(s<h+H)return[W,H-(s-h),-Math.PI/2];
+  return[W-(s-h-H),0,Math.PI];
+}
+const LTOT=W+H;
+/* Tiras de luz: cada tira es UN gradiente lineal hacia dentro (QML: Shape + ShapePath/PathGradient o un ShaderEffect) */
+function strips(S,c,d,o){
+  const q=S.q,step=o.step;c.globalCompositeOperation='lighter';
+  for(let side=0;side<2;side++){
+    for(let s=step/2;s<d;s+=step){
+      const[x0,y,th]=pathPos(s),x=side?W-x0:x0,t=side?-th:th;
+      const a=o.alpha(s,d),dep=o.depth(s,d);
+      if(a<.004||dep<2)continue;
+      const cs=Math.cos(t)*q,sn=Math.sin(t)*q;
+      S.c.setTransform(cs,sn,-sn,cs,x*q,y*q);
+      const col=o.color(s),g=c.createLinearGradient(0,0,0,-dep);
+      g.addColorStop(0,rgba(col,a));g.addColorStop(.03,rgba(col,a*.92));g.addColorStop(.14,rgba(col,a*.55));g.addColorStop(.4,rgba(col,a*.2));g.addColorStop(1,rgba(col,0));
+      c.fillStyle=g;c.fillRect(-step/2,-dep,step,dep);
+    }
+  }
+  c.setTransform(q,0,0,q,0,0);c.globalCompositeOperation='source-over';
+}
+function palAt(pal,u){ // paleta ciclica, u 0..1
+  u=((u%1)+1)%1*(pal.length-1);const i=Math.floor(u),f=u-i;
+  return mix(pal[i],pal[Math.min(pal.length-1,i+1)],f*f*(3-2*f));
+}
+function glowPoint(c,x,y,r,col,a){
+  const g=c.createRadialGradient(x,y,0,x,y,r);
+  g.addColorStop(0,rgba(col,a));g.addColorStop(.35,rgba(col,a*.4));g.addColorStop(1,rgba(col,0));
+  c.fillStyle=g;c.fillRect(x-r,y-r,r*2,r*2);
+}
+
+/* ---------- escritorio simulado ---------- */
+function buildDesk(inner){
+  const d=document.createElement('div');d.className='desk';
+  const cols=['#6b5fb0','#4a9ac4','#c08a5a','#5fae8d','#3d3860','#8d6aa8'];
+  let seed=7;const rnd=()=>(seed=(seed*16807)%2147483647)/2147483647;
+  function lines(n,ind){let h='';for(let i=0;i<n;i++){const k=i%7===0?0:(i%5<2?2:1);const ww=40+rnd()*220;h+=`<div class="ln"><span class="gut">${i+1}</span><s style="margin-left:${k*22+(ind||0)}px;width:${ww}px;background:${rnd()<.4?cols[Math.floor(rnd()*cols.length)]+'88':'#2f2a45'}"></s><s style="width:${20+rnd()*90}px"></s></div>`}return h}
+  d.innerHTML=`<div class="tb"><div class="ws"><i class="on"></i><i></i><i></i><i></i></div><span>Código</span><div class="sp"></div><span>mié 21 oct</span><span style="color:#ebe7f6">19:42</span></div>
+  <div class="win" style="left:70px;top:70px;width:720px;height:430px"><div class="wt"><i></i><i></i><i></i>&nbsp;widgets/gtasks.py</div>${lines(15)}</div>
+  <div class="win" style="left:830px;top:130px;width:390px;height:300px"><div class="wt"><i></i><i></i><i></i>&nbsp;terminal</div>${lines(10,0)}</div>`;
+  inner.appendChild(d);
+}
+
+/* ---------- constructores de subtitulos ---------- */
+function pillHTML(){return`<div class="pill"><div class="chip"><span class="dot"></span><span class="lab"></span><span class="eq"><i></i><i></i><i></i><i></i></span></div><div class="you"></div><div class="her"></div><div class="prog"></div></div>`}
+function cineHTML(){return`<div class="cine"><div class="ag"></div><div class="you"></div><div class="her"></div></div>`}
+function setTyped(el,full,n){
+  if(el._k===full+'|'+n)return;el._k=full+'|'+n;
+  el.innerHTML=`<span class="t"></span><span class="r"></span>`;
+  el.firstChild.textContent=full.slice(0,n);el.lastChild.textContent=full.slice(n);
+}
+function stClass(S){return'st-'+(S.state==='rest'?S.lastState:S.state)}
+function updatePill(S,el,on){
+  if(!el)return;
+  const st=S.state==='rest'?S.lastState:S.state;
+  el.className=(el.dataset.base)+' '+('st-'+st)+(on?' on':'');
+  if(!on)return;
+  const lab=el.querySelector('.lab');
+  if(lab){const L=st==='deleg'?'Delegando en '+AG[S.agent].n:STATE_LABEL[st];if(lab.textContent!==L)lab.textContent=L;
+    const ag=S.state==='deleg'?AG[S.agent]:null;
+    el.style.setProperty('--cc',ag?ag.a:(st==='think'?`rgb(${TH.tertiary})`:'var(--m3-primary)'));
+    el.style.setProperty('--cc1',ag?ag.a:'var(--m3-primary)');el.style.setProperty('--cc2',ag?ag.b:'var(--m3-tertiary)');}
+  setTyped(el.querySelector('.you'),'“'+S.youFull+'”',S.youN?S.youN+1:0);
+  const her=el.querySelector('.her');if(her)setTyped(her,S.herFull,S.herN);
+  const ag=el.querySelector('.ag');if(ag){const t='Delegado en '+AG[S.agent].n;if(ag.textContent!==t)ag.textContent='→ '+AG[S.agent].n;ag.style.setProperty('--cc',AG[S.agent].a)}
+}
+function youOn(S){return S.lit&&S.youN>0}
+
+/* =====================================================================
+   PROPUESTAS
+   ===================================================================== */
+const P={};
+
+/* ---- E · Gemini ---- */
+P.E={tag:'E',name:'Gemini',badge:'Principal',
+ tagline:'La luz nace en el centro del borde inferior, se abre hacia los lados, sube por los laterales y cierra el contorno. Después queda encendida: respira y sigue la voz.',
+ pros:'El efecto más reconocible y vistoso; la entrada ya cuenta que Laura despertó. Un único lenguaje para todo el ciclo y gran presencia periférica.',
+ cons:'Mucha superficie iluminada: hay que mantener la intensidad baja para no cansar. Son ~400 tiras animadas: necesita el Shape/shader, no 400 Rectangles.',
+ qml:[
+  '<b>Barato (recomendado):</b> un <code>ShaderEffect</code> de pantalla completa. Uniforms: <code>progress</code> (0..1, el frente), <code>time</code>, <code>glow</code>, <code>depth</code> y 4 colores. El fragment shader calcula la distancia al borde más cercano (<code>min(x,y,W-x,H-y)</code>), el parámetro de recorrido <code>s</code> desde el centro inferior y pinta <code>smoothstep</code> de la distancia por el color <code>mix</code> de la paleta en <code>s - time</code>. Es 1 draw call, sin blur.',
+  '<b>Sin shader:</b> 4 bordes con <code>Shape</code> + <code>ShapePath</code> y <code>strokeGradient: LinearGradient</code> (colores en movimiento animando <code>x1/x2</code>), con <code>dashPattern</code> / <code>PathGradient</code> como máscara del trazo para el progreso; el resplandor son 2 trazos más anchos con alfa baja (sin <code>shadowBlur</code>).',
+  '<b>Entrada:</b> una sola <code>NumberAnimation</code> sobre <code>progress</code> (1,9 s, <code>Easing.InOutCubic</code>). <b>Salida:</b> misma animación hacia atrás en 1,3 s (se recoge hacia el centro); es el inverso exacto, sin lógica extra.',
+  '<b>Gateo:</b> el <code>Timer</code>/<code>FrameAnimation</code> del flujo de color solo corre con <code>Laura.active &amp;&amp; visible</code>; en reposo <code>visible: false</code>. El flujo puede ir a 30 fps sin que se note.',
+  '<b>Tema:</b> stops = [azul Gemini, morado Gemini, <code>m3tertiary</code>, <code>m3primary</code>]; al delegar se cambian por los colores del agente con un <code>ColorAnimation</code>.']
+};
+P.E.init=S=>{
+  S.root.insertAdjacentHTML('beforeend',pillHTML()+cineHTML());
+  S.pillEl=S.root.querySelector('.pill');S.cineEl=S.root.querySelector('.cine');
+  S.pillEl.dataset.base='pill';S.cineEl.dataset.base='cine';
+  S.E={p:0,fade:1,wasLit:false,pal:[TH.gb,TH.gp,TH.tertiary,TH.primary,TH.gb].map(c=>c.slice()),exit:'recoger',subs:'pill',comet:0};
+  S.extra=(box)=>{
+    box.insertAdjacentHTML('beforeend',`<button class="btn go" data-a="replay">↻ Repetir entrada</button><button class="btn" data-a="leave">Probar salida</button>
+     <div class="grp"><span class="lab">Salida</span><div class="seg" data-g="exit"><button data-v="recoger" aria-pressed="true">Se recoge al centro</button><button data-v="fade" aria-pressed="false">Se desvanece</button></div></div>
+     <div class="grp"><span class="lab">Subtítulos</span><div class="seg" data-g="subs"><button data-v="pill" aria-pressed="true">Píldora</button><button data-v="cine" aria-pressed="false">Cine</button></div></div>`);
+    box.querySelector('[data-a=replay]').onclick=()=>{S.E.p=0;S.E.fade=1;S.hideUntil=0;S.E.wasLit=true};
+    box.querySelector('[data-a=leave]').onclick=()=>{S.hideUntil=S.t+(S.E.exit==='fade'?2.6:3.1)};
+    box.querySelectorAll('[data-g]').forEach(g=>g.querySelectorAll('button').forEach(b=>b.onclick=()=>{
+      g.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b));S.E[g.dataset.g]=b.dataset.v}));
+  };
+};
+P.E.draw=S=>{
+  const c=S.c,E=S.E,dt=S.dt;
+  // progreso de entrada/salida
+  if(S.lit){ if(!E.wasLit&&(E.p<=0.001||E.fade<=0.01)){E.p=0;E.fade=1} E.p=Math.min(1,E.p+dt/1.9); E.fade=Math.min(1,E.fade+dt*2.5); }
+  else if(E.exit==='recoger'){E.p=Math.max(0,E.p-dt/1.3)}
+  else{E.fade=Math.max(0,E.fade-dt/.9); if(E.fade<=0)E.p=0}
+  E.wasLit=S.lit;
+  if(E.p<=0||E.fade<=0.002)return;
+  const e=easeIO(E.p),d=e*LTOT,t=S.t;
+  // paleta objetivo
+  let tgt;
+  if(S.state==='deleg'&&S.agent==='gemini')tgt=[TH.gb,TH.gp,mix(TH.gb,[255,255,255],.35),TH.gp,TH.gb];
+  else if(S.state==='deleg')tgt=[TH.co,TH.ca,mix(TH.co,[255,255,255],.3),TH.ca,TH.co];
+  else if(S.state==='think')tgt=[TH.gp,TH.tertiary,TH.gb,TH.primary,TH.gp];
+  else tgt=[TH.gb,TH.gp,TH.tertiary,TH.primary,TH.gb];
+  for(let i=0;i<5;i++)E.pal[i]=mix(E.pal[i],tgt[i],Math.min(1,dt*3));
+  const g=S.g,speed=S.state==='think'?.16:S.state==='deleg'?.2:.07;
+  E.flow=(E.flow||0)+dt*speed;
+  E.comet=(E.comet||0)+dt*(S.state==='deleg'?.5:S.state==='think'?.3:0);
+  const comet=((E.comet%1)+1)%1*LTOT;
+  const cometOn=S.state==='think'||S.state==='deleg';
+  const breathe=.5+.5*Math.sin(t*1.5);
+  const base=(.52+.5*g)*E.fade*(.92+.08*breathe);
+  const depth0=84+190*g;
+  strips(S,c,d,{step:10,
+    alpha:(s,dd)=>{
+      let f=sstep(dd,dd-190,s); // frente suave
+      let a=base*f*(.9+.1*Math.sin(s*.017-t*2.2));
+      if(cometOn)a+=.55*Math.exp(-Math.pow((s-comet)/95,2))*E.fade;
+      return Math.min(1,a)},
+    depth:(s,dd)=>{
+      const f=sstep(dd,dd-240,s);
+      let v=depth0*(s<W/2?1.2:1)*(.28+.72*f);
+      v*=1+.16*S.amp*Math.sin(s*.02-t*5);
+      if(cometOn)v*=1+.5*Math.exp(-Math.pow((s-comet)/95,2));
+      return v},
+    color:s=>palAt(E.pal,s/LTOT*.85-E.flow)});
+  // destello de ignicion en el centro inferior + cabezas luminosas del frente
+  c.globalCompositeOperation='lighter';
+  const ign=Math.max(0,1-E.p*2.2);
+  if(ign>0)glowPoint(c,W/2,H,220*(1+E.p),palAt(E.pal,0),.7*ign*E.fade);
+  const head=(1-sstep(.9,1,E.p))*(E.p>.003?1:0)*E.fade*(S.lit?1:.6);
+  if(head>.01)for(let side=0;side<2;side++){
+    const[x0,y]=pathPos(Math.min(d,LTOT-1)),x=side?W-x0:x0;
+    const inx=(y===H?0:(x0===W?(side?14:-14):0)),iny=(y===H?-10:y===0?10:0);
+    glowPoint(c,x+inx,y+iny,150,mix(palAt(E.pal,d/LTOT*.85-E.flow),[255,255,255],.55),.75*head);
+  }
+  c.globalCompositeOperation='source-over';
+};
+P.E.dom=S=>{
+  const cine=S.E.subs==='cine';
+  updatePill(S,S.pillEl,!cine&&youOn(S));
+  updatePill(S,S.cineEl,cine&&youOn(S));
+};
+
+/* ---- A · Refinada ---- */
+P.A={tag:'A',name:'Refinada',
+ tagline:'Evolución de la actual: la barra pasa de franja plana a un «lente» de luz centrado, con filo fino, y la píldora gana jerarquía (estado, lo que dijiste, lo que responde Laura).',
+ pros:'Es la más barata y la menos arriesgada: reutiliza la estructura actual. Jerarquía clara: etiqueta de estado, tú en pequeño, Laura en grande. La transcripción aparece ya mientras escuchas.',
+ cons:'Es la menos «wow»: sigue siendo una barra abajo. Si no hay nada que decir, apenas se nota desde lejos.',
+ qml:[
+  '<b>Luz:</b> un <code>Rectangle</code> con <code>RadialGradient</code> escalado verticalmente (<code>transform: Scale</code>) para el lente, más un <code>Rectangle</code> de 2 px con <code>Gradient</code> horizontal (transparente → color → transparente). Sin <code>shadowBlur</code>.',
+  '<b>Píldora:</b> igual que hoy (<code>Rectangle</code> con alfa), añadiendo la fila de etiqueta (<code>Row</code> + punto + 4 barras que son <code>Rectangle</code> con <code>Behavior on height</code> atadas a <code>Laura.amplitude</code>).',
+  '<b>Gateo:</b> las barras de la etiqueta y el barrido de «pensando» solo existen con <code>running: state !== idle &amp;&amp; visible</code>.']
+};
+P.A.init=S=>{S.root.insertAdjacentHTML('beforeend',pillHTML());S.pillEl=S.root.querySelector('.pill');S.pillEl.dataset.base='pill'};
+P.A.draw=S=>{
+  const c=S.c,pr=S.pres;if(pr<.01)return;const g=S.g,t=S.t;
+  let col=S.state==='think'?mix(TH.primary,TH.tertiary,.5+.5*Math.sin(t*2.1)):TH.primary;
+  let col2=TH.tertiary;
+  if(S.state==='deleg'){const a=S.agent==='gemini';col=a?TH.gb:TH.co;col2=a?TH.gp:TH.ca}
+  S.colA=S.colA?mix(S.colA,col,Math.min(1,S.dt*5)):col;S.colB=S.colB?mix(S.colB,col2,Math.min(1,S.dt*5)):col2;
+  col=S.colA;col2=S.colB;
+  const h=70+210*g, w=W*.5;
+  // lente: radial elíptico
+  c.save();c.translate(W/2,H);c.scale(1,h/w);
+  const rg=c.createRadialGradient(0,0,0,0,0,w);
+  rg.addColorStop(0,rgba(col,.62*pr));rg.addColorStop(.3,rgba(col,.30*pr));rg.addColorStop(.65,rgba(col,.08*pr));rg.addColorStop(1,rgba(col,0));
+  c.fillStyle=rg;c.fillRect(-w,-w,w*2,w);c.restore();
+  // filo
+  const len=W*(.34+.2*g);
+  const lg=c.createLinearGradient(W/2-len,0,W/2+len,0);
+  lg.addColorStop(0,rgba(col,0));lg.addColorStop(.28,rgba(col,.55*pr));lg.addColorStop(.5,rgba(mix(col,[255,255,255],.5),pr));lg.addColorStop(.72,rgba(col2,.55*pr));lg.addColorStop(1,rgba(col2,0));
+  c.fillStyle=lg;c.fillRect(W/2-len,H-2.5,len*2,2.5);
+  // brillo que barre al pensar / delegar
+  if(S.state==='think'||S.state==='deleg'){
+    const x=W/2+Math.sin(t*(S.state==='think'?1.3:2.4))*len*.8;
+    glowPoint(c,x,H-1,90,mix(col,[255,255,255],.6),.7*pr);
+  }
+};
+P.A.dom=S=>updatePill(S,S.pillEl,youOn(S));
+
+/* ---- B · Isla ---- */
+P.B={tag:'B',name:'Isla',
+ tagline:'Una cápsula negra flotante abajo al centro, estilo Dynamic Island: se encoge para escuchar, late al pensar y se expande para mostrar la respuesta y la forma de onda dentro.',
+ pros:'Muy compacta y legible: todo el estado vive en un solo objeto, con transiciones de forma muy expresivas. No ilumina el escritorio, así que distrae menos.',
+ cons:'Pierde la «luz de borde» que Alberto ya conoce. Al ser opaca tapa contenido de la zona inferior; hace falta el ancho dinámico bien medido.',
+ qml:[
+  '<b>Cápsula:</b> <code>Rectangle</code> negro con <code>radius: height/2</code> y <code>Behavior on width/height</code> (<code>Easing.OutBack</code>) según el estado. Es la única animación de layout.',
+  '<b>Onda:</b> <code>Repeater</code> de ~21 <code>Rectangle</code> con <code>Behavior on height</code> alimentados por <code>Laura.amplitude</code> + desfase; o un <code>ShaderEffect</code> con barras. Al pensar se sustituye por 3 puntos con <code>SequentialAnimation</code> gateada.',
+  '<b>Halo bajo la isla:</b> <code>RadialGradient</code> elíptico, sin blur. Texto con <code>StyledText</code>; ancho acotado y 2 líneas máx.']
+};
+P.B.init=S=>{
+  S.root.insertAdjacentHTML('beforeend',`<div class="isl"><canvas class="wf" width="300" height="80"></canvas><div class="tx"><div class="meta"></div><div class="you"></div><div class="her"></div></div></div>`);
+  S.isl=S.root.querySelector('.isl');S.wf=S.isl.querySelector('canvas').getContext('2d');S.wfBars=new Array(21).fill(0);
+};
+P.B.draw=S=>{ // halo bajo la isla en el canvas principal
+  const c=S.c,pr=S.pres;if(pr<.01)return;
+  const st=S.state==='rest'?S.lastState:S.state;
+  const w=st==='speak'?440:st==='deleg'?380:st==='think'?150:170;
+  S.bw=lerp(S.bw||w,w,Math.min(1,S.dt*6));
+  let col=st==='deleg'?(S.agent==='gemini'?TH.gb:TH.co):st==='think'?TH.tertiary:TH.primary;
+  c.save();c.translate(W/2,H-72);c.scale(1,(60+90*S.g)/S.bw);
+  const rg=c.createRadialGradient(0,0,0,0,0,S.bw);
+  rg.addColorStop(0,rgba(col,.38*pr*(.5+.5*S.g)));rg.addColorStop(.5,rgba(col,.12*pr));rg.addColorStop(1,rgba(col,0));
+  c.fillStyle=rg;c.fillRect(-S.bw,-S.bw,S.bw*2,S.bw*2);c.restore();
+};
+P.B.dom=S=>{
+  const st=S.state==='rest'?S.lastState:S.state,on=S.lit&&S.youN>0||(S.lit&&S.state==='think');
+  const el=S.isl;el.className='isl st-'+st.replace('speak','speak')+(S.lit?' on':'');
+  const ag=S.state==='deleg'?AG[S.agent]:null;
+  const col=ag?ag.a:(st==='think'?`rgb(${TH.tertiary.map(x=>x|0)})`:`rgb(${TH.primary.map(x=>x|0)})`);
+  el.style.setProperty('--cc',col);
+  const meta=el.querySelector('.meta');const m=ag?'Delegando en '+ag.n:st==='speak'?'Laura':'';if(meta.textContent!==m)meta.textContent=m;
+  setTyped(el.querySelector('.you'),'“'+S.youFull+'”',S.youN?S.youN+1:0);setTyped(el.querySelector('.her'),S.herFull,S.herN);
+  // forma de onda / puntos / glifo dentro
+  const c=S.wf,w=300,h=80,t=S.t;c.clearRect(0,0,w,h);
+  if(!S.lit)return;
+  if(st==='think'){
+    for(let i=0;i<3;i++){const ph=t*3.2-i*.7,y=h/2-Math.max(0,Math.sin(ph))*18,r=7+Math.max(0,Math.sin(ph))*2;
+      c.fillStyle=rgba(TH.tertiary,.95);c.beginPath();c.arc(w/2+(i-1)*30,y,r,0,7);c.fill();}
+  }else if(st==='deleg'){
+    const a=ag,ca=hex(a.a),cb=hex(a.b);
+    const gg=c.createLinearGradient(w/2-24,h/2-24,w/2+24,h/2+24);gg.addColorStop(0,rgba(ca,1));gg.addColorStop(1,rgba(cb,1));
+    c.fillStyle=gg;c.beginPath();c.arc(w/2,h/2,17,0,7);c.fill();
+    c.strokeStyle=rgba(ca,.5);c.lineWidth=2;c.beginPath();c.arc(w/2,h/2,28+3*Math.sin(t*4),0,7);c.stroke();
+    const an=t*2.6;c.fillStyle='#fff';c.beginPath();c.arc(w/2+Math.cos(an)*28,h/2+Math.sin(an)*28,4,0,7);c.fill();
+  }else{
+    const n=S.wfBars.length;
+    for(let i=0;i<n;i++){
+      const env=Math.pow(Math.sin(Math.PI*(i+.5)/n),.8);
+      const tg=.1+S.amp*env*(.55+.45*Math.sin(t*9+i*1.7));
+      S.wfBars[i]+=(tg-S.wfBars[i])*.35;
+      const bh=Math.max(5,S.wfBars[i]*h*.95),x=w/2-(n*14)/2+i*14+4;
+      c.fillStyle=rgba(i%2?TH.primary:mix(TH.primary,[255,255,255],.35),.95);
+      c.beginPath();c.roundRect(x,h/2-bh/2,7,bh,3.5);c.fill();
+    }
+  }
+};
+
+/* ---- C · Cine ---- */
+P.C={tag:'C',name:'Cine',
+ tagline:'Un aura casi invisible: un filo de 1 px y un velo muy suave alrededor de toda la pantalla, y los subtítulos como los de una película, sin caja, en serif.',
+ pros:'La más discreta y elegante; no tapa nada y los subtítulos grandes se leen desde lejos. Perfecta mientras trabajas o ves vídeo.',
+ cons:'Tan sutil que puede pasar desapercibida con luz ambiente fuerte. Sin caja, el texto depende de la banda oscura inferior para contrastar con fondos claros.',
+ qml:[
+  '<b>Aura:</b> misma técnica que E pero con el frente ya completo: 4 <code>Rectangle</code> con <code>Gradient</code> (veladura de 40 px a alfa ≤ 0,18) y 4 filos de 1 px; el color cambia lento animando <code>Gradient.stops</code> o un <code>ShaderEffect</code>.',
+  '<b>Subtítulos:</b> <code>StyledText</code> con fuente serif sobre una banda <code>Rectangle</code> con <code>Gradient</code> vertical (nunca sombra de texto con blur).',
+  '<b>Gateo:</b> respiración a 20-30 fps con <code>Timer</code>; al pasar a reposo se detiene y la imagen desaparece con un fundido.']
+};
+P.C.init=S=>{S.root.insertAdjacentHTML('beforeend',cineHTML());S.cineEl=S.root.querySelector('.cine');S.cineEl.dataset.base='cine'};
+P.C.draw=S=>{
+  const c=S.c,pr=S.pres;if(pr<.01)return;const t=S.t;
+  const speed=S.state==='think'?.12:.045;S.flow=(S.flow||0)+S.dt*speed;
+  let pal=[TH.primary,TH.tertiary,TH.primary,TH.tertiary,TH.primary];
+  if(S.state==='deleg'){pal=S.agent==='gemini'?[TH.gb,TH.gp,TH.gb,TH.gp,TH.gb]:[TH.co,TH.ca,TH.co,TH.ca,TH.co]}
+  const pk=S.state==='deleg'||S.state==='think';
+  const comet=((S.flow*5)%1)*LTOT;
+  const base=(.34+.5*S.g)*pr*(.9+.1*Math.sin(t*1.2));
+  strips(S,c,LTOT,{step:24,
+    alpha:s=>Math.min(1,base*.5+(pk?.4*Math.exp(-Math.pow((s-comet)/140,2))*pr:0)),
+    depth:()=>34+34*S.g,
+    color:s=>palAt(pal,s/LTOT*.7-S.flow)});
+};
+P.C.dom=S=>updatePill(S,S.cineEl,youOn(S));
+
+/* ---- D · Orbe ---- */
+P.D={tag:'D',name:'Orbe',
+ tagline:'Laura vive en el orbe de arriba a la derecha: de él salen las ondas de la voz, un hilo de luz recorre el borde superior y los subtítulos son un bocadillo que cuelga del orbe. Al delegar, un hilo une a Laura con el agente.',
+ pros:'Coherente con el orbe y la convergencia ya aprobados; cuenta visualmente «quién habla con quién» al delegar. Deja libre el borde inferior.',
+ cons:'La atención va a la esquina, lejos del foco de lectura; los subtítulos largos tapan contenido arriba a la derecha. Es la más arriesgada y la que más difiere de lo actual.',
+ qml:[
+  '<b>Orbe:</b> el <code>OrbDisc</code>/<code>LauraOrb</code> existente; las ondas son <code>Shape</code> con <code>PathAngleArc</code> (trazo, sin relleno) cuyo radio y alfa dependen de una fase 0..1 con <code>Timer</code> a 25 fps gateado.',
+  '<b>Hilo al agente:</b> <code>Shape</code> con <code>PathQuad</code> y <code>strokeGradient</code>; las partículas son 6 <code>Rectangle</code> redondos posicionados con la fase (curva de Bézier evaluada en JS).',
+  '<b>Bocadillo:</b> <code>Rectangle</code> con alfa y rombo girado como cola; ancho fijo de 400 px. Hilo del borde superior: <code>Rectangle</code> de 3 px con <code>Gradient</code> horizontal.']
+};
+P.D.init=S=>{S.root.insertAdjacentHTML('beforeend',`<div class="bub"><div class="chip"><span class="dot"></span><span class="lab"></span><span class="eq"><i></i><i></i><i></i><i></i></span></div><div class="you"></div><div class="her"></div><div class="prog"></div></div>`);
+  S.pillEl=S.root.querySelector('.bub');S.pillEl.dataset.base='bub';S.dl=0;};
+const OX=1190,OY=80,OR=24;
+P.D.draw=S=>{
+  const c=S.c,pr=S.pres,t=S.t,st=S.state==='rest'?S.lastState:S.state,g=S.g;
+  S.dl+=((S.state==='deleg'?1:0)-S.dl)*Math.min(1,S.dt*3);
+  let col=st==='think'?mix(TH.primary,TH.tertiary,.5+.5*Math.sin(t*2)):TH.primary;
+  // hilo superior desde el orbe
+  if(pr>.01){
+    const len=140+720*g,lg=c.createLinearGradient(OX,0,OX-len,0);
+    lg.addColorStop(0,rgba(col,.95*pr));lg.addColorStop(.35,rgba(col,.4*pr));lg.addColorStop(1,rgba(col,0));
+    c.fillStyle=lg;c.fillRect(OX-len,0,len,3);
+    c.save();c.translate(OX,0);c.scale(1,(30+40*g)/(len*.7));const rg=c.createRadialGradient(0,0,0,0,0,len*.7);
+    rg.addColorStop(0,rgba(col,.22*pr));rg.addColorStop(1,rgba(col,0));c.fillStyle=rg;c.fillRect(-len*.7,0,len*.7,len*.7);c.restore();
+    // ondas: escuchar = convergen hacia el orbe; hablar = salen
+    if(st==='listen'||st==='speak'){
+      for(let i=0;i<3;i++){
+        let k=((t*.7+i/3)%1);if(st==='listen')k=1-k;
+        const r=OR*1.3+k*OR*5.5,a=(st==='listen'?k:(1-k))*(.12+.55*S.amp)*pr;
+        c.strokeStyle=rgba(col,a);c.lineWidth=2;c.beginPath();c.arc(OX,OY,r,0,7);c.stroke();
+      }
+    }
+  }
+  // hilo Laura -> agente
+  if(S.dl>.01){
+    const ag=AG[S.agent],ca=hex(ag.a),cb=hex(ag.b),AX=1010,AY=96,dl=S.dl;
+    const cp=[(OX+AX)/2,OY+86];
+    const bz=(u)=>[(1-u)*(1-u)*OX+2*(1-u)*u*cp[0]+u*u*AX,(1-u)*(1-u)*OY+2*(1-u)*u*cp[1]+u*u*AY];
+    c.lineWidth=2;c.strokeStyle=rgba(mix(ca,cb,.5),.35*dl);c.beginPath();c.moveTo(OX,OY);c.quadraticCurveTo(cp[0],cp[1],AX,AY);c.stroke();
+    c.globalCompositeOperation='lighter';
+    for(let i=0;i<8;i++){const u=(t*.55+i/8)%1,[x,y]=bz(u);glowPoint(c,x,y,15,mix(col,mix(ca,cb,u),u),.85*dl*Math.sin(u*Math.PI))}
+    glowPoint(c,AX,AY,70+10*Math.sin(t*4),ca,.5*dl);
+    c.globalCompositeOperation='source-over';
+    const og=c.createRadialGradient(AX-6,AY-8,2,AX,AY,OR*.95);og.addColorStop(0,rgba(mix(ca,[255,255,255],.5),dl));og.addColorStop(.6,rgba(ca,dl));og.addColorStop(1,rgba(cb,dl));
+    c.fillStyle=og;c.beginPath();c.arc(AX,AY,OR*.95,0,7);c.fill();
+    c.fillStyle=rgba([255,255,255],.9*dl);c.font='600 12px Figtree,sans-serif';c.textAlign='center';c.fillText(ag.n,AX,AY+OR+20);
+  }
+  // orbe (siempre algo presente cuando Laura está activa; apagado en reposo)
+  const oa=.35+.65*pr;
+  glowPoint(c,OX,OY,OR*3.4,col,(.28+.5*g)*oa);
+  const bg=c.createRadialGradient(OX-8,OY-9,2,OX,OY,OR);
+  bg.addColorStop(0,rgba(mix(col,[255,255,255],.65),oa));bg.addColorStop(.55,rgba(col,oa));bg.addColorStop(1,rgba(mix(col,[20,10,40],.55),oa));
+  c.fillStyle=bg;c.beginPath();c.arc(OX,OY,OR*(1+.06*S.amp),0,7);c.fill();
+  if(st==='think'&&pr>.05){
+    c.save();c.beginPath();c.arc(OX,OY,OR,0,7);c.clip();
+    const cg=c.createConicGradient(t*4,OX,OY);cg.addColorStop(0,'rgba(255,255,255,0)');cg.addColorStop(.18,'rgba(255,255,255,.55)');cg.addColorStop(.35,'rgba(255,255,255,0)');
+    c.fillStyle=cg;c.fillRect(OX-OR,OY-OR,OR*2,OR*2);c.restore();
+    const an=t*3;c.fillStyle='rgba(255,255,255,.95)';c.beginPath();c.arc(OX+Math.cos(an)*(OR+9),OY+Math.sin(an)*(OR+9),3,0,7);c.fill();
+  }
+  c.fillStyle=`rgba(255,255,255,${.5*oa})`;c.beginPath();c.ellipse(OX-8,OY-10,6,3.4,-.6,0,7);c.fill();
+};
+P.D.dom=S=>updatePill(S,S.pillEl,youOn(S));
+
+/* =====================================================================
+   Motor de escenas
+   ===================================================================== */
+class Stage{
+  constructor(key,box){
+    this.key=key;this.def=P[key];this.mode='auto';this.segI=0;this.segT=0;this.loop=0;this.t=0;this.dt=0;
+    this.state='rest';this.lastState='listen';this.lit=false;this.pres=0;this.amp=0;this.g=0;this.agent='gemini';this.hideUntil=0;
+    this.youFull='';this.herFull='';this.youN=0;this.herN=0;this.visible=false;
+    const d=this.def;
+    box.className='card'+(key==='E'?' first':'');
+    box.innerHTML=`<div class="chead"><span class="tag">${d.tag}</span><h2>${d.name}</h2>${d.badge?`<span class="badge">${d.badge}</span>`:''}<p class="tagline">${d.tagline}</p></div>
+     <div class="stagewrap"><div class="inner"></div></div>
+     <div class="ctl"><div class="grp"><span class="lab">Estado</span><div class="seg st-seg"></div></div><span class="xtra" style="display:contents"></span></div>
+     <div class="pc"><div class="p"><b>Pros</b>${d.pros}</div><div class="c"><b>Contras</b>${d.cons}</div></div>
+     <details class="impl"><summary>Cómo se implementa barato en QML</summary><ul>${d.qml.map(x=>`<li>${x}</li>`).join('')}</ul></details>`;
+    this.wrap=box.querySelector('.stagewrap');this.inner=box.querySelector('.inner');
+    buildDesk(this.inner);
+    this.canvas=document.createElement('canvas');this.canvas.style.cssText='position:absolute;left:0;top:0;width:1280px;height:720px';
+    this.inner.appendChild(this.canvas);this.c=this.canvas.getContext('2d');
+    this.root=this.inner;
+    d.init(this);
+    // el canvas debe quedar bajo los subtitulos: moverlo justo tras el escritorio
+    this.inner.insertBefore(this.canvas,this.inner.children[1]);
+    this.segBox=box.querySelector('.st-seg');
+    [['auto','Auto'],['listen','Escucha'],['think','Piensa'],['speak','Habla'],['deleg','Delega']].forEach(([v,l])=>{
+      const b=document.createElement('button');b.textContent=l;b.dataset.v=v;b.onclick=()=>this.setMode(v);this.segBox.appendChild(b)});
+    if(this.extra)this.extra(box.querySelector('.xtra'));
+    this.setMode('auto');
+    new ResizeObserver(()=>this.resize()).observe(this.wrap);
+    new IntersectionObserver(es=>{this.visible=es[0].isIntersecting;},{rootMargin:'80px'}).observe(this.wrap);
+    this.resize();
+  }
+  setMode(m){
+    this.mode=m;this.segT=0;this.segI=0;
+    this.segBox.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===m));
+  }
+  resize(){
+    const w=this.wrap.clientWidth,k=w/W;this.inner.style.transform=`scale(${k})`;
+    this.q=Math.min(2,k*(window.devicePixelRatio||1));
+    this.canvas.width=Math.round(W*this.q);this.canvas.height=Math.round(H*this.q);
+    this.c.setTransform(this.q,0,0,this.q,0,0);
+  }
+  seg(){
+    if(this.mode==='auto')return script(this.loop)[this.segI];
+    return fixedSeg(this.mode,this.loop);
+  }
+  step(dt){
+    this.dt=dt;this.t+=dt;this.segT+=dt;
+    let seg=this.seg();
+    if(this.mode==='auto'){
+      if(this.segT>=seg.dur/1000){this.segT-=seg.dur/1000;this.segI++;if(this.segI>=script(this.loop).length){this.segI=0;this.loop++}seg=this.seg()}
+    }else{
+      const per=seg.dur/1000+1.6;if(this.segT>per){this.segT-=per;this.loop++;seg=this.seg()}
+    }
+    this.state=seg.state;if(seg.state!=='rest')this.lastState=seg.state;
+    this.agent=seg.agent||this.agent;
+    this.lit=seg.state!=='rest'&&this.t>this.hideUntil;
+    this.pres+=((this.lit?1:0)-this.pres)*Math.min(1,dt*(this.lit?6:4));
+    if(seg.you!==undefined){this.youFull=seg.you}
+    const f=this.segT/(seg.dur/1000);
+    this.youN=0;this.herN=0;this.herFull=seg.her||'';
+    if(seg.state==='listen')this.youN=Math.floor(this.youFull.length*sstep(0,.82,f)*1.0);
+    else if(seg.state!=='rest')this.youN=this.youFull.length;
+    if(seg.state==='listen'&&this.youN===0&&f>.04)this.youN=1;
+    if(seg.state==='speak'||seg.state==='deleg')this.herN=Math.floor(this.herFull.length*clamp((f-.04)/.72));
+    // voz simulada
+    let tgt=0;
+    if(seg.state==='listen'&&f<.86&&f>.03)tgt=voice(this.t,false);
+    else if((seg.state==='speak'||seg.state==='deleg')&&this.herN<this.herFull.length)tgt=voice(this.t,true)*(seg.state==='deleg'?.7:1);
+    this.amp+=(tgt-this.amp)*Math.min(1,dt*10);
+    const pulse=.5-.5*Math.cos(this.t*2*Math.PI/3);
+    let gt=0;
+    switch(seg.state){case'listen':gt=Math.min(1,.30+.55*this.amp);break;case'speak':gt=Math.min(1,.38+.6*this.amp);break;case'think':gt=.34+.13*pulse;break;case'deleg':gt=.5+.12*Math.sin(this.t*3)+.2*this.amp;break}
+    this.g+=(gt-this.g)*Math.min(1,dt*8);
+    // dibujo
+    this.c.clearRect(0,0,W,H);
+    this.def.draw(this);
+    this.def.dom(this);
+  }
+}
+
+/* ---------- arranque ---------- */
+const cardsEl=document.getElementById('cards');
+const stages=[];
+applyTheme('lila');
+['E','A','B','C','D'].forEach(k=>{const b=document.createElement('section');cardsEl.appendChild(b);stages.push(new Stage(k,b))});
+
+// controles globales
+function mkSeg(el,items,onPick,init){
+  items.forEach(([v,l,sw])=>{const b=document.createElement('button');b.dataset.v=v;b.innerHTML=(sw?`<i class="sw" style="background:${sw}"></i>`:'')+l;b.setAttribute('aria-pressed',v===init);
+    b.onclick=()=>{el.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b));onPick(v)};el.appendChild(b)});
+}
+mkSeg(document.getElementById('gState'),[['auto','Auto'],['listen','Escucha'],['think','Piensa'],['speak','Habla'],['deleg','Delega']],v=>stages.forEach(s=>s.setMode(v)),'auto');
+mkSeg(document.getElementById('gTheme'),Object.entries(THEMES).map(([k,t])=>[k,t.n,t.primary]),applyTheme,'lila');
+mkSeg(document.getElementById('gAgent'),[['auto','Alterna'],['gemini','Gemini','#7db4ff'],['claude','Claude','#ee9a6e']],v=>{AGENT_SEL=v},'auto');
+
+// bucle (se pausa si la pestaña no es visible; cada escena solo avanza si está en pantalla)
+let last=performance.now();
+function frame(now){
+  const dt=Math.min(.05,(now-last)/1000);last=now;
+  if(!document.hidden)for(const s of stages)if(s.visible)s.step(dt);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

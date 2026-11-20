@@ -1,8 +1,8 @@
 [
   {
     "nombre": "LinuxRicing",
-    "backlog": "~/LinuxRicing/vault/Backlog",
-    "vault": "vault",
+    "backlog": "~/proyectos/LinuxRicing/vault/Backlog",
+    "vault": "LinuxRicing",
     "inicio": "🎯 Hoy"
   },
   {
@@ -12,27 +12,27 @@
   },
   {
     "nombre": "Minecraft",
-    "backlog": "~/minecraft-server/vault/Backlog",
+    "backlog": "~/proyectos/minecraft-server/vault/Backlog",
     "vault": "vault"
   },
   {
     "nombre": "Gym",
-    "backlog": "~/gym-bot/Backlog",
+    "backlog": "~/proyectos/gym-bot/Backlog",
     "vault": "gym-bot"
   },
   {
     "nombre": "BarberBot",
-    "backlog": "~/barber-bot/Backlog",
+    "backlog": "~/proyectos/barber-bot/Backlog",
     "vault": "barber-bot"
   },
   {
     "nombre": "VuelosViajes",
-    "backlog": "~/vuelos-viajes/Backlog",
+    "backlog": "~/proyectos/vuelos-viajes/Backlog",
     "vault": "vuelos-viajes"
   },
   {
     "nombre": "WebLaura",
-    "backlog": "~/web-laura/Backlog",
+    "backlog": "~/proyectos/web-laura/Backlog",
     "vault": "web-laura"
   },
   {

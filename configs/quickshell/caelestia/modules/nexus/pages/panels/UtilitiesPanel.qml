@@ -127,11 +127,11 @@ PageBase {
         }
 
         ToggleRow {
-            text: Tr.tr("Server mode")
-            subtext: Tr.tr("Drop to a text console; keep only essential services")
+            text: qsTr("Laura")
+            subtext: qsTr("Enable or disable the Laura voice assistant")
             disabled: !Config.utilities.cards.quickToggles
-            checked: root.isToggleOn("serverMode")
-            onToggled: root.setToggleOn("serverMode", checked)
+            checked: root.isToggleOn("laura")
+            onToggled: root.setToggleOn("laura", checked)
         }
 
         ToggleRow {

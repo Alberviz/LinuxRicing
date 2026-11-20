@@ -25,7 +25,27 @@ Variants {
 
         required property ShellScreen modelData
 
-        readonly property bool busy: pRight.phase !== "idle" || pTop.phase !== "idle"
+        readonly property bool busy: pRight.phase !== "idle" || pTop.phase !== "idle" || pTop2.phase !== "idle" || pBottom.phase !== "idle"
+        readonly property bool hasTeleHdmi: Screens.screens.some(s => !s.name.startsWith("eDP"))
+        readonly property var teleScreen: Screens.screens.find(s => !s.name.startsWith("eDP")) || null
+        readonly property string teleHdmiName: teleScreen ? (teleScreen.name + (teleScreen.model ? " · " + teleScreen.model : "")) : "Tele HDMI"
+        // v2.17 (Olimpo): a quién se puede mandar (móvil, tablet…). Con dos o más, un agujero por dispositivo.
+        property var destinos: []
+        readonly property bool dos: destinos.length >= 2
+        property var topActual: pTop
+        // v2.19.1 «a los dos» (Olimpo, app/src/warp/fusion.ts): soltar entre los dos agujeros de arriba manda a todos los
+        // dispositivos y los funde en uno. fusionP (0–1) es la coreografía; al acabar el envío vuelve por el mismo camino.
+        property bool fundiendo: false
+        property real fusionP: 0
+        property real fusionSep0: 0
+        property real fusionRb: 40
+        readonly property real duracionFusion: 0.5
+        readonly property real crece: 0.3
+        function topEn(x: real): var {
+            return dos && x > width / 2 ? pTop2 : pTop;
+        }
+        // Cursor sobre el hueco central entre los dos agujeros de arriba (y aún sin soltar): se encienden los dos.
+        readonly property bool ambos: dos && DragWatch.dragging && here && ly < band && Math.abs(lx - width / 2) < width * 0.07
         readonly property bool active: DragWatch.dragging || grace.running || busy || show > 0.002
         readonly property real lx: DragWatch.cx - screen.x
         readonly property real ly: DragWatch.cy - screen.y
@@ -47,7 +67,8 @@ Variants {
         property string sendPath: ""
         property bool warpSending: false
         property bool teleExternalSending: false
-        readonly property var mediaExt: ["mp4", "m4v", "mkv", "webm", "avi", "mov", "ts", "mpg", "mpeg", "wmv", "flv", "ogv", "mp3", "flac", "m4a", "aac", "ogg", "opus", "wav", "mka"]
+        readonly property var mediaExt: ["mp4", "m4v", "mkv", "webm", "avi", "mov", "ts", "mpg", "mpeg", "wmv", "flv", "ogv", "mp3", "flac", "m4a", "aac", "ogg", "opus", "wav", "mka", "torrent"]
+        readonly property var imageExt: ["jpg", "jpeg", "png", "webp", "gif", "svg", "bmp", "avif"]
         // 0..1 aparición global. Entra con muelle (ease-out) y sale acelerando (~380 ms); es
         // estado continuo, así que invertir a mitad no produce saltos.
         property real show: 0
@@ -62,6 +83,64 @@ Variants {
         }
         function lerp(a: real, b: real, t: real): real {
             return a + (b - a) * t;
+        }
+        function io(x: real): real {
+            return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+        }
+        // Estado de la fusión en el progreso p (port de `estadoFusion` de Olimpo): dos agujeros de radio rb con
+        // semiseparación sep0. Tramos: anticipación, acercamiento, espiral con puente, contacto y asentamiento.
+        function estadoFusion(p: real, sep0: real, rb: real): var {
+            const t = Math.max(0, Math.min(1, p));
+            const A = 0.12, B = 0.28, C = 0.58, D = 0.64;
+            const e = {
+                sep: sep0,
+                ang: 0,
+                en: 0.55,
+                uno: 0,
+                onda: 0,
+                oval: 0,
+                R: rb
+            };
+            if (t <= 0)
+                return e;
+            if (t < A) {
+                e.en = 0.55 + 0.4 * io(t / A);
+            } else if (t < B) {
+                e.sep = lerp(sep0, Math.min(sep0, 5 * rb), io((t - A) / (B - A)));
+                e.en = 0.95;
+            } else if (t < C) {
+                const k = (t - B) / (C - B);
+                e.sep = lerp(Math.min(sep0, 5 * rb), 1.25 * rb, Math.pow(k, 1.6));
+                e.ang = k * k * Math.PI * 1.8;
+                e.en = 0.95;
+            } else if (t < D) {
+                const k = (t - C) / (D - C);
+                e.sep = lerp(1.25 * rb, 0, io(k));
+                e.ang = Math.PI * 1.8 + k * 0.5;
+                e.uno = k;
+                e.en = 1;
+            } else {
+                const k = (t - D) / (1 - D);
+                const s = k * 1.6;
+                e.sep = 0;
+                e.ang = Math.PI * 1.8 + 0.5;
+                e.uno = 1;
+                e.onda = 1 - k;
+                e.oval = 0.16 * Math.exp(-s * 3.2) * Math.cos(s * 15) * (1 - k);
+                e.R = rb * (1 + crece * io(Math.max(0, Math.min(1, s / 0.4))));
+                e.en = 0.8;
+            }
+            return e;
+        }
+        function empezarFusion(): void {
+            fusionRb = pTop.r;
+            fusionSep0 = width * 0.14;   // semiseparación: los dos agujeros están en 0,36 y 0,64 del ancho
+            fusionP = 0;
+            fundiendo = true;
+        }
+        function cerrarFusion(): void {
+            fundiendo = false;
+            fusionP = 0;
         }
         function fmtSize(b: real): string {
             if (b >= 1073741824)
@@ -100,19 +179,24 @@ Variants {
             portal.fileName = baseName(t);
             portal.bad = "";
             portal.fileLine = portal.fileName.length > 38 ? portal.fileName.substring(0, 35) + "…" : portal.fileName;
-            if (t.startsWith("http://") || t.startsWith("https://"))
+            if (t.startsWith("http://") || t.startsWith("https://") || t.startsWith("magnet:"))
                 return;
             if (portal.edge === "right") {
                 const ext = (portal.fileName.split(".").pop() || "").toLowerCase();
                 if (!mediaExt.includes(ext))
                     portal.bad = "No se puede reproducir en la tele" + (ext && ext !== portal.fileName.toLowerCase() ? " · ." + ext : "");
             }
+            if (portal.edge === "bottom") {
+                const ext = (portal.fileName.split(".").pop() || "").toLowerCase();
+                if (!mediaExt.includes(ext) && !imageExt.includes(ext) && ext !== "html")
+                    portal.bad = "";
+            }
             statProc.portal = portal;
             statProc.command = ["stat", "-L", "-c", "%s", t];
             statProc.running = true;
         }
         function clearInfo(): void {
-            for (const p of [pRight, pTop]) {
+            for (const p of [pRight, pTop, pTop2, pBottom]) {
                 if (p.phase === "idle" || p.phase === "ok") {
                     p.bad = "";
                     p.fileLine = "";
@@ -131,21 +215,33 @@ Variants {
                 show = Math.min(1, show + (1 - show) * (1 - Math.pow(0.0004, dt)) + 0.0005);
             else
                 show = Math.max(0, show - dt / 0.38 * (0.35 + 1.9 * (1 - show)));
-            const ps = [pRight, pTop];
+            // Lente: la captura es de cuando empezó el arrastre. Vale mientras se arrastra; al soltar con un envío en marcha
+            // se funde y se da por gastada (la pantalla de detrás ya ha cambiado) hasta el siguiente arrastre con captura nueva.
+            const conCaptura = capturaLista && !capturaGastada && (DragWatch.dragging || !busy);
+            lenteK = lerp(lenteK, conCaptura ? 1 : 0, 1 - Math.pow(0.0005, dt));
+            if (!conCaptura && capturaLista && lenteK < 0.01)
+                capturaGastada = true;
+            const ps = dos ? (hasTeleHdmi ? [pRight, pTop, pTop2, pBottom] : [pRight, pTop, pTop2]) : (hasTeleHdmi ? [pRight, pTop, pBottom] : [pRight, pTop]);
             let armedAny = null;
             for (const p of ps) {
                 let target = 0;
-                const d = p.edge === "right" ? width - lx : ly;
-                const al = p.edge === "right" ? Math.abs(ly - height / 2) / (height / 2) : Math.abs(lx - width / 2) / (width / 2);
+                const d = p.edge === "right" ? width - lx : (p.edge === "bottom" ? height - ly : ly);
+                const al = p.edge === "right" ? Math.abs(ly - height / 2) / (height / 2) : Math.abs(lx - width * p.posX) / (width / 2);
                 if (on) {
                     target = sm(width * 0.55, width * 0.11, d) * (1 - 0.45 * sm(0.55, 1, al));
-                    p.over = d < band && al < along;
+                    p.over = d < band && al < along && (p.edge === "right" || p.edge === "bottom" || topEn(lx) === p);
                     p.armed = p.over && p.bad === "";
                     if (p.armed)
                         armedAny = p;
                 } else if (!busy) {
                     p.armed = false;
                     p.over = false;
+                }
+                if (on && ambos && p.edge === "top") {   // «a los dos»: se encienden los dos a la vez
+                    p.over = true;
+                    p.armed = p.bad === "";
+                    if (p.armed)
+                        armedAny = p;
                 }
                 if (p.armed || p.over)
                     target = 1;
@@ -156,37 +252,50 @@ Variants {
                 p.e = lerp(p.e, target, 1 - Math.pow(0.0009, dt));
             }
             for (const p of ps) {
-                p.dim = lerp(p.dim, armedAny && armedAny !== p ? 1 : 0, 1 - Math.pow(0.002, dt));
+                p.dim = lerp(p.dim, armedAny && armedAny !== p && !(ambos && p.edge === "top" && armedAny.edge === "top") ? 1 : 0, 1 - Math.pow(0.002, dt));
                 const Rt = (30 + 26 * sm(0, 0.9, p.e) + (p.hot ? 16 : 0)) * u;
                 p.r = lerp(p.r, Rt, 1 - Math.pow(0.0005, dt));
                 const out = lerp(-p.r * 1.4, 0, show);
                 if (p.edge === "right") {
                     p.cx = width - out;
                     p.cy = height / 2;
+                } else if (p.edge === "bottom") {
+                    p.cx = width * p.posX;
+                    p.cy = height - out;
                 } else {
-                    p.cx = width / 2;
+                    p.cx = width * p.posX;
                     p.cy = out;
                 }
-                p.vis = show * (1 - 0.55 * p.dim);
+                p.vis = show * (1 - 0.55 * p.dim) * (fundiendo && p === pTop2 ? 0 : 1);
+                p.fundido = fundiendo && p !== pRight && p !== pBottom;
                 p.spinPhase += (0.25 * (0.3 + 0.7 * show)) * (1 + 1.4 * p.e + (p.armed ? 1 : 0)) * (p.over && p.bad !== "" ? 0.3 : 1) * dt;
                 p.pullPhase += (0.35 + 1.5 * p.e + (p.armed ? 0.8 : 0) + (p.phase === "sending" ? 0.5 : 0)) * (0.2 + 0.8 * show) * dt;
                 p.phaseT += dt;
                 p.pulse = Math.max(0, p.pulse - dt / 0.48);
             }
 
+            // Fusión «a los dos»: mientras hay envío en el portal de arriba va hacia 1; al acabar vuelve por el mismo camino.
+            if (fundiendo) {
+                const objetivo = pTop.phase !== "idle" ? 1 : 0;
+                fusionP = objetivo > 0 ? Math.min(1, fusionP + dt / duracionFusion) : Math.max(0, fusionP - dt / duracionFusion);
+                if (objetivo === 0 && fusionP <= 0)
+                    fundiendo = false;
+            }
+
             // Tele: sigue el estado del helper (preparing -> BUFFERING -> PLAYING / error)
             if (pRight.phase === "sending" && teleTarget) {
                 const nm = Cast.selectedDevice?.name ?? "la tele";
                 const act = Cast.active;
+                const sameTarget = act && (act.source === teleTarget || act.target === teleTarget);
                 if (Cast.error && Cast.error !== teleErr0) {
                     finishTransfer(pRight, false, Cast.error);
                 } else if (Date.now() - teleT0 > 120000) {
                     finishTransfer(pRight, false, "Tiempo agotado cargando en " + nm);
-                } else if (act && act.source === teleTarget && act.state === "PLAYING" && !act.preparing) {
+                } else if (sameTarget && act.state === "PLAYING" && !act.preparing) {
                     finishTransfer(pRight, true, "Reproduciendo en " + nm);
                 } else if (Cast.preparing) {
                     pRight.tText = "Preparando…";
-                } else if (act && act.source === teleTarget) {
+                } else if (sameTarget) {
                     pRight.tText = "Cargando en " + nm + "…";
                 } else if (teleRunDone) {
                     pRight.tText = "Cargando en " + nm + "…";
@@ -316,24 +425,26 @@ Variants {
             });
         }
 
-        function sendMovil(t: string): void {
+        function sendMovil(t: string, portal, todos): void {
+            const pt = portal ?? pTop;
+            topActual = pt;
             if (!olimpo) {
-                pTop.phase = "error";
-                pTop.tName = baseName(t);
-                finishTransfer(pTop, false, "Olimpo no está instalado");
+                pt.phase = "error";
+                pt.tName = baseName(t);
+                finishTransfer(pt, false, "Olimpo no está instalado");
                 return;
             }
-            pTop.phase = "sending";
-            pTop.tName = baseName(t);
-            pTop.tProgress = -1;
-            pTop.tText = "Enviando…";
-            pTop.tSub = "";
+            pt.phase = "sending";
+            pt.tName = baseName(t);
+            pt.tProgress = -1;
+            pt.tText = "Enviando…";
+            pt.tSub = "";
             sendPath = t;
             cancelled = false;
             triedProgreso = true;
             sawJson = false;
             finalMsg = null;
-            olimpoProc.command = [olimpo, "enviar", "--json", "--progreso", t];
+            olimpoProc.command = [olimpo, "enviar", "--json", "--progreso"].concat(todos ? ["--a", "todos"] : (pt.destino ? ["--a", pt.destino] : [])).concat([t]);
             olimpoProc.running = true;
         }
 
@@ -351,19 +462,42 @@ Variants {
             }
             if (typeof d.progreso === "number") {
                 const pr = Math.max(0, Math.min(1, d.progreso > 1 ? d.progreso / 100 : d.progreso));
-                pTop.tProgress = pr;
-                pTop.tText = Math.round(pr * 100) + " %" + (d.velocidad > 0 ? " · " + fmtSize(d.velocidad) + "/s" : "");
-                pTop.tSub = d.total ? fmtSize(d.enviados ?? pr * d.total) + " / " + fmtSize(d.total) + (d.velocidad > 0 ? " · " + fmtEta((d.total - (d.enviados ?? pr * d.total)) / d.velocidad) : "") : "";
+                topActual.tProgress = pr;
+                topActual.tText = Math.round(pr * 100) + " %" + (d.velocidad > 0 ? " · " + fmtSize(d.velocidad) + "/s" : "");
+                topActual.tSub = d.total ? fmtSize(d.enviados ?? pr * d.total) + " / " + fmtSize(d.total) + (d.velocidad > 0 ? " · " + fmtEta((d.total - (d.enviados ?? pr * d.total)) / d.velocidad) : "") : "";
+            }
+        }
+
+        function sendTeleHdmi(t: string): void {
+            pBottom.phase = "sending";
+            pBottom.tName = baseName(t);
+            pBottom.tProgress = -1;
+            pBottom.tSub = "";
+            pBottom.tText = "Cargando en la tele HDMI…";
+            Quickshell.execDetached([`${Quickshell.env("HOME")}/.local/bin/escaparate`, "open-target", t]);
+            teleHdmiTimer.restart();
+        }
+
+        Timer {
+            id: teleHdmiTimer
+            interval: 1400
+            onTriggered: {
+                if (pBottom.phase === "sending")
+                    win.finishTransfer(pBottom, true, "Mostrando en la tele HDMI");
             }
         }
 
         function cancelTransfer(portal): void {
             if (portal.phase !== "sending")
                 return;
-            if (portal === pTop) {
+            if (portal === pTop || portal === pTop2) {
                 cancelled = true;
                 olimpoProc.signal(15);
-                finishTransfer(pTop, false, "Envío cancelado");
+                finishTransfer(portal, false, "Envío cancelado");
+            } else if (portal === pBottom) {
+                teleHdmiTimer.stop();
+                Quickshell.execDetached([`${Quickshell.env("HOME")}/.local/bin/escaparate`, "off"]);
+                finishTransfer(pBottom, false, "Reproducción cancelada");
             } else {
                 teleTarget = "";
                 teleExternalSending = false;
@@ -512,10 +646,19 @@ Variants {
                 item: tBand
             }
             Region {
+                item: bBand
+            }
+            Region {
                 item: pRight.maskItem
             }
             Region {
                 item: pTop.maskItem
+            }
+            Region {
+                item: pTop2.maskItem
+            }
+            Region {
+                item: pBottom.maskItem
             }
         }
 
@@ -526,10 +669,15 @@ Variants {
                 limitsProc.command = [olimpo, "enviar", "--limites"];
                 limitsProc.running = true;
             }
+            if (active && olimpo !== "" && !dispProc.running) {
+                dispProc.command = [olimpo, "enviar", "--dispositivos"];
+                dispProc.running = true;
+            }
             if (!active) {
+                cerrarFusion();
                 show = 0;
                 frags = [];
-                for (const p of [pRight, pTop]) {
+                for (const p of [pRight, pTop, pTop2, pBottom]) {
                     p.vis = 0;
                     p.e = 0;
                     p.dim = 0;
@@ -562,6 +710,8 @@ Variants {
             onTriggered: {
                 pRight.phase = "idle";
                 pTop.phase = "idle";
+                pTop2.phase = "idle";
+                pBottom.phase = "idle";
                 clearInfo();
                 grace.restart();
             }
@@ -589,6 +739,20 @@ Variants {
         }
 
         Process {
+            id: dispProc
+
+            stdout: StdioCollector {
+                onStreamFinished: {
+                    try {
+                        const d = JSON.parse(text);
+                        if (d.ok)
+                            win.destinos = d.dispositivos.filter(x => x.id !== "pc");
+                    } catch (e) {}
+                }
+            }
+        }
+
+        Process {
             id: olimpoProc
 
             stdout: SplitParser {
@@ -599,7 +763,7 @@ Variants {
             }
             onRunningChanged: {
                 // Si el binario no arranca, Process no emite exited: no dejar el portal en «Enviando…».
-                if (!running && pTop.phase === "sending" && !win.cancelled)
+                if (!running && win.topActual.phase === "sending" && !win.cancelled)
                     olimpoWatchdog.restart();
             }
             onExited: code => {
@@ -609,15 +773,15 @@ Variants {
                 if (code === 2 && win.triedProgreso && !win.sawJson && !win.finalMsg) {
                     // Esta versión de la CLI aún no tiene --progreso: reintenta sin él (indeterminado)
                     win.triedProgreso = false;
-                    command = [win.olimpo, "enviar", "--json", win.sendPath];
+                    command = [win.olimpo, "enviar", "--json"].concat(win.topActual.destino ? ["--a", win.topActual.destino] : []).concat([win.sendPath]);
                     running = true;
                     return;
                 }
                 const r = win.finalMsg;
                 if (r && r.ok === true)
-                    win.finishTransfer(pTop, true, "Enviado a tu móvil");
+                    win.finishTransfer(win.topActual, true, "Enviado a " + (win.topActual.destino ? win.topActual.title.split(" · ")[0].toLowerCase() : "tu móvil"));
                 else
-                    win.finishTransfer(pTop, false, r?.error ?? (olimpoErr.text.trim().split("\n").pop() || "Olimpo no responde"));
+                    win.finishTransfer(win.topActual, false, r?.error ?? (olimpoErr.text.trim().split("\n").pop() || "Olimpo no responde"));
             }
         }
 
@@ -666,8 +830,8 @@ Variants {
 
             interval: 1500
             onTriggered: {
-                if (pTop.phase === "sending" && !olimpoProc.running)
-                    win.finishTransfer(pTop, false, "No se pudo lanzar «olimpo enviar»");
+                if (win.topActual.phase === "sending" && !olimpoProc.running)
+                    win.finishTransfer(win.topActual, false, "No se pudo lanzar «olimpo enviar»");
             }
         }
 
@@ -712,7 +876,7 @@ Variants {
             }
         }
 
-        // Prueba de estados sin arrastrar: qs -c caelestia ipc call portals demo <bad|progress|tele|ok|error>
+        // Prueba de estados sin arrastrar: qs -c caelestia ipc call portals demo <bad|progress|fusion|tele|ok|error>
         IpcHandler {
             function demo(kind: string): void {
                 if (kind === "bad") {
@@ -729,6 +893,13 @@ Variants {
                     pTop.tProgress = 0.37;
                     pTop.tText = "37 % · 4,2 MB/s";
                     pTop.tSub = "18 / 49 MB · 0:07";
+                } else if (kind === "fusion") {   // «a los dos» sin soltar nada: funde los dos agujeros de arriba (acaba con `demo ok`)
+                    win.empezarFusion();
+                    win.topActual = pTop;
+                    pTop.phase = "sending";
+                    pTop.tName = "Apuntes Redes T4.pdf";
+                    pTop.tProgress = 0.37;
+                    pTop.tText = "37 % · a los dos";
                 } else if (kind === "tele") {
                     pRight.phase = "sending";
                     pRight.tName = "Wicked Part Uno (2025).mkv";
@@ -750,6 +921,15 @@ Variants {
                         artista: "Bad Bunny",
                         tele: "Tele Salón"
                     }));
+                } else if (kind === "teleHdmi") {
+                    pBottom.phase = "sending";
+                    pBottom.tName = "effectcraft-smoketest.mp4";
+                    pBottom.tProgress = -1;
+                    pBottom.tText = "Cargando en la tele HDMI…";
+                } else if (kind === "teleHdmiOk") {
+                    pBottom.phase = "sending";
+                    pBottom.tName = "effectcraft-smoketest.mp4";
+                    win.finishTransfer(pBottom, true, "Mostrando en la tele HDMI");
                 } else if (kind === "ok") {
                     pTop.phase = "sending";
                     pTop.tName = "Apuntes Redes T4.pdf";
@@ -765,7 +945,58 @@ Variants {
                 win.onTeleLine(jsonStr);
             }
 
+            function dropHdmi(target: string): void {
+                win.sendTeleHdmi(target);
+            }
+
             target: "portals"
+        }
+
+        // Lente real (Fase 5): al empezar el arrastre se captura la pantalla UNA vez (congelada: así el portal no sale en su
+        // propia captura y solo cuesta una captura por arrastre). Solo en pantallas grandes (el PC).
+        readonly property bool conLente: width >= 1400
+        property bool capturaLista: false
+        property bool capturaGastada: false
+        property real lenteK: 0   // 0..1: cuánto pinta la lente (lo lleva tick)
+        Loader {
+            id: capLoader
+
+            active: win.active && win.conLente
+            sourceComponent: ScreencopyView {
+                captureSource: win.screen
+                live: false
+                paintCursor: false
+                visible: false
+                width: win.width
+                height: win.height
+                onHasContentChanged: {
+                    if (hasContent)
+                        capTex.scheduleUpdate();
+                }
+            }
+        }
+        ShaderEffectSource {
+            id: capTex
+
+            sourceItem: capLoader.item
+            live: false
+            visible: false
+            width: win.width
+            height: win.height
+            onScheduledUpdateCompleted: {
+                win.capturaLista = !!capLoader.item && capLoader.item.hasContent;
+                win.capturaGastada = false;
+            }
+        }
+        Connections {
+            target: win
+            function onActiveChanged() {
+                if (!win.active) {
+                    win.capturaLista = false;
+                    win.capturaGastada = false;
+                    win.lenteK = 0;
+                }
+            }
         }
 
         Item {
@@ -818,12 +1049,18 @@ Variants {
                 DropArea {
                     anchors.fill: parent
                     keys: ["text/uri-list", "text/plain"]
-                    onEntered: drag => win.inspect(pTop, drag)
+                    onEntered: drag => win.inspect(win.topEn(tBand.x + drag.x), drag)
+                    onPositionChanged: drag => {
+                        const p = win.topEn(tBand.x + drag.x);
+                        if (p.fileLine === "")
+                            win.inspect(p, drag);
+                    }
                     onExited: {
-                        if (pTop.phase === "idle") {
-                            pTop.bad = "";
-                            pTop.fileLine = "";
-                        }
+                        for (const p of [pTop, pTop2])
+                            if (p.phase === "idle") {
+                                p.bad = "";
+                                p.fileLine = "";
+                            }
                     }
                     onDropped: drop => {
                         if (!drop.hasUrls && drop.hasText && pTop.phase === "idle") {   // Warp: texto
@@ -833,15 +1070,55 @@ Variants {
                             return;
                         }
                         const t = win.targetOf(drop);
-                        if (!t || pTop.phase !== "idle")
+                        // Hueco central entre los dos agujeros: a los dos (se funden y va con `--a todos`)
+                        const ambos = win.dos && Math.abs(tBand.x + drop.x - win.width / 2) < win.width * 0.07;
+                        const pt = ambos ? pTop : win.topEn(tBand.x + drop.x);
+                        if (!t || pt.phase !== "idle" || win.busy && win.topActual.phase === "sending" || ambos && pTop2.phase !== "idle")
                             return;
                         icon.text = "description";
-                        if (pTop.bad) {
-                            win.rejectDrop(pTop);
+                        if (pt.bad) {
+                            win.rejectDrop(pt);
                             return;
                         }
-                        win.startAbsorb(pTop);
-                        win.sendMovil(t);
+                        if (ambos)
+                            win.empezarFusion();
+                        win.startAbsorb(pt);
+                        win.sendMovil(t, pt, ambos);
+                    }
+                }
+            }
+
+            Item {
+                id: bBand
+
+                anchors.bottom: parent.bottom
+                x: parent.width * (1 - win.along) / 2
+                width: win.active && win.hasTeleHdmi ? parent.width * win.along : 0
+                height: win.active && win.hasTeleHdmi ? win.band : 0
+
+                DropArea {
+                    anchors.fill: parent
+                    keys: ["text/uri-list", "text/plain"]
+                    onEntered: drag => win.inspect(pBottom, drag)
+                    onExited: {
+                        if (pBottom.phase === "idle") {
+                            pBottom.bad = "";
+                            pBottom.fileLine = "";
+                        }
+                    }
+                    onDropped: drop => {
+                        const t = win.targetOf(drop);
+                        if (!t || pBottom.phase !== "idle")
+                            return;
+                        if (pBottom.bad) {
+                            win.rejectDrop(pBottom);
+                            return;
+                        }
+                        const ext = (win.baseName(t).split(".").pop() || "").toLowerCase();
+                        icon.text = win.imageExt.includes(ext) ? "image" : (t.startsWith("http://") || t.startsWith("https://") ? "language" : "movie");
+                        icon.color = Colours.palette.m3onSurface;
+                        win.startAbsorb(pBottom);
+                        win.sendTeleHdmi(t);
                     }
                 }
             }
@@ -852,11 +1129,14 @@ Variants {
                 edge: "right"
                 winW: win.width
                 winH: win.height
+                captura: capTex
+                capturaLista: win.capturaLista
+                lenteK: win.lenteK
                 u: win.u
                 kicker: "TELE"
                 title: Cast.selectedDevice?.name ?? "Sin Chromecast"
-                detail: Cast.selectedDevice ? (Cast.selectedDevice.model ?? "") + " · " + (Cast.selectedDevice.host ?? "") : "no hay dispositivos"
-                cta: "Suelta para reproducir"
+                detail: Cast.selectedDevice ? (Cast.selectedDevice.online === false ? "Sin conexión" : (Cast.selectedDevice.model ?? "") + " · " + (Cast.selectedDevice.host ?? "")) : "no hay dispositivos"
+                cta: (Cast.selectedDevice && Cast.selectedDevice.online === false) ? "Tele desconectada" : "Suelta para reproducir"
                 onCancel: win.cancelTransfer(pRight)
             }
 
@@ -866,12 +1146,104 @@ Variants {
                 edge: "top"
                 winW: win.width
                 winH: win.height
+                captura: capTex
+                capturaLista: win.capturaLista
+                lenteK: win.lenteK
                 u: win.u
-                kicker: "MÓVIL"
-                title: "Olimpo"
+                posX: win.dos && !win.fundiendo ? 0.36 : 0.5
+                destino: win.dos ? win.destinos[0].id : ""
+                vecino: win.dos && !win.fundiendo ? pTop2 : null
+                kicker: "WARP"
+                title: (win.destinos.length > 0 ? win.destinos[0].nombre : "Móvil") + " · Olimpo"
                 detail: "Bandeja «Desde el PC»"
                 cta: "Suelta para enviar"
                 onCancel: win.cancelTransfer(pTop)
+            }
+
+            Portal {
+                id: pTop2
+
+                visible: win.dos
+                edge: "top"
+                posX: 0.64
+                winW: win.width
+                winH: win.height
+                captura: capTex
+                capturaLista: win.capturaLista
+                lenteK: win.lenteK
+                u: win.u
+                destino: win.dos ? win.destinos[1].id : ""
+                vecino: win.dos && !win.fundiendo ? pTop : null
+                kicker: "WARP"
+                title: win.dos ? win.destinos[1].nombre + " · Olimpo" : ""
+                detail: "Bandeja «Desde el PC»"
+                cta: "Suelta para enviar"
+                onCancel: win.cancelTransfer(pTop2)
+            }
+
+            Portal {
+                id: pBottom
+
+                visible: win.hasTeleHdmi
+                edge: "bottom"
+                winW: win.width
+                winH: win.height
+                captura: capTex
+                capturaLista: win.capturaLista
+                lenteK: win.lenteK
+                u: win.u
+                posX: 0.5
+                kicker: "TELE · HDMI"
+                title: "Tele (HDMI)"
+                detail: win.teleHdmiName
+                cta: "Suelta para mostrar en la tele"
+                onCancel: win.cancelTransfer(pBottom)
+            }
+
+            // «A los dos»: el agujero de la fusión (shader BINARIO de portal.frag). Cubre el ancho de la pantalla desde el
+            // borde de arriba; solo existe mientras dura la fusión.
+            ShaderEffect {
+                id: fusionFx
+
+                readonly property var fs: win.estadoFusion(win.fusionP, win.fusionSep0, win.fusionRb)
+                readonly property real ox: Math.cos(fs.ang) * fs.sep
+                readonly property real oy: Math.sin(fs.ang) * fs.sep * 0.35
+
+                visible: win.fundiendo && pTop.vis > 0.01
+                x: 0
+                y: 0
+                width: win.width
+                height: Math.min(win.height, win.fusionRb * 13 + 40 * win.u)
+
+                property vector2d size: Qt.vector2d(width, height)
+                property vector2d outward: Qt.vector2d(0, -1)
+                property color tint: Qt.rgba(Colours.palette.m3primary.r, Colours.palette.m3primary.g, Colours.palette.m3primary.b, 0.18)
+                property real rad: pTop.r / win.fusionRb * fs.R * (0.15 + 0.85 * Math.min(1, pTop.vis))
+                property real upx: win.u
+                property real en: Math.max(pTop.e, fs.en)
+                property real vis: pTop.vis
+                property real armed: 0
+                property real pulse: pTop.pulse
+                property real spin: pTop.spinPhase
+                property real pull: pTop.pullPhase
+                property real time: pTop.phaseT
+                property real reposo: 0
+                property real mode: 1
+                property vector2d ctr1: Qt.vector2d(win.width / 2 - ox, pTop.cy - oy)
+                property vector2d ctr2: Qt.vector2d(win.width / 2 + ox, pTop.cy + oy)
+                property real fase: fs.ang
+                property real uno: fs.uno
+                property real onda: fs.onda
+                property real oval: fs.oval
+                // La lente de AE1 no se usa en el binario, pero el bloque de uniforms la pide.
+                property vector2d quadPos: Qt.vector2d(0, 0)
+                property vector2d scrSize: Qt.vector2d(1, 1)
+                property real lente: 0
+                property real fuerza: 0
+                property vector4d vecino: Qt.vector4d(0, 0, 0, 0)
+                property var bg: null
+
+                fragmentShader: Qt.resolvedUrl("shaders/portal.frag.qsb")
             }
 
             // Estela estirada del cursor hacia el agujero más cercano (el icono real lo pinta el compositor)

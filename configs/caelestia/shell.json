@@ -68,6 +68,7 @@
             }
         ],
         "tray": {
+            "hiddenIcons": ["blueman"],
             "background": false,
             "compact": false,
             "recolour": true
@@ -102,7 +103,7 @@
             },
             {
                 "enabled": true,
-                "id": "serverMode"
+                "id": "laura"
             },
             {
                 "enabled": true,
