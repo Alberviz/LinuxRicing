@@ -234,6 +234,123 @@ StyledRect {
             onClicked: root.modeLaptopOnly()
         }
 
+        // Sección Tele Unificada (HDMI > Wi-Fi)
+        StyledRect {
+            Layout.fillWidth: true
+            implicitHeight: teleCol.implicitHeight + Tokens.padding.medium * 2
+            radius: Tokens.rounding.large
+            color: Colours.palette.m3surfaceContainerHigh
+            border.width: 1
+            border.color: Colours.palette.m3outlineVariant
+
+            ColumnLayout {
+                id: teleCol
+
+                anchors.fill: parent
+                anchors.margins: Tokens.padding.medium
+                spacing: Tokens.spacing.small
+
+                RowLayout {
+                    Layout.fillWidth: true
+
+                    MaterialIcon {
+                        text: "tv"
+                        fontStyle: Tokens.font.icon.small
+                        color: Colours.palette.m3primary
+                    }
+
+                    StyledText {
+                        Layout.fillWidth: true
+                        text: Tele.transport === "hdmi"
+                            ? qsTr("Tele · HDMI activo")
+                            : (Tele.transport === "wifi" ? qsTr("Tele · Wi-Fi (%1)").arg(Tele.chromecastName)
+                            : (Tele.available ? qsTr("Modo de Tele (HDMI > Wi-Fi)") : qsTr("Tele sin conexión")))
+                        font: Tokens.font.label.large
+                        color: Colours.palette.m3onSurface
+                    }
+
+                    StyledRect {
+                        visible: Tele.active
+                        implicitWidth: interactTxt.implicitWidth + 16
+                        implicitHeight: 24
+                        radius: Tokens.rounding.full
+                        color: Tele.interacting ? Colours.palette.m3tertiaryContainer : Colours.palette.m3surfaceContainerHighest
+
+                        StateLayer {
+                            radius: parent.radius
+                            onClicked: {
+                                root.close();
+                                Tele.toggleInteract();
+                            }
+                        }
+
+                        StyledText {
+                            id: interactTxt
+                            anchors.centerIn: parent
+                            text: Tele.interacting ? qsTr("Devolver") : qsTr("Interactuar")
+                            font: Tokens.font.label.small
+                            color: Tele.interacting ? Colours.palette.m3onTertiaryContainer : Colours.palette.m3onSurface
+                        }
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Tokens.spacing.extraSmall
+
+                    Repeater {
+                        model: [
+                            { id: "personal", label: qsTr("Personal"), icon: "desktop_windows" },
+                            { id: "agents", label: qsTr("Agentes"), icon: "smart_toy" },
+                            { id: "gaming", label: qsTr("Juegos"), icon: "sports_esports" },
+                            { id: "off", label: qsTr("Apagar"), icon: "power_settings_new" }
+                        ]
+
+                        StyledRect {
+                            id: tBtn
+                            required property var modelData
+                            readonly property bool sel: Tele.mode === modelData.id && (modelData.id !== "off" || !Tele.active)
+
+                            Layout.fillWidth: true
+                            implicitHeight: 32
+                            radius: Tokens.rounding.medium
+                            color: sel ? Colours.palette.m3primaryContainer : Colours.palette.m3surfaceContainer
+                            opacity: (Tele.available || modelData.id === "off") ? 1 : 0.45
+
+                            StateLayer {
+                                radius: parent.radius
+                                disabled: !Tele.available && tBtn.modelData.id !== "off"
+                                onClicked: {
+                                    root.close();
+                                    if (tBtn.modelData.id === "gaming")
+                                        Quickshell.execDetached(["qs", "-c", "caelestia", "ipc", "call", "elysium", "enter"]);
+                                    else
+                                        Tele.setMode(tBtn.modelData.id, false);
+                                }
+                            }
+
+                            RowLayout {
+                                anchors.centerIn: parent
+                                spacing: 4
+
+                                MaterialIcon {
+                                    text: tBtn.modelData.icon
+                                    fontStyle: Tokens.font.icon.small
+                                    color: tBtn.sel ? Colours.palette.m3onPrimaryContainer : Colours.palette.m3onSurfaceVariant
+                                }
+
+                                StyledText {
+                                    text: tBtn.modelData.label
+                                    font: Tokens.font.label.small
+                                    color: tBtn.sel ? Colours.palette.m3onPrimaryContainer : Colours.palette.m3onSurface
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Footer / Cancel button
         RowLayout {
             Layout.fillWidth: true

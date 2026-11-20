@@ -170,13 +170,14 @@ def stop_active(restore_ws=True):
 
     monitors = get_monitors()
     laptop_mon = next((m for m in monitors if m.get("name", "").startswith("eDP")), monitors[0] if monitors else None)
-    tele_mon = next((m for m in monitors if not m.get("name", "").startswith("eDP")), None)
+    tele_mon = _find_tele_monitor(monitors)
 
     if restore_ws and tele_mon:
         hypr_eval('if _G.tele_rule then _G.tele_rule:set_enabled(false) end')
         tele_name = tele_mon.get("name", "HDMI-A-1")
-        hypr_dispatch(f'hl.dsp.focus({{ monitor = "{tele_name}" }})')
-        hypr_dispatch('hl.dsp.focus({ workspace = 8 })')
+        if not tele_name.startswith("CAST-"):
+            hypr_dispatch(f'hl.dsp.focus({{ monitor = "{tele_name}" }})')
+            hypr_dispatch('hl.dsp.focus({ workspace = 8 })')
         if laptop_mon:
             laptop_name = laptop_mon.get("name", "eDP-2")
             hypr_dispatch(f'hl.dsp.focus({{ monitor = "{laptop_name}" }})')
@@ -213,23 +214,42 @@ else:
     return proc.pid
 
 
+def _find_tele_monitor(monitors):
+    desc = "Samsung Electric Company SyncMaster H1AK500000"
+    cfg_p = Path(os.path.expanduser("~/.config/caelestia/tele.json"))
+    if cfg_p.exists():
+        try:
+            desc = json.loads(cfg_p.read_text()).get("hdmi_description", desc)
+        except Exception:
+            pass
+    if desc:
+        m = next((x for x in monitors if desc in (x.get("description") or "")), None)
+        if m:
+            return m
+    m = next((x for x in monitors if not x.get("name", "").startswith(("eDP", "LVDS", "DSI", "CAST-", "HEADLESS", "Tablet"))), None)
+    if m:
+        return m
+    return next((x for x in monitors if x.get("name", "").startswith("CAST-")), None)
+
+
 def show_item_dict(item):
     monitors = get_monitors()
-    tele_mon = next((m for m in monitors if not m.get("name", "").startswith("eDP")), None)
+    tele_mon = _find_tele_monitor(monitors)
     laptop_mon = next((m for m in monitors if m.get("name", "").startswith("eDP")), monitors[0] if monitors else None)
 
     if not tele_mon:
-        notify("Tele no conectada", "No se detecta ninguna pantalla externa HDMI.")
+        notify("Tele no conectada", "No se detecta ninguna pantalla de Tele (ni HDMI ni Wi-Fi CAST-1).")
         return False
 
     tele_name = tele_mon.get("name", "HDMI-A-1")
     laptop_name = laptop_mon.get("name", "eDP-2") if laptop_mon else "eDP-2"
+    target_ws = os.environ.get("ESCAPARATE_WORKSPACE", "name:tele")
 
     stop_active(restore_ws=False)
 
-    hypr_eval(f'_G.tele_rule = hl.workspace_rule({{ workspace = "name:tele", monitor = "{tele_name}" }})')
-    hypr_dispatch(f'hl.dsp.workspace.move({{ workspace = "name:tele", monitor = "{tele_name}" }})')
-    hypr_dispatch(f'hl.dsp.focus({{ workspace = "name:tele" }})')
+    hypr_eval(f'_G.tele_rule = hl.workspace_rule({{ workspace = "{target_ws}", monitor = "{tele_name}" }})')
+    hypr_dispatch(f'hl.dsp.workspace.move({{ workspace = "{target_ws}", monitor = "{tele_name}" }})')
+    hypr_dispatch(f'hl.dsp.focus({{ workspace = "{target_ws}" }})')
 
     kind = item.get("kind", "web")
     target = os.path.expanduser(item.get("target", ""))
@@ -315,7 +335,7 @@ def show_item_dict(item):
             break
 
     if target_addr:
-        hypr_dispatch(f'hl.dsp.window.move({{ workspace = "name:tele", window = "address:{target_addr}" }})')
+        hypr_dispatch(f'hl.dsp.window.move({{ workspace = "{target_ws}", window = "address:{target_addr}" }})')
         clients = get_clients()
         win = next((c for c in clients if c.get("address") == target_addr), None)
         if win and win.get("fullscreen", 0) == 0:
@@ -358,7 +378,7 @@ def open_target(target_str):
     ext = target.split(".")[-1].lower() if "." in target else ""
     is_url = target.startswith("http://") or target.startswith("https://")
 
-    if is_url or ext == "html":
+    if is_url or ext in ("html", "htm", "pdf"):
         kind = "web"
     elif ext in image_ext:
         kind = "image"
@@ -366,8 +386,12 @@ def open_target(target_str):
         kind = "video"
     elif os.path.exists(target) and os.access(target, os.X_OK):
         kind = "cmd"
+    elif os.path.exists(target):
+        # Cualquier otro documento/archivo abrible
+        kind = "cmd"
+        target = f'xdg-open {subprocess.list2cmdline([target])}'
     else:
-        kind = "video" if ext in media_ext else "web"
+        kind = "web"
 
     name = os.path.basename(target) if not is_url else target
     item = {

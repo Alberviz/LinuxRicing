@@ -25,10 +25,7 @@ Variants {
 
         required property ShellScreen modelData
 
-        readonly property bool busy: pRight.phase !== "idle" || pTop.phase !== "idle" || pTop2.phase !== "idle" || pBottom.phase !== "idle"
-        readonly property bool hasTeleHdmi: Screens.screens.some(s => !s.name.startsWith("eDP"))
-        readonly property var teleScreen: Screens.screens.find(s => !s.name.startsWith("eDP")) || null
-        readonly property string teleHdmiName: teleScreen ? (teleScreen.name + (teleScreen.model ? " · " + teleScreen.model : "")) : "Tele HDMI"
+        readonly property bool busy: pRight.phase !== "idle" || pTop.phase !== "idle" || pTop2.phase !== "idle"
         // v2.17 (Olimpo): a quién se puede mandar (móvil, tablet…). Con dos o más, un agujero por dispositivo.
         property var destinos: []
         readonly property bool dos: destinos.length >= 2
@@ -179,24 +176,18 @@ Variants {
             portal.fileName = baseName(t);
             portal.bad = "";
             portal.fileLine = portal.fileName.length > 38 ? portal.fileName.substring(0, 35) + "…" : portal.fileName;
+            if (portal.edge === "right") {
+                if (!Tele.available)
+                    portal.bad = "Tele desconectada (sin HDMI ni Chromecast)";
+            }
             if (t.startsWith("http://") || t.startsWith("https://") || t.startsWith("magnet:"))
                 return;
-            if (portal.edge === "right") {
-                const ext = (portal.fileName.split(".").pop() || "").toLowerCase();
-                if (!mediaExt.includes(ext))
-                    portal.bad = "No se puede reproducir en la tele" + (ext && ext !== portal.fileName.toLowerCase() ? " · ." + ext : "");
-            }
-            if (portal.edge === "bottom") {
-                const ext = (portal.fileName.split(".").pop() || "").toLowerCase();
-                if (!mediaExt.includes(ext) && !imageExt.includes(ext) && ext !== "html")
-                    portal.bad = "";
-            }
             statProc.portal = portal;
             statProc.command = ["stat", "-L", "-c", "%s", t];
             statProc.running = true;
         }
         function clearInfo(): void {
-            for (const p of [pRight, pTop, pTop2, pBottom]) {
+            for (const p of [pRight, pTop, pTop2]) {
                 if (p.phase === "idle" || p.phase === "ok") {
                     p.bad = "";
                     p.fileLine = "";
@@ -221,15 +212,15 @@ Variants {
             lenteK = lerp(lenteK, conCaptura ? 1 : 0, 1 - Math.pow(0.0005, dt));
             if (!conCaptura && capturaLista && lenteK < 0.01)
                 capturaGastada = true;
-            const ps = dos ? (hasTeleHdmi ? [pRight, pTop, pTop2, pBottom] : [pRight, pTop, pTop2]) : (hasTeleHdmi ? [pRight, pTop, pBottom] : [pRight, pTop]);
+            const ps = dos ? [pRight, pTop, pTop2] : [pRight, pTop];
             let armedAny = null;
             for (const p of ps) {
                 let target = 0;
-                const d = p.edge === "right" ? width - lx : (p.edge === "bottom" ? height - ly : ly);
+                const d = p.edge === "right" ? width - lx : ly;
                 const al = p.edge === "right" ? Math.abs(ly - height / 2) / (height / 2) : Math.abs(lx - width * p.posX) / (width / 2);
                 if (on) {
                     target = sm(width * 0.55, width * 0.11, d) * (1 - 0.45 * sm(0.55, 1, al));
-                    p.over = d < band && al < along && (p.edge === "right" || p.edge === "bottom" || topEn(lx) === p);
+                    p.over = d < band && al < along && (p.edge === "right" || topEn(lx) === p);
                     p.armed = p.over && p.bad === "";
                     if (p.armed)
                         armedAny = p;
@@ -406,23 +397,55 @@ Variants {
             pRight.tProgress = -1;
             pRight.tSub = "";
             pRight.tText = "Preparando…";
-            if (!Cast.selectedDevice) {
-                finishTransfer(pRight, false, "Sin Chromecast disponible");
+
+            const ext = (baseName(t).split(".").pop() || "").toLowerCase();
+            const isCastMedia = t.startsWith("magnet:") || mediaExt.includes(ext);
+
+            // 1. Si hay HDMI -> todo va al segundo monitor físico
+            if (Tele.hdmiConnected) {
+                pRight.tText = "Abriendo en Tele (HDMI)…";
+                Tele.openTarget(t);
+                teleDirectTimer.restart();
                 return;
             }
-            Cast.cmdError = "";
-            teleErr0 = Cast.error;
-            teleTarget = t;
-            teleRunDone = false;
-            teleT0 = Date.now();
-            Cast.run(["cast", Cast.selectedDevice.uuid, t], code => {
-                if (code !== 0 || Cast.cmdError) {
-                    if (pRight.phase === "sending")
-                        win.finishTransfer(pRight, false, Cast.cmdError || "Error al enviar");
-                } else {
-                    win.teleRunDone = true;
-                }
-            });
+
+            // 2. Sin HDMI -> Wi-Fi
+            if (!Tele.chromecastOnline && !Cast.selectedDevice) {
+                finishTransfer(pRight, false, "Tele no disponible (sin HDMI ni Chromecast)");
+                return;
+            }
+
+            // 2a. Vídeo / audio / torrent -> Chromecast nativo (alta calidad)
+            if (isCastMedia && Cast.selectedDevice) {
+                Cast.cmdError = "";
+                teleErr0 = Cast.error;
+                teleTarget = t;
+                teleRunDone = false;
+                teleT0 = Date.now();
+                Cast.run(["cast", Cast.selectedDevice.uuid, t], code => {
+                    if (code !== 0 || Cast.cmdError) {
+                        if (pRight.phase === "sending")
+                            win.finishTransfer(pRight, false, Cast.cmdError || "Error al enviar");
+                    } else {
+                        win.teleRunDone = true;
+                    }
+                });
+                return;
+            }
+
+            // 2b. URL / HTML / PDF / imagen / otro archivo -> extensión Wi-Fi (CAST-1)
+            pRight.tText = "Abriendo en Tele (Wi-Fi)…";
+            Tele.openTarget(t);
+            teleDirectTimer.restart();
+        }
+
+        Timer {
+            id: teleDirectTimer
+            interval: 1400
+            onTriggered: {
+                if (pRight.phase === "sending" && !win.teleTarget)
+                    win.finishTransfer(pRight, true, Tele.hdmiConnected ? "Mostrando en la tele HDMI" : "Mostrando en la tele (Wi-Fi)");
+            }
         }
 
         function sendMovil(t: string, portal, todos): void {
@@ -468,25 +491,6 @@ Variants {
             }
         }
 
-        function sendTeleHdmi(t: string): void {
-            pBottom.phase = "sending";
-            pBottom.tName = baseName(t);
-            pBottom.tProgress = -1;
-            pBottom.tSub = "";
-            pBottom.tText = "Cargando en la tele HDMI…";
-            Quickshell.execDetached([`${Quickshell.env("HOME")}/.local/bin/escaparate`, "open-target", t]);
-            teleHdmiTimer.restart();
-        }
-
-        Timer {
-            id: teleHdmiTimer
-            interval: 1400
-            onTriggered: {
-                if (pBottom.phase === "sending")
-                    win.finishTransfer(pBottom, true, "Mostrando en la tele HDMI");
-            }
-        }
-
         function cancelTransfer(portal): void {
             if (portal.phase !== "sending")
                 return;
@@ -494,15 +498,13 @@ Variants {
                 cancelled = true;
                 olimpoProc.signal(15);
                 finishTransfer(portal, false, "Envío cancelado");
-            } else if (portal === pBottom) {
-                teleHdmiTimer.stop();
-                Quickshell.execDetached([`${Quickshell.env("HOME")}/.local/bin/escaparate`, "off"]);
-                finishTransfer(pBottom, false, "Reproducción cancelada");
             } else {
+                teleDirectTimer.stop();
                 teleTarget = "";
                 teleExternalSending = false;
                 teleWatchdog.stop();
                 Cast.stop();
+                Quickshell.execDetached([`${Quickshell.env("HOME")}/.local/bin/escaparate`, "off"]);
                 finishTransfer(pRight, false, "Reproducción cancelada");
             }
         }
@@ -646,9 +648,6 @@ Variants {
                 item: tBand
             }
             Region {
-                item: bBand
-            }
-            Region {
                 item: pRight.maskItem
             }
             Region {
@@ -656,9 +655,6 @@ Variants {
             }
             Region {
                 item: pTop2.maskItem
-            }
-            Region {
-                item: pBottom.maskItem
             }
         }
 
@@ -677,7 +673,7 @@ Variants {
                 cerrarFusion();
                 show = 0;
                 frags = [];
-                for (const p of [pRight, pTop, pTop2, pBottom]) {
+                for (const p of [pRight, pTop, pTop2]) {
                     p.vis = 0;
                     p.e = 0;
                     p.dim = 0;
@@ -711,7 +707,6 @@ Variants {
                 pRight.phase = "idle";
                 pTop.phase = "idle";
                 pTop2.phase = "idle";
-                pBottom.phase = "idle";
                 clearInfo();
                 grace.restart();
             }
@@ -1088,41 +1083,6 @@ Variants {
                 }
             }
 
-            Item {
-                id: bBand
-
-                anchors.bottom: parent.bottom
-                x: parent.width * (1 - win.along) / 2
-                width: win.active && win.hasTeleHdmi ? parent.width * win.along : 0
-                height: win.active && win.hasTeleHdmi ? win.band : 0
-
-                DropArea {
-                    anchors.fill: parent
-                    keys: ["text/uri-list", "text/plain"]
-                    onEntered: drag => win.inspect(pBottom, drag)
-                    onExited: {
-                        if (pBottom.phase === "idle") {
-                            pBottom.bad = "";
-                            pBottom.fileLine = "";
-                        }
-                    }
-                    onDropped: drop => {
-                        const t = win.targetOf(drop);
-                        if (!t || pBottom.phase !== "idle")
-                            return;
-                        if (pBottom.bad) {
-                            win.rejectDrop(pBottom);
-                            return;
-                        }
-                        const ext = (win.baseName(t).split(".").pop() || "").toLowerCase();
-                        icon.text = win.imageExt.includes(ext) ? "image" : (t.startsWith("http://") || t.startsWith("https://") ? "language" : "movie");
-                        icon.color = Colours.palette.m3onSurface;
-                        win.startAbsorb(pBottom);
-                        win.sendTeleHdmi(t);
-                    }
-                }
-            }
-
             Portal {
                 id: pRight
 
@@ -1133,10 +1093,10 @@ Variants {
                 capturaLista: win.capturaLista
                 lenteK: win.lenteK
                 u: win.u
-                kicker: "TELE"
-                title: Cast.selectedDevice?.name ?? "Sin Chromecast"
-                detail: Cast.selectedDevice ? (Cast.selectedDevice.online === false ? "Sin conexión" : (Cast.selectedDevice.model ?? "") + " · " + (Cast.selectedDevice.host ?? "")) : "no hay dispositivos"
-                cta: (Cast.selectedDevice && Cast.selectedDevice.online === false) ? "Tele desconectada" : "Suelta para reproducir"
+                kicker: Tele.hdmiConnected ? "TELE · HDMI" : (Tele.chromecastOnline ? "TELE · WI-FI" : "TELE")
+                title: Tele.hdmiConnected ? "Tele (HDMI)" : (Cast.selectedDevice?.name ?? "Tele")
+                detail: Tele.hdmiConnected ? (Tele.hdmiName || "SyncMaster") : (Cast.selectedDevice ? (Cast.selectedDevice.online === false ? "Sin conexión" : (Cast.selectedDevice.model ?? "") + " · " + (Cast.selectedDevice.host ?? "")) : "Sin HDMI ni Chromecast")
+                cta: Tele.available ? "Suelta para mostrar en la tele" : "Tele desconectada"
                 onCancel: win.cancelTransfer(pRight)
             }
 
@@ -1179,25 +1139,6 @@ Variants {
                 detail: "Bandeja «Desde el PC»"
                 cta: "Suelta para enviar"
                 onCancel: win.cancelTransfer(pTop2)
-            }
-
-            Portal {
-                id: pBottom
-
-                visible: win.hasTeleHdmi
-                edge: "bottom"
-                winW: win.width
-                winH: win.height
-                captura: capTex
-                capturaLista: win.capturaLista
-                lenteK: win.lenteK
-                u: win.u
-                posX: 0.5
-                kicker: "TELE · HDMI"
-                title: "Tele (HDMI)"
-                detail: win.teleHdmiName
-                cta: "Suelta para mostrar en la tele"
-                onCancel: win.cancelTransfer(pBottom)
             }
 
             // «A los dos»: el agujero de la fusión (shader BINARIO de portal.frag). Cubre el ancho de la pantalla desde el

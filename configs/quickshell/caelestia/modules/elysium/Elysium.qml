@@ -54,9 +54,20 @@ Scope {
     readonly property bool consoleShown: active && (!playing || summoned || !gameReady)
 
     // --- tele ---
-    // La tele es cualquier salida que no sea el panel del portátil (eDP).
-    readonly property var tvScreen: Quickshell.screens.find(s => !s.name.startsWith("eDP")) ?? null
+    // La tele es cualquier salida HDMI externa (sin Tablet ni CAST-) o CAST-1 si va por Wi-Fi.
+    readonly property var hdmiTvScreen: Quickshell.screens.find(s => !s.name.startsWith("eDP") && !s.name.startsWith("Tablet") && !s.name.startsWith("CAST-")) ?? null
+    readonly property var castTvScreen: Quickshell.screens.find(s => s.name.startsWith("CAST-")) ?? null
+    readonly property var tvScreen: hdmiTvScreen ?? castTvScreen
+    readonly property bool canPlayOnTv: hdmiTvScreen !== null || Tele.chromecastOnline
+    readonly property bool tvIsWifi: hdmiTvScreen === null && castTvScreen !== null
     readonly property var laptopScreen: Quickshell.screens.find(s => s.name.startsWith("eDP")) ?? null
+    property bool wifiTvRequested: false
+    onTvScreenChanged: {
+        if (active && wifiTvRequested && tvScreen && !onTv) {
+            wifiTvRequested = false;
+            tvSetup();
+        }
+    }
     property bool onTv: false
     // Qué hace el portátil mientras se juega en la tele: apoyo | escritorio | apagada
     property string companionMode: "apoyo"
@@ -142,6 +153,9 @@ Scope {
         prevSink = "";
         tvRules(false);
         restoreTvWorkspace();
+        if (tvIsWifi || Tele.mode === "gaming")
+            Tele.setMode("off", false);
+        wifiTvRequested = false;
         onTv = false;
     }
 
@@ -171,10 +185,14 @@ Scope {
         prefs.playOnTv = v;
         if (!active)
             return;
-        if (v && tvScreen && !onTv)
+        if (v && tvScreen && !onTv) {
             tvSetup();
-        else if (!v && onTv)
+        } else if (v && !tvScreen && Tele.chromecastOnline) {
+            wifiTvRequested = true;
+            Tele.setMode("gaming", true);
+        } else if (!v && onTv) {
             tvTeardown();
+        }
     }
 
     // --- Laura por juego ---
@@ -216,9 +234,9 @@ Scope {
         ownDnd = !Notifs.dnd;
         Notifs.dnd = true;
         enteredAt = new Date();
-        if (tvScreen !== null && playOnTv)
+        if (hdmiTvScreen !== null && playOnTv)
             tvSetup();
-        else if (tvScreen !== null)
+        else if (hdmiTvScreen !== null)
             audioOffHdmi();  // tele conectada pero se juega en el portátil
         lauraCmd("gamemode on");
         active = true;

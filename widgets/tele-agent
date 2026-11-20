@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+"""tele-agent — CLI minimalista para que agentes lancen UI, webs, vídeos o capturas en la Tele.
+
+Garantiza que la Tele esté en modo 'agents' (HDMI prioritario, Wi-Fi CAST-1 respaldo)
+y ejecuta todo en el workspace `name:agents` sin robar el foco del portátil.
+
+Uso:
+  tele-agent ensure
+  tele-agent status
+  tele-agent run <comando...>
+  tele-agent open <url|archivo>
+  tele-agent screenshot [ruta.png]
+  tele-agent off
+"""
+import argparse
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+TELE = os.path.expanduser("~/.local/bin/tele")
+ESCAPARATE = os.path.expanduser("~/.local/bin/escaparate")
+
+
+def tele_json(*args):
+    out = subprocess.check_output([TELE, *args], text=True)
+    return json.loads(out)
+
+
+def ensure_agents():
+    st = tele_json("status")
+    if st.get("mode") != "agents" or st.get("transport") == "off" or not st.get("monitor"):
+        st = tele_json("mode", "agents")
+    if st.get("transport") == "off" or not st.get("monitor"):
+        raise RuntimeError("La Tele no está disponible (ni HDMI ni Chromecast online).")
+    return st
+
+
+def cmd_run(cmd_args):
+    st = ensure_agents()
+    laptop = st.get("laptop_monitor", "eDP-2")
+    # Lanzar con hyprctl dispatch exec en workspace name:agents (silent) para no robar foco
+    quoted = " ".join(subprocess.list2cmdline([a]) for a in cmd_args)
+    subprocess.run(
+        ["hyprctl", "dispatch", f'exec [workspace name:agents silent] {quoted}'],
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(["hyprctl", "dispatch", f'hl.dsp.focus({{ monitor = "{laptop}" }})'], capture_output=True)
+    print(json.dumps({"ok": True, "monitor": st["monitor"], "transport": st["transport"], "cmd": cmd_args}))
+    return 0
+
+
+def cmd_open(target):
+    st = ensure_agents()
+    # Usar escaparate en name:agents (o tele open) sin robar foco
+    env = dict(os.environ)
+    env["ESCAPARATE_WORKSPACE"] = "name:agents"
+    res = subprocess.run([ESCAPARATE, "open-target", target], env=env, capture_output=True, text=True)
+    laptop = st.get("laptop_monitor", "eDP-2")
+    subprocess.run(["hyprctl", "dispatch", f'hl.dsp.focus({{ monitor = "{laptop}" }})'], capture_output=True)
+    print(json.dumps({"ok": res.returncode == 0, "monitor": st["monitor"], "transport": st["transport"], "target": target}))
+    return res.returncode
+
+
+def cmd_screenshot(out_path):
+    st = ensure_agents()
+    mon = st["monitor"]
+    if not out_path:
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        out_path = f"/tmp/tele-agent-{ts}.png"
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["grim", "-o", mon, out_path], check=True)
+    print(json.dumps({"ok": True, "path": out_path, "monitor": mon, "transport": st["transport"]}))
+    return 0
+
+
+def main():
+    p = argparse.ArgumentParser(prog="tele-agent")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("ensure")
+    sub.add_parser("status")
+    sub.add_parser("off")
+    pr = sub.add_parser("run")
+    pr.add_argument("command", nargs=argparse.REMAINDER)
+    po = sub.add_parser("open")
+    po.add_argument("target")
+    ps = sub.add_parser("screenshot")
+    ps.add_argument("path", nargs="?", default="")
+
+    args = p.parse_args()
+    try:
+        if args.cmd == "ensure":
+            print(json.dumps(ensure_agents(), ensure_ascii=False))
+        elif args.cmd == "status":
+            print(json.dumps(tele_json("status"), ensure_ascii=False))
+        elif args.cmd == "off":
+            print(json.dumps(tele_json("mode", "off"), ensure_ascii=False))
+        elif args.cmd == "run":
+            if not args.command:
+                return 1
+            return cmd_run(args.command)
+        elif args.cmd == "open":
+            return cmd_open(args.target)
+        elif args.cmd == "screenshot":
+            return cmd_screenshot(args.path)
+    except Exception as e:
+        print(json.dumps({"ok": False, "error": str(e)}))
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

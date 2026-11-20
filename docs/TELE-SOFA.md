@@ -132,6 +132,22 @@ docs/
 └── TELE-SOFA.md                  # Esta documentación
 ```
 
+## v2 Unificada: Una sola Tele (`HDMI > Wi-Fi`)
+
+Desde `feat/telesofa-v2` la Tele se trata como **un único destino lógico** (`widgets/tele`, `services/Tele.qml`), independientemente de cómo esté conectada:
+
+- **Identificación explícita** (`~/.config/caelestia/tele.json`):
+  - HDMI: `SyncMaster H1AK500000` (excluye explícitamente `Tablet` y `eDP*`).
+  - Chromecast: `Гостиная`.
+  - *(Nota de roadmap)*: El soporte para un segundo monitor físico adicional distinto de esta Tele y de la Tablet se estudiará más adelante cuando llegue el nuevo dispositivo.
+- **Prioridad de transporte:** Si el cable HDMI está conectado, todo va por HDMI; si no, se usa Wi-Fi (Chromecast nativo para vídeo/audio/torrents y salida virtual `CAST-1` de Hyprland para escritorios, webs, PDFs, imágenes y apps).
+- **Los 3 modos (Panel Rápido + `Win+P` + barra):**
+  1. `personal`: segundo monitor normal (workspace 8, `SUPER+SHIFT+T` funciona tanto en HDMI como en `CAST-1`).
+  2. `agents`: workspace aislado `name:agents` con `no_initial_focus = true` para que los agentes lancen navegadores, dev servers, renders o capturas sin robar el foco. Los agentes usan el CLI `~/.local/bin/tele-agent` (`ensure`, `run`, `open`, `screenshot`, `off`), elegido frente a un MCP para no consumir contexto constante en tokens. En la barra aparece un indicador especial (`TelePill`) para tomar el control (`Interactuar` / `Devolver`).
+  3. `gaming` (Elysium): por defecto en el portátil si no hay HDMI; dentro de Elysium se ofrece la opción de probarlo por Wi-Fi (`CAST-1`) con aviso de latencia (~200 ms).
+- **Portal derecho unificado (`Portals.qml`):** Se elimina el portal inferior. El borde derecho acepta **cualquier archivo o URL** (vídeos, torrents, imágenes, PDFs, HTML, enlaces web) y lo enruta automáticamente por HDMI o Wi-Fi.
+- **Hotplug HDMI (`tele-watch.service`):** Si entra el cable HDMI estando en Wi-Fi, migra la sesión a HDMI; si se desconecta el HDMI, pregunta mediante diálogo si pasar a Wi-Fi o dejar las ventanas como workspace normal del portátil.
+
 ## Pruebas y verificación
 
 1. **Atajo `SUPER + SHIFT + T` (`tele-window`):**

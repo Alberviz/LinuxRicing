@@ -47,6 +47,7 @@ ShellRoot {
     RgbControl {}
     RebootDialog {}
     ProjectDialog {}
+    TeleHotplugDialog {}
     EscaparateDialog {}
     Assistant {}
     HoloOverlay {}

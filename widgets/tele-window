@@ -60,8 +60,12 @@ def main():
 
     # Laptop monitor: first with name starting with eDP (or id 0)
     laptop_mon = next((m for m in monitors if m.get("name", "").startswith("eDP")), monitors[0])
-    # Tele monitor: first monitor not starting with eDP
-    tele_mon = next((m for m in monitors if not m.get("name", "").startswith("eDP")), None)
+    # Tele monitor: SyncMaster / externa no-Tablet, o CAST-1 si va por Wi-Fi
+    tele_mon = next((m for m in monitors if "SyncMaster" in (m.get("description") or "")), None)
+    if not tele_mon:
+        tele_mon = next((m for m in monitors if not m.get("name", "").startswith(("eDP", "LVDS", "DSI", "CAST-", "HEADLESS", "Tablet"))), None)
+    if not tele_mon:
+        tele_mon = next((m for m in monitors if m.get("name", "").startswith("CAST-")), None)
 
     if not tele_mon:
         notify("Tele no conectada", "No se ha encontrado ninguna pantalla externa conectada.")

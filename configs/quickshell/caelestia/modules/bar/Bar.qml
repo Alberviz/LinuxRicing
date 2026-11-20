@@ -142,12 +142,27 @@ ColumnLayout {
             DelegateChoice {
                 roleValue: "workspaces"
                 delegate: EntryWrapper {
-                    Workspaces {
-                        id: wsComp
+                    ColumnLayout {
+                        spacing: Tokens.spacing.small
 
-                        objectName: "taskbarWorkspaces"
-                        screen: root.screen
-                        fullscreen: root.fullscreen
+                        function wsAt(y: real): var {
+                            const p = mapToItem(wsComp, 0, y);
+                            return p.y >= 0 && p.y <= wsComp.height ? wsComp.wsAt(p.y) : null;
+                        }
+
+                        Workspaces {
+                            id: wsComp
+
+                            Layout.alignment: Qt.AlignHCenter
+                            objectName: "taskbarWorkspaces"
+                            screen: root.screen
+                            fullscreen: root.fullscreen
+                        }
+
+                        TelePill {
+                            Layout.alignment: Qt.AlignHCenter
+                            objectName: "taskbarTelePill"
+                        }
                     }
 
                     overlay: AgentBadges {

@@ -46,13 +46,15 @@ PanelWindow {
                     "glyph": ({ "apoyo": "monitoring", "escritorio": "laptop_chromebook", "apagada": "desktop_access_disabled" })[elysium.companionMode]
                 }
             ] : []),
-        ...(elysium.tvScreen ? [
+        ...(elysium.canPlayOnTv ? [
                 {
                     "system": "screen",
                     "name": qsTr("Pantalla de juego"),
-                    "subtitle": elysium.playOnTv ? qsTr("Jugando en la tele · A para jugar en el portátil") : qsTr("Jugando en el portátil · A para jugar en la tele"),
+                    "subtitle": elysium.onTv
+                        ? (elysium.tvIsWifi ? qsTr("En la tele por Wi-Fi (~200 ms) · A para volver al portátil") : qsTr("Jugando en la tele · A para jugar en el portátil"))
+                        : (elysium.hdmiTvScreen ? qsTr("Jugando en el portátil · A para jugar en la tele") : qsTr("En el portátil · A para probar en la tele por Wi-Fi (~200 ms)")),
                     "tag": qsTr("Sistema"),
-                    "glyph": elysium.playOnTv ? "tv" : "laptop"
+                    "glyph": elysium.onTv ? "tv" : "laptop"
                 }
             ] : []),
         {

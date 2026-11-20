@@ -1,0 +1,540 @@
+#!/usr/bin/env python3
+"""tele — controlador unificado de «la Tele» (HDMI > Wi-Fi/Chromecast).
+
+Abstrae el transporte físico (HDMI prioritario, Wi-Fi CAST-1/Chromecast como respaldo)
+y gestiona los 3 modos de uso:
+  - personal : segundo monitor de trabajo (workspace configurable, por defecto 8)
+  - agents   : pantalla aislada para agentes (name:agents, sin robar foco)
+  - gaming   : Elysium en la tele (name:gaming)
+
+Uso:
+  tele status
+  tele mode <personal|agents|gaming|off> [--wifi]
+  tele interact [on|off|toggle]
+  tele open <archivo|url>
+  tele answer-hdmi-lost <wifi|laptop>
+  tele watch
+"""
+import argparse
+import json
+import os
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+CONFIG_PATH = Path(os.path.expanduser("~/.config/caelestia/tele.json"))
+RUNTIME_DIR = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")) / "tele"
+STATE_FILE = RUNTIME_DIR / "state.json"
+INTERACT_FILE = RUNTIME_DIR / "interact.json"
+CAST_STATE_FILE = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")) / "cast-helper" / "state.json"
+CAST_HELPER = os.path.expanduser("~/.local/bin/cast-helper")
+DISPLAY_MODE = os.path.expanduser("~/.local/bin/display-mode")
+ESCAPARATE = os.path.expanduser("~/.local/bin/escaparate")
+
+DEFAULT_CONFIG = {
+    "hdmi_description": "Samsung Electric Company SyncMaster H1AK500000",
+    "chromecast_name": "Гостиная",
+    "personal_workspace": 8,
+    "agents_workspace": "name:agents",
+    "gaming_workspace": "name:gaming",
+}
+
+MEDIA_CAST_EXT = {
+    "mp4", "m4v", "mkv", "webm", "avi", "mov", "ts", "mpg", "mpeg",
+    "wmv", "flv", "ogv", "mp3", "flac", "m4a", "aac", "ogg", "opus",
+    "wav", "mka", "torrent",
+}
+
+
+def load_config():
+    cfg = dict(DEFAULT_CONFIG)
+    if CONFIG_PATH.exists():
+        try:
+            data = json.loads(CONFIG_PATH.read_text())
+            if isinstance(data, dict):
+                cfg.update(data)
+        except Exception:
+            pass
+    else:
+        try:
+            CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            CONFIG_PATH.write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
+        except OSError:
+            pass
+    return cfg
+
+
+def atomic_write(path: Path, text: str):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(f".tmp.{os.getpid()}")
+    tmp.write_text(text)
+    tmp.replace(path)
+
+
+def run_out(*args, timeout=5):
+    try:
+        return subprocess.run(args, capture_output=True, text=True, timeout=timeout).stdout
+    except Exception:
+        return ""
+
+
+def hypr_json(endpoint):
+    out = run_out("hyprctl", endpoint, "-j")
+    try:
+        return json.loads(out) if out else []
+    except Exception:
+        return []
+
+
+def hypr_dispatch(cmd):
+    return run_out("hyprctl", "dispatch", cmd)
+
+
+def hypr_eval(code):
+    return run_out("hyprctl", "eval", code)
+
+
+def notify(title, body="", icon="video-display"):
+    cmd = ["notify-send", "-a", "Tele", "-i", icon, title]
+    if body:
+        cmd.append(body)
+    subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def read_cast_state():
+    if not CAST_STATE_FILE.exists():
+        return {}
+    try:
+        return json.loads(CAST_STATE_FILE.read_text())
+    except Exception:
+        return {}
+
+
+def find_chromecast(cfg):
+    st = read_cast_state()
+    devs = st.get("devices") or []
+    target_name = cfg.get("chromecast_name", "")
+    # Preferir el dispositivo configurado si está online
+    for d in devs:
+        if d.get("name") == target_name and d.get("online", True):
+            return d
+    # Respaldo: cualquier Chromecast online
+    for d in devs:
+        if d.get("online", True):
+            return d
+    return None
+
+
+def find_monitors(cfg):
+    mons_all = hypr_json("monitors all")
+    mons_active = hypr_json("monitors")
+    active_names = {m.get("name") for m in mons_active if not m.get("disabled")}
+
+    laptop = next((m for m in mons_all if m.get("name", "").startswith(("eDP", "LVDS", "DSI"))), None)
+    if not laptop and mons_active:
+        laptop = mons_active[0]
+
+    desc = cfg.get("hdmi_description", "")
+    hdmi = None
+    if desc:
+        hdmi = next((m for m in mons_all if desc in (m.get("description") or "")), None)
+    if not hdmi:
+        hdmi = next(
+            (
+                m for m in mons_all
+                if not m.get("name", "").startswith(("eDP", "LVDS", "DSI", "CAST-", "HEADLESS", "Tablet"))
+            ),
+            None,
+        )
+
+    cast_mon = next((m for m in mons_active if m.get("name", "").startswith("CAST-")), None)
+    return {
+        "laptop": laptop,
+        "hdmi": hdmi,
+        "hdmi_active": bool(hdmi and hdmi.get("name") in active_names),
+        "cast": cast_mon,
+    }
+
+
+def read_saved_state():
+    if not STATE_FILE.exists():
+        return {}
+    try:
+        return json.loads(STATE_FILE.read_text())
+    except Exception:
+        return {}
+
+
+def count_agents_windows(cfg):
+    ws_name = cfg["agents_workspace"]
+    short = ws_name[5:] if ws_name.startswith("name:") else ws_name
+    clients = hypr_json("clients")
+    return sum(1 for c in clients if (c.get("workspace") or {}).get("name") == short)
+
+
+def compute_state(cfg=None, overrides=None):
+    if cfg is None:
+        cfg = load_config()
+    prev = read_saved_state()
+    m = find_monitors(cfg)
+    cc = find_chromecast(cfg)
+    cast_st = read_cast_state()
+    cast_active = cast_st.get("active") or {}
+
+    hdmi_connected = m["hdmi"] is not None
+    hdmi_name = m["hdmi"]["name"] if hdmi_connected else None
+
+    if m["hdmi_active"]:
+        transport = "hdmi"
+        monitor = hdmi_name
+    elif m["cast"] is not None:
+        transport = "wifi"
+        monitor = m["cast"]["name"]
+    elif cast_active.get("mode") == "cast":
+        transport = "wifi"
+        monitor = None
+    else:
+        transport = "off"
+        monitor = None
+
+    mode = prev.get("mode", "off")
+    if transport == "off" and mode != "off":
+        # Si no hay ni HDMI activo ni CAST-1 ni cast activo, el transporte se apagó
+        mode = "off"
+
+    # Detectar si el usuario está en modo interactivo
+    interacting = INTERACT_FILE.exists()
+
+    state = {
+        "transport": transport,
+        "mode": mode,
+        "monitor": monitor,
+        "laptop_monitor": m["laptop"]["name"] if m["laptop"] else "eDP-2",
+        "hdmi_connected": hdmi_connected,
+        "hdmi_name": hdmi_name,
+        "hdmi_active": m["hdmi_active"],
+        "chromecast_online": cc is not None,
+        "chromecast_name": cc.get("name") if cc else cfg.get("chromecast_name"),
+        "chromecast_uuid": cc.get("uuid") if cc else None,
+        "cast_mode": cast_active.get("mode"),
+        "cast_title": cast_active.get("title"),
+        "interacting": interacting,
+        "agents_windows": count_agents_windows(cfg),
+        "hdmi_lost_prompt": prev.get("hdmi_lost_prompt", False),
+        "ts": time.time(),
+    }
+    if overrides:
+        state.update(overrides)
+    atomic_write(STATE_FILE, json.dumps(state, indent=2, ensure_ascii=False))
+    return state
+
+
+def apply_agents_rules(enable: bool, tv_monitor: str, cfg):
+    off_lua = "if _G.teleAgentsWs then _G.teleAgentsWs:set_enabled(false) end; if _G.teleAgentsWin then _G.teleAgentsWin:set_enabled(false) end"
+    if not enable or not tv_monitor:
+        hypr_eval(off_lua)
+        return
+    ws = cfg["agents_workspace"]
+    # Asignar name:agents al monitor de la Tele; las ventanas que nazcan ahí no roban foco
+    hypr_eval(
+        f'{off_lua}; '
+        f'_G.teleAgentsWs = hl.workspace_rule({{ workspace = "{ws}", monitor = "{tv_monitor}", persistent = true }}); '
+        f'_G.teleAgentsWin = hl.window_rule({{ match = {{ workspace = "{ws}" }}, no_initial_focus = true }})'
+    )
+    hypr_dispatch(f'hl.dsp.workspace.move({{ workspace = "{ws}", monitor = "{tv_monitor}" }})')
+
+
+def ensure_hdmi_extended(cfg):
+    m = find_monitors(cfg)
+    if not m["hdmi"]:
+        return None
+    if not m["hdmi_active"]:
+        subprocess.run([DISPLAY_MODE, "extend"], capture_output=True, timeout=10)
+        time.sleep(0.4)
+    return m["hdmi"]["name"]
+
+
+def ensure_wifi_virtual(cfg):
+    m = find_monitors(cfg)
+    if m["cast"]:
+        return m["cast"]["name"]
+    cc = find_chromecast(cfg)
+    if not cc:
+        return None
+    # Parar sesión previa si no es mirror extendido
+    subprocess.run(
+        [CAST_HELPER, "mirror", "start", "--device", cc["uuid"], "--source", "extend"],
+        capture_output=True,
+        timeout=20,
+    )
+    for _ in range(40):
+        mons = hypr_json("monitors")
+        cm = next((x for x in mons if x.get("name", "").startswith("CAST-")), None)
+        if cm:
+            return cm["name"]
+        time.sleep(0.2)
+    return None
+
+
+def stop_wifi_if_active():
+    st = read_cast_state()
+    if st.get("active"):
+        subprocess.run([CAST_HELPER, "stop"], capture_output=True, timeout=10)
+
+
+def set_mode(mode: str, allow_wifi: bool = True, force_wifi_gaming: bool = False):
+    cfg = load_config()
+    m = find_monitors(cfg)
+    laptop_name = m["laptop"]["name"] if m["laptop"] else "eDP-2"
+
+    # Limpiar interacción si estaba activa
+    if INTERACT_FILE.exists():
+        interact_set(False)
+
+    if mode == "off":
+        apply_agents_rules(False, "", cfg)
+        stop_wifi_if_active()
+        if m["hdmi_active"]:
+            # Dejar la tele en su workspace personal o apagarla no: solo quitar modo especial
+            ws = str(cfg["personal_workspace"])
+            hypr_dispatch(f'hl.dsp.focus({{ monitor = "{m["hdmi"]["name"]}" }})')
+            hypr_dispatch(f'hl.dsp.focus({{ workspace = {ws} }})')
+            hypr_dispatch(f'hl.dsp.focus({{ monitor = "{laptop_name}" }})')
+        return compute_state(cfg, {"mode": "off", "hdmi_lost_prompt": False})
+
+    # Determinar transporte: HDMI > Wi-Fi
+    tv_mon = None
+    if m["hdmi"]:
+        stop_wifi_if_active()
+        tv_mon = ensure_hdmi_extended(cfg)
+    elif allow_wifi:
+        if mode == "gaming" and not force_wifi_gaming:
+            notify("Sin HDMI conectado", "Elysium se abrirá en el portátil. Puedes activar «Tele por Wi-Fi» dentro de Elysium.")
+            return compute_state(cfg, {"mode": "off", "hdmi_lost_prompt": False})
+        tv_mon = ensure_wifi_virtual(cfg)
+
+    if not tv_mon:
+        notify("Tele no disponible", "No hay cable HDMI ni Chromecast conectado.")
+        return compute_state(cfg, {"mode": "off", "hdmi_lost_prompt": False})
+
+    if mode == "personal":
+        apply_agents_rules(False, "", cfg)
+        ws = str(cfg["personal_workspace"])
+        hypr_dispatch(f'hl.dsp.workspace.move({{ workspace = {ws}, monitor = "{tv_mon}" }})')
+        hypr_dispatch(f'hl.dsp.focus({{ monitor = "{tv_mon}" }})')
+        hypr_dispatch(f'hl.dsp.focus({{ workspace = {ws} }})')
+        hypr_dispatch(f'hl.dsp.focus({{ monitor = "{laptop_name}" }})')
+        notify("Tele · Modo Personal", f"Workspace {ws} en {tv_mon}")
+
+    elif mode == "agents":
+        apply_agents_rules(True, tv_mon, cfg)
+        ws = cfg["agents_workspace"]
+        hypr_dispatch(f'hl.dsp.focus({{ monitor = "{tv_mon}" }})')
+        hypr_dispatch(f'hl.dsp.focus({{ workspace = "{ws}" }})')
+        hypr_dispatch(f'hl.dsp.focus({{ monitor = "{laptop_name}" }})')
+        notify("Tele · Pantalla de Agentes", f"Entorno aislado activo en {tv_mon}")
+
+    elif mode == "gaming":
+        apply_agents_rules(False, "", cfg)
+        ws = cfg["gaming_workspace"]
+        hypr_dispatch(f'hl.dsp.workspace.move({{ workspace = "{ws}", monitor = "{tv_mon}" }})')
+        notify("Tele · Modo Juegos", f"Listo en {tv_mon}")
+
+    return compute_state(cfg, {"mode": mode, "hdmi_lost_prompt": False})
+
+
+def interact_set(enable: bool):
+    cfg = load_config()
+    st = compute_state(cfg)
+    laptop_name = st["laptop_monitor"]
+    tv_mon = st["monitor"]
+    mode = st["mode"]
+    ws = cfg["agents_workspace"] if mode == "agents" else str(cfg["personal_workspace"])
+
+    if enable:
+        if not tv_mon:
+            notify("Tele no activa", "Enciende la Tele primero para interactuar con ella.")
+            return st
+        focused = next((m for m in hypr_json("monitors") if m.get("focused")), None)
+        prev = {
+            "monitor": focused["name"] if focused else laptop_name,
+            "workspace": (focused.get("activeWorkspace") or {}).get("name", "1") if focused else "1",
+            "tv_monitor": tv_mon,
+            "ws": ws,
+            "transport": st["transport"],
+        }
+        atomic_write(INTERACT_FILE, json.dumps(prev))
+        if st["transport"] == "wifi":
+            # En Wi-Fi (CAST-1 es headless): traemos temporalmente el workspace al portátil para clicar con 0 lag
+            hypr_dispatch(f'hl.dsp.workspace.move({{ workspace = "{ws}", monitor = "{laptop_name}" }})')
+            hypr_dispatch(f'hl.dsp.focus({{ workspace = "{ws}" }})')
+            notify("Controlando Tele (en portátil)", "Pulsa de nuevo el indicador de la barra para devolverla a la Tele.")
+        else:
+            # En HDMI: enfocamos el monitor de la tele directamente
+            hypr_dispatch(f'hl.dsp.focus({{ monitor = "{tv_mon}" }})')
+            hypr_dispatch(f'hl.dsp.focus({{ workspace = "{ws}" }})')
+            notify("Foco en la Tele (HDMI)", "Sube el ratón o escribe; pulsa de nuevo para volver al portátil.")
+    else:
+        prev = {}
+        if INTERACT_FILE.exists():
+            try:
+                prev = json.loads(INTERACT_FILE.read_text())
+            except Exception:
+                pass
+            try:
+                INTERACT_FILE.unlink()
+            except OSError:
+                pass
+        target_tv = prev.get("tv_monitor") or tv_mon
+        target_ws = prev.get("ws") or ws
+        if prev.get("transport") == "wifi" and target_tv:
+            # Devolvemos el workspace a CAST-1
+            hypr_dispatch(f'hl.dsp.workspace.move({{ workspace = "{target_ws}", monitor = "{target_tv}" }})')
+        prev_ws = prev.get("workspace")
+        if prev_ws:
+            hypr_dispatch(f'hl.dsp.focus({{ workspace = "{prev_ws}" }})')
+        hypr_dispatch(f'hl.dsp.focus({{ monitor = "{laptop_name}" }})')
+    return compute_state(cfg)
+
+
+def open_target(target: str):
+    cfg = load_config()
+    t = target.strip()
+    if t.startswith("file://"):
+        t_clean = t[7:]
+    else:
+        t_clean = t
+    is_url = t.startswith(("http://", "https://", "magnet:"))
+    ext = t_clean.split(".")[-1].lower() if "." in t_clean and not t.startswith("magnet:") else ""
+
+    m = find_monitors(cfg)
+    # 1. Si hay HDMI -> todo va al segundo monitor físico vía escaparate
+    if m["hdmi"]:
+        ensure_hdmi_extended(cfg)
+        res = subprocess.run([ESCAPARATE, "open-target", target], capture_output=True, text=True)
+        return res.returncode == 0
+
+    # 2. Sin HDMI -> Wi-Fi
+    cc = find_chromecast(cfg)
+    if not cc:
+        notify("Tele no disponible", "No hay cable HDMI ni Chromecast conectado.")
+        return False
+
+    # Si es vídeo, audio o torrent -> Chromecast nativo (alta calidad)
+    if t.startswith("magnet:") or ext in MEDIA_CAST_EXT:
+        res = subprocess.run([CAST_HELPER, "cast", cc["uuid"], target], capture_output=True, text=True)
+        return res.returncode == 0
+
+    # URL, HTML, imagen, PDF u otro archivo -> extensión Wi-Fi (CAST-1) + abrir ahí
+    st = compute_state(cfg)
+    if st["transport"] != "wifi" or not st["monitor"]:
+        set_mode("personal", allow_wifi=True)
+    res = subprocess.run([ESCAPARATE, "open-target", target], capture_output=True, text=True)
+    return res.returncode == 0
+
+
+def answer_hdmi_lost(choice: str):
+    cfg = load_config()
+    prev = read_saved_state()
+    prev_mode = prev.get("mode", "personal")
+    if prev_mode not in ("personal", "agents"):
+        prev_mode = "personal"
+
+    if choice == "wifi":
+        return set_mode(prev_mode, allow_wifi=True)
+
+    # Dejar como workspace normal en el portátil
+    apply_agents_rules(False, "", cfg)
+    return compute_state(cfg, {"mode": "off", "hdmi_lost_prompt": False})
+
+
+def watch_hotplug():
+    """Escucha eventos de Hyprland (socket2) para gestionar hotplug del cable HDMI."""
+    cfg = load_config()
+    compute_state(cfg)
+    sig = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE")
+    if not sig:
+        return 1
+    sock_path = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")) / "hypr" / sig / ".socket2.sock"
+    import socket
+    while True:
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                s.connect(str(sock_path))
+                buf = ""
+                while True:
+                    chunk = s.recv(4096)
+                    if not chunk:
+                        break
+                    buf += chunk.decode(errors="ignore")
+                    while "\n" in buf:
+                        line, buf = buf.split("\n", 1)
+                        if line.startswith(("monitoradded", "monitorremoved")):
+                            time.sleep(0.5)
+                            cfg = load_config()
+                            prev = read_saved_state()
+                            m = find_monitors(cfg)
+                            if line.startswith("monitoradded") and m["hdmi"] and prev.get("transport") == "wifi" and prev.get("mode") in ("personal", "agents"):
+                                # Entró HDMI mientras estábamos en Wi-Fi -> migrar a HDMI automáticamente
+                                set_mode(prev["mode"], allow_wifi=False)
+                                notify("Cable HDMI detectado", "Sesión de Tele migrada a HDMI.")
+                            elif line.startswith("monitorremoved") and not m["hdmi"] and prev.get("transport") == "hdmi" and prev.get("mode") in ("personal", "agents"):
+                                # Se desconectó HDMI -> preguntar si pasamos a Wi-Fi
+                                cc = find_chromecast(cfg)
+                                if cc:
+                                    compute_state(cfg, {"hdmi_lost_prompt": True})
+                                else:
+                                    apply_agents_rules(False, "", cfg)
+                                    compute_state(cfg, {"mode": "off", "hdmi_lost_prompt": False})
+                            else:
+                                compute_state(cfg)
+        except Exception:
+            time.sleep(3)
+
+
+def main():
+    p = argparse.ArgumentParser(prog="tele", description="Control unificado de la Tele (HDMI > Wi-Fi)")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("status", help="devuelve estado JSON")
+    pm = sub.add_parser("mode", help="cambia el modo de la tele")
+    pm.add_argument("target_mode", choices=["personal", "agents", "gaming", "off"])
+    pm.add_argument("--wifi", action="store_true", help="permitir Wi-Fi también en modo gaming")
+
+    pi = sub.add_parser("interact", help="alterna interacción con la pantalla de la tele")
+    pi.add_argument("action", nargs="?", default="toggle", choices=["on", "off", "toggle"])
+
+    po = sub.add_parser("open", help="abre un archivo o URL en la tele (HDMI o Wi-Fi)")
+    po.add_argument("target")
+
+    pa = sub.add_parser("answer-hdmi-lost", help="responde al aviso tras desconectar el HDMI")
+    pa.add_argument("choice", choices=["wifi", "laptop"])
+
+    sub.add_parser("watch", help="vigila hotplug HDMI en Hyprland")
+
+    args = p.parse_args()
+    if args.cmd == "status":
+        print(json.dumps(compute_state(), indent=2, ensure_ascii=False))
+    elif args.cmd == "mode":
+        st = set_mode(args.target_mode, allow_wifi=True, force_wifi_gaming=args.wifi)
+        print(json.dumps(st, indent=2, ensure_ascii=False))
+    elif args.cmd == "interact":
+        st = compute_state()
+        want = True if args.action == "on" else (False if args.action == "off" else not st["interacting"])
+        print(json.dumps(interact_set(want), indent=2, ensure_ascii=False))
+    elif args.cmd == "open":
+        ok = open_target(args.target)
+        print(json.dumps({"ok": ok, "target": args.target}))
+        return 0 if ok else 1
+    elif args.cmd == "answer-hdmi-lost":
+        st = answer_hdmi_lost(args.choice)
+        print(json.dumps(st, indent=2, ensure_ascii=False))
+    elif args.cmd == "watch":
+        return watch_hotplug()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

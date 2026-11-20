@@ -179,14 +179,20 @@ if [ "$SELECTED_WIDGETS" = true ]; then
         echo -e "  ${SUCCESS}✔ Selector de pantallas (Win+P) instalado en ~/.local/bin${RESET}"
     fi
 
-    # 3d. Tele en el sofá y Escaparate (tele-window, escaparate)
-    for bin in tele-window escaparate; do
+    # 3d. Tele en el sofá y Escaparate (tele, tele-agent, tele-window, escaparate)
+    for bin in tele tele-agent tele-window escaparate; do
         if [ -f "$BASE_DIR/widgets/$bin" ]; then
             cp -u "$BASE_DIR/widgets/$bin" "$HOME/.local/bin/$bin"
             chmod +x "$HOME/.local/bin/$bin"
         fi
     done
-    echo -e "  ${SUCCESS}✔ Helpers de tele y escaparate instalados en ~/.local/bin${RESET}"
+    if [ -f "$BASE_DIR/systemd/tele-watch.service" ]; then
+        mkdir -p "$HOME/.config/systemd/user"
+        cp -u "$BASE_DIR/systemd/tele-watch.service" "$HOME/.config/systemd/user/tele-watch.service"
+        systemctl --user daemon-reload
+        systemctl --user enable --now tele-watch.service 2>/dev/null || true
+    fi
+    echo -e "  ${SUCCESS}✔ Helpers de tele unificada y escaparate instalados en ~/.local/bin${RESET}"
 
     # 3b. Modo servidor: scripts de usuario (el botón "Server mode" de Caelestia
     #     invoca `caelestia-server-mode on`; `volver-escritorio` es la vuelta desde tty)
