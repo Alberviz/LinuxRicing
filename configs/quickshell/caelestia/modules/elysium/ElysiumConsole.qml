@@ -1,12 +1,14 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Layouts
 import QtQuick.Effects
 import QtQuick.Shapes
 import Quickshell
 import Quickshell.Wayland
 import Quickshell.Services.UPower
 import Caelestia.Config
+import Caelestia.Services
 import qs.components
 import qs.services
 
@@ -22,6 +24,19 @@ PanelWindow {
     property int index: 0
 
     readonly property var items: elysium.games.concat([
+        {
+            "system": "spotify",
+            "name": "Spotify",
+            "subtitle": elysium.hasTrack
+                ? ([elysium.trackArtist, elysium.trackAlbum].filter(Boolean).join(" · ") || "Spotify")
+                : qsTr("Nada sonando · A para elegir música"),
+            "tag": elysium.hasTrack
+                ? (elysium.spotifyDeviceLabel ? qsTr("Ahora suena · %1").arg(elysium.spotifyDeviceLabel) : qsTr("Ahora suena"))
+                : qsTr("Música"),
+            "glyph": "album",
+            "art": elysium.trackArtUrl
+        }
+    ], [
         ...(elysium.onTv ? [
                 {
                     "system": "laptop",
@@ -75,7 +90,14 @@ PanelWindow {
 
     function activate(): void {
         const it = current;
-        if (it.system === "laptop")
+        if (it.system === "spotify") {
+            if (elysium.hasTrack) {
+                elysium.sfx(elysium.spotifyPlaying ? "toggle_off" : "toggle_on");
+                elysium.spotifyPlayPause();
+            } else {
+                elysium.openSpotifyLibrary();
+            }
+        } else if (it.system === "laptop")
             elysium.cycleCompanion();
         else if (it.system === "laura")
             LauraService.toggle();
@@ -108,6 +130,11 @@ PanelWindow {
         const E = elysium;
         if (launching)
             return;
+        // Biblioteca de Spotify a pantalla completa.
+        if (E.spotifyLibraryOpen) {
+            spotifyLibrary.pad(b);
+            return;
+        }
         // Pantalla de progreso de la actualización: B = segundo plano, Y = cancelar.
         if (E.updView) {
             if (b === "b" || b === "home" || ((b === "a" || b === "start") && !E.updRunning)) {
@@ -145,18 +172,32 @@ PanelWindow {
             return;
         }
         if (b === "y") {
-            if (isRunning) {
+            if (current.system === "spotify") {
+                E.openSpotifyLibrary();
+            } else if (isRunning) {
                 confirmClose = true;
                 E.sfx("dialog");
             }
             return;
         }
-        // X en un juego: Laura sí/no en ese juego (se recuerda).
+        // X en Spotify: Me gusta. X en un juego: Laura sí/no en ese juego (se recuerda).
         if (b === "x") {
-            if (current.proc) {
+            if (current.system === "spotify") {
+                E.spotifyToggleLike();
+            } else if (current.proc) {
                 const on = !E.lauraFor(current);
                 E.setLauraFor(current, on);
                 E.sfx(on ? "toggle_on" : "toggle_off");
+            }
+            return;
+        }
+        if (b === "lb" || b === "rb") {
+            if (current.system === "spotify") {
+                if (b === "lb")
+                    E.spotifyPrev();
+                else
+                    E.spotifyNext();
+                E.sfx("move");
             }
             return;
         }
@@ -167,7 +208,7 @@ PanelWindow {
                 E.sfx("move");
             }
         } else if (b === "a" || b === "start") {
-            if (current.system)
+            if (current.system && current.system !== "spotify")
                 E.sfx("select");
             activate();
         } else if (b === "b" || b === "home") {
@@ -223,8 +264,11 @@ PanelWindow {
                 [Qt.Key_Enter]: "a",
                 [Qt.Key_Space]: "a",
                 [Qt.Key_Backspace]: "b",
+                [Qt.Key_X]: "x",
                 [Qt.Key_Y]: "y",
-                [Qt.Key_Delete]: "y"
+                [Qt.Key_Delete]: "y",
+                [Qt.Key_BracketLeft]: "lb",
+                [Qt.Key_BracketRight]: "rb"
             };
             // Esc desde teclado: salida inmediata, siempre.
             if (e.key === Qt.Key_Escape) {
@@ -267,7 +311,7 @@ PanelWindow {
             anchors.topMargin: -parent.height * 0.1
             width: parent.height * 0.95
             height: width
-            source: win.current.logo ?? win.current.icon ?? ""
+            source: win.current.logo ?? win.current.icon ?? win.current.art ?? ""
             sourceSize.width: 512
             fillMode: Image.PreserveAspectFit
             visible: false
@@ -368,6 +412,16 @@ PanelWindow {
                     }
                 }
             }
+            // Cava solo activo cuando el menú es visible y suena Spotify.
+            Loader {
+                active: win.shown && win.elysium.spotifyPlaying
+                sourceComponent: Item {
+                    ServiceRef {
+                        service: Audio.cava
+                    }
+                }
+            }
+
             // Limbo del planeta en GPU (Shape). Un Canvas aquí colgaba el shell.
             Shape {
                 id: limb
@@ -375,6 +429,28 @@ PanelWindow {
                 readonly property real rr: planet.d / 2
                 readonly property real cx: win.width / 2
                 readonly property real cy: planet.horizon + rr
+                readonly property bool audioReactive: win.shown && win.elysium.spotifyPlaying
+                readonly property real rawBass: {
+                    if (!audioReactive)
+                        return 0;
+                    const vals = Audio.cava.values;
+                    if (!vals || vals.length === 0)
+                        return 0;
+                    const n = Math.min(4, vals.length);
+                    let sum = 0;
+                    for (let i = 0; i < n; i++)
+                        sum += Math.max(0, Math.min(1, vals[i] ?? 0));
+                    return sum / n;
+                }
+                // Rango sutil (±35 % del valor base) suavizado 120 ms.
+                property real bassMod: audioReactive ? (0.65 + rawBass * 0.70) : 1.0
+
+                Behavior on bassMod {
+                    NumberAnimation {
+                        duration: 120
+                        easing.type: Easing.OutQuad
+                    }
+                }
 
                 anchors.fill: parent
                 preferredRendererType: Shape.CurveRenderer
@@ -409,22 +485,22 @@ PanelWindow {
 
                 GlowArc {
                     strokeWidth: 30
-                    strokeColor: Qt.alpha(win.accent, 0.05)
+                    strokeColor: Qt.alpha(win.accent, Math.min(1, 0.05 * limb.bassMod))
                 }
 
                 GlowArc {
                     strokeWidth: 16
-                    strokeColor: Qt.alpha(win.accent, 0.09)
+                    strokeColor: Qt.alpha(win.accent, Math.min(1, 0.09 * limb.bassMod))
                 }
 
                 GlowArc {
                     strokeWidth: 8
-                    strokeColor: Qt.alpha(win.accent, 0.16)
+                    strokeColor: Qt.alpha(win.accent, Math.min(1, 0.16 * limb.bassMod))
                 }
 
                 GlowArc {
                     strokeWidth: 4
-                    strokeColor: Qt.alpha(win.accent, 0.32)
+                    strokeColor: Qt.alpha(win.accent, Math.min(1, 0.32 * limb.bassMod))
                 }
 
                 ShapePath {
@@ -633,11 +709,15 @@ PanelWindow {
                 id: heroName
 
                 visible: !win.current.logo
-                text: win.current.name
+                width: win.width * 0.50
+                text: win.current.system === "spotify" && win.elysium.hasTrack ? win.elysium.trackTitle : win.current.name
                 color: Colours.palette.m3onSurface
                 font.family: Tokens.font.title.large.family
-                font.pointSize: 50
+                font.pointSize: win.current.system === "spotify" && win.elysium.hasTrack && win.elysium.trackTitle.length > 22 ? 36 : 50
                 font.weight: Font.Light
+                maximumLineCount: 2
+                wrapMode: Text.WordWrap
+                elide: Text.ElideRight
             }
 
             StyledText {
@@ -647,6 +727,56 @@ PanelWindow {
                 font.pointSize: 19
                 width: win.width * 0.45
                 wrapMode: Text.WordWrap
+                maximumLineCount: 2
+                elide: Text.ElideRight
+            }
+
+            // Spotify: barra de progreso ancha.
+            Column {
+                visible: win.current.system === "spotify" && win.elysium.hasTrack && win.elysium.trackLength > 0
+                width: win.width * 0.36
+                spacing: 6
+
+                Rectangle {
+                    width: parent.width
+                    height: 4
+                    radius: 2
+                    color: Qt.alpha(Colours.palette.m3onSurface, 0.14)
+
+                    Rectangle {
+                        height: parent.height
+                        radius: 2
+                        color: win.accent
+                        width: parent.width * Math.max(0, Math.min(1, win.elysium.trackPosition / Math.max(1, win.elysium.trackLength)))
+
+                        Behavior on width {
+                            NumberAnimation {
+                                duration: 280
+                                easing.type: Easing.OutCubic
+                            }
+                        }
+                    }
+                }
+
+                RowLayout {
+                    width: parent.width
+
+                    StyledText {
+                        text: win.fmtTime(win.elysium.trackPosition)
+                        color: Colours.palette.m3onSurfaceVariant
+                        font: Tokens.font.label.medium
+                    }
+
+                    Item {
+                        Layout.fillWidth: true
+                    }
+
+                    StyledText {
+                        text: win.fmtTime(win.elysium.trackLength)
+                        color: Colours.palette.m3onSurfaceVariant
+                        font: Tokens.font.label.medium
+                    }
+                }
             }
 
             // Juego con actualizaciones: versión y estado.
@@ -705,29 +835,140 @@ PanelWindow {
                 height: 18
             }
 
-            Rectangle {
-                implicitHeight: 52
-                implicitWidth: playRow.implicitWidth + 40
-                radius: 26
-                color: win.accent
+            Row {
+                spacing: 14
 
-                Row {
-                    id: playRow
+                Rectangle {
+                    implicitHeight: 52
+                    implicitWidth: playRow.implicitWidth + 40
+                    radius: 26
+                    color: win.accent
 
-                    anchors.centerIn: parent
-                    spacing: 12
+                    Row {
+                        id: playRow
 
-                    Glyph {
-                        anchors.verticalCenter: parent.verticalCenter
-                        letter: "A"
-                        tone: Colours.palette.m3onPrimary
+                        anchors.centerIn: parent
+                        spacing: 12
+
+                        Glyph {
+                            anchors.verticalCenter: parent.verticalCenter
+                            letter: "A"
+                            tone: Colours.palette.m3onPrimary
+                        }
+
+                        StyledText {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: win.current.system === "spotify"
+                                ? (win.elysium.hasTrack ? (win.elysium.spotifyPlaying ? qsTr("Pausar") : qsTr("Reanudar")) : qsTr("Elegir música"))
+                                : win.current.updates && win.elysium.updRunning && !win.isRunning ? qsTr("Ver progreso") : win.current.updates && win.elysium.hsCheck.update && !win.isRunning ? qsTr("Jugar o actualizar") : win.current.system === "laptop" || win.current.system === "screen" ? qsTr("Cambiar") : win.current.system === "laura" ? (LauraService.on || LauraService.state === "starting" ? qsTr("Apagar") : qsTr("Encender")) : win.current.system === "music" ? (win.elysium.musicOn ? qsTr("Silenciar") : qsTr("Poner música")) : win.current.system === "desktop" ? qsTr("Salir") : win.current.system === "gamemode" ? qsTr("Ir al escritorio") : win.isRunning ? qsTr("Volver al juego") : qsTr("Jugar")
+                            color: Colours.palette.m3onPrimary
+                            font: Tokens.font.title.medium
+                        }
                     }
 
-                    StyledText {
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: win.pad("a")
+                    }
+                }
+
+                // Pistas interactivas de Spotify en el héroe.
+                Row {
+                    visible: win.current.system === "spotify"
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 12
+
+                    Rectangle {
+                        implicitHeight: 48
+                        implicitWidth: libRow.implicitWidth + 32
+                        radius: 24
+                        color: Qt.alpha(Colours.palette.m3onSurface, 0.08)
+                        border.width: 1
+                        border.color: Qt.alpha(Colours.palette.m3onSurface, 0.14)
+
+                        Row {
+                            id: libRow
+
+                            anchors.centerIn: parent
+                            spacing: 10
+
+                            PadGlyph {
+                                anchors.verticalCenter: parent.verticalCenter
+                                letter: "Y"
+                            }
+
+                            StyledText {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: qsTr("Biblioteca")
+                                color: Colours.palette.m3onSurface
+                                font: Tokens.font.title.small
+                            }
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: win.pad("y")
+                        }
+                    }
+
+                    Row {
                         anchors.verticalCenter: parent.verticalCenter
-                        text: win.current.updates && win.elysium.updRunning && !win.isRunning ? qsTr("Ver progreso") : win.current.updates && win.elysium.hsCheck.update && !win.isRunning ? qsTr("Jugar o actualizar") : win.current.system === "laptop" || win.current.system === "screen" ? qsTr("Cambiar") : win.current.system === "laura" ? (LauraService.on || LauraService.state === "starting" ? qsTr("Apagar") : qsTr("Encender")) : win.current.system === "music" ? (win.elysium.musicOn ? qsTr("Silenciar") : qsTr("Poner música")) : win.current.system === "desktop" ? qsTr("Salir") : win.current.system === "gamemode" ? qsTr("Ir al escritorio") : win.isRunning ? qsTr("Volver al juego") : qsTr("Jugar")
-                        color: Colours.palette.m3onPrimary
-                        font: Tokens.font.title.medium
+                        spacing: 16
+
+                        Row {
+                            spacing: 6
+
+                            PadGlyph {
+                                anchors.verticalCenter: parent.verticalCenter
+                                letter: "LB"
+                                tone: Colours.palette.m3onSurfaceVariant
+                            }
+
+                            PadGlyph {
+                                anchors.verticalCenter: parent.verticalCenter
+                                letter: "RB"
+                                tone: Colours.palette.m3onSurfaceVariant
+                            }
+
+                            StyledText {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: qsTr("Pista")
+                                color: Colours.palette.m3onSurfaceVariant
+                                font: Tokens.font.label.large
+                            }
+                        }
+
+                        Item {
+                            implicitWidth: likeRow.implicitWidth
+                            implicitHeight: likeRow.implicitHeight
+
+                            Row {
+                                id: likeRow
+
+                                spacing: 6
+
+                                PadGlyph {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    letter: "X"
+                                    tone: win.elysium.spotifyLiked ? win.accent : Colours.palette.m3onSurfaceVariant
+                                }
+
+                                StyledText {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: win.elysium.spotifyLiked ? qsTr("♥ Me gusta") : qsTr("Me gusta")
+                                    color: win.elysium.spotifyLiked ? win.accent : Colours.palette.m3onSurfaceVariant
+                                    font: Tokens.font.label.large
+                                }
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: win.pad("x")
+                            }
+                        }
                     }
                 }
             }
@@ -819,9 +1060,75 @@ PanelWindow {
                             mipmap: true
                         }
 
+                        // Carátula de Spotify a sangre + velo sutil + ecualizador animado abajo a la derecha.
+                        StyledClippingRect {
+                            anchors.fill: parent
+                            radius: face.radius
+                            visible: slot.modelData.system === "spotify" && spotCover.status === Image.Ready
+
+                            Image {
+                                id: spotCover
+
+                                anchors.fill: parent
+                                source: slot.modelData.art ?? ""
+                                sourceSize.width: 400
+                                sourceSize.height: 400
+                                fillMode: Image.PreserveAspectCrop
+                                smooth: true
+                                mipmap: true
+                                asynchronous: true
+                            }
+
+                            Rectangle {
+                                anchors.fill: parent
+                                gradient: Gradient {
+                                    GradientStop {
+                                        position: 0
+                                        color: Qt.rgba(0, 0, 0, 0.08)
+                                    }
+                                    GradientStop {
+                                        position: 1
+                                        color: Qt.rgba(0, 0, 0, 0.56)
+                                    }
+                                }
+                            }
+                        }
+
+                        // Ecualizador de 3 barritas abajo a la derecha cuando hay música en Spotify.
+                        Row {
+                            visible: slot.modelData.system === "spotify" && win.elysium.hasTrack
+                            anchors.right: parent.right
+                            anchors.bottom: parent.bottom
+                            anchors.margins: 12
+                            height: 18
+                            spacing: 3
+                            z: 2
+
+                            EqBar {
+                                running: win.shown && win.elysium.spotifyPlaying
+                                dur: 380
+                                minH: 5
+                                maxH: 16
+                            }
+
+                            EqBar {
+                                running: win.shown && win.elysium.spotifyPlaying
+                                dur: 520
+                                minH: 6
+                                maxH: 18
+                            }
+
+                            EqBar {
+                                running: win.shown && win.elysium.spotifyPlaying
+                                dur: 440
+                                minH: 4
+                                maxH: 14
+                            }
+                        }
+
                         MaterialIcon {
                             anchors.centerIn: parent
-                            visible: !!slot.modelData.system
+                            visible: !!slot.modelData.system && !(slot.modelData.system === "spotify" && spotCover.status === Image.Ready)
                             text: slot.modelData.glyph ?? ""
                             color: slot.sel ? win.accent : Colours.palette.m3onSurfaceVariant
                             fontStyle: Tokens.font.icon.builders.medium.scale(2.6).build()
@@ -1112,6 +1419,13 @@ PanelWindow {
             elysium: win.elysium
         }
 
+        SpotifyLibrary {
+            id: spotifyLibrary
+
+            anchors.fill: parent
+            elysium: win.elysium
+        }
+
         // --- lanzamiento: el acento se expande desde la carátula ---
         Rectangle {
             id: burst
@@ -1220,6 +1534,8 @@ PanelWindow {
 
         function onConsoleShownChanged(): void {
             win.confirmClose = false;
+            if (!win.elysium.consoleShown)
+                win.elysium.spotifyLibraryOpen = false;
         }
 
         function onActiveChanged(): void {
@@ -1239,6 +1555,48 @@ PanelWindow {
         }
         ScriptAction {
             script: win.resetLaunch()
+        }
+    }
+
+    function fmtTime(sec: real): string {
+        if (sec < 0 || !isFinite(sec))
+            return "0:00";
+        const s = Math.floor(sec);
+        const h = Math.floor(s / 3600);
+        const m = Math.floor((s % 3600) / 60);
+        const r = (s % 60).toString().padStart(2, "0");
+        return h > 0 ? `${h}:${m.toString().padStart(2, "0")}:${r}` : `${m}:${r}`;
+    }
+
+    component EqBar: Rectangle {
+        id: eb
+
+        property bool running: false
+        property int dur: 420
+        property real minH: 4
+        property real maxH: 16
+
+        anchors.bottom: parent.bottom
+        width: 3.5
+        height: minH
+        radius: 2
+        color: win.accent
+
+        SequentialAnimation on height {
+            running: eb.running
+            loops: Animation.Infinite
+            onRunningChanged: if (!running)
+                eb.height = eb.minH
+            NumberAnimation {
+                to: eb.maxH
+                duration: eb.dur
+                easing.type: Easing.InOutSine
+            }
+            NumberAnimation {
+                to: eb.minH
+                duration: eb.dur
+                easing.type: Easing.InOutSine
+            }
         }
     }
 

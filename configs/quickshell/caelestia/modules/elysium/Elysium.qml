@@ -232,6 +232,8 @@ Scope {
             return;
         active = false;
         summoned = false;
+        spotifyLibraryOpen = false;
+        musicHudVisible = false;
         hideIdleCursor(false);
         sfx("close");
         if (ownDnd)
@@ -341,10 +343,10 @@ Scope {
     }
 
     // ================= Música ambiente =================
-    // Suena en los menús (no con un juego abierto), se funde al entrar/salir y baja
-    // cuando habla Laura. Si hay audio en ~/Música/Elysium/, se usa eso (aleatorio);
-    // si no, la pieza propia (music/elysium-ambient.ogg, de sounds/music_gen.py).
-    readonly property bool musicWanted: prefs.music && active && consoleShown && !playing
+    // Suena en los menús (no con un juego abierto ni con Spotify sonando), se funde
+    // al entrar/salir y baja cuando habla Laura. Si hay audio en ~/Música/Elysium/,
+    // se usa eso (aleatorio); si no, la pieza propia (music/elysium-ambient.ogg).
+    readonly property bool musicWanted: prefs.music && active && consoleShown && !playing && !spotifyPlaying
     property real musicLevel: musicWanted ? 1 : 0
     property var userTracks: []
     property int trackIdx: 0
@@ -587,6 +589,7 @@ Scope {
         property var lauraOff: []
         property bool sound: true
         property bool music: true
+        property bool trackToasts: true
         property bool loaded: false
 
         onPlayOnTvChanged: if (loaded)
@@ -597,10 +600,13 @@ Scope {
             prefsFile.save()
         onMusicChanged: if (loaded)
             prefsFile.save()
+        onTrackToastsChanged: if (loaded)
+            prefsFile.save()
     }
 
     readonly property bool playOnTv: prefs.playOnTv
     readonly property bool musicOn: prefs.music
+    readonly property bool trackToastsOn: prefs.trackToasts
 
     FileView {
         id: prefsFile
@@ -614,6 +620,7 @@ Scope {
                 prefs.lauraOff = j.lauraOff ?? [];
                 prefs.sound = j.sound ?? true;
                 prefs.music = j.music ?? true;
+                prefs.trackToasts = j.trackToasts ?? true;
             } catch (e) {}
             prefs.loaded = true;
         }
@@ -624,9 +631,420 @@ Scope {
                 "playOnTv": prefs.playOnTv,
                 "lauraOff": prefs.lauraOff,
                 "sound": prefs.sound,
-                "music": prefs.music
+                "music": prefs.music,
+                "trackToasts": prefs.trackToasts
             }, null, 2));
         }
+    }
+
+    // ================= Spotify (MPRIS + spotify-tele) =================
+    readonly property string spotifyTele: `${Quickshell.env("HOME")}/.local/bin/spotify-tele`
+    readonly property var spotifyPlayer: Players.list.find(p => Players.getIdentity(p).toLowerCase().includes("spotify")) ?? null
+    readonly property var musicPlayer: spotifyPlayer ?? Players.active
+
+    property string localHostname: ""
+    property var spotifyState: ({ "abierto": false })
+    property bool spotifyLiked: false
+    property string spotifyVolumeText: ""
+    property bool spotifyLibraryOpen: false
+    property bool playlistsLoading: false
+    property var playlists: []
+    property string playlistsError: ""
+    property bool playlistsNeedSpotify: false
+    property string launchingPlaylistUri: ""
+    property var pendingSpotifyCmd: null
+
+    property bool musicHudVisible: false
+    property int hudIdleToken: 0
+    property bool trackToastVisible: false
+    property string _lastToastKey: ""
+    property bool _toastPrimed: false
+
+    readonly property bool spotifyPlaying: musicPlayer ? musicPlayer.isPlaying : !!(spotifyState.sonando)
+    readonly property string trackTitle: musicPlayer?.trackTitle || spotifyState.cancion || ""
+    readonly property string trackArtist: musicPlayer?.trackArtist || spotifyState.artista || ""
+    readonly property string trackAlbum: musicPlayer?.trackAlbum || ""
+    readonly property string trackArtUrl: musicPlayer ? Players.getArtUrl(musicPlayer) : ""
+    readonly property bool hasTrack: trackTitle.length > 0
+    readonly property real trackLength: {
+        const l = musicPlayer?.length ?? spotifyState.duracion_s ?? 0;
+        return l > 2147483647 ? 0 : Math.max(0, l);
+    }
+    readonly property real trackPosition: Math.max(0, musicPlayer?.position ?? spotifyState.posicion_s ?? 0)
+    readonly property string spotifyDeviceLabel: {
+        const d = (spotifyState.dispositivo ?? "").trim();
+        if (d) {
+            if (localHostname && d.toLowerCase() === localHostname.toLowerCase())
+                return qsTr("PC");
+            return d;
+        }
+        return spotifyPlaying ? qsTr("PC") : "";
+    }
+
+    FileView {
+        path: "/etc/hostname"
+        printErrors: false
+        onLoaded: root.localHostname = text().trim()
+    }
+
+    // La posición MPRIS no avanza sola: refrescar cada segundo solo mientras se ve.
+    Timer {
+        interval: 1000
+        repeat: true
+        running: root.spotifyPlaying && (root.consoleShown || root.musicHudVisible || (root.active && root.onTv && root.companionMode === "apoyo"))
+        onTriggered: root.musicPlayer?.positionChanged()
+    }
+
+    function refreshSpotifyState(): void {
+        if (!spotifyEstadoProc.running)
+            spotifyEstadoProc.running = true;
+    }
+
+    Timer {
+        interval: 8000
+        repeat: true
+        triggeredOnStart: true
+        running: root.consoleShown || root.musicHudVisible || (root.active && root.onTv && root.companionMode === "apoyo")
+        onTriggered: root.refreshSpotifyState()
+    }
+
+    Process {
+        id: spotifyEstadoProc
+
+        command: [root.spotifyTele, "estado"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    const j = JSON.parse(text);
+                    if (j && j.ok) {
+                        root.spotifyState = j;
+                        if (j.me_gusta !== undefined && j.me_gusta !== null)
+                            root.spotifyLiked = !!j.me_gusta;
+                    }
+                } catch (e) {}
+            }
+        }
+    }
+
+    function runSpotifyCmd(args: var): void {
+        if (spotifyCmdProc.running) {
+            pendingSpotifyCmd = args;
+            return;
+        }
+        spotifyCmdProc.command = [spotifyTele].concat(args);
+        spotifyCmdProc.running = true;
+    }
+
+    Process {
+        id: spotifyCmdProc
+
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    const j = JSON.parse(text);
+                    if (j && j.ok && j.ahora) {
+                        root.spotifyState = Object.assign({ "abierto": true }, j.ahora);
+                        if (j.ahora.me_gusta !== undefined && j.ahora.me_gusta !== null)
+                            root.spotifyLiked = !!j.ahora.me_gusta;
+                        if (j.ahora.volumen !== undefined && j.ahora.volumen !== null) {
+                            root.spotifyVolumeText = qsTr("Vol %1%").arg(j.ahora.volumen);
+                            volHintTimer.restart();
+                        }
+                    }
+                } catch (e) {}
+            }
+        }
+        onExited: {
+            if (root.pendingSpotifyCmd) {
+                const next = root.pendingSpotifyCmd;
+                root.pendingSpotifyCmd = null;
+                root.runSpotifyCmd(next);
+            }
+        }
+    }
+
+    Timer {
+        id: volHintTimer
+
+        interval: 2200
+        onTriggered: root.spotifyVolumeText = ""
+    }
+
+    function spotifyPlayPause(): void {
+        if (musicPlayer?.canTogglePlaying)
+            musicPlayer.togglePlaying();
+        else
+            runSpotifyCmd(["control", "alternar"]);
+    }
+
+    function spotifyNext(): void {
+        if (musicPlayer?.canGoNext)
+            musicPlayer.next();
+        else
+            runSpotifyCmd(["control", "siguiente"]);
+    }
+
+    function spotifyPrev(): void {
+        if (musicPlayer?.canGoPrevious)
+            musicPlayer.previous();
+        else
+            runSpotifyCmd(["control", "anterior"]);
+    }
+
+    function spotifyVolUp(): void {
+        runSpotifyCmd(["control", "subir"]);
+    }
+
+    function spotifyVolDown(): void {
+        runSpotifyCmd(["control", "bajar"]);
+    }
+
+    function spotifyToggleLike(): void {
+        const nextLike = !spotifyLiked;
+        spotifyLiked = nextLike;
+        sfx(nextLike ? "toggle_on" : "toggle_off");
+        runSpotifyCmd(["control", nextLike ? "me_gusta" : "no_me_gusta"]);
+    }
+
+    function openSpotifyLibrary(): void {
+        spotifyLibraryOpen = true;
+        sfx("dialog");
+        loadPlaylists(false);
+    }
+
+    function loadPlaylists(launchIfClosed: bool): void {
+        if (playlistsLoadProc.running || playlistsCheckProc.running)
+            return;
+        playlistsLoading = true;
+        playlistsError = "";
+        playlistsNeedSpotify = false;
+        if (launchIfClosed)
+            playlistsLoadProc.running = true;
+        else
+            playlistsCheckProc.running = true;
+    }
+
+    Process {
+        id: playlistsCheckProc
+
+        command: [root.spotifyTele, "estado"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    const j = JSON.parse(text);
+                    if (j && j.ok && !j.abierto) {
+                        root.spotifyState = j;
+                        root.playlistsLoading = false;
+                        root.playlistsNeedSpotify = true;
+                        root.playlistsError = qsTr("Spotify no está abierto");
+                        return;
+                    }
+                    if (j && j.ok)
+                        root.spotifyState = j;
+                } catch (e) {}
+                playlistsLoadProc.running = true;
+            }
+        }
+        onExited: code => {
+            if (code !== 0 && root.playlistsLoading && !playlistsLoadProc.running)
+                playlistsLoadProc.running = true;
+        }
+    }
+
+    Process {
+        id: playlistsLoadProc
+
+        command: [root.spotifyTele, "playlist", "listar"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    const j = JSON.parse(text);
+                    if (j && j.ok) {
+                        root.playlists = j.playlists ?? [];
+                        root.playlistsError = "";
+                        root.playlistsNeedSpotify = false;
+                        root.refreshSpotifyState();
+                    } else {
+                        root.playlistsError = (j && j.error) ? j.error : qsTr("Error al listar playlists");
+                    }
+                } catch (e) {
+                    root.playlistsError = qsTr("No se pudo leer la respuesta de Spotify");
+                }
+                root.playlistsLoading = false;
+            }
+        }
+        onExited: code => {
+            if (root.playlistsLoading) {
+                root.playlistsLoading = false;
+                if (code !== 0 && !root.playlistsError)
+                    root.playlistsError = qsTr("Spotify no respondió");
+            }
+        }
+    }
+
+    function playPlaylist(pl: var): void {
+        const uri = pl?.uri ?? "";
+        if (!uri || playPlaylistProc.running)
+            return;
+        launchingPlaylistUri = uri;
+        playlistsError = "";
+        playPlaylistProc.command = [spotifyTele, "poner", uri, "--tipo", "playlist", "--donde", "actual"];
+        playPlaylistProc.running = true;
+    }
+
+    Process {
+        id: playPlaylistProc
+
+        stdout: StdioCollector {
+            onStreamFinished: {
+                let ok = false;
+                try {
+                    const j = JSON.parse(text);
+                    ok = !!(j && j.ok);
+                    if (ok) {
+                        if (j.ahora) {
+                            root.spotifyState = Object.assign({ "abierto": true }, j.ahora);
+                            if (j.ahora.me_gusta !== undefined && j.ahora.me_gusta !== null)
+                                root.spotifyLiked = !!j.ahora.me_gusta;
+                        }
+                        root.spotifyLibraryOpen = false;
+                    } else {
+                        root.playlistsError = (j && j.error) ? j.error : qsTr("No se pudo poner la playlist");
+                        root.sfx("error");
+                    }
+                } catch (e) {
+                    root.playlistsError = qsTr("Error al poner la playlist");
+                    root.sfx("error");
+                }
+                root.launchingPlaylistUri = "";
+                if (ok)
+                    root.refreshSpotifyState();
+            }
+        }
+        onExited: code => {
+            if (root.launchingPlaylistUri) {
+                root.launchingPlaylistUri = "";
+                if (code !== 0)
+                    root.sfx("error");
+            }
+        }
+    }
+
+    // Mini-reproductor (LB + ↓).
+    function toggleMusicHud(): void {
+        if (musicHudVisible) {
+            musicHudVisible = false;
+            hudHideTimer.stop();
+            sfx("back");
+        } else {
+            trackToastVisible = false;
+            trackToastTimer.stop();
+            musicHudVisible = true;
+            hudIdleToken++;
+            hudHideTimer.restart();
+            refreshSpotifyState();
+            sfx("dialog");
+        }
+    }
+
+    function bumpMusicHud(): void {
+        if (!musicHudVisible)
+            return;
+        hudIdleToken++;
+        hudHideTimer.restart();
+    }
+
+    function handleChord(c: string): void {
+        if (c === "lb+down")
+            toggleMusicHud();
+    }
+
+    function handleMusicHudPad(b: string): void {
+        if (b === "b") {
+            musicHudVisible = false;
+            hudHideTimer.stop();
+            sfx("back");
+            return;
+        }
+        if (b === "home") {
+            musicHudVisible = false;
+            hudHideTimer.stop();
+            if (active && playing && !summoned)
+                summoned = true;
+            return;
+        }
+        bumpMusicHud();
+        if (b === "a" || b === "start") {
+            sfx(spotifyPlaying ? "toggle_off" : "toggle_on");
+            spotifyPlayPause();
+        } else if (b === "lb") {
+            sfx("move");
+            spotifyPrev();
+        } else if (b === "rb") {
+            sfx("move");
+            spotifyNext();
+        } else if (b === "up") {
+            sfx("move");
+            spotifyVolUp();
+        } else if (b === "down") {
+            sfx("move");
+            spotifyVolDown();
+        } else if (b === "x") {
+            spotifyToggleLike();
+        }
+    }
+
+    Timer {
+        id: hudHideTimer
+
+        interval: 6000
+        onTriggered: {
+            if (root.musicHudVisible) {
+                root.musicHudVisible = false;
+                root.sfx("back");
+            }
+        }
+    }
+
+    // Píldora de cambio de canción durante el juego (4 s).
+    readonly property string _trackKey: trackTitle ? `${trackTitle}\0${trackArtist}` : ""
+
+    on_TrackKeyChanged: {
+        if (!_toastPrimed) {
+            _toastPrimed = true;
+            _lastToastKey = _trackKey;
+            return;
+        }
+        if (_trackKey && _trackKey !== _lastToastKey)
+            trackCoalesceTimer.restart();
+    }
+
+    Timer {
+        id: trackCoalesceTimer
+
+        interval: 150
+        onTriggered: {
+            const k = root._trackKey;
+            if (!k || k === root._lastToastKey)
+                return;
+            root._lastToastKey = k;
+            if (root.playing && !root.consoleShown && !root.musicHudVisible && prefs.trackToasts) {
+                root.trackToastVisible = true;
+                trackToastTimer.restart();
+            }
+        }
+    }
+
+    Timer {
+        id: trackToastTimer
+
+        interval: 4000
+        onTriggered: root.trackToastVisible = false
+    }
+
+    onConsoleShownChanged: if (consoleShown) {
+        trackToastVisible = false;
+        trackToastTimer.stop();
     }
 
     // --- mando ---
@@ -651,6 +1069,8 @@ Scope {
                     root.padName = arg;
                 else if (kind === "btn")
                     root.handle(arg);
+                else if (kind === "chord")
+                    root.handleChord(arg);
                 else if (kind === "hold")
                     root.handleHold(arg);
             }
@@ -739,7 +1159,13 @@ except Exception: pass`]);
         }
     }
 
-    onPlayingChanged: hideIdleCursor(playing)
+    onPlayingChanged: {
+        hideIdleCursor(playing);
+        if (!playing) {
+            trackToastVisible = false;
+            trackToastTimer.stop();
+        }
+    }
 
     function parkCursor(): void {
         if (!onTv || !laptopScreen)
@@ -751,8 +1177,8 @@ except Exception: pass`]);
     }
 
     // Con Elysium encima de un juego, el mando es solo de Elysium (si no, cada botón
-    // del menú llegaba también al juego).
-    readonly property bool padGrab: consoleShown && playing
+    // del menú llegaba también al juego). También con el mini-reproductor abierto.
+    readonly property bool padGrab: (consoleShown && playing) || musicHudVisible
     onPadGrabChanged: if (watcher.running)
         watcher.write(padGrab ? "grab\n" : "ungrab\n")
 
@@ -783,6 +1209,10 @@ except Exception: pass`]);
                 enterNormal();
             else if (b === "b")
                 prompt = false;
+            return;
+        }
+        if (musicHudVisible) {
+            handleMusicHudPad(b);
             return;
         }
         // Desde el escritorio: un toque de Home abre Elysium (por si no salió el aviso).
@@ -887,6 +1317,15 @@ except Exception: pass`]);
         }
     }
 
+    // Mini-reproductor durante el juego (LB + ↓) y píldora de cambio de canción.
+    MusicHud {
+        elysium: root
+    }
+
+    TrackToast {
+        elysium: root
+    }
+
     Timer {
         id: lingerTimer
 
@@ -933,6 +1372,35 @@ except Exception: pass`]);
             root.handleHold(b);
         }
 
+        // Simula un acorde (depuración): lb+down
+        function chord(c: string): void {
+            root.handleChord(c);
+        }
+
+        // Alterna el mini-reproductor flotante.
+        function musicHud(): void {
+            root.toggleMusicHud();
+        }
+
+        // Abre la biblioteca de playlists de Spotify (entra en Elysium si hace falta).
+        function library(): void {
+            if (!root.active)
+                root.enter();
+            root.openSpotifyLibrary();
+        }
+
+        function trackToasts(on: bool): void {
+            prefs.trackToasts = on;
+        }
+
+        // Prueba: muestra la píldora de canción actual durante 4 s.
+        function trackToast(): void {
+            if (root.hasTrack) {
+                root.trackToastVisible = true;
+                trackToastTimer.restart();
+            }
+        }
+
         // Estado interno (depuración).
         function debug(): string {
             return JSON.stringify({
@@ -947,7 +1415,14 @@ except Exception: pass`]);
                 "consoleScreen": root.consoleScreen?.name ?? null,
                 "laura": LauraService.state,
                 "lauraStoppedForGame": root.lauraStoppedForGame,
-                "music": ["parado", "sonando", "pausa"][music.playbackState] + " vol=" + music.audioOutput.volume.toFixed(2)
+                "music": ["parado", "sonando", "pausa"][music.playbackState] + " vol=" + music.audioOutput.volume.toFixed(2),
+                "spotifyTitle": root.trackTitle,
+                "spotifyArtist": root.trackArtist,
+                "spotifyPlaying": root.spotifyPlaying,
+                "spotifyDevice": root.spotifyDeviceLabel,
+                "musicHudVisible": root.musicHudVisible,
+                "spotifyLibraryOpen": root.spotifyLibraryOpen,
+                "trackToastVisible": root.trackToastVisible
             });
         }
 
