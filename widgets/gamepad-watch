@@ -5,9 +5,13 @@ Salida por stdout, una línea por evento:
   connected <nombre>      un mando nuevo aparece
   disconnected <nombre>   desaparece
   btn <a|b|x|y|start|select|home|up|down|left|right|lb|rb>
-  hold home               Home mantenido >= 0.7 s (hablar con Laura); un toque corto da `btn home`
+  hold <select|home>      botón mantenido >= 0.6 s (−/View = Laura); un toque corto da `btn …`.
+                          Ojo: con xpadneo, Home (botón Xbox) es «shift» y mantenerlo apaga
+                          el mando, así que para Laura se usa −/View.
 
-Requiere estar en el grupo `input`. No hace grab: el juego sigue recibiendo el mando.
+Por stdin acepta «grab» / «ungrab»: con grab toma el mando en exclusiva (EVIOCGRAB)
+para que los botones no lleguen al juego mientras Elysium está encima; sin grab el
+juego recibe el mando a la vez. Requiere estar en el grupo `input`.
 """
 import fcntl, os, re, select, struct, subprocess, sys, time
 
@@ -52,6 +56,16 @@ def scan():
     return out
 
 
+EVIOCGRAB = 0x40044590
+
+
+def set_grab(fd, on):
+    try:
+        fcntl.ioctl(fd, EVIOCGRAB, 1 if on else 0)
+    except OSError:
+        pass
+
+
 def bt(*args):
     try:
         return subprocess.run(["bluetoothctl", *args], capture_output=True, text=True, timeout=4).stdout
@@ -79,7 +93,10 @@ def emit(s):
 
 def main():
     devs = {}  # path -> {fd, name, axes, dir}
-    home_down = None  # instante en que se pulsó Home (None = suelto / ya disparado)
+    HOLDABLE = {316: "home", 314: "select"}
+    down = {}  # código -> instante de pulsación (se borra al soltar o al disparar el hold)
+    grabbed = False
+    stdin_open = True
     first = True
     last_scan = 0
     last_trust = 0
@@ -107,18 +124,32 @@ def main():
                 if not NINTENDO.search(name):
                     keys.update(XBOX_SWAP)
                 devs[p] = {"fd": fd, "name": name, "axes": axes, "dir": {}, "keys": keys}
+                if grabbed:
+                    set_grab(fd, True)
                 # Los que ya estaban al arrancar no disparan el aviso.
                 emit(("present " if first else "connected ") + name)
             first = False
         fds = {d["fd"]: d for d in devs.values()}
-        if home_down is not None and time.monotonic() - home_down >= 0.7:
-            emit("hold home")
-            home_down = None
+        for code, t0 in list(down.items()):
+            if t0 is not None and time.monotonic() - t0 >= 0.6:
+                emit("hold " + HOLDABLE[code])
+                down[code] = None  # disparado: al soltar no da toque corto
         if fds:
-            r = select.select(list(fds), [], [], 0.05 if home_down is not None else 1.0)[0]
+            pending = any(t is not None for t in down.values())
+            r = select.select(list(fds) + ([0] if stdin_open else []), [], [], 0.05 if pending else 1.0)[0]
         else:
             time.sleep(1.0)
             r = []
+        if 0 in r:
+            line = sys.stdin.readline()
+            if not line:
+                stdin_open = False  # sin quien mande órdenes: nunca agarrar
+                grabbed = False
+            elif line.strip() in ("grab", "ungrab"):
+                grabbed = line.strip() == "grab"
+            for d in devs.values():
+                set_grab(d["fd"], grabbed)
+            r = [x for x in r if x != 0]
         for fd in r:
             d = fds[fd]
             try:
@@ -127,12 +158,12 @@ def main():
                 continue
             for i in range(0, len(data) - EVENT.size + 1, EVENT.size):
                 _, _, typ, code, val = EVENT.unpack_from(data, i)
-                if typ == EV_KEY and code == 316:
+                if typ == EV_KEY and code in HOLDABLE:
                     if val == 1:
-                        home_down = time.monotonic()
-                    elif val == 0 and home_down is not None:
-                        emit("btn home")
-                        home_down = None
+                        down[code] = time.monotonic()
+                    elif val == 0:
+                        if down.pop(code, None) is not None:
+                            emit("btn " + HOLDABLE[code])
                 elif typ == EV_KEY and val == 1 and code in d["keys"]:
                     emit("btn " + d["keys"][code])
                 elif typ == EV_ABS and code in d["axes"]:

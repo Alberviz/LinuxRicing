@@ -16,8 +16,34 @@ def pids():
         pass
     if pat:
         r = subprocess.run(["pgrep", "-f", pat], capture_output=True, text=True).stdout.split()
-        out |= {int(p) for p in r if int(p) != os.getpid()}
+        out |= {int(p) for p in r if safe(int(p))}
     return out
+
+
+def ancestors():
+    pids, p = set(), os.getpid()
+    while p > 1:
+        pids.add(p)
+        try:
+            p = int(open(f"/proc/{p}/stat").read().rsplit(")", 1)[1].split()[1])
+        except (OSError, ValueError, IndexError):
+            break
+    return pids
+
+
+SKIP = ancestors()
+
+
+def safe(pid):
+    """Nunca matar a quien nos llama ni a shells/terminales cuyo comando solo
+    *menciona* el juego (sh -c '…hookshot…'): solo lanzadores y el juego."""
+    if pid in SKIP:
+        return False
+    try:
+        argv = open(f"/proc/{pid}/cmdline", "rb").read().split(b"\0")
+    except OSError:
+        return False
+    return b"-c" not in argv
 
 
 for sig, wait in ((signal.SIGTERM, 4), (signal.SIGKILL, 0)):

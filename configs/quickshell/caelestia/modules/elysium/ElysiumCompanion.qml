@@ -328,7 +328,7 @@ PanelWindow {
 
                 StyledText {
                     Layout.alignment: Qt.AlignHCenter
-                    text: ({ "idle": qsTr("Mantén ⌂ en el mando para hablar"), "listening": qsTr("Te escucho…"), "thinking": qsTr("Pensando…"), "speaking": qsTr("Hablando") })[Laura.state] ?? Laura.state
+                    text: ({ "idle": qsTr("Mantén − en el mando para hablar"), "listening": qsTr("Te escucho…"), "thinking": qsTr("Pensando…"), "speaking": qsTr("Hablando") })[Laura.state] ?? Laura.state
                     color: Laura.active ? win.accent : Colours.palette.m3onSurfaceVariant
                     font: Tokens.font.title.small
                 }

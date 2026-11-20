@@ -9,6 +9,7 @@ import Quickshell.Services.UPower
 import Caelestia.Config
 import qs.components
 import qs.services
+import qs.modules.assistant
 
 // Elysium — el modo consola. Al conectar un mando sale un aviso arriba a la
 // derecha; si no tocas nada en 6 s entra en Elysium (sistema a pantalla
@@ -216,7 +217,10 @@ Scope {
         id: watcher
 
         running: true
+        stdinEnabled: true
         command: [`${Quickshell.env("HOME")}/.local/bin/gamepad-watch`]
+        onRunningChanged: if (running)
+            write(root.padGrab ? "grab\n" : "ungrab\n")
         stdout: SplitParser {
             onRead: line => {
                 const sp = line.indexOf(" ");
@@ -230,8 +234,8 @@ Scope {
                     root.padName = arg;
                 else if (kind === "btn")
                     root.handle(arg);
-                else if (kind === "hold" && arg === "home")
-                    root.talkToLaura();
+                else if (kind === "hold")
+                    root.handleHold(arg);
             }
         }
         onExited: restartWatcher.start()
@@ -254,9 +258,62 @@ try:
 except Exception: pass`]);
     }
 
+    // Hablar con Laura desde el mando. Solo dispara si está en reposo (empieza a
+    // escuchar) o hablando (la corta y escucha): si ya escucha o piensa, un segundo
+    // disparo cerraría el ciclo («disparo repetido») y parecía que Laura no iba.
     function talkToLaura(): void {
-        Quickshell.execDetached(["python3", `${Quickshell.env("HOME")}/proyectos/LinuxRicing/assistant/laura-toggle`, "centro"]);
+        if (Laura.state !== "idle" && Laura.state !== "speaking")
+            return;
+        // Si el servicio está parado (lo para GameMode vía `modo-juego` fuera de Elysium,
+        // o el ahorro de batería), se arranca y se espera a su socket antes de activarla.
+        const toggle = `python3 ${Quickshell.env("HOME")}/proyectos/LinuxRicing/assistant/laura-toggle centro`;
+        const ready = `journalctl --user -u laura.service --since "$t0" -o cat | grep -q "listo. control"`;
+        Quickshell.execDetached(["sh", "-c", `systemctl --user is-active -q laura || { t0=$(date '+%F %T'); systemctl --user start laura; i=0; until ${ready} || [ $i -ge 60 ]; do sleep 0.5; i=$((i+1)); done; }; ${toggle}`]);
     }
+
+    // Mantener −/View = Laura (Home no: con xpadneo el botón Xbox es «shift» y
+    // mantenerlo apaga el mando).
+    function handleHold(b: string): void {
+        if (b === "select" || b === "home")
+            talkToLaura();
+    }
+
+    // Devuelve el foco al juego (al volver del menú) y aparta el cursor de la tele.
+    function focusGame(): void {
+        const cls = runningGame?.wmClass;
+        if (!cls)
+            return;
+        Hypr.dispatch(Hypr.usingLua ? `hl.dsp.focus({ window = "class:${cls}" })` : `focuswindow class:${cls}`);
+        parkCursor();
+    }
+
+    // Cursor al centro-abajo del portátil: no tapa el juego y el foco se queda en él.
+    function parkCursor(): void {
+        if (!onTv || !laptopScreen)
+            return;
+        const x = laptopScreen.x + Math.round(laptopScreen.width / 2), y = laptopScreen.y + laptopScreen.height - 80;
+        Hypr.dispatch(Hypr.usingLua ? `hl.dsp.cursor.move({ x = ${x}, y = ${y} })` : `movecursor ${x} ${y}`);
+    }
+
+    // Con Elysium encima de un juego, el mando es solo de Elysium (si no, cada botón
+    // del menú llegaba también al juego).
+    readonly property bool padGrab: consoleShown && playing
+    onPadGrabChanged: if (watcher.running)
+        watcher.write(padGrab ? "grab\n" : "ungrab\n")
+
+    // El foco se pide con retraso: al soltar Elysium el teclado, Hyprland lo devuelve
+    // a la ventana anterior y pisaba la orden.
+    Timer {
+        id: focusTimer
+
+        interval: 400
+        onTriggered: root.focusGame()
+    }
+
+    onSummonedChanged: if (!summoned && playing && gameReady)
+        focusTimer.restart()
+    onGameReadyChanged: if (gameReady && playing)
+        focusTimer.restart()
 
     function findGame(q: string): var {
         const n = q.toLowerCase();
@@ -302,7 +359,10 @@ except Exception: pass`]);
     Process {
         id: alive
 
-        command: ["pgrep", "-f", root.runningGame?.proc ?? "__none__"]
+        // Vivo si existe su ventana o algún proceso del lanzador (antes de que abra la
+        // ventana). Con pgrep solo, el binario real (./bin/hookshot) no casaba y Elysium
+        // creía que el juego se había cerrado: al volver lo relanzaba.
+        command: ["sh", "-c", `hyprctl clients -j | grep -qF '"class": "${root.runningGame?.wmClass ?? "__none__"}"' || pgrep -f '[${(root.runningGame?.proc ?? "__none__")[0]}]${(root.runningGame?.proc ?? "__none__").slice(1)}' >/dev/null`]
         onExited: code => {
             if (code === 0) {
                 aliveTimer.misses = 0;
@@ -410,6 +470,11 @@ except Exception: pass`]);
         // Simula un botón del mando (depuración): a b x y start select home up down left right
         function pad(b: string): void {
             root.handle(b);
+        }
+
+        // Simula mantener un botón (depuración): select | home
+        function hold(b: string): void {
+            root.handleHold(b);
         }
 
         function list(): string {

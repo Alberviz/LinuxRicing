@@ -748,7 +748,7 @@ PanelWindow {
             }
 
             Hint {
-                letter: "⌂"
+                letter: "−"
                 label: qsTr("Mantener: Laura")
             }
         }
