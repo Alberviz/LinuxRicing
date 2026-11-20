@@ -26,7 +26,9 @@ PanelWindow {
     screen: elysium.laptopScreen
     color: "black"
     WlrLayershell.namespace: "caelestia-elysium-companion"
-    WlrLayershell.layer: WlrLayer.Overlay
+    // Top (no Overlay): si un juego a pantalla completa acaba en el portátil, se ve
+    // el juego y no esta pantalla encima.
+    WlrLayershell.layer: WlrLayer.Top
     WlrLayershell.exclusionMode: ExclusionMode.Ignore
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
     anchors.top: true

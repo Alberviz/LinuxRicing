@@ -46,7 +46,7 @@ PanelWindow {
             "glyph": "space_dashboard"
         }
     ])
-    readonly property var current: items[index]
+    readonly property var current: items[Math.min(index, items.length - 1)]
     readonly property bool isRunning: elysium.playing && current.proc !== undefined && elysium.runningGame?.proc === current.proc
     readonly property color accent: Colours.palette.m3primary
 
@@ -764,6 +764,18 @@ PanelWindow {
                 font.weight: Font.Light
                 font.letterSpacing: 6
             }
+
+            StyledText {
+                id: launchSub
+
+                anchors.top: launchText.bottom
+                anchors.topMargin: 18
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: win.elysium.onTv ? qsTr("Abriendo en la tele…") : qsTr("Abriendo…")
+                color: "white"
+                opacity: 0
+                font: Tokens.font.title.small
+            }
         }
     }
 
@@ -793,19 +805,52 @@ PanelWindow {
             to: 1
             duration: 400
         }
+        NumberAnimation {
+            target: launchSub
+            property: "opacity"
+            to: 0.7
+            duration: 300
+        }
         ScriptAction {
             script: win.elysium.launch(win.current)
         }
-        PauseAnimation {
-            duration: 1300
+        // La pantalla de carga se queda hasta que la ventana del juego está en su sitio.
+    }
+
+    function resetLaunch(): void {
+        launchSeq.stop();
+        burst.scale = 0;
+        blackout.opacity = 0;
+        launchText.opacity = 0;
+        launchSub.opacity = 0;
+        launching = false;
+    }
+
+    Connections {
+        target: win.elysium
+
+        function onGameReadyChanged(): void {
+            if (win.elysium.gameReady && win.launching)
+                fadeOut.start();
+        }
+
+        function onActiveChanged(): void {
+            if (!win.elysium.active)
+                win.resetLaunch();
+        }
+    }
+
+    SequentialAnimation {
+        id: fadeOut
+
+        NumberAnimation {
+            target: blackout
+            property: "opacity"
+            to: 0
+            duration: 300
         }
         ScriptAction {
-            script: {
-                burst.scale = 0;
-                blackout.opacity = 0;
-                launchText.opacity = 0;
-                win.launching = false;
-            }
+            script: win.resetLaunch()
         }
     }
 

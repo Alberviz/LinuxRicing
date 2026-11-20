@@ -26,7 +26,7 @@ Scope {
             "logo": `${Quickshell.env("HOME")}/Games/Hookshot/elysium/oot-logo-light.png`,
             "exec": `env RX_VK_STARTUP_SCREEN=0 RX_VK_NO_WARM=1 RX_VK_PREPARE_BACKGROUND=1 prime-run gamemoderun ${Quickshell.env("HOME")}/Games/Hookshot/hookshot`,
             "proc": "Games/Hookshot/hookshot",
-            "wmClass": "hookshot",
+            "wmClass": "io.github.pixl27.ProjectHookshot",
             "tint": "#0f1a14"
         }
     ]
@@ -44,7 +44,10 @@ Scope {
     property bool ownDnd: false
     property int prevProfile: PowerProfile.Balanced
 
-    readonly property bool consoleShown: active && (!playing || summoned)
+    // Mientras el juego abre, Elysium sigue en pantalla (carga) hasta que la ventana
+    // está en su sitio: así la tele nunca enseña el escritorio.
+    property bool gameReady: true
+    readonly property bool consoleShown: active && (!playing || summoned || !gameReady)
 
     // --- tele ---
     // La tele es cualquier salida que no sea el panel del portátil (eDP).
@@ -69,6 +72,19 @@ Scope {
 
     function cycleCompanion(): void {
         setCompanion({ "apoyo": "escritorio", "escritorio": "apagada", "apagada": "apoyo" }[companionMode]);
+    }
+
+    // Reglas de Hyprland mientras se juega en la tele: el workspace «gaming» vive en
+    // el HDMI y las ventanas de los juegos de Elysium van a él.
+    function tvRules(on: bool): void {
+        const off = "for _, r in ipairs({ _G.elyWs, _G.elyWin }) do if r then r:set_enabled(false) end end";
+        if (!on || !tvScreen) {
+            Quickshell.execDetached(["hyprctl", "eval", off]);
+            return;
+        }
+        const classes = games.map(g => g.wmClass).filter(c => c).join("|");
+        const tv = tvScreen.name;
+        Quickshell.execDetached(["sh", "-c", `hyprctl eval '${off}; _G.elyWs = hl.workspace_rule({ workspace = "name:gaming", monitor = "${tv}" }); _G.elyWin = hl.window_rule({ match = { class = "^(${classes})$" }, workspace = "name:gaming" })'; hyprctl dispatch 'hl.dsp.workspace.move({ workspace = "name:gaming", monitor = "${tv}" })'`]);
     }
 
     function focusTv(): void {
@@ -113,6 +129,7 @@ Scope {
             // Extender (si estaba en espejo/solo externa) y audio por el HDMI de la tele.
             Quickshell.execDetached(["sh", "-c", `m=$(display-mode status | python3 -c 'import json,sys;print(json.load(sys.stdin)["mode"])'); [ "$m" = extend ] || display-mode extend`]);
             sinkProc.running = true;
+            tvRules(true);
         }
         lauraCmd("gamemode on");
         active = true;
@@ -133,6 +150,7 @@ Scope {
             if (prevSink)
                 Quickshell.execDetached(["pactl", "set-default-sink", prevSink]);
             prevSink = "";
+            tvRules(false);
             onTv = false;
         }
         if (!keepGameMode) {
@@ -145,9 +163,11 @@ Scope {
     function launch(g: var): void {
         runningGame = g;
         focusTv();
-        // La ventana del juego a la tele (las reglas de Hyprland la mandan al workspace «gaming»).
-        if (onTv && tvScreen && g.wmClass)
-            Quickshell.execDetached([`${Quickshell.env("HOME")}/.local/bin/elysium-tv-move`, g.wmClass, tvScreen.name]);
+        gameReady = !g.wmClass;
+        if (g.wmClass) {
+            readyProc.command = [`${Quickshell.env("HOME")}/.local/bin/elysium-tv-move`, g.wmClass].concat(onTv && tvScreen ? [tvScreen.name] : []);
+            readyProc.running = true;
+        }
         Quickshell.execDetached(["setsid", "-f", "sh", "-c", g.exec]);
         playing = true;
         summoned = false;
@@ -168,6 +188,15 @@ Scope {
                 }
             }
         }
+    }
+
+    Process {
+        id: readyProc
+
+        stdout: SplitParser {
+            onRead: () => root.gameReady = true
+        }
+        onExited: root.gameReady = true
     }
 
     // --- mando ---

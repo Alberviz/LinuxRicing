@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""elysium-tv-move <clase> <monitor> — espera (hasta 40 s) a que aparezca la ventana
-de esa clase y la lleva a ese monitor (la tele). Lo lanza Elysium al abrir un juego."""
+"""elysium-tv-move <clase> [monitor] — espera (hasta 60 s) a que aparezca la ventana
+de esa clase; si se pasa monitor y no está ahí, la lleva (respaldo de la regla de
+workspace que pone Elysium). Imprime «ready» cuando la ventana está donde debe, o
+«timeout». Elysium mantiene su pantalla de carga hasta el «ready»."""
 import json, subprocess, sys, time
 
-cls, mon = sys.argv[1], sys.argv[2]
+cls = sys.argv[1]
+mon = sys.argv[2] if len(sys.argv) > 2 else ""
 hc = lambda *a: subprocess.run(["hyprctl", *a], capture_output=True, text=True).stdout
-for _ in range(40):
-    time.sleep(1)
+for _ in range(120):
+    time.sleep(0.5)
     try:
         mons = {m["id"]: m["name"] for m in json.loads(hc("monitors", "-j"))}
         win = next((c for c in json.loads(hc("clients", "-j")) if c["class"] == cls), None)
@@ -14,9 +17,15 @@ for _ in range(40):
         continue
     if not win:
         continue
-    if mons.get(win["monitor"]) != mon:
+    if mon and mons.get(win["monitor"]) != mon:
         hc("dispatch", f'hl.dsp.window.move({{ monitor = "{mon}", window = "class:{cls}" }})')
-        time.sleep(1)
         continue
-    hc("dispatch", f'hl.dsp.focus({{ monitor = "{mon}" }})')
-    break
+    if mon:
+        hc("dispatch", f'hl.dsp.focus({{ monitor = "{mon}" }})')
+        # Al cambiar de monitor la ventana pierde la pantalla completa: devolvérsela.
+        if not win.get("fullscreen"):
+            time.sleep(0.5)
+            hc("dispatch", f'hl.dsp.window.fullscreen({{ mode = "fullscreen", window = "class:{cls}" }})')
+    print("ready", flush=True)
+    sys.exit(0)
+print("timeout", flush=True)
