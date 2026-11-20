@@ -26,6 +26,7 @@ Scope {
             "logo": `${Quickshell.env("HOME")}/Games/Hookshot/elysium/oot-logo-light.png`,
             "exec": `env RX_VK_STARTUP_SCREEN=0 RX_VK_NO_WARM=1 RX_VK_PREPARE_BACKGROUND=1 prime-run gamemoderun ${Quickshell.env("HOME")}/Games/Hookshot/hookshot`,
             "proc": "Games/Hookshot/hookshot",
+            "wmClass": "hookshot",
             "tint": "#0f1a14"
         }
     ]
@@ -144,6 +145,9 @@ Scope {
     function launch(g: var): void {
         runningGame = g;
         focusTv();
+        // La ventana del juego a la tele (las reglas de Hyprland la mandan al workspace «gaming»).
+        if (onTv && tvScreen && g.wmClass)
+            Quickshell.execDetached([`${Quickshell.env("HOME")}/.local/bin/elysium-tv-move`, g.wmClass, tvScreen.name]);
         Quickshell.execDetached(["setsid", "-f", "sh", "-c", g.exec]);
         playing = true;
         summoned = false;

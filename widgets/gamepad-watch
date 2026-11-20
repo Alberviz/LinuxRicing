@@ -13,7 +13,11 @@ import fcntl, os, re, select, struct, sys, time
 
 EV_KEY, EV_ABS = 1, 3
 EVENT = struct.Struct("llHHi")
-KEYS = {304: "a", 305: "b", 307: "x", 308: "y", 310: "lb", 311: "rb", 314: "select", 315: "start",
+# Etiquetas por posición estilo Nintendo (abajo=B, derecha=A, arriba=X, izquierda=Y).
+# Los mandos estilo Xbox intercambian: abajo=A, derecha=B, arriba=Y, izquierda=X.
+NINTENDO = re.compile(r"(?i)nintendo|switch|pro controller|joy-con|gulikit|8bitdo")
+XBOX_SWAP = {304: "a", 305: "b", 307: "y", 308: "x"}
+KEYS = {304: "b", 305: "a", 307: "x", 308: "y", 310: "lb", 311: "rb", 314: "select", 315: "start",
         316: "home", 544: "up", 545: "down", 546: "left", 547: "right"}
 
 
@@ -75,7 +79,10 @@ def main():
                 except OSError:
                     continue
                 axes = {a: absinfo(fd, a) for a in (0, 1, 16, 17)}
-                devs[p] = {"fd": fd, "name": name, "axes": axes, "dir": {}}
+                keys = dict(KEYS)
+                if not NINTENDO.search(name):
+                    keys.update(XBOX_SWAP)
+                devs[p] = {"fd": fd, "name": name, "axes": axes, "dir": {}, "keys": keys}
                 # Los que ya estaban al arrancar no disparan el aviso.
                 emit(("present " if first else "connected ") + name)
             first = False
@@ -102,8 +109,8 @@ def main():
                     elif val == 0 and home_down is not None:
                         emit("btn home")
                         home_down = None
-                elif typ == EV_KEY and val == 1 and code in KEYS:
-                    emit("btn " + KEYS[code])
+                elif typ == EV_KEY and val == 1 and code in d["keys"]:
+                    emit("btn " + d["keys"][code])
                 elif typ == EV_ABS and code in d["axes"]:
                     lo, hi = d["axes"][code]
                     mid, span = (lo + hi) / 2, max(1, (hi - lo) / 2)

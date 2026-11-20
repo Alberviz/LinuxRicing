@@ -1,0 +1,22 @@
+#!/usr/bin/env python3
+"""elysium-tv-move <clase> <monitor> — espera (hasta 40 s) a que aparezca la ventana
+de esa clase y la lleva a ese monitor (la tele). Lo lanza Elysium al abrir un juego."""
+import json, subprocess, sys, time
+
+cls, mon = sys.argv[1], sys.argv[2]
+hc = lambda *a: subprocess.run(["hyprctl", *a], capture_output=True, text=True).stdout
+for _ in range(40):
+    time.sleep(1)
+    try:
+        mons = {m["id"]: m["name"] for m in json.loads(hc("monitors", "-j"))}
+        win = next((c for c in json.loads(hc("clients", "-j")) if c["class"] == cls), None)
+    except ValueError:
+        continue
+    if not win:
+        continue
+    if mons.get(win["monitor"]) != mon:
+        hc("dispatch", f'hl.dsp.window.move({{ monitor = "{mon}", window = "class:{cls}" }})')
+        time.sleep(1)
+        continue
+    hc("dispatch", f'hl.dsp.focus({{ monitor = "{mon}" }})')
+    break

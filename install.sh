@@ -165,6 +165,8 @@ if [ "$SELECTED_WIDGETS" = true ]; then
         cp -u "$BASE_DIR/widgets/gamepad-watch" "$HOME/.local/bin/gamepad-watch"
         chmod +x "$HOME/.local/bin/gamepad-watch"
         cp -u "$BASE_DIR/widgets/elysium-stats" "$HOME/.local/bin/elysium-stats"
+        cp -u "$BASE_DIR/widgets/elysium-tv-move" "$HOME/.local/bin/elysium-tv-move"
+        chmod +x "$HOME/.local/bin/elysium-tv-move"
         chmod +x "$HOME/.local/bin/elysium-stats"
     fi
     if [ -f "$BASE_DIR/widgets/display-selector" ]; then
