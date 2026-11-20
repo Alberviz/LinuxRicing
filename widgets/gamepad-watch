@@ -9,7 +9,7 @@ Salida por stdout, una línea por evento:
 
 Requiere estar en el grupo `input`. No hace grab: el juego sigue recibiendo el mando.
 """
-import fcntl, os, re, select, struct, sys, time
+import fcntl, os, re, select, struct, subprocess, sys, time
 
 EV_KEY, EV_ABS = 1, 3
 EVENT = struct.Struct("llHHi")
@@ -52,6 +52,26 @@ def scan():
     return out
 
 
+def bt(*args):
+    try:
+        return subprocess.run(["bluetoothctl", *args], capture_output=True, text=True, timeout=4).stdout
+    except Exception:
+        return ""
+
+
+def trust_pads():
+    """Mandos Bluetooth emparejados pero sin confianza -> confiar. Sin confianza,
+    cada reconexión del mando pide autorización (aviso «solicitud de emparejamiento»)
+    y, si nadie la acepta, BlueZ la cancela. Pasa tras re-emparejar (p. ej. después
+    de usarlo en Windows: JustWorksRepairing re-empareja pero sin Trusted)."""
+    for mac in re.findall(r"Device ([0-9A-F:]{17})", bt("devices", "Paired")):
+        info = bt("info", mac)
+        if "Icon: input-gaming" in info and "Trusted: no" in info:
+            bt("trust", mac)
+            name = re.search(r"Name: (.*)", info)
+            emit("trusted " + (name.group(1) if name else mac))
+
+
 def emit(s):
     sys.stdout.write(s + "\n")
     sys.stdout.flush()
@@ -62,8 +82,12 @@ def main():
     home_down = None  # instante en que se pulsó Home (None = suelto / ya disparado)
     first = True
     last_scan = 0
+    last_trust = 0
     while True:
         now = time.monotonic()
+        if now - last_trust > 10:
+            last_trust = now
+            trust_pads()
         if now - last_scan > 1.5:
             last_scan = now
             found = scan()
