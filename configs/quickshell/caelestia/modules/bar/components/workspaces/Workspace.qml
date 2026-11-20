@@ -181,16 +181,30 @@ Item {
         }
     }
 
-    // Halo sutil para distinguir workspaces asignados a otro monitor (ej. la Tele)
+    // Halo visible para distinguir workspaces asignados al segundo monitor / Tele (pares cuando hay 2 monitores)
     StyledRect {
+        z: 5
         visible: root.onOtherMonitor
-        anchors.centerIn: layout
+        anchors.top: layout.top
+        anchors.horizontalCenter: layout.horizontalCenter
         width: Tokens.sizes.bar.innerWidth - 2
-        height: layout.implicitHeight + 2
+        height: Tokens.sizes.bar.innerWidth - 2
         radius: Tokens.rounding.full
-        color: Qt.alpha(root.otherMonitorColour, root.activeOnOtherMonitor ? 0.22 : 0.08)
-        border.width: root.activeOnOtherMonitor ? 1.5 : 1
-        border.color: Qt.alpha(root.otherMonitorColour, root.activeOnOtherMonitor ? 0.9 : 0.4)
+        color: Qt.alpha(root.otherMonitorColour, root.activeOnOtherMonitor ? 0.24 : 0.08)
+        border.width: root.activeOnOtherMonitor ? 2 : 1.5
+        border.color: Qt.alpha(root.otherMonitorColour, root.activeOnOtherMonitor ? 0.95 : 0.65)
+
+        // Punto indicador en la esquina superior derecha del pip
+        Rectangle {
+            width: 5
+            height: 5
+            radius: 2.5
+            anchors.top: parent.top
+            anchors.right: parent.right
+            anchors.topMargin: 1
+            anchors.rightMargin: 1
+            color: root.otherMonitorColour
+        }
     }
 
     ColumnLayout {
