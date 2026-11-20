@@ -47,16 +47,35 @@ def gpu():
         return {}
 
 
+# Mandos tipo Xbox (xpadneo) no dan porcentaje, solo nivel (2 bits): se aproxima.
+LEVEL_PCT = {"Full": 100, "High": 80, "Normal": 55, "Low": 25, "Critical": 8}
+LEVEL_ES = {"Full": "llena", "High": "alta", "Normal": "media", "Low": "baja", "Critical": "crítica"}
+
+
+def read(path):
+    try:
+        return open(path).read().strip()
+    except OSError:
+        return None
+
+
 def pads():
+    """Baterías de mandos/periféricos (scope=Device): {name, pct, level, charging}.
+    pct es real si el driver da `capacity`; si solo da `capacity_level`, aproximado."""
     out = []
     for ps in glob.glob("/sys/class/power_supply/*"):
-        try:
-            if open(ps + "/scope").read().strip() != "Device":
-                continue
-            name = open(ps + "/model_name").read().strip() if glob.glob(ps + "/model_name") else ps.rsplit("/", 1)[1]
-            out.append({"name": name, "pct": int(open(ps + "/capacity").read())})
-        except OSError:
+        if read(ps + "/scope") != "Device":
             continue
+        cap, lvl = read(ps + "/capacity"), read(ps + "/capacity_level")
+        if cap is None and lvl in (None, "Unknown"):
+            continue
+        name = read(ps + "/model_name") or ps.rsplit("/", 1)[1].replace("xpadneo_batt_", "Mando ")
+        out.append({
+            "name": name,
+            "pct": int(cap) if cap and cap.isdigit() else LEVEL_PCT.get(lvl),
+            "level": LEVEL_ES.get(lvl, "") if cap is None else "",
+            "charging": read(ps + "/status") == "Charging",
+        })
     return out
 
 

@@ -440,8 +440,9 @@ PanelWindow {
                     StyledText {
                         required property var modelData
 
-                        text: `${modelData.name}  ·  ${modelData.pct}%`
-                        color: modelData.pct < 20 ? Colours.palette.m3error : Colours.palette.m3onSurface
+                        // xpadneo solo da nivel (llena/media/baja/crítica); otros dan %.
+                        text: `${modelData.name}  ·  ${modelData.level ? qsTr("batería %1").arg(modelData.level) : modelData.pct + "%"}${modelData.charging ? "  ·  " + qsTr("cargando") : ""}`
+                        color: (modelData.pct ?? 100) < 20 ? Colours.palette.m3error : Colours.palette.m3onSurface
                         font: Tokens.font.body.medium
                     }
                 }
