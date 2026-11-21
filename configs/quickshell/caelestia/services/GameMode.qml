@@ -26,13 +26,19 @@ Singleton {
         });
     }
 
+    Process {
+        id: modoJuegoProc
+    }
+
     onEnabledChanged: {
         if (enabled) {
             setDynamicConfs();
+            modoJuegoProc.exec(["/home/alberviz/.local/bin/modo-juego", "on_from_qs"]);
             if (GlobalConfig.utilities.toasts.gameModeChanged)
                 Toaster.toast(Tr.tr("Game mode enabled"), Tr.tr("Disabled Hyprland animations, blur, gaps and shadows"), "gamepad");
         } else {
             Hypr.extras.message("reload");
+            modoJuegoProc.exec(["/home/alberviz/.local/bin/modo-juego", "off_from_qs"]);
             if (GlobalConfig.utilities.toasts.gameModeChanged)
                 Toaster.toast(Tr.tr("Game mode disabled"), Tr.tr("Hyprland settings restored"), "gamepad");
         }
