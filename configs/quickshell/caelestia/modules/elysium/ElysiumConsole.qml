@@ -101,8 +101,15 @@ PanelWindow {
             }
         } else if (it.system === "laptop")
             elysium.cycleCompanion();
-        else if (it.system === "laura")
-            LauraService.toggle();
+        else if (it.system === "laura") {
+            if (LauraService.state === "on" || LauraService.state === "starting") {
+                elysium.lauraManuallyDisabled = true;
+                LauraService.stop();
+            } else {
+                elysium.lauraManuallyDisabled = false;
+                LauraService.start();
+            }
+        }
         else if (it.system === "music")
             elysium.setMusic(!elysium.musicOn);
         else if (it.system === "screen")

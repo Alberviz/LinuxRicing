@@ -16,6 +16,8 @@ set -uo pipefail
 
 STATE_FILE="${XDG_CACHE_HOME:-$HOME/.cache}/modo-juego.state"
 LAURA_SOCK="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/laura.sock"
+LAURA_WAS_ACTIVE="${XDG_CACHE_HOME:-$HOME/.cache}/modo-juego-laura-active"
+LAURA_DISABLED_ELYSIUM="${XDG_CACHE_HOME:-$HOME/.cache}/laura-disabled-in-elysium"
 
 is_active() {
     [ -f "$STATE_FILE" ]
@@ -42,6 +44,13 @@ game_on() {
     local from_qs="${1:-0}"
     mkdir -p "$(dirname "$STATE_FILE")"
     touch "$STATE_FILE"
+
+    # Registrar si Laura estaba activa para no encenderla arbitrariamente si estaba apagada
+    if systemctl --user is-active -q laura.service; then
+        touch "$LAURA_WAS_ACTIVE"
+    else
+        rm -f "$LAURA_WAS_ACTIVE"
+    fi
 
     # 1. Liberar memoria VRAM de Ollama inmediatamente
     if command -v ollama >/dev/null 2>&1; then
@@ -75,8 +84,14 @@ game_off() {
     local from_qs="${1:-0}"
     rm -f "$STATE_FILE"
 
-    # 1. Reanudar servicio de Laura
-    systemctl --user start laura.service >/dev/null 2>&1 || true
+    # 1. Reanudar servicio de Laura ÚNICAMENTE si estaba encendida antes y no se desactivó explícitamente en Elysium
+    if [ -f "$LAURA_WAS_ACTIVE" ]; then
+        rm -f "$LAURA_WAS_ACTIVE"
+        if [ ! -f "$LAURA_DISABLED_ELYSIUM" ]; then
+            systemctl --user start laura.service >/dev/null 2>&1 || true
+        fi
+    fi
+    rm -f "$LAURA_DISABLED_ELYSIUM"
 
     # 2. Sincronizar Caelestia Quickshell si no venimos de ahí
     if [ "$from_qs" -eq 0 ]; then

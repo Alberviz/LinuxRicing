@@ -201,6 +201,7 @@ Scope {
 
     // --- Laura por juego ---
     property bool lauraStoppedForGame: false
+    property bool lauraManuallyDisabled: false
 
     function lauraFor(g: var): bool {
         return g?.proc ? (prefs.lauraOff.indexOf(g.proc) < 0) : true;
@@ -229,8 +230,8 @@ Scope {
         prompt = false;
         if (active)
             return;
-        // Marca para `modo-juego`: con Elysium no se para el servicio de Laura.
-        Quickshell.execDetached(["touch", `${Quickshell.env("XDG_RUNTIME_DIR")}/elysium-active`]);
+        lauraManuallyDisabled = false;
+        Quickshell.execDetached(["sh", "-c", `touch ${Quickshell.env("XDG_RUNTIME_DIR")}/elysium-active; rm -f ${Quickshell.env("HOME")}/.cache/laura-disabled-in-elysium`]);
         ownGameMode = !GameMode.enabled;
         GameMode.enabled = true;
         prevProfile = PowerProfiles.profile;
@@ -262,6 +263,13 @@ Scope {
             Notifs.dnd = false;
         lauraCmd("gamemode off");
         Quickshell.execDetached(["rm", "-f", `${Quickshell.env("XDG_RUNTIME_DIR")}/elysium-active`]);
+        if (updRunning) {
+            Toaster.toast(
+                qsTr("Actualización en curso"),
+                qsTr("Hookshot continúa de fondo (%1%) · Visible en la barra").arg(Math.round(upd.pct * 100)),
+                "downloading"
+            );
+        }
         // Con un juego abierto en la tele, salir de Elysium no le quita la pantalla ni el audio.
         if (onTv && !playing)
             tvTeardown();
@@ -269,9 +277,14 @@ Scope {
             tvRules(false);
             onTv = false;
         }
-        if (lauraStoppedForGame) {
+        if (lauraManuallyDisabled || LauraService.state === "off") {
+            lauraStoppedForGame = false;
+            Quickshell.execDetached(["sh", "-c", `touch ${Quickshell.env("HOME")}/.cache/laura-disabled-in-elysium; rm -f ${Quickshell.env("HOME")}/.cache/modo-juego-laura-active`]);
+        } else if (lauraStoppedForGame && LauraService.state !== "off") {
             lauraStoppedForGame = false;
             LauraService.start();
+        } else {
+            lauraStoppedForGame = false;
         }
         if (!keepGameMode) {
             if (ownGameMode)
@@ -294,9 +307,11 @@ Scope {
     }
 
     function restoreLauraAfterGame(): void {
-        if (lauraStoppedForGame) {
+        if (!lauraManuallyDisabled && LauraService.state !== "off" && lauraStoppedForGame) {
             lauraStoppedForGame = false;
             LauraService.start();
+        } else {
+            lauraStoppedForGame = false;
         }
     }
 
@@ -444,9 +459,9 @@ Scope {
     property var hsCheck: ({})
     property bool hsChecking: false
     property real hsCheckedAt: 0
-    property var upd: ({})
-    readonly property bool updRunning: ["downloading", "building", "shaders"].indexOf(upd.state ?? "") >= 0 && updAlive
-    property bool updAlive: false
+    readonly property var upd: ElysiumService.upd
+    readonly property bool updRunning: ElysiumService.updating
+    readonly property bool updAlive: ElysiumService.updAlive
     property bool updView: false      // pantalla de progreso abierta (si no, va en segundo plano)
     property bool updAsk: false       // diálogo «¿Actualizar?»
     property bool updAskedThisSession: false
@@ -470,7 +485,6 @@ Scope {
         updView = true;
         sfx("select");
         Quickshell.execDetached([hsHelper, "update"].concat(simulate ? ["--simulate"] : []));
-        updAliveTimer.restart();
     }
 
     function hookshotCancel(): void {
@@ -502,37 +516,7 @@ Scope {
         onExited: root.hsChecking = false
     }
 
-    FileView {
-        id: updFile
 
-        path: `${Quickshell.env("HOME")}/.cache/elysium/hookshot-update.json`
-        watchChanges: true
-        printErrors: false
-        onFileChanged: reload()
-        onLoaded: {
-            try {
-                root.upd = JSON.parse(text());
-            } catch (e) {}
-        }
-    }
-
-    // ¿Sigue vivo el servicio? (si el archivo dice «en curso» pero el servicio murió)
-    Timer {
-        id: updAliveTimer
-
-        interval: 2000
-        repeat: true
-        running: true
-        triggeredOnStart: true
-        onTriggered: updAliveProc.running = true
-    }
-
-    Process {
-        id: updAliveProc
-
-        command: ["systemctl", "--user", "is-active", "-q", "elysium-hookshot-update"]
-        onExited: code => root.updAlive = code === 0
-    }
 
     onUpdChanged: {
         const st = upd.state ?? "";

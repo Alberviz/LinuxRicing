@@ -163,6 +163,11 @@ ColumnLayout {
                             Layout.alignment: Qt.AlignHCenter
                             objectName: "taskbarTelePill"
                         }
+
+                        ElysiumPill {
+                            Layout.alignment: Qt.AlignHCenter
+                            objectName: "taskbarElysiumPill"
+                        }
                     }
 
                     overlay: AgentBadges {
