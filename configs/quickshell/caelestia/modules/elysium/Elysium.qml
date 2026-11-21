@@ -19,6 +19,10 @@ import QtMultimedia
 Scope {
     id: root
 
+    // Clase de ventana que Elysium IMPONE al juego (HOS_WM_CLASS). Así no depende del
+    // app-id que cada versión de Hookshot lleve de fábrica (cambió de pixl27 a NotRexed).
+    readonly property string hookshotClass: "elysium.hookshot"
+
     // Biblioteca. `proc` es lo que se busca con pgrep para saber si sigue abierto.
     readonly property var games: [
         {
@@ -28,9 +32,9 @@ Scope {
             "icon": `${Quickshell.env("HOME")}/Games/Hookshot/hookshot.png`,
             "logo": `${Quickshell.env("HOME")}/Games/Hookshot/elysium/oot-logo-light.png`,
             "updates": "hookshot",
-            "exec": `env HOOKSHOT_SKIP_UPDATE_CHECK=1 RX_VK_STARTUP_SCREEN=0 RX_VK_NO_WARM=1 RX_VK_PREPARE_BACKGROUND=1 prime-run gamemoderun ${Quickshell.env("HOME")}/Games/Hookshot/hookshot`,
+            "exec": `env HOS_WM_CLASS=${hookshotClass} HOOKSHOT_SKIP_UPDATE_CHECK=1 RX_VK_STARTUP_SCREEN=0 RX_VK_NO_WARM=1 RX_VK_PREPARE_BACKGROUND=1 prime-run gamemoderun ${Quickshell.env("HOME")}/Games/Hookshot/hookshot`,
             "proc": "Games/Hookshot/hookshot",
-            "wmClass": "io.github.pixl27.ProjectHookshot",
+            "wmClass": hookshotClass,
             "tint": "#0f1a14"
         }
     ]
